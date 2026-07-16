@@ -1,20 +1,37 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  产品名称：TunnelMinion。
+  产品定位：一个运行在私有组网节点上的分布式 AI Agent 系统，面向个人设备、家庭服务器和小型实验室。
+  每个节点上的 AI Agent 具备大模型推理、工具调用、上下文、长期记忆和自主诊断能力，可以理解本机及远端节点的网络、服务、容器和游戏状态。
+  核心实现语言使用 Python 3.11+；AI Agent 优先采用 LangChain，持久化工作流与人工审批采用 LangGraph，节点工具采用明确的结构化接口并评估 MCP 作为跨节点协议。
+  AI Agent 只负责推理、规划和选择工具；端口、进程、Docker、WireGuard 和网络诊断由确定性 Python 工具执行，禁止模型在 MVP 中生成并运行任意代码。
+  实时系统状态通过工具按需读取，不写入长期记忆；短期对话、工作流状态、长期用户偏好和服务事实必须分层管理并受上下文预算约束。
+  只读工具可以由 Agent 自主调用；修改网络、发布端口、重启服务等有副作用的工具必须经过权限检查、用户确认、执行后验证和审计。
+  模型 API 由每个节点的用户自行配置并只保存在本机；没有模型 API 时，节点工具、资源面板和服务目录可以降级工作，但 AI 对话不可用。
+  当前真实测试环境由 Windows 节点 A 与 macOS 节点 B 组成；两者已经通过 WireGuard 连通。
+  B 当前作为 WireGuard 服务器和普通网络节点，使用手写配置及终端命令启停；A 使用 Windows WireGuard 客户端连接。
+  首轮开发必须复用并保护现有 A/B 组网，不得未经确认覆盖、删除或破坏用户现有 WireGuard 配置。
+  第一优先级 MVP 在现有 A/B WireGuard 网络上验证跨节点 AI Agent，不自动创建或修改 WireGuard 网络。
+  节点 Agent 最终支持 Windows、macOS、Linux；每个节点均提供仅监听本机的聊天与资源 Web 面板。
+  后续协调服务负责设备注册、工具能力发现、状态同步与网络协调；数据面首选 WireGuard，并保留未来接入 n2n 等网络 Provider 的边界。
+  第一阶段假设同一网络内的成员互相信任；细粒度服务访问控制在后续阶段实现。
+  产品目标包括易用的一键安装/部署，以及适合作为公开作品集展示的工程质量。
+  文档使用中文，标识符、命令、协议字段和代码使用英文。
+  Git 提交遵循 Conventional Commits。
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - 明确列出本次 change 的范围与非目标，避免把长期路线图全部纳入单次实现。
+  design:
+    - 记录安全边界、跨平台差异、失败回退策略和被否决的替代方案。
+    - 未经验证的技术选择必须标记为待验证假设，而不是既定事实。
+    - 明确区分模型推理、确定性工具、实时状态、短期上下文、长期记忆和有副作用的操作。
+    - 所有写操作必须定义授权、确认、幂等性、执行后验证、审计和失败恢复策略。
+  specs:
+    - 每项需求必须包含可观察、可验证的场景。
+    - 使用 MUST/SHALL 表达强制行为，避免模糊措辞。
+  tasks:
+    - 按可独立验证的纵向切片组织任务。
+    - 每个实现阶段都必须包含测试或人工验收步骤。
+    - AI 功能必须包含工具选择正确率、任务完成率、错误参数率、安全拦截率、延迟和成本的评估任务。
