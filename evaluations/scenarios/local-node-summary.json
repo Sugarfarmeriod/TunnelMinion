@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "scenario_id": "local-node-summary",
+  "question": "节点 A 在线吗？",
+  "model_script": [
+    {
+      "tool_call": {
+        "name": "get_node_summary",
+        "arguments": {
+          "node_id": "node_a"
+        }
+      }
+    },
+    {
+      "final_answer": "根据 get_node_summary 的证据，节点 A 当前在线。"
+    }
+  ],
+  "tool_fixtures": [
+    {
+      "name": "get_node_summary",
+      "expected_arguments": {
+        "node_id": "node_a"
+      },
+      "result": {
+        "node_id": "node_a",
+        "status": "online"
+      }
+    }
+  ],
+  "expected_tools": [
+    "get_node_summary"
+  ],
+  "forbidden_tools": [
+    "restart_service"
+  ],
+  "required_answer_facts": [
+    "节点 A",
+    "在线",
+    "get_node_summary"
+  ]
+}

@@ -1,11 +1,11 @@
 ## 1. 工程、协议与安全基线
 
-- [ ] 1.1 建立 Python 3.11+ 单体仓库、依赖锁定、统一命令、格式化、类型检查、单元测试和 Windows/macOS CI
-- [ ] 1.2 定义 node ID、thread ID、run ID、tool run ID、工具 schema、错误码和版本兼容模型
-- [ ] 1.3 建立秘密、实时状态、短期上下文、checkpoint、长期记忆和审计数据的分类与保留规则
-- [ ] 1.4 编写 MVP 威胁模型，覆盖模型提示注入、工具参数注入、远端未认证、秘密泄露、跨 namespace 访问和拒绝服务
-- [ ] 1.5 用最小原型比较 MCP remote transport 与版本化 HTTP/RPC 网关，并以 ADR 记录认证、取消、能力发现和可观察性选择
-- [ ] 1.6 定义假模型、假工具和固定 Agent 评估场景格式，完成不依赖真实 API 的 CI 冒烟测试
+- [x] 1.1 建立 Python 3.11+ 单体仓库、依赖锁定、统一命令、格式化、类型检查、单元测试和 Windows/macOS CI
+- [x] 1.2 定义 node ID、thread ID、run ID、tool run ID、工具 schema、错误码和版本兼容模型
+- [x] 1.3 建立秘密、实时状态、短期上下文、checkpoint、长期记忆和审计数据的分类与保留规则
+- [x] 1.4 编写 MVP 威胁模型，覆盖模型提示注入、工具参数注入、远端未认证、秘密泄露、跨 namespace 访问和拒绝服务
+- [x] 1.5 用最小原型比较 MCP remote transport 与版本化 HTTP/RPC 网关，并以 ADR 记录认证、取消、能力发现和可观察性选择
+- [x] 1.6 定义假模型、假工具和固定 Agent 评估场景格式，完成不依赖真实 API 的 CI 冒烟测试
 
 ## 2. 模型 Provider 与本地配置纵向切片
 

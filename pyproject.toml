@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tunnelminion"
+version = "0.1.0"
+description = "在私有网络隧道中发现和诊断服务的分布式 AI Agent。"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+  { name = "sugarfarmer" },
+]
+dependencies = [
+  "pydantic>=2.11,<3",
+]
+
+[dependency-groups]
+dev = [
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "mcp>=1.27,<2",
+  "pyright>=1.1.400",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "ruff>=0.11",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tunnelminion"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts", "spikes"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+addopts = [
+  "--strict-config",
+  "--strict-markers",
+  "--cov=tunnelminion",
+  "--cov-report=term-missing",
+  "--cov-fail-under=100",
+]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["tunnelminion"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts", "spikes"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+allowed-confusables = ["，", "。", "：", "；", "？", "！", "（", "）"]
+
+[tool.ruff.format]
+line-ending = "lf"
+quote-style = "double"
