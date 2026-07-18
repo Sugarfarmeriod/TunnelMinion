@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
@@ -24,6 +25,7 @@ from tunnelminion.model.contracts import (
     ModelMessage,
     ModelProvider,
     ModelRequest,
+    ModelUsage,
     ProviderError,
 )
 from tunnelminion.tools.contracts import (
@@ -108,6 +110,8 @@ class CrossNodeAgentAnswer(BaseModel):
     model_error_code: str | None = None
     remote_error_code: str | None = None
     report: CrossNodeDiagnosticReport | None = None
+    elapsed_ms: float = 0.0
+    model_usage: ModelUsage | None = None
 
 
 class CrossNodeDiagnosticAgent:
@@ -128,6 +132,7 @@ class CrossNodeDiagnosticAgent:
         model_cancellation: CancellationToken | None = None,
     ) -> CrossNodeAgentAnswer:
         """回答服务发现或单端口故障问题，并始终附加程序生成的证据结论。"""
+        started_at = perf_counter()
         try:
             report = await self._workflow.inspect(context, target_host, tool_cancellation)
         except RemotePreparationError as exc:
@@ -137,6 +142,7 @@ class CrossNodeDiagnosticAgent:
                     "进程或 Docker 证据；因此不能确认 B 当前运行的服务。"
                 ),
                 remote_error_code=exc.code.value,
+                elapsed_ms=(perf_counter() - started_at) * 1000,
             )
         fallback = report.evidence_answer(port)
         request = ModelRequest(
@@ -163,12 +169,15 @@ class CrossNodeDiagnosticAgent:
                 answer=answer,
                 model_explanation=explanation,
                 report=report,
+                elapsed_ms=(perf_counter() - started_at) * 1000,
+                model_usage=response.usage,
             )
         except ProviderError as exc:
             return CrossNodeAgentAnswer(
                 answer=f"模型解释不可用（{exc.code.value}）。\n\n确定性证据结论：\n{fallback}",
                 model_error_code=exc.code.value,
                 report=report,
+                elapsed_ms=(perf_counter() - started_at) * 1000,
             )
 
 

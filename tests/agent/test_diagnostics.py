@@ -24,6 +24,7 @@ from tunnelminion.model.contracts import (
     ModelCapabilities,
     ModelRequest,
     ModelResponse,
+    ModelUsage,
     ProviderError,
     ProviderErrorCode,
     ToolCall,
@@ -211,7 +212,10 @@ class ExplainingProvider:
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="forbidden", name="restart_service", arguments={}),)
             )
-        return ModelResponse(content="B 上发现两个服务；PDF 服务的监听范围需要特别注意。")
+        return ModelResponse(
+            content="B 上发现两个服务；PDF 服务的监听范围需要特别注意。",
+            usage=ModelUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+        )
 
 
 def context(local: NodeId, remote: NodeId) -> ToolCallContext:
@@ -300,6 +304,9 @@ def test_diagnostic_agent_answers_service_discovery_and_loopback_failure() -> No
     assert "9090" in discovery.answer
     assert provider.requests[0].tools == ()
     assert "untrusted-tool-data" in provider.requests[0].messages[-1].content
+    assert discovery.elapsed_ms >= 0
+    assert discovery.model_usage is not None
+    assert discovery.model_usage.total_tokens == 15
 
     loopback = run(
         agent.answer(
@@ -330,6 +337,8 @@ def test_diagnostic_agent_uses_safe_fallback_for_model_failure_or_tool_response(
         )
     )
     assert failed.model_error_code == "timeout"
+    assert failed.model_usage is None
+    assert failed.elapsed_ms >= 0
     assert "确定性证据结论" in failed.answer
     assert "local-only" in failed.answer
 
@@ -361,6 +370,7 @@ def test_diagnostic_agent_reports_remote_failure_without_inventing_services(
     )
 
     assert answer.remote_error_code == code.value
+    assert answer.elapsed_ms >= 0
     assert answer.report is None
     assert "不能确认" in answer.answer
     assert "8080" not in answer.answer

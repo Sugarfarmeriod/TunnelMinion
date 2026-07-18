@@ -92,7 +92,7 @@ def test_inventory_correlates_listener_process_and_docker_evidence() -> None:
                 "container_id": "web",
                 "name": "web",
                 "image": "web:latest",
-                "ports": "*:9090->90/tcp",
+                "ports": "[::]:9090->90/tcp, *:9090->90/tcp, :::9090->90/tcp",
                 "status": "Up",
             },
             {

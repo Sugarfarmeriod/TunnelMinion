@@ -211,18 +211,42 @@ class RemoteServiceInventoryBuilder:
         services: tuple[DockerService, ...],
     ) -> tuple[tuple[DockerService, str, int, int, str], ...]:
         values: list[tuple[DockerService, str, int, int, str]] = []
+        binding_indexes: dict[tuple[str, str, int, int, str], int] = {}
         for candidate in services:
             for match in _PORT_PATTERN.finditer(candidate.ports):
                 host = match.group("host") or "0.0.0.0"
                 if host == "*":
                     host = "0.0.0.0"
                 host = host.strip("[]")
+                protocol = match.group("protocol")
+                host_port = int(match.group("host_port"))
+                container_port = int(match.group("container_port"))
+                logical_host = "dual-stack-wildcard" if host in {"0.0.0.0", "::"} else host
+                key = (
+                    candidate.container_id,
+                    protocol,
+                    host_port,
+                    container_port,
+                    logical_host,
+                )
+                existing_index = binding_indexes.get(key)
+                if existing_index is not None:
+                    if values[existing_index][4] == "::" and host == "0.0.0.0":
+                        values[existing_index] = (
+                            candidate,
+                            protocol,
+                            host_port,
+                            container_port,
+                            host,
+                        )
+                    continue
+                binding_indexes[key] = len(values)
                 values.append(
                     (
                         candidate,
-                        match.group("protocol"),
-                        int(match.group("host_port")),
-                        int(match.group("container_port")),
+                        protocol,
+                        host_port,
+                        container_port,
                         host,
                     )
                 )
