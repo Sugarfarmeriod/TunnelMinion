@@ -34,3 +34,11 @@ jobs:
 
       - name: 运行质量门禁
         run: uv run python scripts/quality.py all
+
+      - name: 运行离线 Agent 安全回归
+        run: >-
+          uv run python scripts/run_offline_evaluation.py
+          evaluations/datasets/mvp-v1.json --check
+
+      - name: 扫描仓库与评估材料中的秘密
+        run: uv run python scripts/security_scan.py --root .

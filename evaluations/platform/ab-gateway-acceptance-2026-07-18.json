@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "acceptance": "windows-a-to-macos-b-real-gateway",
+  "started_at": "2026-07-18T04:51:05.247734+00:00",
+  "finished_at": "2026-07-18T04:51:08.940302+00:00",
+  "elapsed_ms": 3692.09,
+  "endpoint": "http://10.77.0.1:8787",
+  "local_node_id": "node_129841509f55473d8d9d3ca363850204",
+  "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "unauthenticated_status": 401,
+  "protocol": {
+    "major": 1,
+    "minor": 0
+  },
+  "platform": "macos",
+  "capabilities": [
+    "get_wireguard_status",
+    "list_network_listeners",
+    "get_process_summary",
+    "list_docker_services",
+    "probe_service_reachability",
+    "get_node_summary"
+  ],
+  "tool_results": {
+    "get_wireguard_status": {
+      "status": "success",
+      "tool_run_id": "toolrun_5fe59fc02fb946de8d7233075dbd50ea",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "availability": "degraded",
+        "interface": "utun4",
+        "interface_up": true,
+        "address_count": 1,
+        "peer_count": 0,
+        "error_code": "permission_denied"
+      }
+    },
+    "list_network_listeners": {
+      "status": "success",
+      "tool_run_id": "toolrun_ad594bc0f0f8492ea3f6a514b4275ffb",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "availability": "degraded",
+        "item_count": 0,
+        "error_code": "permission_denied"
+      }
+    },
+    "get_process_summary": {
+      "status": "success",
+      "tool_run_id": "toolrun_2b654cf318d6490a95f2150733a5f4c4",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "availability": "available",
+        "item_count": 20,
+        "error_code": null
+      }
+    },
+    "list_docker_services": {
+      "status": "success",
+      "tool_run_id": "toolrun_006ed14efbd44226b54f070e47b0bf7c",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "availability": "available",
+        "item_count": 3,
+        "error_code": null
+      }
+    },
+    "probe_service_reachability": {
+      "status": "success",
+      "tool_run_id": "toolrun_ea125e03ce1d49fba413267d45b1069c",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "host": "10.77.0.1",
+        "port": 8082,
+        "reachable": false,
+        "latency_ms": null,
+        "error_code": "unreachable"
+      }
+    },
+    "get_node_summary": {
+      "status": "success",
+      "tool_run_id": "toolrun_bfec34349bff488f93e686e4af03fb2c",
+      "truncated": false,
+      "error_code": null,
+      "summary": {
+        "node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+        "platform": "macos",
+        "agent_status": "ready",
+        "model_status": "unconfigured",
+        "wireguard_availability": "degraded",
+        "available_tool_count": 6
+      }
+    }
+  },
+  "a_audit_records": [
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_5fe59fc02fb946de8d7233075dbd50ea",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_wireguard_status",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T04:51:05.289033Z",
+      "finished_at": "2026-07-18T04:51:05.417805Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_ad594bc0f0f8492ea3f6a514b4275ffb",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_network_listeners",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T04:51:05.417805Z",
+      "finished_at": "2026-07-18T04:51:05.526639Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_2b654cf318d6490a95f2150733a5f4c4",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_process_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {
+        "limit": 20
+      },
+      "started_at": "2026-07-18T04:51:05.526639Z",
+      "finished_at": "2026-07-18T04:51:05.599425Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_006ed14efbd44226b54f070e47b0bf7c",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_docker_services",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T04:51:05.599425Z",
+      "finished_at": "2026-07-18T04:51:06.695278Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_ea125e03ce1d49fba413267d45b1069c",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "probe_service_reachability",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {
+        "host": "10.77.0.1",
+        "port": 8082
+      },
+      "started_at": "2026-07-18T04:51:06.695278Z",
+      "finished_at": "2026-07-18T04:51:08.800234Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_055487b961d0466695627ea9f2825db0",
+      "run_id": "run_922305740f4b4ca481a544327124c44d",
+      "tool_run_id": "toolrun_bfec34349bff488f93e686e4af03fb2c",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_node_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T04:51:08.800234Z",
+      "finished_at": "2026-07-18T04:51:08.940302Z",
+      "status": "success",
+      "error_code": null
+    }
+  ],
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "process_and_listener_bodies",
+    "container_bodies"
+  ]
+}

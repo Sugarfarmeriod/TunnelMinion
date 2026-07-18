@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 from tunnelminion.evaluation.scenario import (
     EvaluationScenario,
@@ -33,7 +33,7 @@ class FakeToolRuntime:
         self._fixtures = {fixture.name: fixture for fixture in fixtures}
         self.called_tools: list[str] = []
 
-    def call(self, name: str, arguments: dict[str, str]) -> dict[str, str]:
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> JsonValue:
         """仅在名称和参数匹配时返回固定结果。"""
         fixture = self._fixtures.get(name)
         if fixture is None:
