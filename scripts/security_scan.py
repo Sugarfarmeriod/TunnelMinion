@@ -109,9 +109,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         relative = finding.path.relative_to(root)
         print(f"{relative}:{finding.line}: {finding.pattern}")
     if findings:
-        print(f"安全扫描失败：发现 {len(findings)} 个疑似秘密；正文已隐藏。")
+        print(f"Security scan failed: {len(findings)} suspected secrets; contents hidden.")
         return 1
-    print("安全扫描通过：未发现 API key、网关 token、Bearer 凭据或私钥。")
+    print("Security scan passed: no API key, gateway token, Bearer credential, or private key.")
     return 0
 
 

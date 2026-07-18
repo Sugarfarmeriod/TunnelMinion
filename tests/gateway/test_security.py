@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import pytest
 from pydantic import ValidationError
@@ -26,6 +26,7 @@ from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
     ToolCallContext,
     ToolExecutionRequest,
+    ToolExecutionResult,
     ToolExecutionStatus,
 )
 from tunnelminion.tools.fakes import FakeToolAdapter, FakeToolBehavior
@@ -143,6 +144,32 @@ def test_request_deadline_and_disconnect_cancel_runtime() -> None:
     assert cancelled.status is ToolExecutionStatus.CANCELLED
     assert cancelled.error is not None
     assert cancelled.error.code is ErrorCode.CANCELLED
+
+
+def test_execute_bounded_returns_result_completed_before_polling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """任务在第一次轮询前完成时，直接返回原结果且不误报超时。"""
+    runtime, request = bounded_runtime()
+    expected = ToolExecutionResult(
+        tool_run_id=request.tool_run_id or ToolRunId.new(),
+        status=ToolExecutionStatus.SUCCESS,
+        output={"ok": True},
+    )
+
+    def create_completed_task(
+        coroutine: Coroutine[Any, Any, ToolExecutionResult],
+    ) -> asyncio.Task[ToolExecutionResult]:
+        coroutine.close()
+        future = asyncio.get_running_loop().create_future()
+        future.set_result(expected)
+        return cast(asyncio.Task[ToolExecutionResult], future)
+
+    monkeypatch.setattr(asyncio, "create_task", create_completed_task)
+
+    result = run(execute_bounded(runtime, request, 1, lambda: asyncio.sleep(0, result=False)))
+
+    assert result is expected
 
 
 def test_gateway_response_budget_omits_large_body_but_keeps_trace() -> None:
