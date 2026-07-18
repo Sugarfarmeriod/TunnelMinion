@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "acceptance": "windows-a-to-macos-b-cross-node-diagnostic",
+  "started_at": "2026-07-18T05:44:47.995277+00:00",
+  "finished_at": "2026-07-18T05:44:56.315583+00:00",
+  "endpoint": "http://10.77.0.1:8787",
+  "target_host": "10.77.0.1",
+  "local_node_id": "node_129841509f55473d8d9d3ca363850204",
+  "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "question": "B 现在能确认哪些服务？如果 Docker 不可用，请保留未知项，不要猜。",
+  "selected_port": null,
+  "answer": "根据 TunnelMinion 生成的只读诊断报告，关于服务确认情况如下：\n\n**B 当前能确认的服务：**\n*   **无**。报告中的 `services` 列表为空 (`[]`)，表明未检测到任何正在运行的服务。\n\n**原因分析：**\n*   数据源 `list_docker_services` 不可用（列在 `unavailable_sources` 中），因此无法通过 Docker 接口确认服务。\n*   数据源 `list_network_listeners` 也不可用，进一步佐证了无法获取网络层面的服务信息。\n\n**结论：**\n由于关键的服务发现源不可用，B 现在**无法确认任何服务**。按照要求，保留未知项，不猜测具体服务名称。\n\n确定性证据结论：\n没有获得匹配服务的监听证据，当前无法确认。",
+  "model_error_code": null,
+  "remote_error_code": null,
+  "elapsed_ms": 8320.12,
+  "model_usage": {
+    "input_tokens": 287,
+    "output_tokens": 154,
+    "total_tokens": 441
+  },
+  "node_summary_tool_run_id": "toolrun_94d4ba4f950440bbba2286fcae09f1b8",
+  "unavailable_sources": [
+    "list_network_listeners",
+    "list_docker_services"
+  ],
+  "diagnostics": [],
+  "a_gateway_audit_records": [
+    {
+      "thread_id": "thread_d742bf44bc66499eb85529e22db990f5",
+      "run_id": "run_0d3095fd18ff43ceba43c75b11b711eb",
+      "tool_run_id": "toolrun_94d4ba4f950440bbba2286fcae09f1b8",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_node_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T05:44:48.079583Z",
+      "finished_at": "2026-07-18T05:44:48.342112Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_d742bf44bc66499eb85529e22db990f5",
+      "run_id": "run_0d3095fd18ff43ceba43c75b11b711eb",
+      "tool_run_id": "toolrun_4c890f8d8b0b4d23b05d83e186eb635b",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_network_listeners",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T05:44:48.345026Z",
+      "finished_at": "2026-07-18T05:44:48.466774Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_d742bf44bc66499eb85529e22db990f5",
+      "run_id": "run_0d3095fd18ff43ceba43c75b11b711eb",
+      "tool_run_id": "toolrun_f13e1916e99b4cf684188ee93c2f5f2c",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_process_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {
+        "limit": 200
+      },
+      "started_at": "2026-07-18T05:44:48.466774Z",
+      "finished_at": "2026-07-18T05:44:48.563431Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_d742bf44bc66499eb85529e22db990f5",
+      "run_id": "run_0d3095fd18ff43ceba43c75b11b711eb",
+      "tool_run_id": "toolrun_aa2a7d96d7e84ae3b408156f7053bc73",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_docker_services",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T05:44:48.566928Z",
+      "finished_at": "2026-07-18T05:44:48.889212Z",
+      "status": "success",
+      "error_code": null
+    }
+  ],
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "remote_listener_process_and_container_raw_bodies",
+    "model_api_key"
+  ]
+}

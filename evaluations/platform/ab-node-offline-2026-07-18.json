@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "acceptance": "windows-a-to-macos-b-cross-node-diagnostic",
+  "started_at": "2026-07-18T05:44:20.476133+00:00",
+  "finished_at": "2026-07-18T05:44:22.614724+00:00",
+  "endpoint": "http://10.77.0.1:8787",
+  "target_host": "10.77.0.1",
+  "local_node_id": "node_129841509f55473d8d9d3ca363850204",
+  "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "question": "B 现在有哪些服务？如果节点离线请明确说明。",
+  "selected_port": null,
+  "answer": "远端节点或工具网关不可用（node_unreachable），无法取得 B 的当前端口、进程或 Docker 证据；因此不能确认 B 当前运行的服务。",
+  "model_error_code": null,
+  "remote_error_code": "node_unreachable",
+  "elapsed_ms": 2138.19,
+  "model_usage": null,
+  "node_summary_tool_run_id": null,
+  "unavailable_sources": [],
+  "diagnostics": [],
+  "a_gateway_audit_records": [],
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "remote_listener_process_and_container_raw_bodies",
+    "model_api_key"
+  ]
+}
