@@ -1,0 +1,86 @@
+"""与平台工具实现解耦的版本化远端网关信封。"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
+
+from tunnelminion.domain.errors import ToolError
+from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.tools import Platform, ToolDefinition
+from tunnelminion.domain.versioning import ProtocolVersion
+from tunnelminion.tools.contracts import ToolExecutionStatus
+
+GATEWAY_PROTOCOL = ProtocolVersion(major=1, minor=0)
+
+
+class GatewayErrorCode(StrEnum):
+    """传输和版本协商层的稳定错误码。"""
+
+    PROTOCOL_VERSION_UNSUPPORTED = "protocol_version_unsupported"
+    TOOL_NOT_FOUND = "tool_not_found"
+    TOOL_VERSION_UNSUPPORTED = "tool_version_unsupported"
+    UNAUTHENTICATED = "unauthenticated"
+    FORBIDDEN = "forbidden"
+    RATE_LIMITED = "rate_limited"
+
+
+class GatewayError(BaseModel):
+    """不包含内部异常和秘密的远端结构化错误。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: GatewayErrorCode
+    message: str
+    retryable: bool = False
+
+
+class GatewayErrorResponse(BaseModel):
+    """协议层失败响应。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = GATEWAY_PROTOCOL
+    error: GatewayError
+
+
+class GatewayCapabilities(BaseModel):
+    """远端节点明确允许发现的只读能力。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    node_id: NodeId
+    platform: Platform
+    tools: tuple[ToolDefinition, ...]
+
+
+class RemoteToolCall(BaseModel):
+    """一次精确工具和版本的跨节点调用信封。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    tool_version: ProtocolVersion
+    thread_id: ThreadId
+    run_id: RunId
+    tool_run_id: ToolRunId
+    caller_node_id: NodeId
+    arguments: dict[str, JsonValue] = Field(default_factory=dict)
+    timeout_seconds: float = Field(gt=0, le=300)
+
+
+class RemoteToolResult(BaseModel):
+    """保留来源和关联 ID 的远端工具执行结果。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    execution_node_id: NodeId
+    run_id: RunId
+    tool_run_id: ToolRunId
+    status: ToolExecutionStatus
+    output: JsonValue | None = None
+    truncated: bool = False
+    error: ToolError | None = None

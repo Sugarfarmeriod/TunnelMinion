@@ -20,6 +20,7 @@ class ErrorCode(StrEnum):
     OPERATION_NOT_SUPPORTED = "operation_not_supported"
     NODE_UNREACHABLE = "node_unreachable"
     REMOTE_TIMEOUT = "remote_timeout"
+    RATE_LIMITED = "rate_limited"
     VERSION_INCOMPATIBLE = "version_incompatible"
     INTERNAL = "internal"
 

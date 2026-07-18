@@ -56,3 +56,15 @@ class ToolRunId(_Identifier):
     """一次本地或远端工具执行的身份标识。"""
 
     prefix = "toolrun"
+
+
+class ArtifactId(_Identifier):
+    """大型工具结果 artifact 的稳定身份标识。"""
+
+    prefix = "artifact"
+
+
+class MemoryId(_Identifier):
+    """一条可查看和删除的长期记忆标识。"""
+
+    prefix = "memory"
