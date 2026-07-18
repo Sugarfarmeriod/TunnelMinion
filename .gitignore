@@ -12,3 +12,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+logs/
+.data/
+data/
+*.log
