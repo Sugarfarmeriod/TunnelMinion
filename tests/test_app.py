@@ -158,6 +158,7 @@ def test_cli_always_binds_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
         captured.update(kwargs)
 
     monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("sys.platform", "win32")
     assert cli.main(["--port", "9000"]) == 0
     assert captured["app"] == "tunnelminion.app:create_app"
     assert captured["host"] == "127.0.0.1"
@@ -200,6 +201,7 @@ def test_cli_local_data_dir_builds_platform_application(
     monkeypatch.setattr("tunnelminion.app.build_windows_application", build_windows)
     monkeypatch.setattr("tunnelminion.macos_app.build_macos_local_application", build_macos)
     monkeypatch.setattr("uvicorn.run", run_server)
+    monkeypatch.setattr("sys.platform", "win32")
 
     assert cli.main(["--data-dir", str(tmp_path), "--port", "9010"]) == 0
     monkeypatch.setattr("sys.platform", "darwin")

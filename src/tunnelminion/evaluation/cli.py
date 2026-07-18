@@ -29,7 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = run_dataset(load_dataset(args.dataset))
     serialized = report.model_dump_json(indent=2)
     if args.output is None:
-        print(serialized)
+        print(json.dumps(report.model_dump(mode="json"), ensure_ascii=True, indent=2))
     else:
         args.output.write_text(serialized + "\n", encoding="utf-8")
 

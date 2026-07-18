@@ -25,8 +25,8 @@ def test_subprocess_runner_and_default_paths() -> None:
     )
     assert result.returncode == 0
     assert result.stdout.strip() == "ready"
-    assert default_wg_path().endswith("WireGuard\\wg.exe")
-    assert default_docker_path().endswith("bin\\docker.exe")
+    assert default_wg_path().replace("\\", "/").endswith("WireGuard/wg.exe")
+    assert default_docker_path().replace("\\", "/").endswith("bin/docker.exe")
 
 
 def test_interface_reader_handles_missing_and_ipv6_scope(
