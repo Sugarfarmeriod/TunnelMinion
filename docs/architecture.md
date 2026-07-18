@@ -2,7 +2,7 @@
 
 本文描述当前实现，而不是未来设想。面向项目所有者的非技术解释见
 [《从零理解 TunnelMinion》](guide/从零理解-tunnelminion.md)，可编辑的全景图与框架启用时机见
-[FigJam](https://www.figma.com/board/A8vpOsb7jTIx8TozXVmMCY)。
+[FigJam](https://www.figma.com/board/8KODvoNqXZsLCHKO0J4nbU)。
 
 ## 运行边界
 
