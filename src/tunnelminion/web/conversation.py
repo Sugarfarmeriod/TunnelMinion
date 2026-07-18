@@ -32,7 +32,8 @@ let currentThread=null,currentRun=null;
 async function api(path,options){const r=await fetch(path,options);if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
 async function refresh(){const ts=await api('/api/threads');const root=document.getElementById('threads');root.innerHTML='';
 for(const t of ts){const b=document.createElement('button');b.textContent=t.thread_id+' ('+t.message_count+')';
-b.onclick=()=>openThread(t.thread_id);root.appendChild(b);root.appendChild(document.createElement('br'));}}
+b.onclick=()=>openThread(t.thread_id);root.appendChild(b);root.appendChild(document.createElement('br'));}
+if(!currentThread&&ts.length)await openThread(ts[0].thread_id)}
 async function newThread(){const t=await api('/api/threads',{method:'POST'});await refresh();await openThread(t.thread_id)}
 async function openThread(id){currentThread=id;const d=await api('/api/threads/'+id);const root=document.getElementById('messages');root.innerHTML='';
 for(const m of d.messages){const e=document.createElement('div');e.className='message';e.textContent=m.role+': '+m.content;root.appendChild(e)}}
