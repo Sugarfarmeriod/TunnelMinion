@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "evaluation": "qwen-langchain-read-only-agent",
+  "executed_on": "2026-07-18",
+  "endpoint": "http://10.77.0.1:8082/v1",
+  "model": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+  "api_key_configured": false,
+  "selected_tools": [
+    "get_node_summary"
+  ],
+  "model_rounds": 2,
+  "tool_call_count": 1,
+  "tool_run_id": "toolrun_98b1be6d448542808a0cd9ee9f5e6cbc",
+  "answer_present": true,
+  "answer_cited_tool_run_id": true,
+  "result": "passed",
+  "notes": [
+    "工具集合在本次 run 创建时动态注入。",
+    "工具调用仍经过 TunnelMinion Tool Runtime 的 schema、风险和审计边界。",
+    "工具结果以 untrusted-tool-data 封装后才返回模型。"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "acceptance": "single-node-model-failure-isolation",
+  "finished_at": "2026-07-18T05:28:33.401562+00:00",
+  "local_node_id": "node_129841509f55473d8d9d3ca363850204",
+  "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "degraded_model_status": "unconfigured",
+  "ai_run_status_during_failure": 503,
+  "local_resource_http_status": 200,
+  "local_resource_tool_status": "success",
+  "local_resource_model_status": "unconfigured",
+  "remote_gateway_tool_status": "success",
+  "remote_gateway_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "restored_model_status": "available",
+  "ai_run_status_after_restore": 200,
+  "gateway_audit_records": [
+    {
+      "thread_id": "thread_828318cb847147d3b971dc465c94666a",
+      "run_id": "run_f02d51db13464481bd1ade0f53f6eb3e",
+      "tool_run_id": "toolrun_96e5cd1cb742474d93e5ff030ea2e4c5",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_node_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-18T05:28:30.053472Z",
+      "finished_at": "2026-07-18T05:28:30.205548Z",
+      "status": "success",
+      "error_code": null
+    }
+  ],
+  "excluded_categories": [
+    "model_api_key",
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "raw_resource_and_remote_tool_bodies"
+  ]
+}

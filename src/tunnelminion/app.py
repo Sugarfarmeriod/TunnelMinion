@@ -1,0 +1,148 @@
+"""Windows MVP 的真实依赖组装与 FastAPI 应用工厂。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from fastapi import FastAPI
+from platformdirs import user_data_path
+
+from tunnelminion.agent.conversation import InMemoryConversationService
+from tunnelminion.agent.langchain_model import TunnelMinionChatModel
+from tunnelminion.agent.runtime import LangChainReadOnlyAgent
+from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.tools import Platform
+from tunnelminion.memory.service import LongTermMemoryService
+from tunnelminion.memory.sqlite import SQLiteStores
+from tunnelminion.model.api import create_model_router
+from tunnelminion.model.configuration import (
+    FileModelConfigurationRepository,
+    ModelConfigurationService,
+)
+from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.platforms.windows.adapters import (
+    DockerServicesAdapter,
+    NetworkListenersAdapter,
+    NodeSummaryAdapter,
+    ProcessSummaryAdapter,
+    ServiceReachabilityAdapter,
+    WireGuardStatusAdapter,
+)
+from tunnelminion.platforms.windows.definitions import (
+    WindowsToolAdapters,
+    register_windows_tools,
+)
+from tunnelminion.platforms.windows.system import (
+    PsutilSystemReader,
+    SubprocessCommandRunner,
+    default_docker_path,
+    default_wg_path,
+)
+from tunnelminion.tools.audit import InMemoryAuditSink
+from tunnelminion.tools.registry import ToolRegistry
+from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.web.conversation import create_conversation_router
+from tunnelminion.web.memory import create_memory_router
+from tunnelminion.web.resources import create_resource_router
+
+
+@dataclass(frozen=True)
+class WindowsApplication:
+    """供启动、测试和后续持久化替换使用的运行时集合。"""
+
+    app: FastAPI
+    node_id: NodeId
+    model_service: ModelConfigurationService
+    tool_runtime: ToolRuntime
+    audit_sink: InMemoryAuditSink
+    tool_registry: ToolRegistry
+    conversation_service: InMemoryConversationService
+    memory_service: LongTermMemoryService
+
+    def create_read_only_agent(self) -> LangChainReadOnlyAgent:
+        """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
+        model = TunnelMinionChatModel(provider=self.model_service.create_provider())
+        return LangChainReadOnlyAgent(
+            model,
+            self.tool_registry,
+            self.tool_runtime,
+            Platform.WINDOWS,
+        )
+
+
+def default_data_dir() -> Path:
+    """返回当前系统账户的 TunnelMinion 数据目录。"""
+    return Path(user_data_path("TunnelMinion", "TunnelMinion"))
+
+
+def load_or_create_node_id(path: Path) -> NodeId:
+    """读取稳定 Node ID，首次启动时以原子替换方式创建。"""
+    if path.exists():
+        return NodeId(path.read_text(encoding="utf-8").strip())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    node_id = NodeId.new()
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(str(node_id), encoding="utf-8")
+    temporary.replace(path)
+    return node_id
+
+
+def build_windows_application(data_dir: Path | None = None) -> WindowsApplication:
+    """组装模型配置、六个真实只读工具和本机 Web 入口。"""
+    root = data_dir or default_data_dir()
+    node_id = load_or_create_node_id(root / "node-id")
+    model_service = ModelConfigurationService(
+        FileModelConfigurationRepository(root / "model.json"),
+        KeyringSecretStore(),
+    )
+    registry = ToolRegistry()
+    audit = InMemoryAuditSink()
+    runner = SubprocessCommandRunner()
+    reader = PsutilSystemReader()
+    wireguard = WireGuardStatusAdapter(reader, runner, default_wg_path())
+
+    def model_status() -> str:
+        return model_service.view().status
+
+    node_summary = NodeSummaryAdapter(node_id, registry, wireguard, model_status)
+    register_windows_tools(
+        registry,
+        WindowsToolAdapters(
+            wireguard=wireguard,
+            listeners=NetworkListenersAdapter(reader),
+            processes=ProcessSummaryAdapter(reader),
+            docker=DockerServicesAdapter(runner, default_docker_path()),
+            reachability=ServiceReachabilityAdapter(),
+            node_summary=node_summary,
+        ),
+    )
+    runtime = ToolRuntime(registry, Platform.WINDOWS, audit)
+
+    def create_agent() -> LangChainReadOnlyAgent:
+        model = TunnelMinionChatModel(provider=model_service.create_provider())
+        return LangChainReadOnlyAgent(model, registry, runtime, Platform.WINDOWS)
+
+    stores = SQLiteStores.open(root / "runtime.sqlite3")
+    conversations = InMemoryConversationService(node_id, create_agent, stores.checkpoints)
+    memories = LongTermMemoryService(stores.memories)
+    app = FastAPI(title="TunnelMinion", docs_url="/api/docs")
+    app.include_router(create_model_router(model_service))
+    app.include_router(create_resource_router(runtime, node_id))
+    app.include_router(create_conversation_router(conversations))
+    app.include_router(create_memory_router(memories))
+    return WindowsApplication(
+        app,
+        node_id,
+        model_service,
+        runtime,
+        audit,
+        registry,
+        conversations,
+        memories,
+    )
+
+
+def create_app() -> FastAPI:
+    """供 Uvicorn `--factory` 使用的应用工厂。"""
+    return build_windows_application().app

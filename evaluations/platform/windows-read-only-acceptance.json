@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "acceptance": "windows-a-read-only",
+  "executed_on": "2026-07-18",
+  "before_digest": "23412b9401a70ba14bf388a5202cc4197c36a64567e18a3716b292b4ab945d96",
+  "after_digest": "23412b9401a70ba14bf388a5202cc4197c36a64567e18a3716b292b4ab945d96",
+  "state_unchanged": true,
+  "state_categories": [
+    "HomeMac service",
+    "HomeMac interface",
+    "HomeMac routes",
+    "safe WireGuard config fields"
+  ],
+  "tool_results": {
+    "get_wireguard_status": {
+      "status": "success",
+      "availability": "degraded",
+      "interface": "HomeMac",
+      "interface_up": true,
+      "address_count": 2,
+      "peer_count": 0,
+      "tool_error_code": "permission_denied"
+    },
+    "list_network_listeners": {
+      "status": "success",
+      "availability": "available",
+      "item_count": 222
+    },
+    "get_process_summary": {
+      "status": "success",
+      "availability": "available",
+      "item_count": 20
+    },
+    "list_docker_services": {
+      "status": "success",
+      "availability": "unavailable",
+      "item_count": 0,
+      "tool_error_code": "dependency_unavailable"
+    },
+    "probe_service_reachability": {
+      "status": "success",
+      "host": "10.77.0.1",
+      "port": 8082,
+      "reachable": true
+    },
+    "get_node_summary": {
+      "status": "success",
+      "agent_status": "ready",
+      "model_status": "unconfigured",
+      "wireguard_availability": "degraded",
+      "wireguard_interface_up": true,
+      "available_tool_count": 6
+    }
+  },
+  "audit_record_count": 6,
+  "http_smoke_test": {
+    "resources_page_status": 200,
+    "node_summary_status": 200,
+    "qwen_reachable": true
+  },
+  "notes": [
+    "未读取 WireGuard 私钥或配置正文。",
+    "Docker daemon 不可用与普通账户无法读取 peer 统计均以结构化降级返回。",
+    "可达性探测只建立 TCP 连接，不发送或读取应用正文。"
+  ]
+}

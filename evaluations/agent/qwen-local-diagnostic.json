@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "evaluation": "qwen-local-diagnostic-agent",
+  "executed_on": "2026-07-18",
+  "endpoint": "http://10.77.0.1:8082/v1",
+  "model": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+  "api_key_configured": false,
+  "result": "passed",
+  "stop_reason": "completed",
+  "model_rounds": 2,
+  "tool_call_count": 3,
+  "elapsed_ms": 16999.86,
+  "usage": {
+    "input_tokens": 1601,
+    "output_tokens": 402,
+    "total_tokens": 2003,
+    "estimated_cost": null
+  },
+  "tool_traces": [
+    {
+      "tool_name": "probe_service_reachability",
+      "tool_run_id": "toolrun_20835fc254a84fa1b6c7f16f61f03b4e",
+      "status": "success",
+      "elapsed_ms": 43.62,
+      "arguments": {
+        "host": "10.77.0.1",
+        "port": 8082,
+        "timeout_seconds": 3
+      }
+    },
+    {
+      "tool_name": "get_wireguard_status",
+      "tool_run_id": "toolrun_5e4a8896a54141c3a815641d306800f8",
+      "status": "success",
+      "elapsed_ms": 58.64,
+      "arguments": {}
+    },
+    {
+      "tool_name": "list_docker_services",
+      "tool_run_id": "toolrun_6047238072bb438aaf8fff182b0c16e0",
+      "status": "success",
+      "elapsed_ms": 191.6,
+      "arguments": {}
+    }
+  ],
+  "structured_evidence_count": 3,
+  "answer_cited_all_tool_run_ids": true,
+  "notes": [
+    "WireGuard peer 统计因普通账户权限不足而结构化降级。",
+    "Docker daemon 当前不可用，但工具本身成功返回了结构化不可用状态。",
+    "10.77.0.1:8082 的 TCP 可达性探测成功。",
+    "首次运行暴露模型转抄 tool_run_id 漏字，随后改为由确定性代码附加精确证据索引并复验通过。"
+  ]
+}
