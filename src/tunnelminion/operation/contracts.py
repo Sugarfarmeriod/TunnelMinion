@@ -95,6 +95,7 @@ _ALLOWED_TRANSITIONS: dict[OperationStatus, frozenset[OperationStatus]] = {
     OperationStatus.AUTHORIZED: frozenset(
         {
             OperationStatus.EXECUTING,
+            OperationStatus.ROLLING_BACK,
             OperationStatus.CANCELLED,
             OperationStatus.AUTHORIZATION_EXPIRED,
         }
@@ -403,6 +404,20 @@ class OperationTransition(BaseModel):
     occurred_at: datetime
 
 
+class OperationMetrics(BaseModel):
+    """供评估报告读取的稳定成本与阶段延迟字段。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase_latency_ms: dict[str, int] = Field(default_factory=dict)
+    model_input_tokens: int = Field(default=0, ge=0)
+    model_output_tokens: int = Field(default=0, ge=0)
+    model_cost_usd: float = Field(default=0, ge=0)
+    tool_call_count: int = Field(default=0, ge=0)
+    authorization_kind: AuthorizationKind | None = None
+    final_result: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class OperationRecord(BaseModel):
     """可在重启后恢复的完整操作聚合。"""
 
@@ -416,6 +431,7 @@ class OperationRecord(BaseModel):
     verifications: tuple[VerificationRecord, ...] = ()
     cleanup: CleanupRecord | None = None
     error: OperationError | None = None
+    metrics: OperationMetrics = Field(default_factory=OperationMetrics)
     transitions: tuple[OperationTransition, ...]
     updated_at: datetime
 
