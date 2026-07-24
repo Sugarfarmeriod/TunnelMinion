@@ -62,6 +62,7 @@ from tunnelminion.platforms.macos.system import (
     default_docker_path,
     default_wg_path,
 )
+from tunnelminion.platforms.windows.system import SystemReader
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -81,6 +82,7 @@ class MacOSNode:
     tool_runtime: ToolRuntime
     audit_sink: InMemoryAuditSink
     tool_registry: ToolRegistry
+    system_reader: SystemReader
 
 
 @dataclass(frozen=True)
@@ -223,7 +225,7 @@ def _build_macos_node(
     )
     register_safe_http_sharing_operation(registry)
     runtime = ToolRuntime(registry, Platform.MACOS, audit)
-    return MacOSNode(root, node_id, model_service, runtime, audit, registry)
+    return MacOSNode(root, node_id, model_service, runtime, audit, registry, reader)
 
 
 def build_macos_local_application(
@@ -307,7 +309,10 @@ def build_macos_gateway_application(
         operation_workflow = OperationWorkflow(
             stores.operations,
             gateway_secret_store(node.root),
-            HTTPServiceProbeEvidenceProvider(stores.operations),
+            HTTPServiceProbeEvidenceProvider(
+                stores.operations,
+                identity_reader=node.system_reader,
+            ),
             HTTPSharingAdapter(
                 HTTPSharingConfig(
                     wireguard_addresses=frozenset({view.bind.host}),

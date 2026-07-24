@@ -490,7 +490,7 @@ def test_gateway_only_calls_authenticated_peer_verification_address(
     )
     callback: dict[str, JsonValue] = {
         "endpoint": "http://10.77.0.3:18882",
-        "token": "tmn_callback-token-with-more-than-forty-three-characters",
+        "token": "tmn_test-callback-token-with-more-than-forty-three-characters",
     }
     payload = _execute_payload(operation_plan)
     payload["verification_callback"] = callback
@@ -523,7 +523,7 @@ def test_requester_callback_authenticates_and_verifies_from_requester_path() -> 
         starts_at=NOW,
         expires_at=NOW + timedelta(minutes=1),
     )
-    callback_token = "tmn_callback-token-with-more-than-forty-three-characters"
+    callback_token = "tmn_test-callback-token-with-more-than-forty-three-characters"
     with pytest.raises(ValueError, match="熵不足"):
         create_requester_verification_router(
             local_node_id=caller,
@@ -544,7 +544,7 @@ def test_requester_callback_authenticates_and_verifies_from_requester_path() -> 
     request = RemoteVerificationRequest(
         plan=operation_plan,
         lease=lease,
-        access_token="tmn_share-token-with-more-than-forty-three-characters",
+        access_token="tmn_test-share-token-with-more-than-forty-three-characters",
     )
     transport = httpx.ASGITransport(app=callback_app)
 
@@ -622,7 +622,7 @@ def test_callback_verifier_rejects_invalid_callback_responses(
     verifier = CallbackRequesterVerifier(
         RequesterVerificationCallback(
             endpoint="http://10.77.0.2:18882",
-            token="tmn_callback-token-with-more-than-forty-three-characters",
+            token="tmn_test-callback-token-with-more-than-forty-three-characters",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -630,7 +630,7 @@ def test_callback_verifier_rejects_invalid_callback_responses(
         verifier.verify(
             operation_plan,
             lease,
-            "tmn_share-token-with-more-than-forty-three-characters",
+            "tmn_test-share-token-with-more-than-forty-three-characters",
         )
     )
     expected = (
@@ -666,7 +666,7 @@ def test_callback_verifier_rejects_forged_verification_identity() -> None:
     verifier = CallbackRequesterVerifier(
         RequesterVerificationCallback(
             endpoint="http://10.77.0.2:18882",
-            token="tmn_callback-token-with-more-than-forty-three-characters",
+            token="tmn_test-callback-token-with-more-than-forty-three-characters",
         ),
         transport=httpx.MockTransport(forged),
     )
@@ -674,7 +674,7 @@ def test_callback_verifier_rejects_forged_verification_identity() -> None:
         verifier.verify(
             operation_plan,
             lease,
-            "tmn_share-token-with-more-than-forty-three-characters",
+            "tmn_test-share-token-with-more-than-forty-three-characters",
         )
     )
     assert result.result is VerificationResult.REQUESTER_OFFLINE

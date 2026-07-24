@@ -36,6 +36,32 @@ def _redact_public_text(value: str) -> str:
     return _SENSITIVE_TEXT.sub("[REDACTED]", value)
 
 
+def compute_service_fingerprint(
+    *,
+    node_id: NodeId,
+    protocol: str,
+    address: str,
+    port: int,
+    process_pid: int | None,
+    process_name: str | None,
+) -> str:
+    """对执行前可重新读取的监听身份生成稳定指纹。"""
+    canonical = json.dumps(
+        {
+            "node_id": str(node_id),
+            "protocol": protocol,
+            "address": address,
+            "port": port,
+            "process_pid": process_pid,
+            "process_name": process_name,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
+
+
 class OperationLevel(IntEnum):
     """确定性策略使用的 L0-L4 操作等级。"""
 

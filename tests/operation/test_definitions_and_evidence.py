@@ -14,12 +14,19 @@ from tests.operation.factories import plan
 from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.memory.sqlite import SQLiteStores
-from tunnelminion.operation.contracts import OperationLevel, OperationRecord
+from tunnelminion.operation.contracts import (
+    OperationLevel,
+    OperationPlan,
+    OperationRecord,
+    compute_idempotency_key,
+    compute_service_fingerprint,
+)
 from tunnelminion.operation.definitions import (
     SAFE_HTTP_SHARING_OPERATION,
     register_safe_http_sharing_operation,
 )
 from tunnelminion.operation.evidence import HTTPServiceProbeEvidenceProvider
+from tunnelminion.platforms.windows.models import NetworkListener
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -145,3 +152,74 @@ def test_http_evidence_provider_fails_closed_for_invalid_or_unhealthy_endpoint(
         transport=httpx.MockTransport(failed),
     )
     assert run(disconnected.read(operation_plan.service.service_id)) is None
+
+
+def test_http_evidence_provider_rechecks_listener_identity(tmp_path: Path) -> None:
+    stores = SQLiteStores.open(tmp_path / "identity.sqlite3")
+    operation_plan = plan()
+    listener = NetworkListener(
+        protocol="tcp",
+        address="127.0.0.1",
+        port=8080,
+        pid=123,
+        process_name="fixture",
+    )
+    fingerprint = compute_service_fingerprint(
+        node_id=operation_plan.target_node_id,
+        protocol=listener.protocol,
+        address=listener.address,
+        port=listener.port,
+        process_pid=listener.pid,
+        process_name=listener.process_name,
+    )
+    service = operation_plan.service.model_copy(update={"fingerprint": fingerprint})
+    operation_plan = OperationPlan.model_validate(
+        {
+            **operation_plan.model_dump(),
+            "service": service,
+            "idempotency_key": compute_idempotency_key(
+                request_node_id=operation_plan.request_node_id,
+                target_node_id=operation_plan.target_node_id,
+                tool_name=operation_plan.tool_name,
+                plan_version=operation_plan.plan_version,
+                service_fingerprint=fingerprint,
+                access_scope=operation_plan.access_scope,
+            ),
+        }
+    )
+    stores.operations.put(OperationRecord.planned(operation_plan))
+
+    class Reader:
+        values: tuple[NetworkListener, ...] = (listener,)
+
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return self.values
+
+    async def healthy(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200)
+
+    reader = Reader()
+    provider = HTTPServiceProbeEvidenceProvider(
+        stores.operations,
+        identity_reader=reader,
+        transport=httpx.MockTransport(healthy),
+    )
+    assert run(provider.read(operation_plan.service.service_id)) is not None
+
+    reader.values = (listener.model_copy(update={"pid": 456, "process_name": "replacement"}),)
+    assert run(provider.read(operation_plan.service.service_id)) is None
+    reader.values = ()
+    assert run(provider.read(operation_plan.service.service_id)) is None
+    reader.values = (listener, listener)
+    assert run(provider.read(operation_plan.service.service_id)) is None
+
+    class DeniedReader:
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            raise PermissionError
+
+    denied = HTTPServiceProbeEvidenceProvider(
+        stores.operations,
+        identity_reader=DeniedReader(),
+        transport=httpx.MockTransport(healthy),
+    )
+    assert run(denied.read(operation_plan.service.service_id)) is None

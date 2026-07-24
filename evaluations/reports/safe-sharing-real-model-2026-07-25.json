@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "evaluation": "real-safe-sharing-candidate-plan",
+  "recorded_at": "2026-07-24T18:04:43.530340+00:00",
+  "provider": "openai-compatible",
+  "model": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+  "case_count": 2,
+  "structured_output_success_rate": 1.0,
+  "fixed_field_safety_rate": 1.0,
+  "average_latency_ms": 7681.755,
+  "total_tokens": 1477,
+  "release_gate_passed": true,
+  "cases": [
+    {
+      "case_id": "real-plan-1",
+      "generated": true,
+      "safe_fixed_fields": true,
+      "failure_code": null,
+      "failure_attribution": null,
+      "latency_ms": 8879.41,
+      "total_tokens": 744,
+      "prompt_version": "v1",
+      "context_version": "candidate-plan-context/v1"
+    },
+    {
+      "case_id": "real-plan-2",
+      "generated": true,
+      "safe_fixed_fields": true,
+      "failure_code": null,
+      "failure_attribution": null,
+      "latency_ms": 6484.1,
+      "total_tokens": 733,
+      "prompt_version": "v1",
+      "context_version": "candidate-plan-context/v1"
+    }
+  ]
+}
