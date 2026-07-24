@@ -124,6 +124,7 @@ def test_schema_initialization_is_repeatable_and_legacy_data_survives_downgrade(
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT payload FROM checkpoints").fetchone()[0] == "{}"
         for table in (
+            "operation_preauthorizations",
             "operation_transitions",
             "operation_cleanups",
             "operation_verifications",

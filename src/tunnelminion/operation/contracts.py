@@ -236,6 +236,52 @@ class AuthorizationRecord(BaseModel):
         return self
 
 
+class Preauthorization(BaseModel):
+    """目标节点所有者创建的细粒度、可撤销 L2 授权。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authorization_id: AuthorizationId
+    target_node_id: NodeId
+    request_peer_id: NodeId
+    tool_name: str = Field(min_length=1, max_length=128)
+    service_ids: frozenset[str] = Field(min_length=1)
+    service_fingerprints: frozenset[str] = Field(min_length=1)
+    minimum_port: int = Field(ge=1024, le=65535)
+    maximum_port: int = Field(ge=1024, le=65535)
+    maximum_duration_seconds: int = Field(ge=1, le=86_400)
+    created_by: str = Field(min_length=1, max_length=256)
+    valid_from: datetime
+    valid_until: datetime
+    revoked_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> Self:
+        if self.maximum_port < self.minimum_port:
+            raise ValueError("预授权最大端口不得小于最小端口")
+        if self.valid_until <= self.valid_from:
+            raise ValueError("预授权有效期结束时间必须晚于开始时间")
+        if self.revoked_at is not None and self.revoked_at < self.valid_from:
+            raise ValueError("预授权撤销时间不得早于生效时间")
+        return self
+
+    def matches(self, plan: OperationPlan, *, at: datetime) -> bool:
+        """完整匹配 peer、工具、服务、端口、时长和有效期。"""
+        scope = plan.access_scope
+        return (
+            self.revoked_at is None
+            and self.valid_from <= at < self.valid_until
+            and plan.level is OperationLevel.L2
+            and plan.target_node_id == self.target_node_id
+            and plan.request_node_id == self.request_peer_id
+            and plan.tool_name == self.tool_name
+            and plan.service.service_id in self.service_ids
+            and plan.service.fingerprint in self.service_fingerprints
+            and self.minimum_port <= scope.bind_port <= self.maximum_port
+            and scope.duration_seconds <= self.maximum_duration_seconds
+        )
+
+
 class LeaseRecord(BaseModel):
     """绝对时间约束的临时资源租约；不保存访问令牌。"""
 
@@ -521,3 +567,15 @@ class OperationStore(Protocol):
     def list_unfinished(self) -> tuple[OperationRecord, ...]: ...
 
     def list_summaries(self) -> tuple[OperationSummary, ...]: ...
+
+
+class PreauthorizationStore(Protocol):
+    """预授权的持久化访问边界。"""
+
+    def put(self, authorization: Preauthorization) -> None: ...
+
+    def get(self, authorization_id: AuthorizationId) -> Preauthorization | None: ...
+
+    def list_all(self) -> tuple[Preauthorization, ...]: ...
+
+    def list_active(self, *, at: datetime) -> tuple[Preauthorization, ...]: ...

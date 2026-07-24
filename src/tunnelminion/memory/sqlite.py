@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from tunnelminion.domain.identifiers import ArtifactId, MemoryId, OperationId, RunId, ThreadId
+from tunnelminion.domain.identifiers import (
+    ArtifactId,
+    AuthorizationId,
+    MemoryId,
+    OperationId,
+    RunId,
+    ThreadId,
+)
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     LongTermMemory,
@@ -18,6 +26,8 @@ from tunnelminion.operation.contracts import (
     OperationRecord,
     OperationStore,
     OperationSummary,
+    Preauthorization,
+    PreauthorizationStore,
 )
 
 
@@ -111,6 +121,19 @@ class _SQLiteDatabase:
                     FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
                         ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS operation_preauthorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    target_node_id TEXT NOT NULL,
+                    request_peer_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    valid_until TEXT NOT NULL,
+                    revoked_at TEXT,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS operation_preauthorizations_match
+                    ON operation_preauthorizations(
+                        target_node_id, request_peer_id, tool_name, valid_until
+                    );
                 """
             )
 
@@ -399,6 +422,71 @@ class SQLiteOperationStore:
         return tuple(OperationSummary.from_record(item) for item in self.list_all())
 
 
+class SQLitePreauthorizationStore:
+    """细粒度 L2 预授权的 SQLite 适配器。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, authorization: Preauthorization) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO operation_preauthorizations(
+                    authorization_id, target_node_id, request_peer_id, tool_name,
+                    valid_until, revoked_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(authorization_id) DO UPDATE SET
+                    target_node_id=excluded.target_node_id,
+                    request_peer_id=excluded.request_peer_id,
+                    tool_name=excluded.tool_name,
+                    valid_until=excluded.valid_until,
+                    revoked_at=excluded.revoked_at,
+                    payload=excluded.payload""",
+                (
+                    str(authorization.authorization_id),
+                    str(authorization.target_node_id),
+                    str(authorization.request_peer_id),
+                    authorization.tool_name,
+                    authorization.valid_until.isoformat(),
+                    (
+                        authorization.revoked_at.isoformat()
+                        if authorization.revoked_at is not None
+                        else None
+                    ),
+                    authorization.model_dump_json(),
+                ),
+            )
+
+    def get(self, authorization_id: AuthorizationId) -> Preauthorization | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """SELECT payload FROM operation_preauthorizations
+                WHERE authorization_id=?""",
+                (str(authorization_id),),
+            ).fetchone()
+        return Preauthorization.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[Preauthorization, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM operation_preauthorizations ORDER BY rowid"
+            ).fetchall()
+        return tuple(Preauthorization.model_validate_json(row[0]) for row in rows)
+
+    def list_active(self, *, at: datetime) -> tuple[Preauthorization, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """SELECT payload FROM operation_preauthorizations
+                WHERE valid_until>? AND revoked_at IS NULL ORDER BY rowid""",
+                (at.isoformat(),),
+            ).fetchall()
+        return tuple(
+            item
+            for row in rows
+            if (item := Preauthorization.model_validate_json(row[0])).valid_from <= at
+        )
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -407,6 +495,7 @@ class SQLiteStores:
     artifacts: SQLiteToolArtifactStore
     memories: SQLiteLongTermMemoryStore
     operations: OperationStore
+    preauthorizations: PreauthorizationStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -417,4 +506,5 @@ class SQLiteStores:
             artifacts=SQLiteToolArtifactStore(database),
             memories=SQLiteLongTermMemoryStore(database),
             operations=SQLiteOperationStore(database),
+            preauthorizations=SQLitePreauthorizationStore(database),
         )

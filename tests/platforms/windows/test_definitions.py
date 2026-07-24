@@ -6,6 +6,7 @@ from tests.platforms.windows.test_adapters import FakeReader, FakeRunner, comman
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform, RiskLevel
+from tunnelminion.operation.contracts import OperationLevel
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
     NetworkListenersAdapter,
@@ -55,3 +56,17 @@ def test_registers_exact_windows_read_only_tool_set() -> None:
     assert all(item.risk_level is RiskLevel.READ_ONLY for item in definitions)
     assert all(item.platforms == {Platform.WINDOWS} for item in definitions)
     assert registry.model_tools(Platform.WINDOWS) == definitions
+    registered = tuple(registry.lookup(item.name) for item in definitions)
+    assert all(item is not None for item in registered)
+    assert all(item.operation_level is OperationLevel.L0 for item in registered if item is not None)
+    assert all(
+        registry.lookup(name) is None
+        for name in (
+            "restart_service",
+            "start_container",
+            "stop_container",
+            "modify_wireguard",
+            "run_arbitrary_code",
+            "read_secret",
+        )
+    )
