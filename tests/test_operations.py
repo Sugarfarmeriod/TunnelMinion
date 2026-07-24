@@ -119,6 +119,7 @@ def test_safe_export_uses_allowlist_and_excludes_secret_artifacts(tmp_path: Path
     assert exported["node_id"] == str(node)
     assert exported["checkpoints"] == [checkpoint.model_dump(mode="json")]
     assert exported["long_term_memories"] == [memory.model_dump(mode="json")]
+    assert exported["operations"] == []
     assert secret_artifact not in serialized
     assert '"api_key"' not in serialized
 
@@ -136,6 +137,7 @@ def test_write_export_handles_empty_data_and_posix_permissions(
     assert value["model"] is None
     assert value["gateway"] is None
     assert value["checkpoints"] == []
+    assert value["operations"] == []
     monkeypatch.setattr(operations.os, "name", "nt")
     write_safe_export(tmp_path / "missing", tmp_path / "windows-export.json")
 

@@ -3,8 +3,12 @@
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import (
     ArtifactId,
+    AuthorizationId,
+    LeaseId,
     MemoryId,
     NodeId,
+    OperationId,
+    ResourceId,
     RunId,
     ThreadId,
     ToolRunId,
@@ -14,12 +18,16 @@ from tunnelminion.domain.versioning import ProtocolVersion, VersionCompatibility
 
 __all__ = [
     "ArtifactId",
+    "AuthorizationId",
     "DataSensitivity",
     "ErrorCode",
+    "LeaseId",
     "MemoryId",
     "NodeId",
+    "OperationId",
     "Platform",
     "ProtocolVersion",
+    "ResourceId",
     "RiskLevel",
     "RunId",
     "ThreadId",
