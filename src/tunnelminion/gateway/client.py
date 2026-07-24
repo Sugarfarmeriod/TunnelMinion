@@ -22,6 +22,7 @@ from tunnelminion.gateway.contracts import (
     RemoteOperationSubmission,
     RemoteToolCall,
     RemoteToolResult,
+    RequesterVerificationCallback,
 )
 from tunnelminion.operation.contracts import OperationPlan
 from tunnelminion.tools.audit import AuditRecord, AuditSink
@@ -166,7 +167,12 @@ class FixedGatewayClient:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")
         return result
 
-    async def execute_operation(self, plan: OperationPlan) -> RemoteOperationResult:
+    async def execute_operation(
+        self,
+        plan: OperationPlan,
+        *,
+        verification_callback: RequesterVerificationCallback | None = None,
+    ) -> RemoteOperationResult:
         """请求目标节点执行原计划；目标节点仍拥有最终授权权。"""
         self._validate_operation_nodes(plan)
         request = RemoteOperationExecution(
@@ -179,6 +185,7 @@ class FixedGatewayClient:
             thread_id=plan.thread_id,
             run_id=plan.run_id,
             tool_run_ids=plan.tool_run_ids,
+            verification_callback=verification_callback,
         )
         return await self._request_operation(
             "POST",

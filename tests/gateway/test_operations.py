@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -27,11 +29,16 @@ from tunnelminion.gateway.contracts import (
     GATEWAY_PROTOCOL,
     RemoteOperationExecution,
     RemoteOperationResult,
+    RemoteVerificationRequest,
+    RemoteVerificationResult,
+    RequesterVerificationCallback,
 )
 from tunnelminion.gateway.operations import (
+    CallbackRequesterVerifier,
     GatewayRequesterVerifier,
     RequesterVerificationConfig,
     TargetOperationGatewayService,
+    create_requester_verification_router,
 )
 from tunnelminion.gateway.security import (
     GatewayLimits,
@@ -47,6 +54,7 @@ from tunnelminion.operation.contracts import (
     OperationRecord,
     OperationStatus,
     OperationSummary,
+    VerificationRecord,
     VerificationResult,
     compute_idempotency_key,
 )
@@ -176,6 +184,7 @@ def _gateway(
                 TOKEN,
                 ["read_status"],
                 allowed_operations,
+                source_host="10.77.0.2",
             ),
             *extra_peers,
         ),
@@ -459,6 +468,216 @@ def test_gateway_rolls_back_failed_requester_verification_and_limits_response(
     )
     assert limited.status_code == 413
     assert limited.json()["error"]["code"] == "response_too_large"
+
+
+def test_gateway_only_calls_authenticated_peer_verification_address(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    caller = NodeId.new()
+    target = NodeId.new()
+    operation_plan = _remote_plan(caller, target)
+    app, authorization, _, _ = _gateway(tmp_path / "callback.sqlite3", operation_plan)
+    client = TestClient(app)
+    client.post("/v1/operations:submit", json=_payload(operation_plan), headers=_auth())
+    now = datetime.now(UTC)
+    authorization.approve_once(
+        operation_plan.operation_id,
+        operator="local",
+        decided_at=now,
+        expires_at=now + timedelta(minutes=1),
+        local_control=True,
+    )
+    callback: dict[str, JsonValue] = {
+        "endpoint": "http://10.77.0.3:18882",
+        "token": "tmn_callback-token-with-more-than-forty-three-characters",
+    }
+    payload = _execute_payload(operation_plan)
+    payload["verification_callback"] = callback
+    denied = client.post("/v1/operations:execute", json=payload, headers=_auth())
+    assert denied.status_code == 403
+
+    callback["endpoint"] = "http://10.77.0.2:18882"
+
+    def fake_callback_verifier(
+        _callback: RequesterVerificationCallback,
+    ) -> FakeRequesterVerifier:
+        return FakeRequesterVerifier(caller)
+
+    monkeypatch.setattr(
+        "tunnelminion.gateway.api.CallbackRequesterVerifier",
+        fake_callback_verifier,
+    )
+    executed = client.post("/v1/operations:execute", json=payload, headers=_auth())
+    assert executed.status_code == 200
+    assert executed.json()["summary"]["status"] == "succeeded"
+
+
+def test_requester_callback_authenticates_and_verifies_from_requester_path() -> None:
+    caller = NodeId.new()
+    target = NodeId.new()
+    operation_plan = _remote_plan(caller, target)
+    lease = LeaseRecord(
+        lease_id=LeaseId.new(),
+        operation_id=operation_plan.operation_id,
+        starts_at=NOW,
+        expires_at=NOW + timedelta(minutes=1),
+    )
+    callback_token = "tmn_callback-token-with-more-than-forty-three-characters"
+    with pytest.raises(ValueError, match="熵不足"):
+        create_requester_verification_router(
+            local_node_id=caller,
+            target_node_id=target,
+            callback_token="short",
+            verifier=FakeRequesterVerifier(caller),
+        )
+    requester = FakeRequesterVerifier(caller)
+    callback_app = FastAPI()
+    callback_app.include_router(
+        create_requester_verification_router(
+            local_node_id=caller,
+            target_node_id=target,
+            callback_token=callback_token,
+            verifier=requester,
+        )
+    )
+    request = RemoteVerificationRequest(
+        plan=operation_plan,
+        lease=lease,
+        access_token="tmn_share-token-with-more-than-forty-three-characters",
+    )
+    transport = httpx.ASGITransport(app=callback_app)
+
+    async def scenario() -> VerificationRecord:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://requester.test",
+        ) as client:
+            assert (
+                await client.post(
+                    "/v1/operations:verify-callback",
+                    content=request.model_dump_json(),
+                    headers={"Content-Type": "application/json"},
+                )
+            ).status_code == 401
+            assert (
+                await client.post(
+                    "/v1/operations:verify-callback",
+                    content=request.model_dump_json(),
+                    headers={
+                        "Authorization": "Basic invalid",
+                        "Content-Type": "application/json",
+                    },
+                )
+            ).status_code == 401
+            wrong = request.model_copy(update={"plan": _remote_plan(caller, NodeId.new())})
+            assert (
+                await client.post(
+                    "/v1/operations:verify-callback",
+                    content=wrong.model_dump_json(),
+                    headers={
+                        "Authorization": f"Bearer {callback_token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            ).status_code == 403
+        verifier = CallbackRequesterVerifier(
+            RequesterVerificationCallback(
+                endpoint="http://requester.test",
+                token=callback_token,
+            ),
+            transport=transport,
+        )
+        return await verifier.verify(operation_plan, lease, request.access_token)
+
+    result = asyncio.run(scenario())
+    assert result.result is VerificationResult.PASSED
+    assert result.verifier_node_id == caller
+
+
+def _denied_callback(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(401, json={"error": "denied"})
+
+
+def _invalid_callback(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, content=b"not-json")
+
+
+def _timeout_callback(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timeout", request=request)
+
+
+@pytest.mark.parametrize("handler", [_denied_callback, _invalid_callback, _timeout_callback])
+def test_callback_verifier_rejects_invalid_callback_responses(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    caller = NodeId.new()
+    operation_plan = _remote_plan(caller, NodeId.new())
+    lease = LeaseRecord(
+        lease_id=LeaseId.new(),
+        operation_id=operation_plan.operation_id,
+        starts_at=NOW,
+        expires_at=NOW + timedelta(minutes=1),
+    )
+    verifier = CallbackRequesterVerifier(
+        RequesterVerificationCallback(
+            endpoint="http://10.77.0.2:18882",
+            token="tmn_callback-token-with-more-than-forty-three-characters",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        verifier.verify(
+            operation_plan,
+            lease,
+            "tmn_share-token-with-more-than-forty-three-characters",
+        )
+    )
+    expected = (
+        VerificationResult.TIMEOUT
+        if handler is _timeout_callback
+        else VerificationResult.REQUESTER_OFFLINE
+    )
+    assert result.result is expected
+
+
+def test_callback_verifier_rejects_forged_verification_identity() -> None:
+    caller = NodeId.new()
+    operation_plan = _remote_plan(caller, NodeId.new())
+    lease = LeaseRecord(
+        lease_id=LeaseId.new(),
+        operation_id=operation_plan.operation_id,
+        starts_at=NOW,
+        expires_at=NOW + timedelta(minutes=1),
+    )
+
+    def forged(_request: httpx.Request) -> httpx.Response:
+        body = RemoteVerificationResult(
+            verification=VerificationRecord(
+                operation_id=OperationId.new(),
+                verifier_node_id=caller,
+                result=VerificationResult.PASSED,
+                evidence_summary="伪造关联",
+                verified_at=NOW,
+            )
+        )
+        return httpx.Response(200, content=body.model_dump_json())
+
+    verifier = CallbackRequesterVerifier(
+        RequesterVerificationCallback(
+            endpoint="http://10.77.0.2:18882",
+            token="tmn_callback-token-with-more-than-forty-three-characters",
+        ),
+        transport=httpx.MockTransport(forged),
+    )
+    result = asyncio.run(
+        verifier.verify(
+            operation_plan,
+            lease,
+            "tmn_share-token-with-more-than-forty-three-characters",
+        )
+    )
+    assert result.result is VerificationResult.REQUESTER_OFFLINE
 
 
 @pytest.mark.anyio

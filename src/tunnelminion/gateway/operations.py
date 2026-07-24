@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import ipaddress
+import secrets
 from datetime import UTC, datetime
 
 import httpx
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId, ToolRunId
+from tunnelminion.gateway.contracts import (
+    GATEWAY_PROTOCOL,
+    RemoteVerificationRequest,
+    RemoteVerificationResult,
+    RequesterVerificationCallback,
+)
 from tunnelminion.operation.contracts import (
     LeaseRecord,
     OperationPlan,
@@ -53,6 +61,7 @@ class TargetOperationGatewayService:
         run_id: RunId,
         tool_run_ids: tuple[ToolRunId, ...],
         at: datetime,
+        verifier: RequesterVerifier | None = None,
     ) -> OperationRecord:
         """执行请求必须与目标节点持久化的原计划逐字段一致。"""
         record = self._operations.get(operation_id)
@@ -83,6 +92,7 @@ class TargetOperationGatewayService:
             operation_id,
             at=at,
             usage=WorkflowUsage(tool_call_count=len(plan.tool_run_ids)),
+            verifier=verifier,
         )
 
 
@@ -202,3 +212,109 @@ class GatewayRequesterVerifier(RequesterVerifier):
             evidence_summary=summary,
             verified_at=at,
         )
+
+
+class CallbackRequesterVerifier(RequesterVerifier):
+    """由目标节点调用请求节点的一次性验证回调。"""
+
+    def __init__(
+        self,
+        callback: RequesterVerificationCallback,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._callback = callback
+        self._transport = transport
+
+    async def verify(
+        self,
+        plan: OperationPlan,
+        lease: LeaseRecord,
+        access_token: str,
+    ) -> VerificationRecord:
+        request = RemoteVerificationRequest(
+            plan=plan,
+            lease=lease,
+            access_token=access_token,
+        )
+        try:
+            async with httpx.AsyncClient(
+                transport=self._transport,
+                timeout=self._callback.timeout_seconds,
+                trust_env=False,
+            ) as client:
+                response = await client.post(
+                    f"{self._callback.endpoint}/v1/operations:verify-callback",
+                    content=request.model_dump_json(),
+                    headers={
+                        "Authorization": f"Bearer {self._callback.token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            response.raise_for_status()
+            result = RemoteVerificationResult.model_validate_json(response.content)
+            verification = result.verification
+            if (
+                not GATEWAY_PROTOCOL.is_compatible_with(result.protocol)
+                or verification.operation_id != plan.operation_id
+                or verification.verifier_node_id != plan.request_node_id
+            ):
+                raise ValueError("验证回调关联信息不匹配")
+            return verification
+        except httpx.TimeoutException:
+            result = VerificationResult.TIMEOUT
+            summary = "请求节点验证回调超时"
+        except (httpx.HTTPError, ValueError):
+            result = VerificationResult.REQUESTER_OFFLINE
+            summary = "请求节点验证回调不可用或响应无效"
+        return VerificationRecord(
+            operation_id=plan.operation_id,
+            verifier_node_id=plan.request_node_id,
+            result=result,
+            evidence_summary=summary,
+            verified_at=datetime.now(UTC),
+        )
+
+
+def create_requester_verification_router(
+    *,
+    local_node_id: NodeId,
+    target_node_id: NodeId,
+    callback_token: str,
+    verifier: RequesterVerifier,
+) -> APIRouter:
+    """创建只在一次验收期间监听请求节点 WireGuard 地址的回调路由。"""
+    if len(callback_token) < 43:
+        raise ValueError("验证回调 token 熵不足")
+    router = APIRouter()
+
+    async def verify_callback(
+        request: RemoteVerificationRequest,
+        authorization: str | None = Header(default=None),
+    ) -> RemoteVerificationResult:
+        supplied = (
+            authorization.removeprefix("Bearer ")
+            if authorization is not None and authorization.startswith("Bearer ")
+            else ""
+        )
+        if not secrets.compare_digest(supplied, callback_token):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "验证回调认证失败")
+        if (
+            request.plan.request_node_id != local_node_id
+            or request.plan.target_node_id != target_node_id
+            or request.lease.operation_id != request.plan.operation_id
+        ):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "验证回调节点或操作不匹配")
+        verification = await verifier.verify(
+            request.plan,
+            request.lease,
+            request.access_token,
+        )
+        return RemoteVerificationResult(verification=verification)
+
+    router.add_api_route(
+        "/v1/operations:verify-callback",
+        verify_callback,
+        methods=["POST"],
+    )
+    return router

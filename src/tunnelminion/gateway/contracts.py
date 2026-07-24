@@ -12,8 +12,10 @@ from tunnelminion.domain.tools import Platform, ToolDefinition
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.operation.contracts import (
     OPERATION_PROTOCOL_VERSION,
+    LeaseRecord,
     OperationPlan,
     OperationSummary,
+    VerificationRecord,
 )
 from tunnelminion.tools.contracts import ToolExecutionStatus
 
@@ -107,6 +109,16 @@ class RemoteOperationSubmission(BaseModel):
     plan: OperationPlan
 
 
+class RequesterVerificationCallback(BaseModel):
+    """请求节点临时开放、且只用于本次执行的验证回调。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    endpoint: str = Field(pattern=r"^http://[^/]+(?::[0-9]+)?$")
+    token: str = Field(min_length=43, max_length=512, repr=False)
+    timeout_seconds: float = Field(default=10, gt=0, le=30)
+
+
 class RemoteOperationExecution(BaseModel):
     """只引用目标节点已经持久化且授权的计划。"""
 
@@ -121,6 +133,27 @@ class RemoteOperationExecution(BaseModel):
     thread_id: ThreadId
     run_id: RunId
     tool_run_ids: tuple[ToolRunId, ...] = ()
+    verification_callback: RequesterVerificationCallback | None = None
+
+
+class RemoteVerificationRequest(BaseModel):
+    """目标节点向请求节点传递的一次性验证材料。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = GATEWAY_PROTOCOL
+    plan: OperationPlan
+    lease: LeaseRecord
+    access_token: str = Field(min_length=43, max_length=512, repr=False)
+
+
+class RemoteVerificationResult(BaseModel):
+    """请求节点沿自己的真实网络路径生成的验证证据。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = GATEWAY_PROTOCOL
+    verification: VerificationRecord
 
 
 class RemoteOperationResult(BaseModel):

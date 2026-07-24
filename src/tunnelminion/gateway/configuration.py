@@ -244,6 +244,7 @@ class GatewayConfigurationService:
                     token,
                     peer.allowed_tools,
                     peer.allowed_operations,
+                    source_host=peer.host,
                 )
             )
         return GatewaySecurityPolicy(policies, config.limits)

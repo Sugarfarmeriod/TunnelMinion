@@ -7,6 +7,7 @@ import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -28,7 +29,7 @@ from tunnelminion.gateway.contracts import (
     RemoteToolCall,
     RemoteToolResult,
 )
-from tunnelminion.gateway.operations import TargetOperationGatewayService
+from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.operation.contracts import OperationSummary
 from tunnelminion.tools.contracts import (
@@ -376,6 +377,18 @@ def create_gateway_router(
                 "operation_execute",
                 peer,
             )
+        verifier = None
+        if request.verification_callback is not None:
+            callback_url = urlsplit(request.verification_callback.endpoint)
+            if peer.source_host is None or callback_url.hostname != peer.source_host:
+                return reject(
+                    status.HTTP_403_FORBIDDEN,
+                    GatewayErrorCode.FORBIDDEN,
+                    "验证回调必须指向认证 peer 的显式 WireGuard 地址",
+                    "operation_execute",
+                    peer,
+                )
+            verifier = CallbackRequesterVerifier(request.verification_callback)
         try:
             record = await operation_service.execute(
                 operation_id=request.operation_id,
@@ -387,6 +400,7 @@ def create_gateway_router(
                 run_id=request.run_id,
                 tool_run_ids=request.tool_run_ids,
                 at=datetime.now(UTC),
+                verifier=verifier,
             )
         except ValueError as exc:
             code = (

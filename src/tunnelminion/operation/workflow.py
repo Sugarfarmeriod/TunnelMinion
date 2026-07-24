@@ -174,6 +174,7 @@ class OperationWorkflow:
         *,
         at: datetime,
         usage: WorkflowUsage | None = None,
+        verifier: RequesterVerifier | None = None,
     ) -> OperationRecord:
         """重读实时状态后执行一次已授权操作，绝不重放已有执行。"""
         usage = usage or WorkflowUsage()
@@ -258,7 +259,11 @@ class OperationWorkflow:
         )
         self._operations.put(verifying)
         try:
-            verification = await self._verifier.verify(verifying.plan, lease, access_token)
+            verification = await (verifier or self._verifier).verify(
+                verifying.plan,
+                lease,
+                access_token,
+            )
         except Exception:
             verification = VerificationRecord(
                 operation_id=operation_id,

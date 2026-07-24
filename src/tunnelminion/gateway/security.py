@@ -55,6 +55,7 @@ class GatewayPeerPolicy:
     token_digest: bytes
     allowed_tools: frozenset[str]
     allowed_operations: frozenset[str] = frozenset()
+    source_host: str | None = None
 
     @classmethod
     def from_token(
@@ -63,6 +64,8 @@ class GatewayPeerPolicy:
         token: str,
         allowed_tools: Iterable[str],
         allowed_operations: Iterable[str] = (),
+        *,
+        source_host: str | None = None,
     ) -> GatewayPeerPolicy:
         """把独立应用令牌立即转换为 SHA-256 摘要。"""
         if len(token) < 32:
@@ -75,6 +78,7 @@ class GatewayPeerPolicy:
             hashlib.sha256(token.encode()).digest(),
             tools,
             frozenset(allowed_operations),
+            source_host,
         )
 
 
