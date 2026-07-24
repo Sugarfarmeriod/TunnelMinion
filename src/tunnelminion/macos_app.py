@@ -29,6 +29,7 @@ from tunnelminion.model.configuration import (
     ModelConfigurationService,
 )
 from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.platforms.macos.adapters import (
     DockerServicesAdapter,
     MacOSNodeSummaryAdapter,
@@ -49,6 +50,7 @@ from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.memory import create_memory_router
+from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.resources import create_resource_router
 
 
@@ -72,6 +74,7 @@ class MacOSLocalApplication:
     node: MacOSNode
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
+    operation_control_service: OperationControlService
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前 macOS 模型配置创建一次本地 Agent。"""
@@ -153,12 +156,24 @@ def build_macos_local_application(
         node.node_id, lambda: _create_macos_read_only_agent(node), stores.checkpoints
     )
     memories = LongTermMemoryService(stores.memories)
+    authorization = AuthorizationService(
+        stores.operations,
+        stores.preauthorizations,
+        OperationPolicy(node.tool_registry, stores.preauthorizations),
+    )
+    operation_control = OperationControlService(
+        node_id=node.node_id,
+        operations=stores.operations,
+        preauthorizations=stores.preauthorizations,
+        authorization=authorization,
+    )
     app = FastAPI(title="TunnelMinion", docs_url="/api/docs")
     app.include_router(create_model_router(node.model_service))
     app.include_router(create_resource_router(node.tool_runtime, node.node_id))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
-    return MacOSLocalApplication(app, node, conversations, memories)
+    app.include_router(create_operation_router(operation_control))
+    return MacOSLocalApplication(app, node, conversations, memories, operation_control)
 
 
 def create_macos_app() -> FastAPI:

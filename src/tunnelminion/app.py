@@ -21,6 +21,7 @@ from tunnelminion.model.configuration import (
     ModelConfigurationService,
 )
 from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
     NetworkListenersAdapter,
@@ -44,6 +45,7 @@ from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.memory import create_memory_router
+from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.resources import create_resource_router
 
 
@@ -59,6 +61,7 @@ class WindowsApplication:
     tool_registry: ToolRegistry
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
+    operation_control_service: OperationControlService
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
@@ -126,11 +129,23 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
     stores = SQLiteStores.open(root / "runtime.sqlite3")
     conversations = InMemoryConversationService(node_id, create_agent, stores.checkpoints)
     memories = LongTermMemoryService(stores.memories)
+    authorization = AuthorizationService(
+        stores.operations,
+        stores.preauthorizations,
+        OperationPolicy(registry, stores.preauthorizations),
+    )
+    operation_control = OperationControlService(
+        node_id=node_id,
+        operations=stores.operations,
+        preauthorizations=stores.preauthorizations,
+        authorization=authorization,
+    )
     app = FastAPI(title="TunnelMinion", docs_url="/api/docs")
     app.include_router(create_model_router(model_service))
     app.include_router(create_resource_router(runtime, node_id))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
+    app.include_router(create_operation_router(operation_control))
     return WindowsApplication(
         app,
         node_id,
@@ -140,6 +155,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         registry,
         conversations,
         memories,
+        operation_control,
     )
 
 

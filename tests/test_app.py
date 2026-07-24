@@ -109,7 +109,10 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/resources/node-summary" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
+    assert "/api/operations" in paths
+    assert "/api/preauthorizations" in paths
     assert "/resources" in paths
+    assert "/operations" in paths
     assert bundle.node_id
     assert bundle.audit_sink.records == []
     assert bundle.tool_runtime
