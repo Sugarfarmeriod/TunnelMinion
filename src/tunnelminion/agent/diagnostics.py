@@ -9,6 +9,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from tunnelminion.agent.planning import CandidateOperationPlanner, CandidatePlanIntent
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.runtime import AgentToolExecutor
 from tunnelminion.agent.services import (
@@ -27,6 +28,11 @@ from tunnelminion.model.contracts import (
     ModelRequest,
     ModelUsage,
     ProviderError,
+)
+from tunnelminion.operation.contracts import (
+    OperationPlan,
+    PlanFailureAttribution,
+    PlanGenerationTrace,
 )
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -112,14 +118,24 @@ class CrossNodeAgentAnswer(BaseModel):
     report: CrossNodeDiagnosticReport | None = None
     elapsed_ms: float = 0.0
     model_usage: ModelUsage | None = None
+    candidate_plan: OperationPlan | None = None
+    plan_trace: PlanGenerationTrace | None = None
+    plan_error_code: str | None = None
+    plan_failure_attribution: PlanFailureAttribution | None = None
 
 
 class CrossNodeDiagnosticAgent:
     """先运行确定性诊断，再让模型解释，不允许模型新增系统动作。"""
 
-    def __init__(self, workflow: CrossNodeDiagnosticWorkflow, provider: ModelProvider) -> None:
+    def __init__(
+        self,
+        workflow: CrossNodeDiagnosticWorkflow,
+        provider: ModelProvider,
+        planner: CandidateOperationPlanner | None = None,
+    ) -> None:
         self._workflow = workflow
         self._provider = provider
+        self._planner = planner or CandidateOperationPlanner(provider)
 
     async def answer(
         self,
@@ -128,6 +144,7 @@ class CrossNodeDiagnosticAgent:
         target_host: str,
         *,
         port: int | None = None,
+        plan_intent: CandidatePlanIntent | None = None,
         tool_cancellation: ToolCancellationToken | None = None,
         model_cancellation: CancellationToken | None = None,
     ) -> CrossNodeAgentAnswer:
@@ -161,24 +178,57 @@ class CrossNodeDiagnosticAgent:
                 ),
             )
         )
+        explanation: str | None = None
+        model_error_code: str | None = None
+        model_usage: ModelUsage | None = None
         try:
             response = await self._provider.complete(request, model_cancellation)
             explanation = response.content.strip() if response.content else None
-            answer = f"{explanation}\n\n确定性证据结论：\n{fallback}" if explanation else fallback
-            return CrossNodeAgentAnswer(
-                answer=answer,
-                model_explanation=explanation,
-                report=report,
-                elapsed_ms=(perf_counter() - started_at) * 1000,
-                model_usage=response.usage,
-            )
+            model_usage = response.usage
         except ProviderError as exc:
-            return CrossNodeAgentAnswer(
-                answer=f"模型解释不可用（{exc.code.value}）。\n\n确定性证据结论：\n{fallback}",
-                model_error_code=exc.code.value,
+            model_error_code = exc.code.value
+
+        candidate_plan: OperationPlan | None = None
+        plan_trace: PlanGenerationTrace | None = None
+        plan_error_code: str | None = None
+        plan_failure_attribution: PlanFailureAttribution | None = None
+        if plan_intent is not None:
+            generated = await self._planner.generate(
+                question=question,
                 report=report,
-                elapsed_ms=(perf_counter() - started_at) * 1000,
+                context=context,
+                intent=plan_intent,
+                cancellation=model_cancellation,
             )
+            candidate_plan = generated.plan
+            if generated.plan is not None:
+                plan_trace = generated.plan.generation_trace
+            elif generated.failure is not None:
+                plan_error_code = generated.failure.code
+                plan_failure_attribution = generated.failure.attribution
+
+        if explanation:
+            answer = f"{explanation}\n\n确定性证据结论：\n{fallback}"
+        elif model_error_code is not None:
+            answer = f"模型解释不可用（{model_error_code}）。\n\n确定性证据结论：\n{fallback}"
+        else:
+            answer = fallback
+        if candidate_plan is not None:
+            answer += "\n\n已生成无权限的 L2 候选计划；仍需目标节点策略校验与本地授权。"
+        elif plan_error_code is not None:
+            answer += f"\n\n候选计划未生成（{plan_error_code}），只读诊断结果仍然有效。"
+        return CrossNodeAgentAnswer(
+            answer=answer,
+            model_explanation=explanation,
+            model_error_code=model_error_code,
+            report=report,
+            elapsed_ms=(perf_counter() - started_at) * 1000,
+            model_usage=model_usage,
+            candidate_plan=candidate_plan,
+            plan_trace=plan_trace,
+            plan_error_code=plan_error_code,
+            plan_failure_attribution=plan_failure_attribution,
+        )
 
 
 class CrossNodeDiagnosticWorkflow:

@@ -135,6 +135,39 @@ class AccessScope(BaseModel):
     duration_seconds: int = Field(ge=1, le=86_400)
 
 
+class PlanFailureAttribution(StrEnum):
+    """候选计划失败时使用的稳定工程边界。"""
+
+    CONTEXT = "context"
+    PROMPT_OR_MODEL = "prompt_or_model"
+    HARNESS_OR_TOOL = "harness_or_tool"
+    GOVERNANCE = "governance"
+
+
+class PlanGenerationTrace(BaseModel):
+    """候选计划生成时可持久化、但不包含秘密的上下文摘要。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prompt_id: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=64)
+    provider_name: str = Field(min_length=1, max_length=128)
+    model_name: str = Field(min_length=1, max_length=256)
+    tool_schema_version: str = Field(min_length=1, max_length=64)
+    evidence_snapshot_version: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    context_schema_version: str = Field(min_length=1, max_length=64)
+    message_count: int = Field(ge=0)
+    tool_count: int = Field(ge=0)
+    result_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    input_chars: int = Field(ge=0)
+    truncated_items: int = Field(ge=0)
+    realtime_evidence_precedence: bool
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+
+
 def compute_idempotency_key(
     *,
     request_node_id: NodeId,
@@ -179,6 +212,7 @@ class OperationPlan(BaseModel):
     risk_summary: str = Field(min_length=1, max_length=2_000)
     verification_method: str = Field(min_length=1, max_length=2_000)
     rollback_method: str = Field(min_length=1, max_length=2_000)
+    generation_trace: PlanGenerationTrace | None = None
     created_at: datetime
 
     @model_validator(mode="after")
@@ -197,6 +231,10 @@ class OperationPlan(BaseModel):
             raise ValueError("幂等键与计划稳定字段不一致")
         if self.request_node_id != self.access_scope.allowed_peer_id:
             raise ValueError("访问范围必须限制为计划请求节点")
+        if self.generation_trace is not None and self.generation_trace.evidence_count != len(
+            self.tool_run_ids
+        ):
+            raise ValueError("候选计划追踪的证据数量与工具证据引用不一致")
         return self
 
 

@@ -21,6 +21,7 @@ from tunnelminion.model.configuration import (
     ModelConfigurationService,
 )
 from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.operation.definitions import register_safe_http_sharing_operation
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
@@ -120,6 +121,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
             node_summary=node_summary,
         ),
     )
+    register_safe_http_sharing_operation(registry)
     runtime = ToolRuntime(registry, Platform.WINDOWS, audit)
 
     def create_agent() -> LangChainReadOnlyAgent:

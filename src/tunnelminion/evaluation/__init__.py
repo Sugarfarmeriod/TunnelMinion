@@ -1,6 +1,15 @@
 """确定性的 Agent 评估基础组件。"""
 
 from tunnelminion.evaluation.fakes import FakeModel, FakeToolRuntime, SmokeResult, run_smoke
+from tunnelminion.evaluation.operations import (
+    OperationEvaluationCase,
+    OperationEvaluationDataset,
+    OperationEvaluationMetrics,
+    OperationEvaluationReport,
+    ZeroToleranceViolation,
+    require_operation_release_gate,
+    run_operation_evaluation,
+)
 from tunnelminion.evaluation.runner import (
     EvaluationComparison,
     EvaluationMetrics,
@@ -28,6 +37,10 @@ __all__ = [
     "EvaluationScenario",
     "FakeModel",
     "FakeToolRuntime",
+    "OperationEvaluationCase",
+    "OperationEvaluationDataset",
+    "OperationEvaluationMetrics",
+    "OperationEvaluationReport",
     "RecordedModelUsage",
     "ScenarioEvaluation",
     "ScriptedModelTurn",
@@ -35,8 +48,11 @@ __all__ = [
     "SmokeResult",
     "ToolAttempt",
     "ToolFixture",
+    "ZeroToleranceViolation",
     "compare_reports",
+    "require_operation_release_gate",
     "run_dataset",
+    "run_operation_evaluation",
     "run_scenario",
     "run_smoke",
 ]

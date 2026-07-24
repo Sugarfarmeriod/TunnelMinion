@@ -15,6 +15,11 @@ from tunnelminion.agent.diagnostics import (
     CrossNodeDiagnosticWorkflow,
     PreparedRemoteToolSet,
 )
+from tunnelminion.agent.planning import (
+    CandidateOperationPlanner,
+    CandidatePlanIntent,
+    CandidatePlanResult,
+)
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.services import CrossNodeReachability
 from tunnelminion.domain.errors import ErrorCode
@@ -29,6 +34,7 @@ from tunnelminion.model.contracts import (
     ProviderErrorCode,
     ToolCall,
 )
+from tunnelminion.operation.contracts import OperationLevel, PlanFailureAttribution
 from tunnelminion.platforms.windows.models import (
     Availability,
     ReachabilityResult,
@@ -190,14 +196,23 @@ class FakeLocalExecutor:
 class ExplainingProvider:
     """记录无工具解释请求，并可模拟模型失败或越界工具响应。"""
 
-    def __init__(self, *, fail: bool = False, return_tool: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        return_tool: bool = False,
+        structured_output: bool = True,
+        malformed_plan: bool = False,
+    ) -> None:
         self.fail = fail
         self.return_tool = return_tool
+        self.structured_output = structured_output
+        self.malformed_plan = malformed_plan
         self.requests: list[ModelRequest] = []
 
     @property
     def capabilities(self) -> ModelCapabilities:
-        return ModelCapabilities(tool_calls=True, structured_output=True)
+        return ModelCapabilities(tool_calls=True, structured_output=self.structured_output)
 
     async def complete(
         self,
@@ -208,6 +223,24 @@ class ExplainingProvider:
         self.requests.append(request)
         if self.fail:
             raise ProviderError(ProviderErrorCode.TIMEOUT, "模型超时", retryable=True)
+        if request.response_schema is not None:
+            if self.return_tool:
+                return ModelResponse(
+                    tool_calls=(
+                        ToolCall(call_id="forbidden", name="restart_service", arguments={}),
+                    )
+                )
+            if self.malformed_plan:
+                return ModelResponse(structured_output={})
+            return ModelResponse(
+                structured_output={
+                    "expected_change": "创建仅限指定 peer 的临时 HTTP 私网入口",
+                    "risk_summary": "入口会临时扩大私网内的服务访问面",
+                    "verification_method": "由请求节点沿 WireGuard 路径验证健康端点",
+                    "rollback_method": "停止并删除本次操作拥有的临时代理资源",
+                },
+                usage=ModelUsage(input_tokens=20, output_tokens=10, total_tokens=30),
+            )
         if self.return_tool:
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="forbidden", name="restart_service", arguments={}),)
@@ -353,6 +386,345 @@ def test_diagnostic_agent_uses_safe_fallback_for_model_failure_or_tool_response(
     assert tool_response.model_explanation is None
     assert "restart_service" not in tool_response.answer
     assert "没有开放端口" in tool_response.answer
+
+
+def test_diagnostic_agent_generates_traced_candidate_plan_from_latest_evidence() -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    preparer = FakePreparer(
+        ("list_network_listeners", "get_process_summary", "list_docker_services")
+    )
+    provider = ExplainingProvider()
+    agent = CrossNodeDiagnosticAgent(
+        CrossNodeDiagnosticWorkflow(preparer, FakeLocalExecutor(), local),
+        provider,
+        CandidateOperationPlanner(
+            provider,
+            provider_name="fake-provider",
+            model_name="fake-model",
+        ),
+    )
+
+    answer = run(
+        agent.answer(
+            "请让 A 临时访问 B 的 PDF 服务",
+            context(local, remote),
+            "10.77.0.1",
+            port=8080,
+            plan_intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+
+    assert answer.candidate_plan is not None
+    assert answer.candidate_plan.level is OperationLevel.L2
+    assert answer.candidate_plan.request_node_id == local
+    assert answer.candidate_plan.target_node_id == remote
+    assert answer.candidate_plan.service.port == 8080
+    assert answer.candidate_plan.access_scope.bind_port == 18881
+    assert answer.candidate_plan.generation_trace is not None
+    assert answer.candidate_plan.generation_trace.prompt_version == "v1"
+    assert answer.candidate_plan.generation_trace.provider_name == "fake-provider"
+    assert answer.candidate_plan.generation_trace.evidence_count == len(
+        answer.candidate_plan.tool_run_ids
+    )
+    assert answer.candidate_plan.generation_trace.realtime_evidence_precedence
+    assert answer.plan_trace == answer.candidate_plan.generation_trace
+    assert answer.plan_error_code is None
+    assert "无权限的 L2 候选计划" in answer.answer
+    assert len(provider.requests) == 2
+    assert provider.requests[1].response_schema is not None
+    assert provider.requests[1].tools == ()
+    assert "untrusted-tool-data" in provider.requests[1].messages[-1].content
+
+
+def test_candidate_plan_failure_does_not_remove_diagnostic_result() -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    preparer = FakePreparer(
+        ("list_network_listeners", "get_process_summary", "list_docker_services")
+    )
+    provider = ExplainingProvider(fail=True)
+    answer = run(
+        CrossNodeDiagnosticAgent(
+            CrossNodeDiagnosticWorkflow(preparer, FakeLocalExecutor(), local),
+            provider,
+        ).answer(
+            "请临时共享 PDF 服务",
+            context(local, remote),
+            "10.77.0.1",
+            port=8080,
+            plan_intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+
+    assert answer.candidate_plan is None
+    assert answer.plan_error_code == "timeout"
+    assert answer.plan_failure_attribution is PlanFailureAttribution.PROMPT_OR_MODEL
+    assert answer.report is not None
+    assert "local-only" in answer.answer
+    assert "候选计划未生成" in answer.answer
+
+
+@pytest.mark.parametrize(
+    ("provider", "code"),
+    [
+        (
+            ExplainingProvider(structured_output=False),
+            "structured_output_unavailable",
+        ),
+        (ExplainingProvider(return_tool=True), "invalid_plan_response"),
+        (ExplainingProvider(malformed_plan=True), "invalid_plan_response"),
+    ],
+)
+def test_candidate_plan_requires_valid_structured_model_output(
+    provider: ExplainingProvider,
+    code: str,
+) -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    report = run(
+        CrossNodeDiagnosticWorkflow(
+            FakePreparer(("list_network_listeners", "get_process_summary", "list_docker_services")),
+            FakeLocalExecutor(),
+            local,
+        ).inspect(context(local, remote), "10.77.0.1")
+    )
+
+    result = run(
+        CandidateOperationPlanner(provider).generate(
+            question="临时共享 PDF",
+            report=report,
+            context=context(local, remote),
+            intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+
+    assert result.plan is None
+    assert result.failure is not None
+    assert result.failure.code == code
+
+
+def test_candidate_plan_rejects_invalid_host_and_missing_tool_evidence() -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    workflow = CrossNodeDiagnosticWorkflow(
+        FakePreparer(("list_network_listeners", "get_process_summary", "list_docker_services")),
+        FakeLocalExecutor(),
+        local,
+    )
+    report = run(workflow.inspect(context(local, remote), "10.77.0.1"))
+    planner = CandidateOperationPlanner(ExplainingProvider())
+    invalid_host = run(
+        planner.generate(
+            question="临时共享 PDF",
+            report=report,
+            context=context(local, remote),
+            intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="not-an-ip",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+    assert invalid_host.failure is not None
+    assert invalid_host.failure.code == "private_bind_address_required"
+
+    missing_evidence = report.model_copy(
+        update={
+            "diagnostics": (
+                report.diagnostics[0].model_copy(update={"evidence": ()}),
+                *report.diagnostics[1:],
+            )
+        }
+    )
+    result = run(
+        planner.generate(
+            question="临时共享 PDF",
+            report=missing_evidence,
+            context=context(local, remote),
+            intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+    assert result.failure is not None
+    assert result.failure.code == "verified_evidence_required"
+    assert result.failure.attribution is PlanFailureAttribution.HARNESS_OR_TOOL
+
+
+def test_agent_accepts_injected_candidate_plan_without_trace() -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    workflow = CrossNodeDiagnosticWorkflow(
+        FakePreparer(("list_network_listeners", "get_process_summary", "list_docker_services")),
+        FakeLocalExecutor(),
+        local,
+    )
+    report = run(workflow.inspect(context(local, remote), "10.77.0.1"))
+    generated = run(
+        CandidateOperationPlanner(ExplainingProvider()).generate(
+            question="临时共享 PDF",
+            report=report,
+            context=context(local, remote),
+            intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+    assert generated.plan is not None
+    untraced = generated.plan.model_copy(update={"generation_trace": None})
+
+    class UntracedPlanner(CandidateOperationPlanner):
+        async def generate(self, **_kwargs: object) -> CandidatePlanResult:
+            return CandidatePlanResult(plan=untraced)
+
+    answer = run(
+        CrossNodeDiagnosticAgent(
+            workflow,
+            ExplainingProvider(),
+            UntracedPlanner(ExplainingProvider()),
+        ).answer(
+            "临时共享 PDF",
+            context(local, remote),
+            "10.77.0.1",
+            plan_intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+    assert answer.candidate_plan == untraced
+    assert answer.plan_trace is None
+
+    class EmptyPlanner(CandidateOperationPlanner):
+        async def generate(self, **_kwargs: object) -> CandidatePlanResult:
+            return CandidatePlanResult()
+
+    empty = run(
+        CrossNodeDiagnosticAgent(
+            workflow,
+            ExplainingProvider(),
+            EmptyPlanner(ExplainingProvider()),
+        ).answer(
+            "只诊断",
+            context(local, remote),
+            "10.77.0.1",
+            plan_intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+    assert empty.candidate_plan is None
+    assert empty.plan_error_code is None
+
+
+@pytest.mark.parametrize(
+    ("intent", "code"),
+    [
+        (
+            CandidatePlanIntent(
+                confirmed=False,
+                service_port=8080,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+            "explicit_intent_required",
+        ),
+        (
+            CandidatePlanIntent(
+                confirmed=True,
+                service_port=8080,
+                bind_host="127.0.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+            "private_bind_address_required",
+        ),
+        (
+            CandidatePlanIntent(
+                confirmed=True,
+                service_port=12345,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+            "service_evidence_ambiguous",
+        ),
+        (
+            CandidatePlanIntent(
+                confirmed=True,
+                service_port=9090,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+            "service_not_local_http_candidate",
+        ),
+    ],
+)
+def test_candidate_plan_requires_explicit_safe_current_context(
+    intent: CandidatePlanIntent,
+    code: str,
+) -> None:
+    local, remote = NodeId.new(), NodeId.new()
+    provider = ExplainingProvider()
+    answer = run(
+        CrossNodeDiagnosticAgent(
+            CrossNodeDiagnosticWorkflow(
+                FakePreparer(
+                    ("list_network_listeners", "get_process_summary", "list_docker_services")
+                ),
+                FakeLocalExecutor(),
+                local,
+            ),
+            provider,
+        ).answer(
+            "请临时共享服务",
+            context(local, remote),
+            "10.77.0.1",
+            port=intent.service_port,
+            plan_intent=intent,
+        )
+    )
+
+    assert answer.candidate_plan is None
+    assert answer.plan_error_code == code
+    assert answer.plan_failure_attribution in {
+        PlanFailureAttribution.CONTEXT,
+        PlanFailureAttribution.GOVERNANCE,
+    }
+    assert len(provider.requests) == 1
 
 
 @pytest.mark.parametrize("code", [ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT])

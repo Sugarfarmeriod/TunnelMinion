@@ -30,6 +30,7 @@ from tunnelminion.operation.contracts import (
     OperationStatus,
     OperationSummary,
     OperationTransition,
+    PlanGenerationTrace,
     VerificationResult,
     compute_idempotency_key,
     transition_operation,
@@ -67,6 +68,29 @@ def test_plan_validates_protocol_idempotency_key_and_request_scope() -> None:
                     plan_version=valid.plan_version,
                     service_fingerprint=valid.service.fingerprint,
                     access_scope=invalid_scope,
+                ),
+            }
+        )
+
+    with pytest.raises(ValidationError, match="证据数量"):
+        OperationPlan.model_validate(
+            {
+                **valid.model_dump(),
+                "generation_trace": PlanGenerationTrace(
+                    prompt_id="plan",
+                    prompt_version="v1",
+                    provider_name="provider",
+                    model_name="model",
+                    tool_schema_version="v1",
+                    evidence_snapshot_version=f"sha256:{'a' * 64}",
+                    context_schema_version="v1",
+                    message_count=2,
+                    tool_count=0,
+                    result_count=1,
+                    evidence_count=0,
+                    input_chars=100,
+                    truncated_items=0,
+                    realtime_evidence_precedence=True,
                 ),
             }
         )

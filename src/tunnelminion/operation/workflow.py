@@ -32,6 +32,7 @@ from tunnelminion.operation.contracts import (
     OperationRecord,
     OperationStatus,
     OperationStore,
+    PlanGenerationTrace,
     ResourceOwnership,
     ServiceEvidence,
     VerificationRecord,
@@ -62,6 +63,7 @@ def build_operation_plan(
     verification_method: str,
     rollback_method: str,
     created_at: datetime,
+    generation_trace: PlanGenerationTrace | None = None,
     plan_version: int = 1,
     operation_id: OperationId | None = None,
 ) -> OperationPlan:
@@ -91,6 +93,7 @@ def build_operation_plan(
         risk_summary=risk_summary,
         verification_method=verification_method,
         rollback_method=rollback_method,
+        generation_trace=generation_trace,
         created_at=created_at,
     )
 

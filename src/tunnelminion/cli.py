@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
@@ -126,6 +127,85 @@ def _configure_gateway(values: list[str]) -> int:
     return 0
 
 
+def _approve_operation(values: list[str]) -> int:
+    """由目标节点本地 CLI 记录一次性批准，不通过聊天或远端 API 授权。"""
+    parser = argparse.ArgumentParser(description="批准一项本地待授权操作")
+    parser.add_argument("operation-approve")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--operation-id", required=True)
+    parser.add_argument("--valid-seconds", type=int, default=300)
+    parser.add_argument("--operator", default="target-local-cli")
+    args = parser.parse_args(values)
+    if not 1 <= args.valid_seconds <= 86_400:
+        parser.error("--valid-seconds 必须在 1 到 86400 之间")
+
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.domain.identifiers import OperationId
+    from tunnelminion.macos_app import build_macos_local_application
+    from tunnelminion.web.operations import ApproveInput
+
+    root = args.data_dir or default_data_dir()
+    bundle = build_macos_local_application(root)
+    summary = bundle.operation_control_service.approve(
+        OperationId(args.operation_id),
+        ApproveInput(
+            operator=args.operator,
+            expires_at=datetime.now(UTC) + timedelta(seconds=args.valid_seconds),
+        ),
+    )
+    print(summary.model_dump_json())
+    return 0
+
+
+def _create_operation_preauthorization(values: list[str]) -> int:
+    """由目标节点本地 CLI 创建全部维度受限的临时 L2 预授权。"""
+    parser = argparse.ArgumentParser(description="创建本地临时服务共享预授权")
+    parser.add_argument("operation-preauthorize")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--request-peer-id", required=True)
+    parser.add_argument("--service-id", required=True)
+    parser.add_argument("--service-fingerprint", required=True)
+    parser.add_argument("--minimum-port", type=int, required=True)
+    parser.add_argument("--maximum-port", type=int, required=True)
+    parser.add_argument("--maximum-duration", type=int, required=True)
+    parser.add_argument("--valid-seconds", type=int, default=300)
+    parser.add_argument("--operator", default="target-local-cli")
+    args = parser.parse_args(values)
+    if not 1 <= args.valid_seconds <= 86_400:
+        parser.error("--valid-seconds 必须在 1 到 86400 之间")
+
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.macos_app import build_macos_local_application
+    from tunnelminion.web.operations import PreauthorizationInput
+
+    now = datetime.now(UTC)
+    root = args.data_dir or default_data_dir()
+    bundle = build_macos_local_application(root)
+    authorization = bundle.operation_control_service.create_preauthorization(
+        PreauthorizationInput(
+            request_peer_id=NodeId(args.request_peer_id),
+            tool_name="share_local_http_service",
+            service_ids=frozenset({args.service_id}),
+            service_fingerprints=frozenset({args.service_fingerprint}),
+            minimum_port=args.minimum_port,
+            maximum_port=args.maximum_port,
+            maximum_duration_seconds=args.maximum_duration,
+            valid_from=now,
+            valid_until=now + timedelta(seconds=args.valid_seconds),
+            created_by=args.operator,
+            confirm_peer=True,
+            confirm_tool=True,
+            confirm_service=True,
+            confirm_port=True,
+            confirm_duration=True,
+            confirm_validity=True,
+        )
+    )
+    print(authorization.model_dump_json())
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
@@ -135,14 +215,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _uninstall_data(values)
     if values and values[0] == "gateway-configure":
         return _configure_gateway(values)
+    if values and values[0] == "operation-approve":
+        return _approve_operation(values)
+    if values and values[0] == "operation-preauthorize":
+        return _create_operation_preauthorization(values)
     if values and values[0] == "gateway":
         parser = argparse.ArgumentParser(description="启动 macOS 只读 Tool Gateway")
         parser.add_argument("gateway")
         parser.add_argument("--data-dir", type=Path)
+        parser.add_argument("--enable-safe-sharing", action="store_true")
+        parser.add_argument("--sharing-min-port", type=int, default=18_880)
+        parser.add_argument("--sharing-max-port", type=int, default=18_899)
+        parser.add_argument("--sharing-max-duration", type=int, default=3600)
+        parser.add_argument("--sharing-gateway-port", type=int)
         args = parser.parse_args(values)
-        from tunnelminion.macos_app import build_macos_gateway_application
+        from tunnelminion.macos_app import (
+            SafeSharingGatewaySettings,
+            build_macos_gateway_application,
+        )
 
-        bundle = build_macos_gateway_application(args.data_dir)
+        sharing = (
+            SafeSharingGatewaySettings(
+                minimum_port=args.sharing_min_port,
+                maximum_port=args.sharing_max_port,
+                maximum_duration_seconds=args.sharing_max_duration,
+                bind_port_override=args.sharing_gateway_port,
+            )
+            if args.enable_safe_sharing
+            else None
+        )
+        bundle = build_macos_gateway_application(args.data_dir, safe_sharing=sharing)
         uvicorn.run(
             bundle.app,
             host=bundle.bind.host,
