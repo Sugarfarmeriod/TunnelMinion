@@ -518,6 +518,9 @@ class OperationSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation_id: OperationId
+    thread_id: ThreadId
+    run_id: RunId
+    tool_run_ids: tuple[ToolRunId, ...]
     request_node_id: NodeId
     target_node_id: NodeId
     tool_name: str
@@ -539,6 +542,9 @@ class OperationSummary(BaseModel):
         """从完整记录构造不含凭据和远端正文的摘要。"""
         return cls(
             operation_id=record.plan.operation_id,
+            thread_id=record.plan.thread_id,
+            run_id=record.plan.run_id,
+            tool_run_ids=record.plan.tool_run_ids,
             request_node_id=record.plan.request_node_id,
             target_node_id=record.plan.target_node_id,
             tool_name=record.plan.tool_name,

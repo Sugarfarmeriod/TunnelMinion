@@ -306,6 +306,8 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
                 "restricted-file",
                 "--allowed-tool",
                 "get_node_summary",
+                "--allowed-operation",
+                "share_local_http_service",
             ]
         )
         == 0
@@ -314,6 +316,7 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
     body = json.loads(output)
     assert body["gateway"]["configured"] is True
     assert body["gateway"]["peers"][0]["allowed_tools"] == ["get_node_summary"]
+    assert body["gateway"]["peers"][0]["allowed_operations"] == ["share_local_http_service"]
     assert token not in output
 
 

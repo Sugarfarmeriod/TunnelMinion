@@ -54,10 +54,15 @@ class GatewayPeerPolicy:
     node_id: NodeId
     token_digest: bytes
     allowed_tools: frozenset[str]
+    allowed_operations: frozenset[str] = frozenset()
 
     @classmethod
     def from_token(
-        cls, node_id: NodeId, token: str, allowed_tools: Iterable[str]
+        cls,
+        node_id: NodeId,
+        token: str,
+        allowed_tools: Iterable[str],
+        allowed_operations: Iterable[str] = (),
     ) -> GatewayPeerPolicy:
         """把独立应用令牌立即转换为 SHA-256 摘要。"""
         if len(token) < 32:
@@ -65,7 +70,12 @@ class GatewayPeerPolicy:
         tools = frozenset(allowed_tools)
         if not tools:
             raise ValueError("节点至少需要一个允许的只读工具")
-        return cls(node_id, hashlib.sha256(token.encode()).digest(), tools)
+        return cls(
+            node_id,
+            hashlib.sha256(token.encode()).digest(),
+            tools,
+            frozenset(allowed_operations),
+        )
 
 
 class GatewaySecurityPolicy:

@@ -47,6 +47,7 @@ def peer(node_id: NodeId | None = None, *, host: str = "10.77.0.2") -> GatewayPe
         host=host,
         port=8787,
         allowed_tools=frozenset({"get_node_summary", "list_network_listeners"}),
+        allowed_operations=frozenset({"share_local_http_service"}),
     )
 
 
@@ -83,6 +84,7 @@ def test_configure_provision_replace_revoke_and_delete(tmp_path: Path) -> None:
     assert token.startswith("tmn_")
     view = service.provision_peer(GatewayPeerInput(peer=first, token=token))
     assert view.peers[0].credential_configured is True
+    assert view.peers[0].allowed_operations == {"share_local_http_service"}
     assert secrets.values[gateway_token_name(first.node_id)] == token
     assert token not in (tmp_path / "gateway.json").read_text(encoding="utf-8")
 

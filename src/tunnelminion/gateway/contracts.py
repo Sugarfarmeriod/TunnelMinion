@@ -7,9 +7,14 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.domain.errors import ToolError
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId, ToolRunId
 from tunnelminion.domain.tools import Platform, ToolDefinition
 from tunnelminion.domain.versioning import ProtocolVersion
+from tunnelminion.operation.contracts import (
+    OPERATION_PROTOCOL_VERSION,
+    OperationPlan,
+    OperationSummary,
+)
 from tunnelminion.tools.contracts import ToolExecutionStatus
 
 GATEWAY_PROTOCOL = ProtocolVersion(major=1, minor=0)
@@ -24,6 +29,11 @@ class GatewayErrorCode(StrEnum):
     UNAUTHENTICATED = "unauthenticated"
     FORBIDDEN = "forbidden"
     RATE_LIMITED = "rate_limited"
+    OPERATION_NOT_ALLOWED = "operation_not_allowed"
+    OPERATION_NOT_FOUND = "operation_not_found"
+    OPERATION_STATE_CONFLICT = "operation_state_conflict"
+    PLAN_TAMPERED = "plan_tampered"
+    RESPONSE_TOO_LARGE = "response_too_large"
 
 
 class GatewayError(BaseModel):
@@ -54,6 +64,8 @@ class GatewayCapabilities(BaseModel):
     node_id: NodeId
     platform: Platform
     tools: tuple[ToolDefinition, ...]
+    operation_protocol: ProtocolVersion = OPERATION_PROTOCOL_VERSION
+    operations: tuple[str, ...] = ()
 
 
 class RemoteToolCall(BaseModel):
@@ -84,3 +96,38 @@ class RemoteToolResult(BaseModel):
     output: JsonValue | None = None
     truncated: bool = False
     error: ToolError | None = None
+
+
+class RemoteOperationSubmission(BaseModel):
+    """请求节点提交到目标节点重新校验的完整计划。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    plan: OperationPlan
+
+
+class RemoteOperationExecution(BaseModel):
+    """只引用目标节点已经持久化且授权的计划。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    operation_id: OperationId
+    plan_version: int = Field(ge=1)
+    idempotency_key: str = Field(pattern=r"^opkey_[0-9a-f]{64}$")
+    request_node_id: NodeId
+    target_node_id: NodeId
+    thread_id: ThreadId
+    run_id: RunId
+    tool_run_ids: tuple[ToolRunId, ...] = ()
+
+
+class RemoteOperationResult(BaseModel):
+    """不含临时凭据的跨节点操作状态信封。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion
+    execution_node_id: NodeId
+    summary: OperationSummary

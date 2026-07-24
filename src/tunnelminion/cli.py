@@ -18,6 +18,7 @@ _MACOS_READ_ONLY_TOOLS = (
     "probe_service_reachability",
     "get_node_summary",
 )
+_SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
@@ -73,6 +74,11 @@ def _configure_gateway(values: list[str]) -> int:
     parser.add_argument("--peer-port", type=int, default=8787)
     parser.add_argument("--allowed-tool", action="append", choices=_MACOS_READ_ONLY_TOOLS)
     parser.add_argument(
+        "--allowed-operation",
+        action="append",
+        choices=_SUPPORTED_REMOTE_OPERATIONS,
+    )
+    parser.add_argument(
         "--secret-store",
         choices=("keyring", "restricted-file"),
         default="keyring",
@@ -106,6 +112,7 @@ def _configure_gateway(values: list[str]) -> int:
                 host=args.peer_host,
                 port=args.peer_port,
                 allowed_tools=frozenset(args.allowed_tool or _MACOS_READ_ONLY_TOOLS),
+                allowed_operations=frozenset(args.allowed_operation or ()),
             ),
             token=token,
         )
