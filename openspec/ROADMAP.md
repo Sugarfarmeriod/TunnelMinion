@@ -144,6 +144,16 @@ Agent 应完成以下闭环：
 
 当前 change：`approve-and-share-local-service`。
 
+### 阶段 2.5：统一 Prompt 与 Context Runtime
+
+- 让所有生产模型调用经过统一、可追踪且有预算的上下文组装路径。
+- 继续对话时组合近期原文、滚动摘要、动态工具、工具结果、制品引用和经确认的相关记忆。
+- 固定“实时工具证据 > 已确认适用记忆 > 历史摘要 > 模型推断”的事实优先级。
+- 建立最小 prompt 注册、版本、输入契约、变更记录和黄金/对抗评估。
+- 将失败区分为上下文、prompt/模型、工具 Harness 和治理问题，并保持无模型时的确定性降级路径。
+
+建议 change：`integrate-agent-context-and-prompt-runtime`。
+
 ### 阶段 3：Coordinator 与服务目录
 
 - 节点身份注册、撤销、心跳和工具能力发现。
@@ -205,6 +215,8 @@ Agent 应完成以下闭环：
 - 不实现多 Agent 辩论、角色扮演或无明确价值的复杂编排。
 - 不同时实现 WireGuard 自动管理、n2n、游戏全量识别和三端安装包。
 - 不用 RAG、知识图谱或多 Agent 数量作为项目完成度指标。
+- 不用 prompt 长度、上下文窗口占用或所谓 Harness 层数作为项目完成度指标。
+- 不实现自动 prompt 优化、自修改 Harness、通用 Agent/Harness 平台、公共 SaaS 或企业 RBAC。
 - 不允许历史成功记录自动变成权限，也不允许所谓“自进化”修改程序或绕过当前授权。
 
 ## 规划状态
@@ -213,12 +225,21 @@ Agent 应完成以下闭环：
 |---|---|---|
 | 现有组网上的只读分布式 Agent | `deliver-ai-agent-over-existing-mesh` 已完成 | 归档并同步稳定 specs |
 | 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已建立 | 按独立纵向切片实施 |
+| 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已建立 | 在安全操作闭环后按独立 change 实施 |
 | Coordinator 与服务目录 | 路线图候选 | 建立独立 change |
 | WireGuard 自动管理与连接优化 | 旧 `deliver-minimum-viable-mesh` 过大 | 暂停并拆分后重新规划 |
 | Linux 节点 Provider | 旧 change 中混合存在 | 建立独立 change |
 | 本地产品体验 | 路线图候选 | 在安全操作闭环得到真实反馈后提案 |
 | 一键安装、安全升级与卸载 | 路线图候选 | 建立独立 change |
 | 经验证的操作 Playbook/RAG 检索 | 远期候选 | 安全操作数据结构稳定后提案 |
+
+## 经验证经验与多 Agent 的后续边界
+
+- 合规、正确、完整且有执行后验证与回滚记录的操作，可以在后续 change 中抽取为版本化 Playbook 候选。
+- Playbook 可以使用关键词、结构化过滤或 RAG 思路检索，但命中后必须重新读取实时状态、重新校验适用性并重新经过当前授权。
+- 跨节点共享经验不共享执行权限，已成功历史不能成为自动执行或扩大预授权的依据。
+- 仅在单 Agent 已出现明确角色冲突时引入多 Agent，例如计划、验证或安全审查需要独立责任；不以 Agent 数量展示复杂度。
+- 上述能力不属于 `integrate-agent-context-and-prompt-runtime` 的实现范围，应按可独立评审的纵向闭环另建 change。
 
 ## 完整性与作品集标准
 
