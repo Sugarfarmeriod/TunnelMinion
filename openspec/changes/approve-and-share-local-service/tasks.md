@@ -88,9 +88,9 @@
 
 ## 9. 文档与后续边界
 
-- [ ] 9.1 更新架构、威胁模型和操作指南，使用“临时共享本机服务”术语，解释 L0～L4、批准、预授权、租约和所有权，并说明 Prompt 工程、Context 工程与 Harness 工程在本流程中的职责边界
-- [ ] 9.2 更新三分钟演示脚本，展示诊断、计划、批准、执行、请求节点验证、临时访问和自动到期
-- [ ] 9.3 记录 Playbook 候选数据结构，只保留适用条件、证据、动作、验证和回滚边界，不在本 change 实现检索或共享
-- [ ] 9.4 明确记录通用 TCP、服务重启、Docker 控制、网络修改、Coordinator、多人权限和成熟独立前端属于后续 change；RAG、跨节点经验共享、多 Agent、自动 prompt 优化、自修改 Harness、通用 Harness 平台和企业 SaaS/RBAC 均不属于本 change
-- [ ] 9.5 编写标准概念映射文档，把 TunnelMinion 当前组件对应到 Prompt 工程、Context 工程、Agent Runtime、Tool Runtime、Harness、治理、评估与可观测性，并明确不以 prompt 长度、Agent 数量、RAG/向量库存在与否或 Harness 层数衡量完成度
+- [x] 9.1 更新架构、威胁模型和操作指南，使用“临时共享本机服务”术语，解释 L0～L4、批准、预授权、租约和所有权，并说明 Prompt 工程、Context 工程与 Harness 工程在本流程中的职责边界
+- [x] 9.2 更新三分钟演示脚本，展示诊断、计划、批准、执行、请求节点验证、临时访问和自动到期
+- [x] 9.3 记录 Playbook 候选数据结构，只保留适用条件、证据、动作、验证和回滚边界，不在本 change 实现检索或共享
+- [x] 9.4 明确记录通用 TCP、服务重启、Docker 控制、网络修改、Coordinator、多人权限和成熟独立前端属于后续 change；RAG、跨节点经验共享、多 Agent、自动 prompt 优化、自修改 Harness、通用 Harness 平台和企业 SaaS/RBAC 均不属于本 change
+- [x] 9.5 编写标准概念映射文档，把 TunnelMinion 当前组件对应到 Prompt 工程、Context 工程、Agent Runtime、Tool Runtime、Harness、治理、评估与可观测性，并明确不以 prompt 长度、Agent 数量、RAG/向量库存在与否或 Harness 层数衡量完成度
 - [ ] 9.6 完成 OpenSpec 场景、自动测试、真机证据与任务的最终对照，准备独立 Pull Request 审阅
