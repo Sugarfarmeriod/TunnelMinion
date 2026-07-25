@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "phase": "submit",
+  "recorded_at": "2026-07-25T04:22:37.470293+00:00",
+  "elapsed_ms": 11846.88,
+  "operation_id": "operation_fdd61652f8a545f8aa6d6e21f8e6ae8d",
+  "status": "awaiting_authorization",
+  "plan": {
+    "protocol_version": {
+      "major": 1,
+      "minor": 0
+    },
+    "operation_id": "operation_fdd61652f8a545f8aa6d6e21f8e6ae8d",
+    "plan_version": 1,
+    "idempotency_key": "opkey_96bbc7c92eda10ac7f2652e1089d9650bcede35c20e489c2f45277d971ba3e23",
+    "request_node_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+    "target_node_id": "node_cdfc8cdc99cc4aef81b63b0fa48dc44f",
+    "thread_id": "thread_a2ab89623ba64d7f8a335343502a3c74",
+    "run_id": "run_3431d4a3fb1e4dbf82e8e6c8c3074a64",
+    "tool_run_ids": [
+      "toolrun_0f63c66972584f74b13edcf6a0c0b985",
+      "toolrun_b53a22d665744f4cb83febd675031b01",
+      "toolrun_2106a5c070f0471b9340fb453585d93a",
+      "toolrun_230b983e09854f11b6b38e60dd96ddbb"
+    ],
+    "tool_name": "share_local_http_service",
+    "level": 2,
+    "service": {
+      "service_id": "http:127.0.0.1:18880:Python",
+      "scheme": "http",
+      "host": "127.0.0.1",
+      "port": 18880,
+      "process_or_container": "Python",
+      "fingerprint": "sha256:873c22ac2c02df6c5e543a74ca73a75e983ca6f19cc44a242b4654b8ed9b52e0",
+      "observed_at": "2026-07-25T04:22:28.612057Z"
+    },
+    "expected_change": "node_cdfc8cdc99cc4aef81b63b0fa48dc44f 将把本地端口 18880 转发至 10.77.0.1:18883，持续 15 秒",
+    "access_scope": {
+      "allowed_peer_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+      "bind_host": "10.77.0.1",
+      "bind_port": 18883,
+      "duration_seconds": 15
+    },
+    "risk_summary": "目标服务仅监听本地环回接口，需依赖网络工具暴露端口，存在短暂暴露面",
+    "verification_method": "在目标节点上监听 18883 端口并尝试连接",
+    "rollback_method": "15 秒后端口映射自动失效",
+    "generation_trace": {
+      "prompt_id": "temporary-service-sharing-plan",
+      "prompt_version": "v1",
+      "provider_name": "openai-compatible",
+      "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+      "tool_schema_version": "share-local-http-service/v1",
+      "evidence_snapshot_version": "sha256:5ef45537d3852c88bc61394b2ffd923302521c39407e11e8fd240983e2ffa87d",
+      "context_schema_version": "candidate-plan-context/v1",
+      "message_count": 2,
+      "tool_count": 0,
+      "result_count": 64,
+      "evidence_count": 4,
+      "input_chars": 1888,
+      "truncated_items": 0,
+      "realtime_evidence_precedence": true,
+      "input_tokens": 880,
+      "output_tokens": 149,
+      "total_tokens": 1029
+    },
+    "created_at": "2026-07-25T04:22:37.357206Z"
+  },
+  "diagnostic": {
+    "port": 18880,
+    "address": "127.0.0.1",
+    "accessibility": "local-only",
+    "reachability": "local-only",
+    "evidence_tool_run_ids": [
+      "toolrun_0f63c66972584f74b13edcf6a0c0b985",
+      "toolrun_b53a22d665744f4cb83febd675031b01",
+      "toolrun_2106a5c070f0471b9340fb453585d93a",
+      "toolrun_230b983e09854f11b6b38e60dd96ddbb"
+    ]
+  },
+  "model_error_code": null,
+  "plan_error_code": null,
+  "model_usage": null,
+  "plan_trace": {
+    "prompt_id": "temporary-service-sharing-plan",
+    "prompt_version": "v1",
+    "provider_name": "openai-compatible",
+    "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+    "tool_schema_version": "share-local-http-service/v1",
+    "evidence_snapshot_version": "sha256:5ef45537d3852c88bc61394b2ffd923302521c39407e11e8fd240983e2ffa87d",
+    "context_schema_version": "candidate-plan-context/v1",
+    "message_count": 2,
+    "tool_count": 0,
+    "result_count": 64,
+    "evidence_count": 4,
+    "input_chars": 1888,
+    "truncated_items": 0,
+    "realtime_evidence_precedence": true,
+    "input_tokens": 880,
+    "output_tokens": 149,
+    "total_tokens": 1029
+  },
+  "audit_record_count": 4,
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "temporary_share_token",
+    "raw_process_and_container_bodies"
+  ]
+}

@@ -158,6 +158,10 @@ async def test_proxy_enforces_peer_token_expiry_and_request_budgets() -> None:
             headers={SHARE_TOKEN_HEADER: TOKEN},
             content=body_stream(),
         )
+        health = await client.get(
+            "/__tunnelminion_health",
+            headers={SHARE_TOKEN_HEADER: TOKEN},
+        )
     assert denied.status_code == 401
     assert accepted.status_code == 200
     assert accepted.json() == {
@@ -168,6 +172,7 @@ async def test_proxy_enforces_peer_token_expiry_and_request_budgets() -> None:
     assert too_large.status_code == 413
     assert invalid_length.status_code == 400
     assert streamed_too_large.status_code == 413
+    assert health.status_code == 204
 
     forbidden_transport = httpx.ASGITransport(app=app, client=("10.77.0.3", 1234))
     async with httpx.AsyncClient(transport=forbidden_transport, base_url="http://proxy") as client:
@@ -584,7 +589,12 @@ def test_uvicorn_runtime_surfaces_startup_and_drain_failure(
     wait_for_listener = http_sharing._wait_for_listener  # pyright: ignore[reportPrivateUsage]
     assert not wait_for_listener("127.0.0.1", _free_loopback_port(), dead_thread)
 
-    def never_ready(_host: str, _port: int, _thread: threading.Thread) -> bool:
+    def never_ready(
+        _host: str,
+        _port: int,
+        _thread: threading.Thread,
+        _server: object | None = None,
+    ) -> bool:
         return False
 
     runtime = UvicornProxyRuntime()

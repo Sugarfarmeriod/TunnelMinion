@@ -292,6 +292,22 @@ async def test_revoke_and_recovery_clean_without_replaying_write(tmp_path: Path)
     assert adapter.create_calls == 0
     assert adapter.cleanup_calls == 1
 
+    active_record = _authorized_record()
+    active_workflow, _, _, _ = _workflow(
+        tmp_path / "recover-active-source.sqlite3",
+        active_record,
+    )
+    active = await active_workflow.execute_authorized(active_record.plan.operation_id, at=NOW)
+    workflow, adapter, _, _ = _workflow(
+        tmp_path / "recover-active.sqlite3",
+        active,
+    )
+    recovered = await workflow.recover_unfinished(at=NOW + timedelta(seconds=1))
+    assert recovered[0].status is OperationStatus.ROLLED_BACK
+    assert recovered[0].metrics.final_result == "recovered_without_replay"
+    assert adapter.create_calls == 0
+    assert adapter.cleanup_calls == 1
+
     rolling_record = _authorized_record()
     rolling = transition_operation(
         rolling_record,

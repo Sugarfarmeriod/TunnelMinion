@@ -223,6 +223,7 @@ class FixedGatewayClient:
                     path,
                     content=content,
                     headers={"Content-Type": "application/json"} if content is not None else None,
+                    timeout=30,
                 )
             except httpx.TimeoutException as exc:
                 raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "远端操作请求超时") from exc

@@ -184,7 +184,7 @@ class UvicornProxyRuntime(ProxyRuntime):
             thread.start()
             timer.daemon = True
             timer.start()
-        if not _wait_for_listener(host, port, thread):
+        if not _wait_for_listener(host, port, thread, server):
             self.stop(host=host, port=port, owner_fingerprint=owner_fingerprint)
             raise RuntimeError("临时 HTTP 入口未能启动")
         return os.getpid()
@@ -226,13 +226,17 @@ def _port_is_occupied(host: str, port: int) -> bool:
     return False
 
 
-def _wait_for_listener(host: str, port: int, thread: threading.Thread) -> bool:
+def _wait_for_listener(
+    host: str,
+    port: int,
+    thread: threading.Thread,
+    server: uvicorn.Server | None = None,
+) -> bool:
+    del host, port
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and thread.is_alive():
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-            client.settimeout(0.1)
-            if client.connect_ex((host, port)) == 0:
-                return True
+        if server is not None and server.started:
+            return True
         time.sleep(0.02)
     return False
 
@@ -281,6 +285,7 @@ def create_bounded_proxy_app(
 
     @app.api_route("/{path:path}", methods=["GET", "POST"])
     async def proxy(path: str, request: Request) -> Response:
+        health_check = path == "__tunnelminion_health"
         client_host = request.client.host if request.client is not None else ""
         if client_host not in allowed_client_addresses:
             return _proxy_error(status.HTTP_403_FORBIDDEN, "peer_not_allowed")
@@ -315,8 +320,12 @@ def create_bounded_proxy_app(
                 ) as client,
             ):
                 upstream = await client.request(
-                    request.method,
-                    f"{upstream_url.rstrip('/')}/{path}",
+                    "HEAD" if health_check else request.method,
+                    (
+                        upstream_url.rstrip("/")
+                        if health_check
+                        else f"{upstream_url.rstrip('/')}/{path}"
+                    ),
                     content=body,
                     headers=headers,
                 )
@@ -324,6 +333,8 @@ def create_bounded_proxy_app(
             return _proxy_error(status.HTTP_504_GATEWAY_TIMEOUT, "upstream_timeout")
         except httpx.HTTPError:
             return _proxy_error(status.HTTP_502_BAD_GATEWAY, "upstream_unavailable")
+        if health_check:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
         if len(upstream.content) > limits.max_response_bytes:
             return _proxy_error(status.HTTP_502_BAD_GATEWAY, "upstream_response_too_large")
         response_headers = {

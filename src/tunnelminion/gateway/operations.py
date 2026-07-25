@@ -44,7 +44,10 @@ class TargetOperationGatewayService:
 
     def submit(self, plan: OperationPlan, *, at: datetime) -> OperationRecord:
         """重复计划返回已有操作，未授权 L2 只进入等待状态。"""
-        return self._authorization.submit(OperationRecord.planned(plan), at=at)
+        return self._authorization.submit(
+            OperationRecord.planned(plan, occurred_at=at),
+            at=at,
+        )
 
     def get(self, operation_id: OperationId) -> OperationRecord | None:
         return self._operations.get(operation_id)

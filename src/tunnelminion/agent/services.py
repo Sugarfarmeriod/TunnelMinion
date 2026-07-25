@@ -336,13 +336,17 @@ class CrossNodeReachabilityAnalyzer:
         target_host: str,
         wireguard: ToolObservation,
         probes: tuple[ToolObservation, ...],
+        *,
+        remote_node_observed: bool = False,
     ) -> tuple[CrossNodeServiceDiagnostic, ...]:
         if wireguard.tool_name != "get_wireguard_status":
             raise ValueError("跨节点诊断需要 get_wireguard_status 证据")
         tunnel_ready = self._tunnel_ready(wireguard, target_host)
         probe_by_port = self._probes(probes, target_host)
-        node_reachable = tunnel_ready or any(
-            result.reachable for _, result in probe_by_port.values()
+        node_reachable = (
+            remote_node_observed
+            or tunnel_ready
+            or any(result.reachable for _, result in probe_by_port.values())
         )
         values: list[CrossNodeServiceDiagnostic] = []
         for service in inventory.services:

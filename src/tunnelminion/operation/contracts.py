@@ -533,19 +533,20 @@ class OperationRecord(BaseModel):
         return self
 
     @classmethod
-    def planned(cls, plan: OperationPlan) -> Self:
-        """为服务端已校验计划创建初始持久化记录。"""
+    def planned(cls, plan: OperationPlan, *, occurred_at: datetime | None = None) -> Self:
+        """为服务端已校验计划创建初始持久化记录，并允许由目标节点提供状态时钟。"""
+        recorded_at = occurred_at or plan.created_at
         transition = OperationTransition(
             from_status=None,
             to_status=OperationStatus.PLANNED,
             reason="服务端已校验结构化计划",
-            occurred_at=plan.created_at,
+            occurred_at=recorded_at,
         )
         return cls(
             plan=plan,
             status=OperationStatus.PLANNED,
             transitions=(transition,),
-            updated_at=plan.created_at,
+            updated_at=recorded_at,
         )
 
 

@@ -267,6 +267,32 @@ def test_capabilities_submit_idempotency_approve_execute_and_status(tmp_path: Pa
     assert status_response.json()["summary"]["verification_results"] == ["passed"]
 
 
+def test_gateway_uses_target_clock_for_cross_node_status_history(tmp_path: Path) -> None:
+    """请求节点时钟超前时，目标节点仍用自己的时钟记录状态历史。"""
+    caller = NodeId.new()
+    target = NodeId.new()
+    operation_plan = _remote_plan(caller, target).model_copy(
+        update={"created_at": datetime.now(UTC) + timedelta(minutes=5)}
+    )
+    app, _authorization, service, _audit = _gateway(
+        tmp_path / "clock-skew.sqlite3",
+        operation_plan,
+    )
+
+    response = TestClient(app).post(
+        "/v1/operations:submit",
+        json=_payload(operation_plan),
+        headers=_auth(),
+    )
+
+    assert response.status_code == 200
+    record = service.get(operation_plan.operation_id)
+    assert record is not None
+    assert record.status is OperationStatus.AWAITING_AUTHORIZATION
+    assert record.transitions[0].occurred_at < operation_plan.created_at
+    assert record.transitions[0].occurred_at <= record.transitions[1].occurred_at
+
+
 def test_gateway_reauthenticates_and_rejects_identity_allowlist_version_and_tampering(
     tmp_path: Path,
 ) -> None:

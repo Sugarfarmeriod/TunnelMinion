@@ -151,7 +151,12 @@ class CrossNodeDiagnosticAgent:
         """回答服务发现或单端口故障问题，并始终附加程序生成的证据结论。"""
         started_at = perf_counter()
         try:
-            report = await self._workflow.inspect(context, target_host, tool_cancellation)
+            report = await self._workflow.inspect(
+                context,
+                target_host,
+                tool_cancellation,
+                target_port=port,
+            )
         except RemotePreparationError as exc:
             return CrossNodeAgentAnswer(
                 answer=(
@@ -181,12 +186,13 @@ class CrossNodeDiagnosticAgent:
         explanation: str | None = None
         model_error_code: str | None = None
         model_usage: ModelUsage | None = None
-        try:
-            response = await self._provider.complete(request, model_cancellation)
-            explanation = response.content.strip() if response.content else None
-            model_usage = response.usage
-        except ProviderError as exc:
-            model_error_code = exc.code.value
+        if plan_intent is None:
+            try:
+                response = await self._provider.complete(request, model_cancellation)
+                explanation = response.content.strip() if response.content else None
+                model_usage = response.usage
+            except ProviderError as exc:
+                model_error_code = exc.code.value
 
         candidate_plan: OperationPlan | None = None
         plan_trace: PlanGenerationTrace | None = None
@@ -260,6 +266,8 @@ class CrossNodeDiagnosticWorkflow:
         context: ToolCallContext,
         target_host: str,
         cancellation: ToolCancellationToken | None = None,
+        *,
+        target_port: int | None = None,
     ) -> CrossNodeDiagnosticReport:
         """完成远端能力预检、三类采集、A 侧 WireGuard 与 TCP 探测。"""
         if context.caller_node_id != self._local_node_id:
@@ -295,9 +303,16 @@ class CrossNodeDiagnosticWorkflow:
             cancellation,
         )
         probe_observations: list[ToolObservation] = []
-        ports = tuple(
+        discovered_ports = tuple(
             dict.fromkeys(item.port for item in inventory.services if item.protocol == "tcp")
-        )[: self._max_probes]
+        )
+        ports = (
+            (target_port,)
+            if target_port is not None and target_port in discovered_ports
+            else ()
+            if target_port is not None
+            else discovered_ports[: self._max_probes]
+        )
         for port in ports:
             result = await self._local.execute(
                 ToolExecutionRequest(
@@ -313,6 +328,7 @@ class CrossNodeDiagnosticWorkflow:
             target_host,
             self._observation("get_wireguard_status", wireguard),
             tuple(probe_observations),
+            remote_node_observed=True,
         )
         return CrossNodeDiagnosticReport(
             local_node_id=self._local_node_id,

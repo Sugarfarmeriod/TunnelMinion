@@ -146,7 +146,26 @@ async def submit(
         ),
     )
     if answer.candidate_plan is None:
-        raise RuntimeError(f"候选计划生成失败：{answer.plan_error_code}")
+        matching_services = (
+            [
+                {
+                    "address": item.service.address,
+                    "port": item.service.port,
+                    "process_pid": item.service.process_pid,
+                    "process_name": item.service.process_name,
+                    "accessibility": item.service.accessibility.value,
+                    "reachability": item.reachability.value,
+                }
+                for item in answer.report.diagnostics
+                if item.service.port == service_port
+            ]
+            if answer.report is not None
+            else []
+        )
+        raise RuntimeError(
+            f"候选计划生成失败：{answer.plan_error_code}；"
+            f"匹配服务证据={json.dumps(matching_services, ensure_ascii=False)}"
+        )
     remote = await client.submit_operation(answer.candidate_plan)
     diagnostic = next(
         (

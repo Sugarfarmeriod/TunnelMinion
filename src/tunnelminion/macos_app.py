@@ -57,7 +57,7 @@ from tunnelminion.platforms.macos.adapters import (
 )
 from tunnelminion.platforms.macos.definitions import MacOSToolAdapters, register_macos_tools
 from tunnelminion.platforms.macos.system import (
-    PsutilSystemReader,
+    MacOSSystemReader,
     SubprocessCommandRunner,
     default_docker_path,
     default_wg_path,
@@ -200,7 +200,7 @@ def _build_macos_node(
     registry = ToolRegistry()
     audit = InMemoryAuditSink()
     runner = SubprocessCommandRunner()
-    reader = PsutilSystemReader()
+    reader = MacOSSystemReader()
     wireguard = MacOSWireGuardStatusAdapter(
         reader,
         runner,

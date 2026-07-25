@@ -341,7 +341,11 @@ class OperationWorkflow:
         """重启后只检查并清理副作用，不重放写步骤。"""
         recovered: list[OperationRecord] = list(await self.expire_due(at=at))
         for record in self._operations.list_unfinished():
-            if record.status in {OperationStatus.EXECUTING, OperationStatus.VERIFYING}:
+            if record.status in {
+                OperationStatus.EXECUTING,
+                OperationStatus.VERIFYING,
+                OperationStatus.SUCCEEDED,
+            }:
                 recovered.append(
                     await self._rollback(
                         record,

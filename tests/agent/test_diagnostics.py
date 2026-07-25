@@ -309,6 +309,31 @@ def test_workflow_marks_missing_capability_and_applies_probe_budget() -> None:
     ]
 
 
+def test_workflow_only_probes_explicit_target_port() -> None:
+    """指定服务端口时不为无关监听逐个等待网络超时。"""
+    local, remote = NodeId.new(), NodeId.new()
+    preparer = FakePreparer(
+        ("list_network_listeners", "get_process_summary", "list_docker_services")
+    )
+    executor = FakeLocalExecutor()
+    workflow = CrossNodeDiagnosticWorkflow(preparer, executor, local)
+
+    report = run(
+        workflow.inspect(
+            context(local, remote),
+            "10.77.0.1",
+            target_port=8080,
+        )
+    )
+
+    assert [call.tool_name for call in executor.calls] == [
+        "get_wireguard_status",
+        "probe_service_reachability",
+    ]
+    assert report.diagnostics[0].reachability is CrossNodeReachability.LOCAL_ONLY
+    assert report.diagnostics[1].reachability is CrossNodeReachability.NOT_PROBED
+
+
 def test_workflow_rejects_invalid_budget_and_caller() -> None:
     local, remote = NodeId.new(), NodeId.new()
     preparer = FakePreparer(("list_network_listeners",))
@@ -436,10 +461,10 @@ def test_diagnostic_agent_generates_traced_candidate_plan_from_latest_evidence()
     assert answer.plan_trace == answer.candidate_plan.generation_trace
     assert answer.plan_error_code is None
     assert "无权限的 L2 候选计划" in answer.answer
-    assert len(provider.requests) == 2
-    assert provider.requests[1].response_schema is not None
-    assert provider.requests[1].tools == ()
-    assert "untrusted-tool-data" in provider.requests[1].messages[-1].content
+    assert len(provider.requests) == 1
+    assert provider.requests[0].response_schema is not None
+    assert provider.requests[0].tools == ()
+    assert "untrusted-tool-data" in provider.requests[0].messages[-1].content
 
 
 def test_candidate_plan_failure_does_not_remove_diagnostic_result() -> None:
@@ -724,7 +749,7 @@ def test_candidate_plan_requires_explicit_safe_current_context(
         PlanFailureAttribution.CONTEXT,
         PlanFailureAttribution.GOVERNANCE,
     }
-    assert len(provider.requests) == 1
+    assert len(provider.requests) == 0
 
 
 @pytest.mark.parametrize("code", [ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT])
