@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
 from tunnelminion.agent.context_runtime import ContextModelRuntime
+from tunnelminion.agent.prompts import (
+    PROVIDER_STRUCTURED_CAPABILITY_PROMPT,
+    PROVIDER_TOOL_CAPABILITY_PROMPT,
+)
 from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.model.contracts import (
     ModelMessage,
@@ -229,12 +233,12 @@ class ModelConfigurationService:
                     current_intent="验证 Provider 工具调用能力",
                     thread_id=thread_id,
                     run_id=run_id,
-                    prompt_id="provider-tool-capability",
-                    prompt_version="v1",
+                    prompt_id=PROVIDER_TOOL_CAPABILITY_PROMPT.prompt_id,
+                    prompt_version=PROVIDER_TOOL_CAPABILITY_PROMPT.version,
                     messages=(
                         ModelMessage(
                             role="user",
-                            content="调用 report_capability，并把 status 设为 ok。",
+                            content=PROVIDER_TOOL_CAPABILITY_PROMPT.template,
                         ),
                     ),
                     tools=(tool,),
@@ -255,9 +259,14 @@ class ModelConfigurationService:
                     current_intent="验证 Provider 结构化输出能力",
                     thread_id=thread_id,
                     run_id=run_id,
-                    prompt_id="provider-structured-capability",
-                    prompt_version="v1",
-                    messages=(ModelMessage(role="user", content="返回可用状态。"),),
+                    prompt_id=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.prompt_id,
+                    prompt_version=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.version,
+                    messages=(
+                        ModelMessage(
+                            role="user",
+                            content=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.template,
+                        ),
+                    ),
                     response_schema={
                         "type": "object",
                         "properties": {"status": {"type": "string", "enum": ["ok"]}},

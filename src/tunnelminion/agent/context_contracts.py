@@ -109,6 +109,7 @@ class RedactedContextTrace(BaseModel):
 
     prompt_id: str = Field(min_length=1, max_length=128)
     prompt_version: str = Field(min_length=1, max_length=64)
+    prompt_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     provider_name: str = Field(min_length=1, max_length=128)
     model_name: str = Field(min_length=1, max_length=256)
     builder_version: str = Field(min_length=1, max_length=64)
@@ -118,6 +119,8 @@ class RedactedContextTrace(BaseModel):
     result_count: int = Field(ge=0)
     memory_count: int = Field(ge=0)
     input_chars: int = Field(ge=0)
+    model_parameters: dict[str, JsonValue] = Field(default_factory=dict)
+    input_summary_hashes: tuple[str, ...] = ()
 
 
 class RollingSummary(BaseModel):
@@ -214,6 +217,7 @@ class ContextRequest(BaseModel):
     run_id: RunId
     prompt_id: str = Field(min_length=1, max_length=128)
     prompt_version: str = Field(min_length=1, max_length=64)
+    model_parameters: dict[str, JsonValue] = Field(default_factory=dict)
     messages: tuple[ModelMessage, ...] = ()
     tools: tuple[ToolDefinition, ...] = ()
     tool_results: tuple[ToolResultContext, ...] = ()

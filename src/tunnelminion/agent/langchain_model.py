@@ -25,6 +25,7 @@ from tunnelminion.agent.context_contracts import (
     HistoryContext,
 )
 from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
+from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ToolResultContext
 from tunnelminion.memory.contracts import LongTermMemory
@@ -138,8 +139,8 @@ class TunnelMinionChatModel(BaseChatModel):
             current_intent=self._text_content(messages[-1].content),
             thread_id=self.thread_id,
             run_id=self.run_id,
-            prompt_id="readonly-agent",
-            prompt_version="v1",
+            prompt_id=READONLY_AGENT_PROMPT.prompt_id,
+            prompt_version=READONLY_AGENT_PROMPT.version,
             messages=tuple(normal_messages),
             tools=self._convert_tools(cast(list[dict[str, Any]], kwargs.get("tools", []))),
             tool_results=tuple(tool_results),

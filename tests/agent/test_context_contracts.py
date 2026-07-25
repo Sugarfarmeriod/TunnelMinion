@@ -21,6 +21,7 @@ def _trace() -> RedactedContextTrace:
     return RedactedContextTrace(
         prompt_id="readonly-agent",
         prompt_version="v1",
+        prompt_content_hash=f"sha256:{'c' * 64}",
         provider_name="openai-compatible",
         model_name="qwen",
         builder_version="v1",

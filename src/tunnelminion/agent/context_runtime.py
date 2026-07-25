@@ -24,6 +24,7 @@ from tunnelminion.agent.context_contracts import (
     ResolvedFact,
 )
 from tunnelminion.agent.history import FactResolver
+from tunnelminion.agent.prompts import PROMPT_REGISTRY
 from tunnelminion.domain.identifiers import ArtifactId
 from tunnelminion.memory.context import ContextBuilder, ToolResultContext
 from tunnelminion.memory.contracts import LongTermMemory
@@ -86,6 +87,11 @@ class ContextSnapshotBuilder:
         tool_schema_version: str,
     ) -> ContextSnapshot:
         """组装已有上下文部件，并把取舍记录到不可变快照。"""
+        prompt = PROMPT_REGISTRY.resolve(
+            request.prompt_id,
+            request.prompt_version,
+            request.task_type,
+        )
         builder = self._builder or ContextBuilder(request.budgets)
         built = builder.build(
             request.messages,
@@ -278,6 +284,7 @@ class ContextSnapshotBuilder:
             trace=RedactedContextTrace(
                 prompt_id=request.prompt_id,
                 prompt_version=request.prompt_version,
+                prompt_content_hash=prompt.content_hash,
                 provider_name=provider_name,
                 model_name=model_name,
                 builder_version=self.VERSION,
@@ -288,6 +295,11 @@ class ContextSnapshotBuilder:
                 memory_count=len(built.memories),
                 input_chars=(
                     sum(len(item.content) for item in messages) + built.size.tool_schema_chars
+                ),
+                model_parameters=request.model_parameters,
+                input_summary_hashes=tuple(
+                    f"sha256:{hashlib.sha256(item.content.encode()).hexdigest()}"
+                    for item in messages
                 ),
             ),
         )
