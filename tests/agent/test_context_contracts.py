@@ -64,6 +64,7 @@ def test_context_request_and_snapshot_are_frozen_and_traceable() -> None:
         builder_version="v1",
         model_request=ModelRequest(messages=(message,)),
         content_references=(reference,),
+        composition=(),
         budget_decisions=(
             ContextBudgetDecision(
                 kind=ContextContentKind.MESSAGE,

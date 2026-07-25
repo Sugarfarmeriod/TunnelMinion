@@ -4,6 +4,7 @@ import pytest
 
 from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
 from tunnelminion.agent.context_runtime import (
+    ContextBuildError,
     ContextModelRuntime,
     ContextSnapshotBuilder,
     SnapshotModelProvider,
@@ -195,4 +196,18 @@ def test_snapshot_provider_rejects_missing_or_incompatible_builder_version() -> 
     with pytest.raises(ProviderError) as tampered:
         asyncio.run(SnapshotModelProvider(provider).invoke(mismatched))
     assert tampered.value.code is ProviderErrorCode.INVALID_CONTEXT
+
+
+def test_runtime_stops_before_provider_when_context_build_fails() -> None:
+    provider = RecordingProvider()
+    runtime = ContextModelRuntime(provider)
+
+    with pytest.raises(ContextBuildError, match="context_build_failed"):
+        asyncio.run(
+            runtime.invoke(
+                _request(prompt_id="not-registered"),
+            )
+        )
+
+    assert provider.requests == []
     assert provider.requests == []

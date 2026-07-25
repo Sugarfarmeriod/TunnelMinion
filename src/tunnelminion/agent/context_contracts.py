@@ -90,6 +90,16 @@ class ContextBudgetDecision(BaseModel):
     truncated_count: int = Field(ge=0)
 
 
+class ContextCompositionMetric(BaseModel):
+    """一种上下文内容的数量和原始字符规模。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ContextContentKind
+    count: int = Field(ge=0)
+    chars: int = Field(ge=0)
+
+
 class ContextTruncation(BaseModel):
     """单个来源被裁剪、排除或制品化的审计决定。"""
 
@@ -121,6 +131,74 @@ class RedactedContextTrace(BaseModel):
     input_chars: int = Field(ge=0)
     model_parameters: dict[str, JsonValue] = Field(default_factory=dict)
     input_summary_hashes: tuple[str, ...] = ()
+
+
+class FailureCategory(StrEnum):
+    """跨生产与评估共用的四类主失败工程边界。"""
+
+    CONTEXT = "context"
+    PROMPT_OR_MODEL = "prompt_or_model"
+    HARNESS_OR_TOOL = "harness_or_tool"
+    GOVERNANCE = "governance"
+
+
+class FailurePhase(StrEnum):
+    """失败发生的稳定阶段，不包含异常正文。"""
+
+    CONTEXT_BUILD = "context-build"
+    HISTORY_SUMMARY = "history-summary"
+    MODEL_INVOKE = "model-invoke"
+    TOOL_EXECUTE = "tool-execute"
+    AGENT_RUNTIME = "agent-runtime"
+    GOVERNANCE_CHECK = "governance-check"
+
+
+class FailureReason(StrEnum):
+    """可审计、可聚合且不会携带秘密的次级原因。"""
+
+    CONTEXT_INVALID = "context_invalid"
+    SUMMARY_FAILED = "summary_failed"
+    MODEL_AUTHENTICATION_FAILED = "model_authentication_failed"
+    MODEL_NOT_FOUND = "model_not_found"
+    MODEL_TIMEOUT = "model_timeout"
+    MODEL_NETWORK_UNREACHABLE = "model_network_unreachable"
+    MODEL_INVALID_RESPONSE = "model_invalid_response"
+    MODEL_CAPABILITY_INCOMPATIBLE = "model_capability_incompatible"
+    MODEL_CANCELLED = "model_cancelled"
+    TOOL_FAILED = "tool_failed"
+    AGENT_RUNTIME_FAILED = "agent_runtime_failed"
+    GOVERNANCE_DENIED = "governance_denied"
+
+
+class FailureRecord(BaseModel):
+    """普通日志与 checkpoint 可保存的脱敏失败归因。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    category: FailureCategory
+    phase: FailurePhase
+    reason: FailureReason
+    retryable: bool = False
+    occurred_at: datetime
+    source_refs: tuple[str, ...] = ()
+
+
+class RedactedContextRecord(BaseModel):
+    """一次成功模型调用的可复现元数据，不包含输入或输出正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    snapshot_id: str = Field(pattern=r"^context_[0-9a-f]{32}$")
+    created_at: datetime
+    trace: RedactedContextTrace
+    composition: tuple[ContextCompositionMetric, ...]
+    budget_decisions: tuple[ContextBudgetDecision, ...]
+    truncations: tuple[ContextTruncation, ...] = ()
+    latency_ms: float = Field(ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    estimated_cost: None = None
 
 
 class RollingSummary(BaseModel):
@@ -244,6 +322,7 @@ class ContextSnapshot(BaseModel):
     builder_version: str = Field(min_length=1, max_length=64)
     model_request: ModelRequest
     content_references: tuple[ContextContentReference, ...]
+    composition: tuple[ContextCompositionMetric, ...]
     budget_decisions: tuple[ContextBudgetDecision, ...]
     truncations: tuple[ContextTruncation, ...] = ()
     resolved_facts: tuple[ResolvedFact, ...] = ()

@@ -225,8 +225,11 @@ def test_user_cancel_and_failed_run_reach_terminal_events() -> None:
 
     failed, failed_events = run(fail_scenario())
     assert failed.status is RunStatus.FAILED
-    assert failed.error_code == "agent_run_failed"
+    assert failed.error_code == "agent_runtime_failed"
     assert failed.error_message == "Agent run 执行失败"
+    assert failed.failure is not None
+    assert failed.failure.category.value == "harness_or_tool"
+    assert failed.failure.reason.value == "agent_runtime_failed"
     assert failed_events[-1].event_type is RunEventType.FAILED
 
 

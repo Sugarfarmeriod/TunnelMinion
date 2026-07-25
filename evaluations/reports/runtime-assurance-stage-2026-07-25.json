@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "runtime-assurance",
+  "assurance_policy": "redacted-observability/v1",
+  "metrics": {
+    "scenario_count": 6,
+    "observability_completeness_rate": 1.0,
+    "failure_classification_rate": 1.0,
+    "fault_isolation_rate": 1.0,
+    "metadata_leakage_rate": 0.0,
+    "deterministic_degradation_rate": 1.0,
+    "average_builder_latency_ms": 0.3447569999843836,
+    "provider_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "notes": [
+    "本门禁不调用真实模型；故障注入必须在 Provider 前停止。",
+    "资源 API 与操作控制面的实际降级可用性由集成测试验证。"
+  ]
+}

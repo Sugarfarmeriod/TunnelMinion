@@ -18,7 +18,11 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from tunnelminion.agent.context_contracts import HistoryContext
+from tunnelminion.agent.context_contracts import (
+    FailureRecord,
+    HistoryContext,
+    RedactedContextRecord,
+)
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
@@ -142,6 +146,8 @@ class AgentTurnResult(BaseModel):
     usage: AgentUsage
     limits: AgentRunLimits
     evidence_answer: EvidenceAnswer
+    context_records: tuple[RedactedContextRecord, ...] = ()
+    failures: tuple[FailureRecord, ...] = ()
 
 
 class AgentCancellationToken:
@@ -309,6 +315,8 @@ class LangChainReadOnlyAgent:
             usage=self._usage(metrics),
             limits=budget,
             evidence_answer=self._evidence_answer(stop_reason, answer, evidence),
+            context_records=tuple(metrics.context_records),
+            failures=tuple(metrics.failures),
         )
 
     def _validate_tools(self, tool_names: tuple[str, ...]) -> tuple[RegisteredTool, ...]:
@@ -415,6 +423,8 @@ class LangChainReadOnlyAgent:
             usage=self._usage(metrics),
             limits=limits,
             evidence_answer=self._evidence_answer(reason, answer, evidence),
+            context_records=tuple(metrics.context_records),
+            failures=tuple(metrics.failures),
         )
 
     @staticmethod

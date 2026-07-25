@@ -37,6 +37,8 @@ from tunnelminion.model.contracts import (
     ModelRequest,
     ModelResponse,
     ModelUsage,
+    ProviderError,
+    ProviderErrorCode,
     ToolCall,
 )
 from tunnelminion.tools.audit import InMemoryAuditSink
@@ -243,6 +245,10 @@ def test_agent_uses_only_per_run_tools_and_continues_tool_protocol() -> None:
     assert result.evidence_answer.confirmed_facts[0].evidence_refs == result.tool_run_ids
     assert result.evidence_answer.inferences == (result.answer,)
     assert result.evidence_answer.unknowns == ()
+    assert len(result.context_records) == 2
+    assert result.context_records[0].composition
+    assert result.context_records[0].trace.input_summary_hashes
+    assert result.failures == ()
     assert len(result.tool_run_ids) == 1
     assert adapter.calls == [{"port": 8082}]
     assert [tool.name for tool in provider.requests[0].tools] == ["probe_service"]
@@ -462,6 +468,32 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
         ]
     )
     assert provider.requests[-1].messages[-1].role == "tool"
+
+    class FailingProvider(ScriptedProvider):
+        async def complete(
+            self,
+            request: ModelRequest,
+            cancellation: CancellationToken | None = None,
+        ) -> ModelResponse:
+            del request, cancellation
+            raise ProviderError(
+                ProviderErrorCode.TIMEOUT,
+                "不应进入运行记录的敏感模型正文",
+                retryable=True,
+            )
+
+    failing_model = TunnelMinionChatModel(
+        provider=FailingProvider(),
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
+    with pytest.raises(ProviderError):
+        failing_model.invoke([HumanMessage(content="触发失败")])
+    failure = failing_model.run_metrics.failures[0]
+    assert failure.category.value == "prompt_or_model"
+    assert failure.reason.value == "model_timeout"
+    assert failure.retryable
+    assert "敏感模型正文" not in failure.model_dump_json()
 
 
 def test_agent_result_helpers_handle_content_variants() -> None:

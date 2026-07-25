@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.agent.context_contracts import (
     ContextBudgetDecision,
+    ContextCompositionMetric,
     ContextContentKind,
     ContextContentReference,
     ContextRequest,
@@ -20,6 +22,7 @@ from tunnelminion.agent.context_contracts import (
     ContextTrust,
     FactConflict,
     HistoryContext,
+    RedactedContextRecord,
     RedactedContextTrace,
     ResolvedFact,
 )
@@ -68,6 +71,11 @@ class ContextInvocation(BaseModel):
 
     snapshot: ContextSnapshot
     response: ModelResponse
+    record: RedactedContextRecord
+
+
+class ContextBuildError(ValueError):
+    """上下文组装失败的稳定边界，不向上复制输入正文。"""
 
 
 class ContextSnapshotBuilder:
@@ -154,6 +162,49 @@ class ContextSnapshotBuilder:
             + memory_references
             + request.evidence
             + request.artifact_references
+        )
+        composition = (
+            ContextCompositionMetric(
+                kind=ContextContentKind.MESSAGE,
+                count=len(messages),
+                chars=sum(len(item.content) for item in messages),
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.TOOL_SCHEMA,
+                count=len(built.tools),
+                chars=built.size.tool_schema_chars,
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.TOOL_RESULT,
+                count=len(built.tool_results),
+                chars=built.size.tool_result_chars,
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.ARTIFACT,
+                count=len(request.artifact_references),
+                chars=sum(item.content_chars for item in request.artifact_references),
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.MEMORY,
+                count=len(built.memories),
+                chars=built.size.memory_chars,
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.EVIDENCE,
+                count=len(request.evidence),
+                chars=sum(item.content_chars for item in request.evidence),
+            ),
+            ContextCompositionMetric(
+                kind=ContextContentKind.HISTORY_SUMMARY,
+                count=(
+                    len(request.history.recent_messages)
+                    + int(request.history.rolling_summary is not None)
+                    + int(request.history.workflow_state is not None)
+                    if request.history is not None
+                    else 0
+                ),
+                chars=request.history.history_chars if request.history is not None else 0,
+            ),
         )
         decisions = (
             ContextBudgetDecision(
@@ -277,6 +328,7 @@ class ContextSnapshotBuilder:
             builder_version=self.VERSION,
             model_request=model_request,
             content_references=references,
+            composition=composition,
             budget_decisions=decisions,
             truncations=truncations,
             resolved_facts=resolved_facts,
@@ -466,11 +518,30 @@ class ContextModelRuntime:
         cancellation: CancellationToken | None = None,
     ) -> ContextInvocation:
         """构造一次有效快照，且每个请求只调用 Provider 一次。"""
-        snapshot = self._builder.build(
-            request,
-            provider_name=self._provider_name,
-            model_name=self._model_name,
-            tool_schema_version=self._tool_schema_version,
-        )
+        started = perf_counter()
+        try:
+            snapshot = self._builder.build(
+                request,
+                provider_name=self._provider_name,
+                model_name=self._model_name,
+                tool_schema_version=self._tool_schema_version,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ContextBuildError("context_build_failed") from exc
         response = await self._provider.invoke(snapshot, cancellation)
-        return ContextInvocation(snapshot=snapshot, response=response)
+        return ContextInvocation(
+            snapshot=snapshot,
+            response=response,
+            record=RedactedContextRecord(
+                snapshot_id=snapshot.snapshot_id,
+                created_at=snapshot.created_at,
+                trace=snapshot.trace,
+                composition=snapshot.composition,
+                budget_decisions=snapshot.budget_decisions,
+                truncations=snapshot.truncations,
+                latency_ms=(perf_counter() - started) * 1_000,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                total_tokens=response.usage.total_tokens,
+            ),
+        )

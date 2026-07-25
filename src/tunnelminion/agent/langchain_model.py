@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
@@ -22,9 +23,17 @@ from tunnelminion.agent.context_contracts import (
     ContextRequest,
     ContextTaskType,
     ContextTrust,
+    FailurePhase,
+    FailureRecord,
     HistoryContext,
+    RedactedContextRecord,
 )
-from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
+from tunnelminion.agent.context_runtime import (
+    ContextBuildError,
+    ContextModelRuntime,
+    make_context_reference,
+)
+from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ToolResultContext
@@ -39,6 +48,14 @@ from tunnelminion.model.contracts import (
 )
 
 
+def _context_records() -> list[RedactedContextRecord]:
+    return []
+
+
+def _failure_records() -> list[FailureRecord]:
+    return []
+
+
 @dataclass
 class ModelRunMetrics:
     """一次 Agent run 的模型轮次与可获得 token 累计。"""
@@ -47,13 +64,24 @@ class ModelRunMetrics:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    context_records: list[RedactedContextRecord] = dataclass_field(default_factory=_context_records)
+    failures: list[FailureRecord] = dataclass_field(default_factory=_failure_records)
 
-    def record(self, response: ModelResponse) -> None:
+    def record(
+        self,
+        response: ModelResponse,
+        record: RedactedContextRecord,
+    ) -> None:
         """只累计 Provider 实际返回的使用量。"""
         self.model_rounds += 1
         self.input_tokens += response.usage.input_tokens or 0
         self.output_tokens += response.usage.output_tokens or 0
         self.total_tokens += response.usage.total_tokens or 0
+        self.context_records.append(record)
+
+    def record_failure(self, failure: FailureRecord) -> None:
+        """保存稳定分类，不记录异常消息或输入正文。"""
+        self.failures.append(failure)
 
 
 class TunnelMinionChatModel(BaseChatModel):
@@ -149,15 +177,33 @@ class TunnelMinionChatModel(BaseChatModel):
             history=self.history_context,
             memories=self.memories,
         )
-        invocation = await ContextModelRuntime(
-            cast(ModelProvider, self.provider),
-            tool_schema_version="readonly-tools/v1",
-        ).invoke(
-            request,
-            self.cancellation_token,
-        )
+        try:
+            invocation = await ContextModelRuntime(
+                cast(ModelProvider, self.provider),
+                tool_schema_version="readonly-tools/v1",
+            ).invoke(
+                request,
+                self.cancellation_token,
+            )
+        except Exception as exc:
+            phase = (
+                FailurePhase.CONTEXT_BUILD
+                if isinstance(exc, ContextBuildError)
+                else FailurePhase.MODEL_INVOKE
+            )
+            self.run_metrics.record_failure(
+                classify_failure(
+                    exc,
+                    phase=phase,
+                    source_refs=(f"run:{self.run_id}",),
+                )
+            )
+            raise
         response = invocation.response
-        self.run_metrics.record(response)
+        self.run_metrics.record(
+            response,
+            invocation.record,
+        )
         return self._convert_response(response)
 
     @staticmethod

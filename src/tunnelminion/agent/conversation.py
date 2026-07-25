@@ -11,11 +11,14 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.agent.context_contracts import (
+    FailurePhase,
+    FailureRecord,
     HistoryContext,
     RollingSummary,
     WorkflowContextState,
 )
 from tunnelminion.agent.history import ThreadHistoryAssembler
+from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.runtime import (
     AgentCancellationToken,
     AgentRunLimits,
@@ -112,6 +115,7 @@ class RunView(BaseModel):
     result: AgentTurnResult | None = None
     error_code: str | None = None
     error_message: str | None = None
+    failure: FailureRecord | None = None
 
 
 class RunEvent(BaseModel):
@@ -157,6 +161,7 @@ class _RunState:
     result: AgentTurnResult | None = None
     error_code: str | None = None
     error_message: str | None = None
+    failure: FailureRecord | None = None
     events: list[RunEvent] = field(default_factory=lambda: [])
     changed: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task[None] | None = None
@@ -341,10 +346,16 @@ class InMemoryConversationService:
                 stop_reason=result.stop_reason,
                 message=result.answer,
             )
-        except Exception:
+        except Exception as exc:
+            failure = classify_failure(
+                exc,
+                phase=FailurePhase.AGENT_RUNTIME,
+                source_refs=(f"run:{state.run_id}",),
+            )
             state.status = RunStatus.FAILED
             state.finished_at = datetime.now(UTC)
-            state.error_code = "agent_run_failed"
+            state.failure = failure
+            state.error_code = failure.reason.value
             state.error_message = "Agent run 执行失败"
             self._append(
                 state,
@@ -422,6 +433,7 @@ class InMemoryConversationService:
                 result=run_view.result,
                 error_code=run_view.error_code,
                 error_message=run_view.error_message,
+                failure=run_view.failure,
                 events=list(public.events),
             )
             self._runs[str(record.run_id)] = state
@@ -520,4 +532,5 @@ class InMemoryConversationService:
             result=state.result,
             error_code=state.error_code,
             error_message=state.error_message,
+            failure=state.failure,
         )
