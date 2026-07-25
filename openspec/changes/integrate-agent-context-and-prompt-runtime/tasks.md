@@ -56,9 +56,9 @@
 
 ## 8. 综合评估、真机验收与文档
 
-- [ ] 8.1 建立陈旧状态、长 thread、错误记忆、prompt injection、大结果、命名空间越权和删除记忆残留的离线评估集
-- [ ] 8.2 在 Windows A/macOS B 完成“继续对话 → 动态选工具 → 远端诊断 → 实时证据覆盖旧信息 → 引用证据回答”的真机验收
-- [ ] 8.3 统计工具选择正确率、任务完成率、错误参数率、安全拦截率、事实新鲜度、记忆隔离、prompt 版本覆盖率、延迟、token 和成本
-- [ ] 8.4 更新架构、威胁模型、评估指南和标准概念映射，说明 Prompt、Context、Agent Runtime、Tool Runtime、Harness、治理和可观测性的职责
-- [ ] 8.5 明确记录 Playbook/RAG、多 Agent、自动 prompt 优化、自修改 Harness、通用平台和企业 SaaS/RBAC 为后续或非目标
-- [ ] 8.6 完成 OpenSpec 场景、自动测试、真机证据和任务对照，运行全部质量与安全门禁，提交并推送最终验收阶段
+- [x] 8.1 建立陈旧状态、长 thread、错误记忆、prompt injection、大结果、命名空间越权和删除记忆残留的离线评估集
+- [x] 8.2 在 Windows A/macOS B 完成“继续对话 → 动态选工具 → 远端诊断 → 实时证据覆盖旧信息 → 引用证据回答”的真机验收
+- [x] 8.3 统计工具选择正确率、任务完成率、错误参数率、安全拦截率、事实新鲜度、记忆隔离、prompt 版本覆盖率、延迟、token 和成本
+- [x] 8.4 更新架构、威胁模型、评估指南和标准概念映射，说明 Prompt、Context、Agent Runtime、Tool Runtime、Harness、治理和可观测性的职责
+- [x] 8.5 明确记录 Playbook/RAG、多 Agent、自动 prompt 优化、自修改 Harness、通用平台和企业 SaaS/RBAC 为后续或非目标
+- [x] 8.6 完成 OpenSpec 场景、自动测试、真机证据和任务对照，运行全部质量与安全门禁，提交并推送最终验收阶段

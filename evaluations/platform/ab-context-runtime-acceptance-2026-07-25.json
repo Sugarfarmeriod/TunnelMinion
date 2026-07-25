@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "acceptance": "agent-context-runtime-windows-a-macos-b",
+  "passed": true,
+  "checks": {
+    "continued_same_thread": true,
+    "both_runs_completed": true,
+    "dynamic_tool_selected": true,
+    "remote_diagnostic_completed": true,
+    "realtime_probe_reachable": true,
+    "realtime_fact_supersedes_history": true,
+    "answer_cites_evidence": true,
+    "no_runtime_failure": true
+  },
+  "conversation": {
+    "thread_id": "thread_2e1350f4509845959bbd3a39075d54f4",
+    "message_count": 4,
+    "same_thread_continuation": true,
+    "allowed_tools": [
+      "get_node_summary",
+      "get_wireguard_status",
+      "probe_service_reachability"
+    ],
+    "runs": [
+      {
+        "run_id": "run_ae950e1ee534406e8bdb27312bee86bd",
+        "status": "completed",
+        "actual_tool_names": [
+          "get_node_summary",
+          "get_wireguard_status"
+        ],
+        "tool_run_ids": [
+          "toolrun_e5349cf84ba64c0196defdaa8c10d402",
+          "toolrun_37a816a2af2b4d488f8af1a97a959680"
+        ],
+        "model_rounds": 2,
+        "elapsed_ms": 21722.18,
+        "usage": {
+          "input_tokens": 1570,
+          "output_tokens": 364,
+          "total_tokens": 1934,
+          "estimated_cost": null
+        },
+        "context_snapshot_count": 2,
+        "failure_count": 0
+      },
+      {
+        "run_id": "run_6087e74d9f4e4141877d9752f275740d",
+        "status": "completed",
+        "actual_tool_names": [
+          "probe_service_reachability"
+        ],
+        "tool_run_ids": [
+          "toolrun_388d52627551468fab35da054c57c028"
+        ],
+        "model_rounds": 2,
+        "elapsed_ms": 16098.26,
+        "usage": {
+          "input_tokens": 2272,
+          "output_tokens": 282,
+          "total_tokens": 2554,
+          "estimated_cost": null
+        },
+        "context_snapshot_count": 2,
+        "failure_count": 0
+      }
+    ]
+  },
+  "remote_diagnostic": {
+    "endpoint": "http://10.77.0.1:8787",
+    "target_host": "10.77.0.1",
+    "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+    "selected_port": 8082,
+    "reachability": "reachable",
+    "evidence_tool_run_ids": [
+      "toolrun_3ee580da502f420a862e41b596ed716a",
+      "toolrun_9cd47eb9ba32494f8880c0d2d089f572"
+    ],
+    "elapsed_ms": 38167.44,
+    "model_usage": {
+      "input_tokens": 4037,
+      "output_tokens": 438,
+      "total_tokens": 4475
+    }
+  },
+  "fact_precedence": {
+    "stale_history_value": "8080",
+    "selected_realtime_value": "8082",
+    "selected_source": "realtime-evidence",
+    "conflict_count": 1
+  },
+  "combined_model_usage": {
+    "input_tokens": 7879,
+    "output_tokens": 1084,
+    "total_tokens": 8963
+  },
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "remote_listener_process_and_container_raw_bodies",
+    "model_api_key"
+  ]
+}

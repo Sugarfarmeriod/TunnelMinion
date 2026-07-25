@@ -274,6 +274,12 @@ class CandidateOperationPlanner:
                 message="最新诊断中没有唯一匹配的目标服务证据",
             )
         selected = matches[0]
+        if selected.service.accessibility is ServiceAccessibility.UNKNOWN:
+            return CandidatePlanFailure(
+                code="service_evidence_ambiguous",
+                attribution=PlanFailureAttribution.CONTEXT,
+                message="目标端口只有主动探测证据，缺少远端监听归属证据",
+            )
         if (
             selected.reachability is not CrossNodeReachability.LOCAL_ONLY
             or selected.service.accessibility is not ServiceAccessibility.LOCAL_ONLY

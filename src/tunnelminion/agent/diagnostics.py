@@ -356,13 +356,7 @@ class CrossNodeDiagnosticWorkflow:
         discovered_ports = tuple(
             dict.fromkeys(item.port for item in inventory.services if item.protocol == "tcp")
         )
-        ports = (
-            (target_port,)
-            if target_port is not None and target_port in discovered_ports
-            else ()
-            if target_port is not None
-            else discovered_ports[: self._max_probes]
-        )
+        ports = (target_port,) if target_port is not None else discovered_ports[: self._max_probes]
         for port in ports:
             result = await self._local.execute(
                 ToolExecutionRequest(

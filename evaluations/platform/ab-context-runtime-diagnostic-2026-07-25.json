@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "acceptance": "windows-a-to-macos-b-cross-node-diagnostic",
+  "started_at": "2026-07-25T10:10:36.241296+00:00",
+  "finished_at": "2026-07-25T10:11:14.409849+00:00",
+  "endpoint": "http://10.77.0.1:8787",
+  "target_host": "10.77.0.1",
+  "local_node_id": "node_129841509f55473d8d9d3ca363850204",
+  "remote_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+  "question": "请基于当前实时证据说明 B 节点的 8082 模型服务是否能从 A 访问，并明确引用证据。",
+  "selected_port": 8082,
+  "answer": "基于提供的诊断报告，**B 节点（node_406913ccf29f4774a908c0435dbe8c5b）的 8082 端口服务可以从 A 节点（当前请求节点）访问**。\n\n具体证据与解释如下：\n\n1.  **可达性确认**：\n    在报告的 `diagnostics` 列表中，针对 `port: 8082` 的服务条目显示 `reachability` 为 **\"reachable\"**。其解释说明为：“请求节点已通过 TCP 连接确认服务可达”。\n\n2.  **关键证据引用**：\n    该结论主要依据以下两个实时证据（source: realtime-evidence）：\n    *   **工具运行 ID**: `toolrun_9cd47eb9ba32494f8880c0d2d089f572`\n    *   **工具名称**: `probe_service_reachability`\n    *   **观测时间**: `2026-07-25T10:10:37.457269Z`\n    *   **证据内容**: 该工具直接探测了 `10.77.0.1:8082` 并成功返回可达状态。\n\n3.  **辅助证据**：\n    *   **工具运行 ID**: `toolrun_3ee580da502f420a862e41b596ed716a`\n    *   **工具名称**: `get_wireguard_status`\n    *   该证据确认了 A 与 B 之间的网络隧道（WireGuard）状态正常，为 TCP 连接提供了基础网络路径支持。\n\n**结论**：\n根据实时证据，B 节点在地址 `10.77.0.1` 的 `8082` 端口服务**已确认可从 A 节点访问**。\n\n确定性证据结论：\nTCP 10.77.0.1:8082：reachable；请求节点已通过 TCP 连接确认服务可达。证据：toolrun_3ee580da502f420a862e41b596ed716a、toolrun_9cd47eb9ba32494f8880c0d2d089f572",
+  "model_error_code": null,
+  "remote_error_code": null,
+  "elapsed_ms": 38167.44,
+  "model_usage": {
+    "input_tokens": 4037,
+    "output_tokens": 438,
+    "total_tokens": 4475
+  },
+  "node_summary_tool_run_id": "toolrun_63444d349d8e4f3093ab7db091eb6d14",
+  "unavailable_sources": [
+    "list_network_listeners"
+  ],
+  "diagnostics": [
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 80,
+      "process_name": null,
+      "container_name": "baota",
+      "image": "btpanel/baota:lnmp",
+      "container_port": 80,
+      "accessibility": "network-listening",
+      "confidence": "low",
+      "reachability": "not-probed",
+      "explanation": "没有从请求节点获得该 TCP 端口的探测证据",
+      "evidence_tool_run_ids": [
+        "toolrun_a72b8deb38394d3181bf124bfc422f60",
+        "toolrun_3ee580da502f420a862e41b596ed716a"
+      ]
+    },
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 443,
+      "process_name": null,
+      "container_name": "baota",
+      "image": "btpanel/baota:lnmp",
+      "container_port": 443,
+      "accessibility": "network-listening",
+      "confidence": "low",
+      "reachability": "not-probed",
+      "explanation": "没有从请求节点获得该 TCP 端口的探测证据",
+      "evidence_tool_run_ids": [
+        "toolrun_a72b8deb38394d3181bf124bfc422f60",
+        "toolrun_3ee580da502f420a862e41b596ed716a"
+      ]
+    },
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 5984,
+      "process_name": null,
+      "container_name": "obsidian-couchdb",
+      "image": "couchdb:latest",
+      "container_port": 5984,
+      "accessibility": "network-listening",
+      "confidence": "low",
+      "reachability": "not-probed",
+      "explanation": "没有从请求节点获得该 TCP 端口的探测证据",
+      "evidence_tool_run_ids": [
+        "toolrun_a72b8deb38394d3181bf124bfc422f60",
+        "toolrun_3ee580da502f420a862e41b596ed716a"
+      ]
+    },
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 8888,
+      "process_name": null,
+      "container_name": "baota",
+      "image": "btpanel/baota:lnmp",
+      "container_port": 8888,
+      "accessibility": "network-listening",
+      "confidence": "low",
+      "reachability": "not-probed",
+      "explanation": "没有从请求节点获得该 TCP 端口的探测证据",
+      "evidence_tool_run_ids": [
+        "toolrun_a72b8deb38394d3181bf124bfc422f60",
+        "toolrun_3ee580da502f420a862e41b596ed716a"
+      ]
+    },
+    {
+      "protocol": "tcp",
+      "address": "10.77.0.1",
+      "port": 8082,
+      "process_name": null,
+      "container_name": null,
+      "image": null,
+      "container_port": null,
+      "accessibility": "unknown",
+      "confidence": "low",
+      "reachability": "reachable",
+      "explanation": "请求节点已通过 TCP 连接确认服务可达",
+      "evidence_tool_run_ids": [
+        "toolrun_3ee580da502f420a862e41b596ed716a",
+        "toolrun_9cd47eb9ba32494f8880c0d2d089f572"
+      ]
+    }
+  ],
+  "a_gateway_audit_records": [
+    {
+      "thread_id": "thread_557361f280eb4094acbe660755c05008",
+      "run_id": "run_c9e29a6e71ea4d13b360c8b608b8b0eb",
+      "tool_run_id": "toolrun_63444d349d8e4f3093ab7db091eb6d14",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_node_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-25T10:10:36.356636Z",
+      "finished_at": "2026-07-25T10:10:36.496823Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_557361f280eb4094acbe660755c05008",
+      "run_id": "run_c9e29a6e71ea4d13b360c8b608b8b0eb",
+      "tool_run_id": "toolrun_582a47a8b2034c168922458856d6bb06",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_network_listeners",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-25T10:10:36.499405Z",
+      "finished_at": "2026-07-25T10:10:36.605081Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_557361f280eb4094acbe660755c05008",
+      "run_id": "run_c9e29a6e71ea4d13b360c8b608b8b0eb",
+      "tool_run_id": "toolrun_f161247b699f4a5f8fb0919e7e6637b4",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "get_process_summary",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {
+        "limit": 200
+      },
+      "started_at": "2026-07-25T10:10:36.605081Z",
+      "finished_at": "2026-07-25T10:10:36.704962Z",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "thread_id": "thread_557361f280eb4094acbe660755c05008",
+      "run_id": "run_c9e29a6e71ea4d13b360c8b608b8b0eb",
+      "tool_run_id": "toolrun_a72b8deb38394d3181bf124bfc422f60",
+      "caller_node_id": "node_129841509f55473d8d9d3ca363850204",
+      "execution_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "tool_name": "list_docker_services",
+      "tool_version": {
+        "major": 1,
+        "minor": 0
+      },
+      "arguments_summary": {},
+      "started_at": "2026-07-25T10:10:36.705615Z",
+      "finished_at": "2026-07-25T10:10:37.391792Z",
+      "status": "success",
+      "error_code": null
+    }
+  ],
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "wireguard_private_key",
+    "remote_listener_process_and_container_raw_bodies",
+    "model_api_key"
+  ]
+}

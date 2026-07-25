@@ -334,6 +334,37 @@ def test_workflow_only_probes_explicit_target_port() -> None:
     assert report.diagnostics[1].reachability is CrossNodeReachability.NOT_PROBED
 
 
+def test_workflow_probes_explicit_port_missing_from_remote_inventory() -> None:
+    """显式端口即使未被远端枚举，也必须获得 A 侧实时 TCP 证据。"""
+    local, remote = NodeId.new(), NodeId.new()
+    preparer = FakePreparer(
+        ("list_network_listeners", "get_process_summary", "list_docker_services")
+    )
+    executor = FakeLocalExecutor()
+    workflow = CrossNodeDiagnosticWorkflow(preparer, executor, local)
+
+    report = run(
+        workflow.inspect(
+            context(local, remote),
+            "10.77.0.1",
+            target_port=8082,
+        )
+    )
+
+    assert [call.tool_name for call in executor.calls] == [
+        "get_wireguard_status",
+        "probe_service_reachability",
+    ]
+    assert executor.calls[-1].arguments["port"] == 8082
+    selected = tuple(item for item in report.diagnostics if item.service.port == 8082)
+    assert len(selected) == 1
+    assert selected[0].reachability is CrossNodeReachability.UNREACHABLE
+    assert selected[0].service.accessibility.value == "unknown"
+    assert any(
+        evidence.tool_name == "probe_service_reachability" for evidence in selected[0].evidence
+    )
+
+
 def test_workflow_rejects_invalid_budget_and_caller() -> None:
     local, remote = NodeId.new(), NodeId.new()
     preparer = FakePreparer(("list_network_listeners",))
@@ -750,6 +781,41 @@ def test_candidate_plan_requires_explicit_safe_current_context(
         PlanFailureAttribution.GOVERNANCE,
     }
     assert len(provider.requests) == 0
+
+
+def test_candidate_plan_rejects_port_missing_from_existing_report() -> None:
+    """计划目标必须在既有诊断报告中唯一匹配，不能依赖未执行的推断。"""
+    local, remote = NodeId.new(), NodeId.new()
+    tool_context = context(local, remote)
+    report = run(
+        CrossNodeDiagnosticWorkflow(
+            FakePreparer(("list_network_listeners", "get_process_summary", "list_docker_services")),
+            FakeLocalExecutor(),
+            local,
+        ).inspect(tool_context, "10.77.0.1")
+    )
+    provider = ExplainingProvider()
+
+    result = run(
+        CandidateOperationPlanner(provider).generate(
+            question="请临时共享服务",
+            report=report,
+            context=tool_context,
+            intent=CandidatePlanIntent(
+                confirmed=True,
+                service_port=12345,
+                bind_host="10.77.0.1",
+                bind_port=18881,
+                duration_seconds=60,
+            ),
+        )
+    )
+
+    assert result.plan is None
+    assert result.failure is not None
+    assert result.failure.code == "service_evidence_ambiguous"
+    assert result.failure.attribution is PlanFailureAttribution.CONTEXT
+    assert provider.requests == []
 
 
 @pytest.mark.parametrize("code", [ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT])

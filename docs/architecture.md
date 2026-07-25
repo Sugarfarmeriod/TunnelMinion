@@ -65,6 +65,10 @@ flowchart LR
 6. A 将远端监听、进程、Docker、WireGuard 和本地探测合并为服务与可达性证据。
 7. 最终回答引用 `tool_run_id`；关键证据缺失时保留未知，不使用模型常识补写实时状态。
 
+用户显式指定目标端口时，A 即使没有从 B 的监听或 Docker 清单发现该端口，也会执行一次受
+预算约束的 TCP 探测，并把它标成“主动探测、远端归属未知”的低置信度服务证据。它足以回答
+“从 A 是否可达”，但不足以证明进程归属、监听地址或满足临时发布条件。
+
 ## 一次临时共享本机服务
 
 1. A 先用 L0 只读工具确认 B 的 HTTP 服务只监听环回地址。
@@ -104,6 +108,22 @@ flowchart LR
 架构仍不修改 WireGuard、路由、防火墙、原服务或 Docker。唯一写路径是创建和清理
 TunnelMinion 自有的限时 HTTP 代理资源。
 
+## Prompt、Context 与 Harness 分层
+
+| 层 | 当前责任 | 确定性边界 |
+|---|---|---|
+| Prompt | 注册任务模板、输入字段、语义版本和内容哈希 | 文本不能授权工具或操作 |
+| Context | 组装当前消息、近期历史、摘要、工作流状态、记忆、工具结果、制品和事实证据 | 实时证据优先于记忆和历史；各类内容独立预算 |
+| Agent Runtime | 运行有界模型循环、按本次任务动态选择工具、生成公开回答 | 轮次、工具数、token、取消和停止原因受控 |
+| Tool Runtime | 注册、schema 校验、平台适配、超时、大小和审计 | 只执行注册的 L0 工具，不接受模型生成代码 |
+| Harness | Provider、ContextBuilder、工具协议、checkpoint、降级、恢复和评估的整体外壳 | 模型失败不得绕过工具、治理或资源所有权 |
+| 治理 | L0～L4、目标节点批准、预授权、租约与所有权 | 模型不拥有批准权 |
+| 可观测性 | 记录脱敏组成、预算、裁剪、版本、失败分类和资源指标 | 不保存秘密、认证头或远端完整正文 |
+
+模型响应时间和解释质量会直接影响聊天体验；真实双机验收中，连续两轮本地对话约 37.8 秒，
+跨节点诊断约 38.2 秒。端口可达性、事实优先级、参数校验、权限、回滚与是否允许执行由确定性
+代码决定，因此更换为外部 API 可以改善速度或表达，但不能替代 Harness 门禁。
+
 ## 相关决策
 
 - [ADR-0001：远端工具传输](adr/0001-remote-tool-transport.md)
@@ -112,5 +132,6 @@ TunnelMinion 自有的限时 HTTP 代理资源。
 - [ADR-0004：跨节点应用认证](adr/0004-cross-node-application-authentication.md)
 - [ADR-0005：临时 HTTP 共享](adr/0005-temporary-http-sharing.md)
 - [标准概念映射](guide/Prompt-Context-Harness概念映射.md)
+- [Context、Prompt 与 Runtime 评估指南](guide/上下文与Prompt评估指南.md)
 - [威胁模型](security/threat-model.md)
 - [数据分类与保留](security/data-classification.md)

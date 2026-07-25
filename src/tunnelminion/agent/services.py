@@ -349,7 +349,24 @@ class CrossNodeReachabilityAnalyzer:
             or any(result.reachable for _, result in probe_by_port.values())
         )
         values: list[CrossNodeServiceDiagnostic] = []
-        for service in inventory.services:
+        services = list(inventory.services)
+        known_tcp_ports = {
+            service.port for service in inventory.services if service.protocol == "tcp"
+        }
+        services.extend(
+            RemoteServiceSummary(
+                node_id=inventory.node_id,
+                protocol="tcp",
+                address=target_host,
+                port=port,
+                accessibility=ServiceAccessibility.UNKNOWN,
+                confidence=EvidenceConfidence.LOW,
+                evidence=(),
+            )
+            for port in probe_by_port
+            if port not in known_tcp_ports
+        )
+        for service in services:
             probe = probe_by_port.get(service.port) if service.protocol == "tcp" else None
             state, explanation = self._classify(service, probe, node_reachable)
             evidence = [*service.evidence, self._evidence(wireguard)]
@@ -410,6 +427,11 @@ class CrossNodeReachabilityAnalyzer:
         if service.accessibility is ServiceAccessibility.LOCAL_ONLY:
             mapping = "，且容器端口仅发布到环回地址" if service.container_id else ""
             return CrossNodeReachability.LOCAL_ONLY, f"远端服务只监听环回地址{mapping}"
+        if service.accessibility is ServiceAccessibility.UNKNOWN:
+            return (
+                CrossNodeReachability.UNREACHABLE,
+                "目标端口未出现在远端清单，且请求节点 TCP 探测失败",
+            )
         return CrossNodeReachability.UNREACHABLE, "服务具有网络监听，但请求节点 TCP 探测失败"
 
     @staticmethod
