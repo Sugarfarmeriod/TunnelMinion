@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Coroutine
 from typing import Any, TypeVar, cast
 
@@ -19,7 +20,7 @@ from tunnelminion.agent.runtime import (
     EvidenceReference,
     LangChainReadOnlyAgent,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
+from tunnelminion.domain.identifiers import ArtifactId, NodeId, RunId, ThreadId, ToolRunId
 from tunnelminion.domain.tools import (
     DataSensitivity,
     Platform,
@@ -36,6 +37,8 @@ from tunnelminion.model.contracts import (
     ModelRequest,
     ModelResponse,
     ModelUsage,
+    ProviderError,
+    ProviderErrorCode,
     ToolCall,
 )
 from tunnelminion.tools.audit import InMemoryAuditSink
@@ -242,6 +245,10 @@ def test_agent_uses_only_per_run_tools_and_continues_tool_protocol() -> None:
     assert result.evidence_answer.confirmed_facts[0].evidence_refs == result.tool_run_ids
     assert result.evidence_answer.inferences == (result.answer,)
     assert result.evidence_answer.unknowns == ()
+    assert len(result.context_records) == 2
+    assert result.context_records[0].composition
+    assert result.context_records[0].trace.input_summary_hashes
+    assert result.failures == ()
     assert len(result.tool_run_ids) == 1
     assert adapter.calls == [{"port": 8082}]
     assert [tool.name for tool in provider.requests[0].tools] == ["probe_service"]
@@ -402,7 +409,15 @@ def test_agent_rejects_invalid_dynamic_tool_sets(names: tuple[str, ...], message
 def test_chat_model_sync_entry_and_message_guards() -> None:
     """同步入口可用，未知消息类型则明确拒绝。"""
     provider = ScriptedProvider()
-    model = TunnelMinionChatModel(provider=provider)
+    with pytest.raises(ValueError, match="必须关联"):
+        TunnelMinionChatModel(provider=provider).invoke([HumanMessage(content="你好")])
+
+    call_context = context()
+    model = TunnelMinionChatModel(
+        provider=provider,
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
 
     response = model.invoke([HumanMessage(content="你好")])
 
@@ -419,6 +434,66 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
         model._convert_message(  # pyright: ignore[reportPrivateUsage]
             ChatMessage(role="custom", content="x")
         )
+
+    tool_run_id = ToolRunId.new()
+    artifact_id = ArtifactId.new()
+    model.invoke(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "artifact-call",
+                        "name": "probe_service",
+                        "args": {},
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=json.dumps(
+                    {
+                        "result": {
+                            "tool_run_id": str(tool_run_id),
+                            "artifact_id": str(artifact_id),
+                            "content_bytes": 1000,
+                            "content_type": "application/json",
+                            "truncated": True,
+                        }
+                    }
+                ),
+                tool_call_id="artifact-call",
+                name="probe_service",
+            ),
+        ]
+    )
+    assert provider.requests[-1].messages[-1].role == "tool"
+
+    class FailingProvider(ScriptedProvider):
+        async def complete(
+            self,
+            request: ModelRequest,
+            cancellation: CancellationToken | None = None,
+        ) -> ModelResponse:
+            del request, cancellation
+            raise ProviderError(
+                ProviderErrorCode.TIMEOUT,
+                "不应进入运行记录的敏感模型正文",
+                retryable=True,
+            )
+
+    failing_model = TunnelMinionChatModel(
+        provider=FailingProvider(),
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
+    with pytest.raises(ProviderError):
+        failing_model.invoke([HumanMessage(content="触发失败")])
+    failure = failing_model.run_metrics.failures[0]
+    assert failure.category.value == "prompt_or_model"
+    assert failure.reason.value == "model_timeout"
+    assert failure.retryable
+    assert "敏感模型正文" not in failure.model_dump_json()
 
 
 def test_agent_result_helpers_handle_content_variants() -> None:

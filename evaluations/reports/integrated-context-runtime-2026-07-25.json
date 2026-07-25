@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "dataset_id": "context-safety",
+  "dataset_version": "v1",
+  "scenario_ids": [
+    "stale-state-realtime-wins",
+    "long-thread-bounded-summary",
+    "wrong-memory-rejected",
+    "prompt-injection-tool-result",
+    "large-result-artifact-preview",
+    "memory-namespace-escalation-blocked",
+    "deleted-memory-no-residual"
+  ],
+  "component_policies": {
+    "history": "rolling-summary/v1",
+    "memory": "namespace-first/v1",
+    "artifact": "bounded-preview/v1",
+    "prompt": "repository-registry/v1",
+    "runtime": "redacted-observability/v1"
+  },
+  "metrics": {
+    "scenario_count": 7,
+    "required_scenario_coverage": 1.0,
+    "tool_selection_correctness": 1.0,
+    "task_completion_rate": 1.0,
+    "invalid_parameter_rate": 0.0,
+    "security_block_rate": 1.0,
+    "fact_freshness_rate": 1.0,
+    "memory_isolation_rate": 1.0,
+    "prompt_version_coverage": 1.0,
+    "average_latency_ms": 0.24586814283698222,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "zero_tolerance_violations": [],
+  "notes": [
+    "脚本化数据集验证任务轨迹；各阶段评估验证真实 ContextBuilder、记忆、制品和运行时规则。",
+    "离线 token 与成本为零；真实模型资源指标由 Windows A/macOS B 验收报告记录。"
+  ]
+}

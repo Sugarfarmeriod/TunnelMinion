@@ -93,6 +93,7 @@ def test_artifact_store_round_trip_update_and_delete(tmp_path: Path) -> None:
         tool_run_id=ToolRunId.new(),
         content={"listeners": [8080, 8082]},
         content_bytes=32,
+        content_hash="sha256:" + ("0" * 64),
         created_at=datetime.now(UTC),
     )
 

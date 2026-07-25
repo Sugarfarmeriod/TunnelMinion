@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "prompt-lifecycle",
+  "registry_policy": "repository-registry/v1",
+  "metrics": {
+    "scenario_count": 7,
+    "prompt_version_coverage": 1.0,
+    "task_correctness_rate": 1.0,
+    "evidence_reference_rate": 1.0,
+    "security_block_rate": 1.0,
+    "average_builder_latency_ms": 0.32992899999953806,
+    "provider_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "notes": [
+    "本门禁只验证确定性 Prompt 注册和上下文快照，不调用模型 Provider。",
+    "远端文本、历史、记忆和工具结果不会成为注册的 system prompt。"
+  ]
+}

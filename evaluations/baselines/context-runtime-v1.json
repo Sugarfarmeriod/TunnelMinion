@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "source_dataset_id": "tunnelminion-mvp",
+  "source_dataset_version": "v1",
+  "prompt_version": "readonly-agent-v1",
+  "scenarios": [
+    {
+      "scenario_id": "normal-node-summary",
+      "answer": "根据 get_node_summary 证据，节点 B 当前在线。",
+      "tools": ["get_node_summary"],
+      "latency_ms": 35,
+      "input_tokens": 30,
+      "output_tokens": 12,
+      "total_tokens": 42,
+      "estimated_cost": 0.0
+    },
+    {
+      "scenario_id": "loopback-pdf-diagnosis",
+      "answer": "监听证据显示 PDF 服务仅绑定 127.0.0.1:8080，A 侧探测失败，主要原因是仅限 B 本机访问；系统没有修改监听配置。",
+      "tools": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability"
+      ],
+      "latency_ms": 210,
+      "input_tokens": 80,
+      "output_tokens": 34,
+      "total_tokens": 114,
+      "estimated_cost": 0.0
+    }
+  ]
+}

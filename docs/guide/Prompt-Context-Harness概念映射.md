@@ -39,3 +39,18 @@ Prompt/Model、Harness/Tool 或 Governance。模型失败只阻止新候选计�
 当前更重要的是：事实是否来自实时证据、权限是否由目标节点掌握、失败是否安全、资源是否可
 回收、结果是否能复现。RAG、跨节点经验共享、多 Agent、自动 prompt 优化、自修改 Harness、
 通用 Harness 平台和企业 SaaS/RBAC 都需要独立 change。
+
+## 当前已做与暂缓项
+
+当前的长期记忆检索只把经过 namespace、确认状态、有效期、修订和删除规则筛选的结构化记忆
+加入 Context。它具备“检索后补充上下文”的 RAG 形态，但不是通用知识库、向量搜索或 Playbook
+共享系统。Prompt 有仓库注册、版本、哈希和变更门禁，但不会让模型自动改 Prompt。
+
+以下内容不是本 change 的完成条件：
+
+- Playbook、知识库 RAG 和跨节点经验共享：后续能力；
+- 多 Agent 协作、调度和角色分工：方案尚未确定；
+- 自动 Prompt 优化和在线试验：需要独立回滚与评估设计；
+- 自修改 Harness 或让模型修改代码、策略和门禁：当前非目标；
+- 通用 Agent/Harness 平台：当前仍服务于 TunnelMinion 场景；
+- 企业公共 SaaS、多租户、组织管理和 RBAC：需要独立产品与安全设计。

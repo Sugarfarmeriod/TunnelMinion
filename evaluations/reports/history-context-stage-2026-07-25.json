@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "history-context",
+  "builder_version": "context-builder/v1",
+  "summary_version": "rolling-summary/v1",
+  "metrics": {
+    "scenario_count": 4,
+    "task_completion_rate": 1.0,
+    "evidence_consistency_rate": 1.0,
+    "trimming_correctness_rate": 1.0,
+    "average_builder_latency_ms": 0.33919200010132045,
+    "provider_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "notes": [
+    "本门禁只测确定性上下文组装，不调用模型 Provider。",
+    "真实模型的 token、成本与端到端延迟留到综合真机验收。"
+  ]
+}

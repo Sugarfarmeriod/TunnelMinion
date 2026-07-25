@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Callable, Sequence
@@ -18,11 +19,12 @@ T = TypeVar("T")
 
 
 class ContextBudgets(BaseModel):
-    """四类上下文互不借用的字符预算。"""
+    """历史、消息、工具、结果和记忆互不借用的字符预算。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     message_chars: int = Field(default=16_000, ge=256, le=2_000_000)
+    history_chars: int = Field(default=12_000, ge=256, le=2_000_000)
     tool_schema_chars: int = Field(default=16_000, ge=256, le=2_000_000)
     tool_result_chars: int = Field(default=24_000, ge=256, le=2_000_000)
     memory_chars: int = Field(default=8_000, ge=256, le=2_000_000)
@@ -36,6 +38,35 @@ class ToolResultContext(BaseModel):
     tool_run_id: ToolRunId
     content: str
     artifact_id: ArtifactId | None = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    content_bytes: int = Field(default=0, ge=0)
+    content_type: str = Field(default="application/json", min_length=1, max_length=128)
+    truncated: bool = False
+
+
+class ArtifactReadRequest(BaseModel):
+    """由确定性权限代码签发的受控制品读取请求。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact_id: ArtifactId
+    source_tool_run_id: ToolRunId
+    authorized: bool
+    max_chars: int = Field(default=1_000, ge=64, le=20_000)
+
+
+class ArtifactReadResult(BaseModel):
+    """只返回重新预算和脱敏后的制品片段，不返回完整正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact_id: ArtifactId
+    source_tool_run_id: ToolRunId
+    content_type: str
+    content_bytes: int = Field(ge=0)
+    preview: str
+    truncated: bool
 
 
 class ContextDropCounts(BaseModel):
@@ -101,12 +132,17 @@ class ArtifactContextManager:
         serialized = json.dumps(content, ensure_ascii=False, separators=(",", ":"))
         size = len(serialized.encode("utf-8"))
         if size <= self._inline_bytes:
-            return ToolResultContext(tool_run_id=tool_run_id, content=serialized)
+            return ToolResultContext(
+                tool_run_id=tool_run_id,
+                content=serialized,
+                content_bytes=size,
+            )
         artifact = ToolArtifact(
             artifact_id=ArtifactId.new(),
             tool_run_id=tool_run_id,
             content=content,
             content_bytes=size,
+            content_hash=f"sha256:{hashlib.sha256(serialized.encode()).hexdigest()}",
             created_at=datetime.now(UTC),
         )
         self._store.put(artifact)
@@ -115,6 +151,8 @@ class ArtifactContextManager:
             tool_run_id=tool_run_id,
             artifact_id=artifact.artifact_id,
             content=f"artifact={artifact.artifact_id}; preview={preview}",
+            content_bytes=size,
+            truncated=True,
         )
 
     def _relevant_preview(self, content: str, question: str) -> str:
@@ -129,7 +167,56 @@ class ArtifactContextManager:
                 ranked.append((-score, index, fragment))
         ranked.sort()
         selected = "".join(fragment for _, _, fragment in ranked) if ranked else content
-        return selected[: self._preview_chars]
+        return self.redact_preview(selected[: self._preview_chars])
+
+    @staticmethod
+    def redact_preview(content: str) -> str:
+        """移除模型可见预览中的常见凭据形态。"""
+        patterns = (
+            re.compile(
+                r'(?i)("?(?:api[_-]?key|access[_-]?token|client[_-]?secret|authorization|password)"?\s*[:=]\s*")([^"]+)(")'
+            ),
+            re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"),
+            re.compile(
+                r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+                re.DOTALL,
+            ),
+        )
+        redacted = patterns[0].sub(r"\1[REDACTED]\3", content)
+        redacted = patterns[1].sub("Bearer [REDACTED]", redacted)
+        return patterns[2].sub("[REDACTED PRIVATE KEY]", redacted)
+
+
+class ArtifactReadService:
+    """要求显式权限与来源关联后，才提供受限且脱敏的制品预览。"""
+
+    def __init__(self, store: ToolArtifactStore) -> None:
+        self._store = store
+
+    def read(self, request: ArtifactReadRequest) -> ArtifactReadResult:
+        if not request.authorized:
+            raise PermissionError("artifact_read_forbidden")
+        artifact = self._store.get(request.artifact_id)
+        if artifact is None:
+            raise KeyError("artifact_not_found")
+        if artifact.tool_run_id != request.source_tool_run_id:
+            raise PermissionError("artifact_source_mismatch")
+        if artifact.content_type != "application/json":
+            raise ValueError("artifact_content_type_unsupported")
+        serialized = json.dumps(
+            artifact.content,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        preview = ArtifactContextManager.redact_preview(serialized[: request.max_chars])
+        return ArtifactReadResult(
+            artifact_id=artifact.artifact_id,
+            source_tool_run_id=artifact.tool_run_id,
+            content_type=artifact.content_type,
+            content_bytes=artifact.content_bytes,
+            preview=preview,
+            truncated=len(serialized) > request.max_chars,
+        )
 
 
 class ContextBuilder:

@@ -50,6 +50,8 @@ class ToolArtifact(BaseModel):
     tool_run_id: ToolRunId
     content: JsonValue
     content_bytes: int = Field(ge=0)
+    content_type: str = Field(default="application/json", min_length=1, max_length=128)
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     created_at: datetime
 
 
@@ -63,13 +65,15 @@ class MemoryKind(StrEnum):
 
 
 class MemoryNamespace(BaseModel):
-    """按用户、网络和节点三层隔离长期记忆。"""
+    """按用户、网络、节点、任务和安全域五层隔离长期记忆。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     user: str = Field(min_length=1, max_length=128)
     network: str = Field(min_length=1, max_length=128)
     node_id: NodeId
+    task_type: str = Field(default="local-conversation", min_length=1, max_length=128)
+    security_scope: str = Field(default="read-only-agent", min_length=1, max_length=128)
 
 
 class LongTermMemory(BaseModel):
@@ -84,6 +88,10 @@ class LongTermMemory(BaseModel):
     source: str = Field(min_length=1, max_length=2_000)
     user_confirmed: bool
     updated_at: datetime
+    valid_until: datetime | None = None
+    revision_of: MemoryId | None = None
+    superseded_by: MemoryId | None = None
+    deleted_at: datetime | None = None
 
 
 class CheckpointStore(Protocol):

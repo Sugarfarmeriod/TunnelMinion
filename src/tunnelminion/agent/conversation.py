@@ -10,6 +10,15 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tunnelminion.agent.context_contracts import (
+    FailurePhase,
+    FailureRecord,
+    HistoryContext,
+    RollingSummary,
+    WorkflowContextState,
+)
+from tunnelminion.agent.history import ThreadHistoryAssembler
+from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.runtime import (
     AgentCancellationToken,
     AgentRunLimits,
@@ -18,12 +27,17 @@ from tunnelminion.agent.runtime import (
     AgentTurnResult,
     LangChainReadOnlyAgent,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     CheckpointStatus,
     CheckpointStore,
+    LongTermMemory,
+    MemoryNamespace,
 )
+from tunnelminion.memory.service import MemoryContextQuery, MemoryContextRetriever
+from tunnelminion.model.contracts import ModelMessage
 from tunnelminion.tools.contracts import ToolCallContext
 
 
@@ -101,6 +115,7 @@ class RunView(BaseModel):
     result: AgentTurnResult | None = None
     error_code: str | None = None
     error_message: str | None = None
+    failure: FailureRecord | None = None
 
 
 class RunEvent(BaseModel):
@@ -130,6 +145,7 @@ class _ConversationCheckpointState(BaseModel):
     messages: tuple[ThreadMessage, ...]
     run: RunView
     events: tuple[RunEvent, ...]
+    rolling_summary: RollingSummary | None = None
 
 
 @dataclass
@@ -145,6 +161,7 @@ class _RunState:
     result: AgentTurnResult | None = None
     error_code: str | None = None
     error_message: str | None = None
+    failure: FailureRecord | None = None
     events: list[RunEvent] = field(default_factory=lambda: [])
     changed: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task[None] | None = None
@@ -158,6 +175,7 @@ class _ThreadState:
     created_at: datetime
     updated_at: datetime
     messages: list[ThreadMessage] = field(default_factory=lambda: [])
+    rolling_summary: RollingSummary | None = None
 
 
 class InMemoryConversationService:
@@ -168,12 +186,16 @@ class InMemoryConversationService:
         node_id: NodeId,
         agent_factory: Callable[[], LangChainReadOnlyAgent],
         checkpoints: CheckpointStore | None = None,
+        history_assembler: ThreadHistoryAssembler | None = None,
+        memory_retriever: MemoryContextRetriever | None = None,
     ) -> None:
         self._node_id = node_id
         self._agent_factory = agent_factory
         self._threads: dict[str, _ThreadState] = {}
         self._runs: dict[str, _RunState] = {}
         self._checkpoints = checkpoints
+        self._history_assembler = history_assembler or ThreadHistoryAssembler()
+        self._memory_retriever = memory_retriever
         self._restore()
 
     def create_thread(self) -> ThreadView:
@@ -217,8 +239,18 @@ class InMemoryConversationService:
 
     async def start_run(self, thread_id: ThreadId, value: StartRunInput) -> RunView:
         """验证线程与模型后，在后台启动一次 Agent run。"""
-        if str(thread_id) not in self._threads:
+        thread = self._threads.get(str(thread_id))
+        if thread is None:
             raise KeyError("thread_not_found")
+        memories = self._memories(value.question)
+        history_context = self._history_assembler.assemble(
+            tuple(ModelMessage(role=item.role, content=item.content) for item in thread.messages),
+            history_budget=ContextBudgets().history_chars,
+            previous_summary=thread.rolling_summary,
+            workflow_state=self._workflow_state(thread_id),
+            memory_ids=tuple(item.memory_id for item in memories),
+        )
+        thread.rolling_summary = history_context.rolling_summary
         agent = self._agent_factory()
         state = _RunState(
             run_id=RunId.new(),
@@ -234,7 +266,9 @@ class InMemoryConversationService:
             target_node_id=str(self._node_id),
             message=value.question,
         )
-        state.task = asyncio.create_task(self._execute(state, agent, value))
+        state.task = asyncio.create_task(
+            self._execute(state, agent, value, history_context, memories)
+        )
         return self._view(state)
 
     def get_run(self, run_id: RunId) -> RunView:
@@ -267,6 +301,8 @@ class InMemoryConversationService:
         state: _RunState,
         agent: LangChainReadOnlyAgent,
         value: StartRunInput,
+        history_context: HistoryContext,
+        memories: tuple[LongTermMemory, ...],
     ) -> None:
         def tool_event(event: AgentToolEvent) -> None:
             self._append(
@@ -292,6 +328,8 @@ class InMemoryConversationService:
                 value.limits,
                 state.cancellation,
                 tool_event,
+                history_context,
+                memories,
             )
             state.result = result
             state.status = (
@@ -308,10 +346,16 @@ class InMemoryConversationService:
                 stop_reason=result.stop_reason,
                 message=result.answer,
             )
-        except Exception:
+        except Exception as exc:
+            failure = classify_failure(
+                exc,
+                phase=FailurePhase.AGENT_RUNTIME,
+                source_refs=(f"run:{state.run_id}",),
+            )
             state.status = RunStatus.FAILED
             state.finished_at = datetime.now(UTC)
-            state.error_code = "agent_run_failed"
+            state.failure = failure
+            state.error_code = failure.reason.value
             state.error_message = "Agent run 执行失败"
             self._append(
                 state,
@@ -352,6 +396,7 @@ class InMemoryConversationService:
                     messages=tuple(thread.messages),
                     run=self._view(state),
                     events=tuple(state.events),
+                    rolling_summary=thread.rolling_summary,
                 ).model_dump(mode="json"),
                 tool_run_ids=(
                     tuple(ToolRunId(item) for item in state.result.tool_run_ids)
@@ -375,6 +420,7 @@ class InMemoryConversationService:
                 created_at=thread_view.created_at,
                 updated_at=thread_view.updated_at,
                 messages=messages,
+                rolling_summary=public.rolling_summary,
             )
             run_view = public.run
             state = _RunState(
@@ -387,6 +433,7 @@ class InMemoryConversationService:
                 result=run_view.result,
                 error_code=run_view.error_code,
                 error_message=run_view.error_message,
+                failure=run_view.failure,
                 events=list(public.events),
             )
             self._runs[str(record.run_id)] = state
@@ -400,6 +447,48 @@ class InMemoryConversationService:
                     RunEventType.INTERRUPTED,
                     message=state.error_message,
                 )
+
+    def _workflow_state(self, thread_id: ThreadId) -> WorkflowContextState | None:
+        pending = tuple(
+            item
+            for item in self._runs.values()
+            if item.thread_id == thread_id
+            and item.status in {RunStatus.RUNNING, RunStatus.INTERRUPTED}
+        )
+        if not pending:
+            return None
+        return WorkflowContextState(
+            status="unfinished",
+            pending_steps=tuple(f"{item.run_id}:{item.status.value}" for item in pending),
+            source_run_ids=tuple(item.run_id for item in pending),
+            safety_constraints=(
+                "不得自动重放工具调用",
+                "不得从摘要恢复授权或写操作",
+            ),
+        )
+
+    def _memories(self, question: str) -> tuple[LongTermMemory, ...]:
+        if self._memory_retriever is None:
+            return ()
+        return self._memory_retriever.retrieve(
+            MemoryContextQuery(
+                namespace=MemoryNamespace(
+                    user="local-user",
+                    network="home",
+                    node_id=self._node_id,
+                ),
+                question=question,
+                at=datetime.now(UTC),
+            )
+        )
+
+    def invalidate_memory(self, memory_id: MemoryId) -> None:
+        """删除或修订记忆后清除引用它的滚动摘要。"""
+        reference = f"memory:{memory_id}"
+        for thread in self._threads.values():
+            summary = thread.rolling_summary
+            if summary is not None and reference in summary.source_message_refs:
+                thread.rolling_summary = None
 
     def _get(self, run_id: RunId) -> _RunState:
         state = self._runs.get(str(run_id))
@@ -443,4 +532,5 @@ class InMemoryConversationService:
             result=state.result,
             error_code=state.error_code,
             error_message=state.error_message,
+            failure=state.failure,
         )

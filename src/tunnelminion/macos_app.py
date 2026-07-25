@@ -28,7 +28,8 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.operations import TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayBindConfig
-from tunnelminion.memory.service import LongTermMemoryService
+from tunnelminion.memory.context import ArtifactContextManager
+from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.api import create_model_router
 from tunnelminion.model.configuration import (
@@ -224,7 +225,13 @@ def _build_macos_node(
         ),
     )
     register_safe_http_sharing_operation(registry)
-    runtime = ToolRuntime(registry, Platform.MACOS, audit)
+    stores = SQLiteStores.open(root / "runtime.sqlite3")
+    runtime = ToolRuntime(
+        registry,
+        Platform.MACOS,
+        audit,
+        artifact_manager=ArtifactContextManager(stores.artifacts),
+    )
     return MacOSNode(root, node_id, model_service, runtime, audit, registry, reader)
 
 
@@ -238,9 +245,12 @@ def build_macos_local_application(
 
     stores = SQLiteStores.open(node.root / "runtime.sqlite3")
     conversations = InMemoryConversationService(
-        node.node_id, lambda: _create_macos_read_only_agent(node), stores.checkpoints
+        node.node_id,
+        lambda: _create_macos_read_only_agent(node),
+        stores.checkpoints,
+        memory_retriever=MemoryContextRetriever(stores.memories),
     )
-    memories = LongTermMemoryService(stores.memories)
+    memories = LongTermMemoryService(stores.memories, (conversations,))
     authorization = AuthorizationService(
         stores.operations,
         stores.preauthorizations,

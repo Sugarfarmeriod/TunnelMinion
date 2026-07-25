@@ -19,6 +19,7 @@ class ProviderErrorCode(StrEnum):
     CAPABILITY_INCOMPATIBLE = "capability_incompatible"
     CANCELLED = "cancelled"
     INVALID_RESPONSE = "invalid_response"
+    INVALID_CONTEXT = "invalid_context"
 
 
 class ProviderError(Exception):

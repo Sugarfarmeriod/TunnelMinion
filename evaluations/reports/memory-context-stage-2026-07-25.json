@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "memory-context",
+  "retrieval_policy": "namespace-first/v1",
+  "metrics": {
+    "scenario_count": 6,
+    "memory_hit_correctness": 1.0,
+    "incorrect_injection_rate": 0.0,
+    "namespace_leakage_rate": 0.0,
+    "lifecycle_residual_rate": 0.0,
+    "average_retrieval_latency_ms": 0.020392999867908657,
+    "provider_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "notes": [
+    "本门禁只验证确定性记忆检索与生命周期规则，不调用模型 Provider。",
+    "跨用户、跨节点、跨任务和跨安全域候选必须在相关性排序前移除。"
+  ]
+}

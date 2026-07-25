@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import pytest
@@ -11,8 +12,10 @@ from pydantic import JsonValue, ValidationError
 from tests.tools.test_registry import definition
 
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import ArtifactId, NodeId, RunId, ThreadId, ToolRunId
 from tunnelminion.domain.tools import Platform, RiskLevel
+from tunnelminion.memory.context import ArtifactContextManager
+from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
@@ -58,6 +61,7 @@ def build_runtime(
     max_bytes: int = 1024,
     output_schema: dict[str, JsonValue] | None = None,
     max_concurrency: int = 4,
+    artifact_manager: ArtifactContextManager | None = None,
 ) -> tuple[ToolRuntime, InMemoryAuditSink]:
     """组装一个只有 `probe_service` 的 Runtime。"""
     registry = ToolRegistry()
@@ -86,6 +90,7 @@ def build_runtime(
             Platform.WINDOWS,
             audit,
             max_concurrency=max_concurrency,
+            artifact_manager=artifact_manager,
         ),
         audit,
     )
@@ -235,6 +240,32 @@ def test_large_and_untrusted_results_are_bounded_without_changing_policy() -> No
     assert unknown.error.code is ErrorCode.TOOL_NOT_FOUND
 
 
+def test_large_result_is_persisted_as_controlled_artifact(tmp_path: Path) -> None:
+    stores = SQLiteStores.open(tmp_path / "tool-artifact.sqlite3")
+    runtime, _ = build_runtime(
+        FakeToolAdapter(FakeToolBehavior.LARGE_RESULT, large_result_size=1000),
+        max_bytes=32,
+        artifact_manager=ArtifactContextManager(
+            stores.artifacts,
+            inline_bytes=256,
+            preview_chars=80,
+        ),
+    )
+
+    partial = run(runtime.execute(request(port=80)))
+
+    assert partial.status is ToolExecutionStatus.PARTIAL
+    assert partial.artifact_id is not None
+    assert partial.content_bytes is not None and partial.content_bytes > 256
+    assert partial.content_type == "application/json"
+    assert len(str(partial.output)) < partial.content_bytes
+    artifact = stores.artifacts.get(partial.artifact_id)
+    assert artifact is not None
+    assert artifact.tool_run_id == partial.tool_run_id
+    assert artifact.content_bytes == partial.content_bytes
+    assert artifact.content_hash.startswith("sha256:")
+
+
 def test_concurrency_limit_is_enforced() -> None:
     adapter = FakeToolAdapter(delay_seconds=0.02)
     runtime, _ = build_runtime(adapter, max_concurrency=1)
@@ -262,6 +293,15 @@ def test_result_model_rejects_inconsistent_states() -> None:
         ToolExecutionResult(
             tool_run_id=tool_run_id,
             status=ToolExecutionStatus.PARTIAL,
+            error=error,
+        )
+    with pytest.raises(ValidationError, match="大小和类型"):
+        ToolExecutionResult(
+            tool_run_id=tool_run_id,
+            status=ToolExecutionStatus.PARTIAL,
+            output="preview",
+            truncated=True,
+            artifact_id=ArtifactId.new(),
             error=error,
         )
     with pytest.raises(ValidationError):

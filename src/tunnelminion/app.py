@@ -13,7 +13,8 @@ from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
-from tunnelminion.memory.service import LongTermMemoryService
+from tunnelminion.memory.context import ArtifactContextManager
+from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.api import create_model_router
 from tunnelminion.model.configuration import (
@@ -122,15 +123,25 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         ),
     )
     register_safe_http_sharing_operation(registry)
-    runtime = ToolRuntime(registry, Platform.WINDOWS, audit)
+    stores = SQLiteStores.open(root / "runtime.sqlite3")
+    runtime = ToolRuntime(
+        registry,
+        Platform.WINDOWS,
+        audit,
+        artifact_manager=ArtifactContextManager(stores.artifacts),
+    )
 
     def create_agent() -> LangChainReadOnlyAgent:
         model = TunnelMinionChatModel(provider=model_service.create_provider())
         return LangChainReadOnlyAgent(model, registry, runtime, Platform.WINDOWS)
 
-    stores = SQLiteStores.open(root / "runtime.sqlite3")
-    conversations = InMemoryConversationService(node_id, create_agent, stores.checkpoints)
-    memories = LongTermMemoryService(stores.memories)
+    conversations = InMemoryConversationService(
+        node_id,
+        create_agent,
+        stores.checkpoints,
+        memory_retriever=MemoryContextRetriever(stores.memories),
+    )
+    memories = LongTermMemoryService(stores.memories, (conversations,))
     authorization = AuthorizationService(
         stores.operations,
         stores.preauthorizations,
