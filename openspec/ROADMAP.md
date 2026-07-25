@@ -224,8 +224,8 @@ Agent 应完成以下闭环：
 | 交付主题 | OpenSpec 状态 | 下一步 |
 |---|---|---|
 | 现有组网上的只读分布式 Agent | `deliver-ai-agent-over-existing-mesh` 已完成 | 归档并同步稳定 specs |
-| 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已建立 | 按独立纵向切片实施 |
-| 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已建立 | 在安全操作闭环后按独立 change 实施 |
+| 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已完成并归档 | 稳定需求已同步到主规范 |
+| 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已建立 | 当前实施阶段，按独立任务组提交与验收 |
 | Coordinator 与服务目录 | 路线图候选 | 建立独立 change |
 | WireGuard 自动管理与连接优化 | 旧 `deliver-minimum-viable-mesh` 过大 | 暂停并拆分后重新规划 |
 | Linux 节点 Provider | 旧 change 中混合存在 | 建立独立 change |

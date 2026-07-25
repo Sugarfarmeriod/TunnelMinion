@@ -1,0 +1,63 @@
+# temporary-service-sharing Specification
+
+## Purpose
+TBD - created by archiving change approve-and-share-local-service. Update Purpose after archive.
+## Requirements
+### Requirement: 临时共享必须针对实时确认的本机服务
+系统 SHALL 只为目标节点实时工具已确认存在、仅本机可访问且与计划服务指纹一致的服务创建共享入口。
+
+#### Scenario: 服务仍然只监听环回地址
+- **WHEN** 执行前重新读取的服务地址、端口和进程或容器证据与已批准计划一致
+- **THEN** 系统 SHALL 允许授权流程继续创建临时入口
+
+#### Scenario: 服务在批准后发生变化
+- **WHEN** 执行前发现服务已停止、监听地址或端口改变、或服务指纹不再匹配
+- **THEN** 系统 SHALL 拒绝执行并要求基于新证据生成新计划
+
+### Requirement: 第一版共享入口必须限制在现有私有网络
+系统 SHALL 只把入口绑定到显式配置的 WireGuard 私网地址，不得绑定通配地址、物理局域网地址或公网地址。
+
+#### Scenario: 适配器请求绑定通配地址
+- **WHEN** 共享配置包含 `0.0.0.0`、`::` 或不属于允许 WireGuard 地址集合的地址
+- **THEN** 系统 SHALL 在创建任何监听资源之前拒绝该配置
+
+### Requirement: HTTP 共享必须限制访问者和租约
+系统 SHALL 为 HTTP/HTTPS 临时共享生成短期高熵访问凭据，限制允许请求 peer，并设置不可超过策略上限的绝对过期时间。
+
+#### Scenario: 已授权 peer 在租约内访问
+- **WHEN** 允许的请求 peer 在租约内使用有效临时凭据访问入口
+- **THEN** 系统 SHALL 把受预算约束的请求转发到目标本机服务
+
+#### Scenario: 缺少或使用错误凭据
+- **WHEN** 请求未携带本次共享的有效临时凭据
+- **THEN** 系统 SHALL 拒绝访问且不得把请求转发到目标服务
+
+#### Scenario: 租约已经过期
+- **WHEN** 当前时间达到共享的绝对过期时间
+- **THEN** 系统 SHALL 停止接受新连接并启动自有资源清理
+
+### Requirement: 系统只能管理自己创建的共享资源
+系统 SHALL 为每个入口记录稳定资源所有权和指纹，并 MUST 只修改或删除与该记录匹配的 TunnelMinion 自有资源。
+
+#### Scenario: 目标端口已有用户进程
+- **WHEN** 计划选择的入口端口已被非 TunnelMinion 资源占用
+- **THEN** 系统 SHALL 拒绝创建入口且不得停止、替换或修改已有进程
+
+#### Scenario: 恢复时资源指纹不匹配
+- **WHEN** 恢复器发现预期端口存在资源但无法证明是对应操作创建
+- **THEN** 系统 SHALL 不删除该资源并把操作标记为需要人工清理
+
+### Requirement: 任意 TCP 转发不得作为首个实现的隐含能力
+系统 SHALL 只暴露已经注册并通过平台验证的共享适配器；第一条共享验收 MUST 以受支持 HTTP 服务完成。
+
+#### Scenario: 请求共享未支持的 TCP 协议
+- **WHEN** 用户请求共享没有注册适配器的数据库、SSH、游戏或其他 TCP 服务
+- **THEN** 系统 SHALL 明确返回协议不受支持且不得退化为通用端口转发
+
+### Requirement: 临时共享不得修改用户原有配置
+系统 MUST 不修改目标服务配置、用户 WireGuard 配置、现有路由、防火墙规则或 Docker 配置。
+
+#### Scenario: 完整共享生命周期结束
+- **WHEN** 一个共享入口创建、验证、使用并到期清理
+- **THEN** 系统 SHALL 证明用户原有 WireGuard、服务、容器和网络配置摘要与操作前一致
+
