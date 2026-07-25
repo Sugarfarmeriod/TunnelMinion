@@ -9,6 +9,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from tunnelminion.agent.planning import CandidateOperationPlanner, CandidatePlanIntent
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.runtime import AgentToolExecutor
 from tunnelminion.agent.services import (
@@ -27,6 +28,11 @@ from tunnelminion.model.contracts import (
     ModelRequest,
     ModelUsage,
     ProviderError,
+)
+from tunnelminion.operation.contracts import (
+    OperationPlan,
+    PlanFailureAttribution,
+    PlanGenerationTrace,
 )
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -112,14 +118,24 @@ class CrossNodeAgentAnswer(BaseModel):
     report: CrossNodeDiagnosticReport | None = None
     elapsed_ms: float = 0.0
     model_usage: ModelUsage | None = None
+    candidate_plan: OperationPlan | None = None
+    plan_trace: PlanGenerationTrace | None = None
+    plan_error_code: str | None = None
+    plan_failure_attribution: PlanFailureAttribution | None = None
 
 
 class CrossNodeDiagnosticAgent:
     """先运行确定性诊断，再让模型解释，不允许模型新增系统动作。"""
 
-    def __init__(self, workflow: CrossNodeDiagnosticWorkflow, provider: ModelProvider) -> None:
+    def __init__(
+        self,
+        workflow: CrossNodeDiagnosticWorkflow,
+        provider: ModelProvider,
+        planner: CandidateOperationPlanner | None = None,
+    ) -> None:
         self._workflow = workflow
         self._provider = provider
+        self._planner = planner or CandidateOperationPlanner(provider)
 
     async def answer(
         self,
@@ -128,13 +144,19 @@ class CrossNodeDiagnosticAgent:
         target_host: str,
         *,
         port: int | None = None,
+        plan_intent: CandidatePlanIntent | None = None,
         tool_cancellation: ToolCancellationToken | None = None,
         model_cancellation: CancellationToken | None = None,
     ) -> CrossNodeAgentAnswer:
         """回答服务发现或单端口故障问题，并始终附加程序生成的证据结论。"""
         started_at = perf_counter()
         try:
-            report = await self._workflow.inspect(context, target_host, tool_cancellation)
+            report = await self._workflow.inspect(
+                context,
+                target_host,
+                tool_cancellation,
+                target_port=port,
+            )
         except RemotePreparationError as exc:
             return CrossNodeAgentAnswer(
                 answer=(
@@ -161,24 +183,58 @@ class CrossNodeDiagnosticAgent:
                 ),
             )
         )
-        try:
-            response = await self._provider.complete(request, model_cancellation)
-            explanation = response.content.strip() if response.content else None
-            answer = f"{explanation}\n\n确定性证据结论：\n{fallback}" if explanation else fallback
-            return CrossNodeAgentAnswer(
-                answer=answer,
-                model_explanation=explanation,
+        explanation: str | None = None
+        model_error_code: str | None = None
+        model_usage: ModelUsage | None = None
+        if plan_intent is None:
+            try:
+                response = await self._provider.complete(request, model_cancellation)
+                explanation = response.content.strip() if response.content else None
+                model_usage = response.usage
+            except ProviderError as exc:
+                model_error_code = exc.code.value
+
+        candidate_plan: OperationPlan | None = None
+        plan_trace: PlanGenerationTrace | None = None
+        plan_error_code: str | None = None
+        plan_failure_attribution: PlanFailureAttribution | None = None
+        if plan_intent is not None:
+            generated = await self._planner.generate(
+                question=question,
                 report=report,
-                elapsed_ms=(perf_counter() - started_at) * 1000,
-                model_usage=response.usage,
+                context=context,
+                intent=plan_intent,
+                cancellation=model_cancellation,
             )
-        except ProviderError as exc:
-            return CrossNodeAgentAnswer(
-                answer=f"模型解释不可用（{exc.code.value}）。\n\n确定性证据结论：\n{fallback}",
-                model_error_code=exc.code.value,
-                report=report,
-                elapsed_ms=(perf_counter() - started_at) * 1000,
-            )
+            candidate_plan = generated.plan
+            if generated.plan is not None:
+                plan_trace = generated.plan.generation_trace
+            elif generated.failure is not None:
+                plan_error_code = generated.failure.code
+                plan_failure_attribution = generated.failure.attribution
+
+        if explanation:
+            answer = f"{explanation}\n\n确定性证据结论：\n{fallback}"
+        elif model_error_code is not None:
+            answer = f"模型解释不可用（{model_error_code}）。\n\n确定性证据结论：\n{fallback}"
+        else:
+            answer = fallback
+        if candidate_plan is not None:
+            answer += "\n\n已生成无权限的 L2 候选计划；仍需目标节点策略校验与本地授权。"
+        elif plan_error_code is not None:
+            answer += f"\n\n候选计划未生成（{plan_error_code}），只读诊断结果仍然有效。"
+        return CrossNodeAgentAnswer(
+            answer=answer,
+            model_explanation=explanation,
+            model_error_code=model_error_code,
+            report=report,
+            elapsed_ms=(perf_counter() - started_at) * 1000,
+            model_usage=model_usage,
+            candidate_plan=candidate_plan,
+            plan_trace=plan_trace,
+            plan_error_code=plan_error_code,
+            plan_failure_attribution=plan_failure_attribution,
+        )
 
 
 class CrossNodeDiagnosticWorkflow:
@@ -210,6 +266,8 @@ class CrossNodeDiagnosticWorkflow:
         context: ToolCallContext,
         target_host: str,
         cancellation: ToolCancellationToken | None = None,
+        *,
+        target_port: int | None = None,
     ) -> CrossNodeDiagnosticReport:
         """完成远端能力预检、三类采集、A 侧 WireGuard 与 TCP 探测。"""
         if context.caller_node_id != self._local_node_id:
@@ -245,9 +303,16 @@ class CrossNodeDiagnosticWorkflow:
             cancellation,
         )
         probe_observations: list[ToolObservation] = []
-        ports = tuple(
+        discovered_ports = tuple(
             dict.fromkeys(item.port for item in inventory.services if item.protocol == "tcp")
-        )[: self._max_probes]
+        )
+        ports = (
+            (target_port,)
+            if target_port is not None and target_port in discovered_ports
+            else ()
+            if target_port is not None
+            else discovered_ports[: self._max_probes]
+        )
         for port in ports:
             result = await self._local.execute(
                 ToolExecutionRequest(
@@ -263,6 +328,7 @@ class CrossNodeDiagnosticWorkflow:
             target_host,
             self._observation("get_wireguard_status", wireguard),
             tuple(probe_observations),
+            remote_node_observed=True,
         )
         return CrossNodeDiagnosticReport(
             local_node_id=self._local_node_id,

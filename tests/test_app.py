@@ -24,6 +24,7 @@ from tunnelminion.app import (
 )
 from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.macos_app import SafeSharingGatewaySettings
 from tunnelminion.model.configuration import ModelConfigurationService
 from tunnelminion.model.contracts import (
     CancellationToken,
@@ -34,6 +35,7 @@ from tunnelminion.model.contracts import (
 from tunnelminion.platforms.windows.models import InterfaceSnapshot
 from tunnelminion.platforms.windows.system import CommandResult
 from tunnelminion.tools.contracts import ToolCallContext, ToolExecutionRequest
+from tunnelminion.web.operations import PreauthorizationInput
 
 
 class AppProvider:
@@ -109,7 +111,10 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/resources/node-summary" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
+    assert "/api/operations" in paths
+    assert "/api/preauthorizations" in paths
     assert "/resources" in paths
+    assert "/operations" in paths
     assert bundle.node_id
     assert bundle.audit_sink.records == []
     assert bundle.tool_runtime
@@ -267,8 +272,13 @@ def test_gateway_cli_uses_validated_wireguard_binding(
         app = object()
         bind = GatewayBindConfig(host="10.77.0.1", port=8787)
 
-    def build(path: Path | None) -> Bundle:
+    def build(
+        path: Path | None,
+        *,
+        safe_sharing: object | None = None,
+    ) -> Bundle:
         assert path == tmp_path
+        assert safe_sharing is None
         return Bundle()
 
     def fake_run(app: object, **kwargs: object) -> None:
@@ -280,6 +290,171 @@ def test_gateway_cli_uses_validated_wireguard_binding(
 
     assert cli.main(["gateway", "--data-dir", str(tmp_path)]) == 0
     assert captured == {"app": Bundle.app, "host": "10.77.0.1", "port": 8787}
+
+
+def test_gateway_cli_passes_explicit_safe_sharing_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Bundle:
+        app = object()
+        bind = GatewayBindConfig(host="10.77.0.1", port=18_883)
+
+    def build(
+        path: Path | None,
+        *,
+        safe_sharing: object | None = None,
+    ) -> Bundle:
+        captured["path"] = path
+        captured["settings"] = safe_sharing
+        return Bundle()
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_macos_gateway_application", build)
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        captured.update({"app": app, **kwargs})
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    assert (
+        cli.main(
+            [
+                "gateway",
+                "--data-dir",
+                str(tmp_path),
+                "--enable-safe-sharing",
+                "--sharing-min-port",
+                "18880",
+                "--sharing-max-port",
+                "18889",
+                "--sharing-max-duration",
+                "120",
+                "--sharing-gateway-port",
+                "18883",
+            ]
+        )
+        == 0
+    )
+    settings = captured["settings"]
+    assert isinstance(settings, SafeSharingGatewaySettings)
+    assert settings.minimum_port == 18_880
+    assert settings.maximum_port == 18_889
+    assert settings.maximum_duration_seconds == 120
+    assert captured["host"] == "10.77.0.1"
+    assert captured["port"] == 18_883
+
+
+def test_local_operation_cli_uses_target_control_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Result:
+        def model_dump_json(self) -> str:
+            return '{"status":"ok"}'
+
+    class Service:
+        def approve(self, operation_id: object, payload: object) -> Result:
+            captured["operation_id"] = operation_id
+            captured["approve"] = payload
+            return Result()
+
+        def create_preauthorization(self, payload: object) -> Result:
+            captured["preauthorization"] = payload
+            return Result()
+
+    class Bundle:
+        operation_control_service = Service()
+
+    def build(path: Path) -> Bundle:
+        assert path == tmp_path
+        return Bundle()
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_macos_local_application", build)
+    operation_id = "operation_0123456789abcdef0123456789abcdef"
+    peer_id = "node_0123456789abcdef0123456789abcdef"
+    fingerprint = f"sha256:{'a' * 64}"
+
+    assert (
+        cli.main(
+            [
+                "operation-approve",
+                "--data-dir",
+                str(tmp_path),
+                "--operation-id",
+                operation_id,
+                "--valid-seconds",
+                "60",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    assert str(captured["operation_id"]) == operation_id
+    assert (
+        cli.main(
+            [
+                "operation-preauthorize",
+                "--data-dir",
+                str(tmp_path),
+                "--request-peer-id",
+                peer_id,
+                "--service-id",
+                "http:127.0.0.1:18880:fixture",
+                "--service-fingerprint",
+                fingerprint,
+                "--minimum-port",
+                "18881",
+                "--maximum-port",
+                "18881",
+                "--maximum-duration",
+                "60",
+                "--valid-seconds",
+                "120",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    preauthorization = captured["preauthorization"]
+    assert isinstance(preauthorization, PreauthorizationInput)
+    assert preauthorization.confirm_peer
+    assert preauthorization.confirm_validity
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "operation-approve",
+                "--operation-id",
+                operation_id,
+                "--valid-seconds",
+                "0",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "operation-preauthorize",
+                "--request-peer-id",
+                peer_id,
+                "--service-id",
+                "service",
+                "--service-fingerprint",
+                fingerprint,
+                "--minimum-port",
+                "18881",
+                "--maximum-port",
+                "18881",
+                "--maximum-duration",
+                "60",
+                "--valid-seconds",
+                "86401",
+            ]
+        )
 
 
 def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
@@ -306,6 +481,8 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
                 "restricted-file",
                 "--allowed-tool",
                 "get_node_summary",
+                "--allowed-operation",
+                "share_local_http_service",
             ]
         )
         == 0
@@ -314,6 +491,7 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
     body = json.loads(output)
     assert body["gateway"]["configured"] is True
     assert body["gateway"]["peers"][0]["allowed_tools"] == ["get_node_summary"]
+    assert body["gateway"]["peers"][0]["allowed_operations"] == ["share_local_http_service"]
     assert token not in output
 
 

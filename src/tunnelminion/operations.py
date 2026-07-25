@@ -44,11 +44,13 @@ def build_safe_export(
     gateway = FileGatewayConfigurationRepository(data_dir / "gateway.json").load()
     checkpoints: list[JsonValue] = []
     memories: list[JsonValue] = []
+    operations: list[JsonValue] = []
     database_path = data_dir / "runtime.sqlite3"
     if database_path.exists():
         stores = SQLiteStores.open(database_path)
         checkpoints = [item.model_dump(mode="json") for item in stores.checkpoints.list_all()]
         memories = [item.model_dump(mode="json") for item in stores.memories.list_all()]
+        operations = [item.model_dump(mode="json") for item in stores.operations.list_summaries()]
 
     return {
         "schema_version": EXPORT_SCHEMA_VERSION,
@@ -58,11 +60,15 @@ def build_safe_export(
         "gateway": gateway.model_dump(mode="json") if gateway is not None else None,
         "checkpoints": checkpoints,
         "long_term_memories": memories,
+        "operations": operations,
         "excluded_categories": [
             "model_api_keys",
             "gateway_tokens",
             "wireguard_secrets",
             "tool_artifact_contents",
+            "temporary_access_credentials",
+            "authorization_headers",
+            "remote_untrusted_bodies",
         ],
     }
 

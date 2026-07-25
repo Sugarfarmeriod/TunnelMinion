@@ -4,14 +4,30 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from tunnelminion.domain.identifiers import ArtifactId, MemoryId, RunId, ThreadId
+from tunnelminion.domain.identifiers import (
+    ArtifactId,
+    AuthorizationId,
+    MemoryId,
+    OperationId,
+    RunId,
+    ThreadId,
+)
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     LongTermMemory,
     MemoryNamespace,
     ToolArtifact,
+)
+from tunnelminion.operation.contracts import (
+    TERMINAL_OPERATION_STATUSES,
+    OperationRecord,
+    OperationStore,
+    OperationSummary,
+    Preauthorization,
+    PreauthorizationStore,
 )
 
 
@@ -44,6 +60,80 @@ class _SQLiteDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS memories_namespace
                     ON long_term_memories(user_namespace, network_namespace, node_id);
+                CREATE TABLE IF NOT EXISTS operations (
+                    operation_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    target_node_id TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS operations_status
+                    ON operations(status);
+                CREATE INDEX IF NOT EXISTS operations_target
+                    ON operations(target_node_id);
+                CREATE TABLE IF NOT EXISTS operation_authorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    operation_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS operation_leases (
+                    lease_id TEXT PRIMARY KEY,
+                    operation_id TEXT NOT NULL UNIQUE,
+                    expires_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS operation_leases_expiry
+                    ON operation_leases(expires_at);
+                CREATE TABLE IF NOT EXISTS operation_resources (
+                    resource_id TEXT PRIMARY KEY,
+                    operation_id TEXT NOT NULL,
+                    owner_fingerprint TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS operation_verifications (
+                    operation_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY(operation_id, sequence),
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS operation_cleanups (
+                    operation_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS operation_transitions (
+                    operation_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    from_status TEXT,
+                    to_status TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY(operation_id, sequence),
+                    FOREIGN KEY(operation_id) REFERENCES operations(operation_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS operation_preauthorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    target_node_id TEXT NOT NULL,
+                    request_peer_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    valid_until TEXT NOT NULL,
+                    revoked_at TEXT,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS operation_preauthorizations_match
+                    ON operation_preauthorizations(
+                        target_node_id, request_peer_id, tool_name, valid_until
+                    );
                 """
             )
 
@@ -190,13 +280,222 @@ class SQLiteLongTermMemoryStore:
             )
 
 
+class SQLiteOperationStore:
+    """操作聚合及其恢复索引的 SQLite 适配器。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, record: OperationRecord) -> None:
+        """在一个事务中更新聚合和所有可独立检查的子记录。"""
+        operation_id = str(record.plan.operation_id)
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO operations(
+                    operation_id, idempotency_key, status, target_node_id, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(operation_id) DO UPDATE SET
+                    idempotency_key=excluded.idempotency_key,
+                    status=excluded.status,
+                    target_node_id=excluded.target_node_id,
+                    payload=excluded.payload""",
+                (
+                    operation_id,
+                    record.plan.idempotency_key,
+                    record.status.value,
+                    str(record.plan.target_node_id),
+                    record.model_dump_json(),
+                ),
+            )
+            for table in (
+                "operation_authorizations",
+                "operation_leases",
+                "operation_resources",
+                "operation_verifications",
+                "operation_cleanups",
+                "operation_transitions",
+            ):
+                connection.execute(f"DELETE FROM {table} WHERE operation_id=?", (operation_id,))
+            if record.authorization is not None:
+                connection.execute(
+                    """INSERT INTO operation_authorizations(
+                        authorization_id, operation_id, payload
+                    ) VALUES (?, ?, ?)""",
+                    (
+                        str(record.authorization.authorization_id),
+                        operation_id,
+                        record.authorization.model_dump_json(),
+                    ),
+                )
+            if record.lease is not None:
+                connection.execute(
+                    """INSERT INTO operation_leases(
+                        lease_id, operation_id, expires_at, payload
+                    ) VALUES (?, ?, ?, ?)""",
+                    (
+                        str(record.lease.lease_id),
+                        operation_id,
+                        record.lease.expires_at.isoformat(),
+                        record.lease.model_dump_json(),
+                    ),
+                )
+            connection.executemany(
+                """INSERT INTO operation_resources(
+                    resource_id, operation_id, owner_fingerprint, payload
+                ) VALUES (?, ?, ?, ?)""",
+                (
+                    (
+                        str(item.resource_id),
+                        operation_id,
+                        item.owner_fingerprint,
+                        item.model_dump_json(),
+                    )
+                    for item in record.resources
+                ),
+            )
+            connection.executemany(
+                """INSERT INTO operation_verifications(
+                    operation_id, sequence, payload
+                ) VALUES (?, ?, ?)""",
+                (
+                    (operation_id, sequence, item.model_dump_json())
+                    for sequence, item in enumerate(record.verifications)
+                ),
+            )
+            if record.cleanup is not None:
+                connection.execute(
+                    """INSERT INTO operation_cleanups(operation_id, payload)
+                    VALUES (?, ?)""",
+                    (operation_id, record.cleanup.model_dump_json()),
+                )
+            connection.executemany(
+                """INSERT INTO operation_transitions(
+                    operation_id, sequence, from_status, to_status, occurred_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    (
+                        operation_id,
+                        sequence,
+                        item.from_status.value if item.from_status is not None else None,
+                        item.to_status.value,
+                        item.occurred_at.isoformat(),
+                        item.model_dump_json(),
+                    )
+                    for sequence, item in enumerate(record.transitions)
+                ),
+            )
+
+    def get(self, operation_id: OperationId) -> OperationRecord | None:
+        """按稳定 operation_id 读取完整聚合。"""
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM operations WHERE operation_id=?",
+                (str(operation_id),),
+            ).fetchone()
+        return OperationRecord.model_validate_json(row[0]) if row is not None else None
+
+    def get_by_idempotency_key(self, key: str) -> OperationRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM operations WHERE idempotency_key=?",
+                (key,),
+            ).fetchone()
+        return OperationRecord.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[OperationRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute("SELECT payload FROM operations ORDER BY rowid").fetchall()
+        return tuple(OperationRecord.model_validate_json(row[0]) for row in rows)
+
+    def list_unfinished(self) -> tuple[OperationRecord, ...]:
+        terminal = tuple(item.value for item in TERMINAL_OPERATION_STATUSES)
+        placeholders = ", ".join("?" for _ in terminal)
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                f"""SELECT payload FROM operations
+                WHERE status NOT IN ({placeholders}) ORDER BY rowid""",
+                terminal,
+            ).fetchall()
+        return tuple(OperationRecord.model_validate_json(row[0]) for row in rows)
+
+    def list_summaries(self) -> tuple[OperationSummary, ...]:
+        return tuple(OperationSummary.from_record(item) for item in self.list_all())
+
+
+class SQLitePreauthorizationStore:
+    """细粒度 L2 预授权的 SQLite 适配器。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, authorization: Preauthorization) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO operation_preauthorizations(
+                    authorization_id, target_node_id, request_peer_id, tool_name,
+                    valid_until, revoked_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(authorization_id) DO UPDATE SET
+                    target_node_id=excluded.target_node_id,
+                    request_peer_id=excluded.request_peer_id,
+                    tool_name=excluded.tool_name,
+                    valid_until=excluded.valid_until,
+                    revoked_at=excluded.revoked_at,
+                    payload=excluded.payload""",
+                (
+                    str(authorization.authorization_id),
+                    str(authorization.target_node_id),
+                    str(authorization.request_peer_id),
+                    authorization.tool_name,
+                    authorization.valid_until.isoformat(),
+                    (
+                        authorization.revoked_at.isoformat()
+                        if authorization.revoked_at is not None
+                        else None
+                    ),
+                    authorization.model_dump_json(),
+                ),
+            )
+
+    def get(self, authorization_id: AuthorizationId) -> Preauthorization | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """SELECT payload FROM operation_preauthorizations
+                WHERE authorization_id=?""",
+                (str(authorization_id),),
+            ).fetchone()
+        return Preauthorization.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[Preauthorization, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM operation_preauthorizations ORDER BY rowid"
+            ).fetchall()
+        return tuple(Preauthorization.model_validate_json(row[0]) for row in rows)
+
+    def list_active(self, *, at: datetime) -> tuple[Preauthorization, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """SELECT payload FROM operation_preauthorizations
+                WHERE valid_until>? AND revoked_at IS NULL ORDER BY rowid""",
+                (at.isoformat(),),
+            ).fetchall()
+        return tuple(
+            item
+            for row in rows
+            if (item := Preauthorization.model_validate_json(row[0])).valid_from <= at
+        )
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
-    """共享一个数据库文件但保持三个独立访问对象。"""
+    """共享一个数据库文件但保持各领域独立访问对象。"""
 
     checkpoints: SQLiteCheckpointStore
     artifacts: SQLiteToolArtifactStore
     memories: SQLiteLongTermMemoryStore
+    operations: OperationStore
+    preauthorizations: PreauthorizationStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -206,4 +505,6 @@ class SQLiteStores:
             checkpoints=SQLiteCheckpointStore(database),
             artifacts=SQLiteToolArtifactStore(database),
             memories=SQLiteLongTermMemoryStore(database),
+            operations=SQLiteOperationStore(database),
+            preauthorizations=SQLitePreauthorizationStore(database),
         )

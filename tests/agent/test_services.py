@@ -317,6 +317,26 @@ def test_successful_peer_port_proves_node_online_when_wireguard_stats_are_hidden
     assert diagnostics[1].reachability is CrossNodeReachability.REACHABLE
 
 
+def test_authenticated_remote_observation_proves_node_online() -> None:
+    """远端工具已成功返回时，回环服务保持 local-only 而不是误判整机离线。"""
+    node = NodeId.new()
+    inventory = RemoteServiceInventory(
+        node_id=node,
+        services=(service(node, 8080, ServiceAccessibility.LOCAL_ONLY),),
+    )
+    hidden_stats = raw_observation("get_wireguard_status", None, ToolExecutionStatus.FAILED)
+
+    diagnostics = CrossNodeReachabilityAnalyzer().analyze(
+        inventory,
+        "10.77.0.1",
+        hidden_stats,
+        (probe(8080, False),),
+        remote_node_observed=True,
+    )
+
+    assert diagnostics[0].reachability is CrossNodeReachability.LOCAL_ONLY
+
+
 def test_cross_node_reachability_rejects_mislabeled_inputs() -> None:
     node = NodeId.new()
     inventory = RemoteServiceInventory(node_id=node, services=())

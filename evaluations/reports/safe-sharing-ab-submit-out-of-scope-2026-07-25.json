@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "phase": "submit",
+  "recorded_at": "2026-07-25T04:24:22.209542+00:00",
+  "elapsed_ms": 10998.32,
+  "operation_id": "operation_e935b45c865c474c9df1a9ef364a1a62",
+  "status": "awaiting_authorization",
+  "plan": {
+    "protocol_version": {
+      "major": 1,
+      "minor": 0
+    },
+    "operation_id": "operation_e935b45c865c474c9df1a9ef364a1a62",
+    "plan_version": 1,
+    "idempotency_key": "opkey_459883337ee4ed2b33be56426bfffbad819428df83672f3815c8f7b9bad207c5",
+    "request_node_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+    "target_node_id": "node_cdfc8cdc99cc4aef81b63b0fa48dc44f",
+    "thread_id": "thread_312c680c28244a06acce8793dacf818d",
+    "run_id": "run_570ac150b63a4e9ab046073978a2e57b",
+    "tool_run_ids": [
+      "toolrun_9d17bcd5ce17468c9d3c37979ef12a8a",
+      "toolrun_ab3119ca0b79471e9af5874b07d1fecb",
+      "toolrun_9e80da94e96a4ed8b5c9ed1eaaac8929",
+      "toolrun_22050c12fe154ca186f64d40249c434e"
+    ],
+    "tool_name": "share_local_http_service",
+    "level": 2,
+    "service": {
+      "service_id": "http:127.0.0.1:18880:Python",
+      "scheme": "http",
+      "host": "127.0.0.1",
+      "port": 18880,
+      "process_or_container": "Python",
+      "fingerprint": "sha256:873c22ac2c02df6c5e543a74ca73a75e983ca6f19cc44a242b4654b8ed9b52e0",
+      "observed_at": "2026-07-25T04:24:14.088188Z"
+    },
+    "expected_change": "通过 TunnelMinion 建立隧道，将 macOS B 上的 HTTP 服务（127.0.0.1:18880）转发至 Windows A 指定的监听地址 10.77.0.1:18885",
+    "access_scope": {
+      "allowed_peer_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+      "bind_host": "10.77.0.1",
+      "bind_port": 18885,
+      "duration_seconds": 15
+    },
+    "risk_summary": "低",
+    "verification_method": "在 Windows A 上通过 curl 或浏览器访问 http://10.77.0.1:18885 验证 HTTP 响应",
+    "rollback_method": "隧道断开或超时后，Windows A 上的本地监听端口 18885 自动停止转发",
+    "generation_trace": {
+      "prompt_id": "temporary-service-sharing-plan",
+      "prompt_version": "v1",
+      "provider_name": "openai-compatible",
+      "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+      "tool_schema_version": "share-local-http-service/v1",
+      "evidence_snapshot_version": "sha256:347249ff0ed319982ac4d097f188868850cdce9a9484a16d1d2e381836c861ea",
+      "context_schema_version": "candidate-plan-context/v1",
+      "message_count": 2,
+      "tool_count": 0,
+      "result_count": 63,
+      "evidence_count": 4,
+      "input_chars": 1888,
+      "truncated_items": 0,
+      "realtime_evidence_precedence": true,
+      "input_tokens": 869,
+      "output_tokens": 154,
+      "total_tokens": 1023
+    },
+    "created_at": "2026-07-25T04:24:22.081907Z"
+  },
+  "diagnostic": {
+    "port": 18880,
+    "address": "127.0.0.1",
+    "accessibility": "local-only",
+    "reachability": "local-only",
+    "evidence_tool_run_ids": [
+      "toolrun_9d17bcd5ce17468c9d3c37979ef12a8a",
+      "toolrun_ab3119ca0b79471e9af5874b07d1fecb",
+      "toolrun_9e80da94e96a4ed8b5c9ed1eaaac8929",
+      "toolrun_22050c12fe154ca186f64d40249c434e"
+    ]
+  },
+  "model_error_code": null,
+  "plan_error_code": null,
+  "model_usage": null,
+  "plan_trace": {
+    "prompt_id": "temporary-service-sharing-plan",
+    "prompt_version": "v1",
+    "provider_name": "openai-compatible",
+    "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+    "tool_schema_version": "share-local-http-service/v1",
+    "evidence_snapshot_version": "sha256:347249ff0ed319982ac4d097f188868850cdce9a9484a16d1d2e381836c861ea",
+    "context_schema_version": "candidate-plan-context/v1",
+    "message_count": 2,
+    "tool_count": 0,
+    "result_count": 63,
+    "evidence_count": 4,
+    "input_chars": 1888,
+    "truncated_items": 0,
+    "realtime_evidence_precedence": true,
+    "input_tokens": 869,
+    "output_tokens": 154,
+    "total_tokens": 1023
+  },
+  "audit_record_count": 4,
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "temporary_share_token",
+    "raw_process_and_container_bodies"
+  ]
+}

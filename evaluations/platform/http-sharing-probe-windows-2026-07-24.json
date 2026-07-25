@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "executed_at": "2026-07-24",
+  "platform": "windows",
+  "bind_host": "10.77.0.2",
+  "upstream": "127.0.0.1:18880",
+  "proxy": "10.77.0.2:18881",
+  "unauthenticated_status": 401,
+  "authenticated_status": 200,
+  "authenticated_body": {
+    "path": "allowed",
+    "method": "POST",
+    "body": "probe"
+  },
+  "stale_lease_recovered": true,
+  "embedded_proxy_available": true,
+  "external_proxy_detected": false,
+  "excluded": [
+    "share_token",
+    "authorization_headers"
+  ]
+}

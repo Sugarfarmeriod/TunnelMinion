@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, cast
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from keyring.errors import KeyringError
 from pydantic import JsonValue
+from tests.operation.factories import plan
 
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
+from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfiguration,
@@ -21,11 +24,19 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.macos_app import (
+    SafeSharingGatewaySettings,
+    _CallbackRequiredVerifier,  # pyright: ignore[reportPrivateUsage]
+    _gateway_lifespan,  # pyright: ignore[reportPrivateUsage]
     build_macos_gateway_application,
     build_macos_local_application,
     create_macos_app,
 )
 from tunnelminion.model.configuration import ModelConfigurationService
+from tunnelminion.operation.contracts import (
+    LeaseRecord,
+    VerificationResult,
+)
+from tunnelminion.operation.workflow import OperationWorkflow
 from tunnelminion.platforms.windows.system import CommandResult
 from tunnelminion.tools.contracts import ToolCallContext, ToolExecutionRequest
 
@@ -40,7 +51,12 @@ class ApiClient(Protocol):
     def post(self, url: str, *, json: object | None = None) -> httpx.Response: ...
 
 
-def write_gateway_config(path: Path, caller: NodeId) -> None:
+def write_gateway_config(
+    path: Path,
+    caller: NodeId,
+    *,
+    allowed_operations: frozenset[str] = frozenset(),
+) -> None:
     """写入不含 token 的 B 节点网关配置。"""
     FileGatewayConfigurationRepository(path / "gateway.json").save(
         GatewayConfiguration(
@@ -59,6 +75,7 @@ def write_gateway_config(path: Path, caller: NodeId) -> None:
                             "probe_service_reachability",
                         }
                     ),
+                    allowed_operations=allowed_operations,
                 ),
             ),
         )
@@ -139,6 +156,100 @@ def test_macos_gateway_exposes_only_authenticated_v1_tools(
         )
     )
     assert cast(dict[str, JsonValue], degraded.output)["model_status"] == "unconfigured"
+
+
+def test_macos_gateway_enables_safe_sharing_only_with_explicit_peer_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "safe-sharing"
+    caller = NodeId.new()
+    write_gateway_config(
+        root,
+        caller,
+        allowed_operations=frozenset({"share_local_http_service"}),
+    )
+
+    def get_password(_service: str, name: str) -> str | None:
+        return TOKEN if name == gateway_token_name(caller) else None
+
+    monkeypatch.setattr("keyring.get_password", get_password)
+    bundle = build_macos_gateway_application(
+        root,
+        safe_sharing=SafeSharingGatewaySettings(bind_port_override=18_883),
+    )
+
+    assert bundle.bind.port == 18_883
+    assert bundle.operation_service is not None
+    assert bundle.operation_workflow is not None
+    with TestClient(bundle.app) as raw_client:
+        client = cast(ApiClient, raw_client)
+        response = client.get(
+            "/v1/capabilities",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 200
+    assert response.json()["operations"] == ["share_local_http_service"]
+
+
+def test_macos_gateway_refuses_safe_sharing_without_allowed_operation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "no-operation"
+    caller = NodeId.new()
+    write_gateway_config(root, caller)
+
+    def get_password(_service: str, name: str) -> str | None:
+        return TOKEN if name == gateway_token_name(caller) else None
+
+    monkeypatch.setattr("keyring.get_password", get_password)
+
+    with pytest.raises(RuntimeError, match="没有 peer"):
+        build_macos_gateway_application(root, safe_sharing=SafeSharingGatewaySettings())
+
+    with pytest.raises(ValueError, match="下限"):
+        SafeSharingGatewaySettings(minimum_port=18_899, maximum_port=18_880)
+
+
+def test_gateway_fallback_verifier_and_lifespan_are_fail_closed() -> None:
+    operation_plan = plan()
+    now = datetime.now(UTC)
+    lease = LeaseRecord(
+        lease_id=LeaseId.new(),
+        operation_id=operation_plan.operation_id,
+        starts_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+    verification = asyncio.run(_CallbackRequiredVerifier().verify(operation_plan, lease, "secret"))
+    assert verification.result is VerificationResult.REQUESTER_OFFLINE
+    assert verification.verifier_node_id == operation_plan.request_node_id
+
+    class Workflow:
+        def __init__(self) -> None:
+            self.recovered = 0
+            self.expired = 0
+
+        async def recover_unfinished(self, *, at: datetime) -> tuple[object, ...]:
+            assert at.tzinfo is not None
+            self.recovered += 1
+            return ()
+
+        async def expire_due(self, *, at: datetime) -> tuple[object, ...]:
+            assert at.tzinfo is not None
+            self.expired += 1
+            return ()
+
+    workflow = Workflow()
+
+    async def exercise_lifespan() -> None:
+        lifespan = _gateway_lifespan(cast(OperationWorkflow, workflow), 0)
+        async with lifespan(FastAPI()):
+            await asyncio.sleep(0.01)
+
+    asyncio.run(exercise_lifespan())
+    assert workflow.recovered == 1
+    assert workflow.expired >= 1
 
 
 def test_macos_local_resources_degrade_without_model(

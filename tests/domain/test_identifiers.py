@@ -1,7 +1,18 @@
 import pytest
 from pydantic import ValidationError
 
-from tunnelminion.domain import ArtifactId, MemoryId, NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain import (
+    ArtifactId,
+    AuthorizationId,
+    LeaseId,
+    MemoryId,
+    NodeId,
+    OperationId,
+    ResourceId,
+    RunId,
+    ThreadId,
+    ToolRunId,
+)
 
 
 @pytest.mark.parametrize("identifier_type", [NodeId, ThreadId, RunId, ToolRunId])
@@ -19,7 +30,14 @@ def test_identifier_rejects_wrong_prefix() -> None:
         NodeId("run_0123456789abcdef0123456789abcdef")
 
 
-@pytest.mark.parametrize("identifier_type", [ArtifactId, MemoryId])
-def test_storage_identifiers_are_stable(identifier_type: type[ArtifactId | MemoryId]) -> None:
+@pytest.mark.parametrize(
+    "identifier_type",
+    [ArtifactId, MemoryId, OperationId, AuthorizationId, LeaseId, ResourceId],
+)
+def test_storage_identifiers_are_stable(
+    identifier_type: type[
+        ArtifactId | MemoryId | OperationId | AuthorizationId | LeaseId | ResourceId
+    ],
+) -> None:
     value = identifier_type.new()
     assert str(value).startswith(f"{identifier_type.prefix}_")

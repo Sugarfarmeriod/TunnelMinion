@@ -12,6 +12,7 @@ from tunnelminion.domain.tools import (
     ToolDefinition,
 )
 from tunnelminion.domain.versioning import ProtocolVersion
+from tunnelminion.operation.contracts import OperationLevel
 from tunnelminion.tools.fakes import FakeToolAdapter
 from tunnelminion.tools.registry import ToolRegistry
 
@@ -55,7 +56,15 @@ def test_registry_lists_capabilities_but_only_exposes_read_only_tools() -> None:
     ]
     assert [item.name for item in registry.model_tools(Platform.WINDOWS)] == ["read_status"]
     assert registry.lookup("invented_tool") is None
-    assert registry.lookup("read_status") is not None
+    read_status = registry.lookup("read_status")
+    restart_service = registry.lookup("restart_service")
+    run_command = registry.lookup("run_command")
+    assert read_status is not None
+    assert restart_service is not None
+    assert run_command is not None
+    assert read_status.operation_level is OperationLevel.L0
+    assert restart_service.operation_level is OperationLevel.L2
+    assert run_command.operation_level is OperationLevel.L4
 
 
 def test_registry_rejects_duplicate_and_invalid_schemas() -> None:
@@ -69,6 +78,12 @@ def test_registry_rejects_duplicate_and_invalid_schemas() -> None:
         registry.register(
             definition("bad_input", input_schema={"type": "not-a-json-type"}),
             adapter,
+        )
+    with pytest.raises(ValueError, match="风险标记"):
+        registry.register(
+            definition("wrong_level"),
+            adapter,
+            operation_level=OperationLevel.L2,
         )
     with pytest.raises(ValueError, match="Schema"):
         registry.register(

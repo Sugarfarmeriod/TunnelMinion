@@ -65,6 +65,7 @@ class GatewayPeerConfig(BaseModel):
     host: str
     port: int = Field(default=8787, ge=1024, le=65535)
     allowed_tools: frozenset[str] = Field(min_length=1)
+    allowed_operations: frozenset[str] = frozenset()
 
     def endpoint(self) -> str:
         """返回只含私网地址的 HTTP endpoint。"""
@@ -100,6 +101,7 @@ class GatewayPeerView(BaseModel):
     host: str
     port: int
     allowed_tools: frozenset[str]
+    allowed_operations: frozenset[str]
     credential_configured: bool
 
 
@@ -214,6 +216,7 @@ class GatewayConfigurationService:
                 host=item.host,
                 port=item.port,
                 allowed_tools=item.allowed_tools,
+                allowed_operations=item.allowed_operations,
                 credential_configured=(
                     self._secrets.get(gateway_token_name(item.node_id)) is not None
                 ),
@@ -235,7 +238,15 @@ class GatewayConfigurationService:
             token = self._secrets.get(gateway_token_name(peer.node_id))
             if token is None:
                 raise RuntimeError(f"peer {peer.node_id} 缺少网关凭据")
-            policies.append(GatewayPeerPolicy.from_token(peer.node_id, token, peer.allowed_tools))
+            policies.append(
+                GatewayPeerPolicy.from_token(
+                    peer.node_id,
+                    token,
+                    peer.allowed_tools,
+                    peer.allowed_operations,
+                    source_host=peer.host,
+                )
+            )
         return GatewaySecurityPolicy(policies, config.limits)
 
     def delete(self) -> None:

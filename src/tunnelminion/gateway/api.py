@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -21,10 +23,15 @@ from tunnelminion.gateway.contracts import (
     GatewayError,
     GatewayErrorCode,
     GatewayErrorResponse,
+    RemoteOperationExecution,
+    RemoteOperationResult,
+    RemoteOperationSubmission,
     RemoteToolCall,
     RemoteToolResult,
 )
+from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
+from tunnelminion.operation.contracts import OperationSummary
 from tunnelminion.tools.contracts import (
     ToolCallContext,
     ToolCancellationToken,
@@ -113,6 +120,7 @@ def create_gateway_router(
     runtime: ToolRuntime,
     security_policy: GatewaySecurityPolicy,
     security_audit_sink: GatewaySecurityAuditSink,
+    operation_service: TargetOperationGatewayService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter()
@@ -172,6 +180,9 @@ def create_gateway_router(
             platform=platform,
             tools=tuple(
                 item for item in registry.model_tools(platform) if item.name in peer.allowed_tools
+            ),
+            operations=(
+                tuple(sorted(peer.allowed_operations)) if operation_service is not None else ()
             ),
         )
 
@@ -258,8 +269,225 @@ def create_gateway_router(
         )
         return limit_result(response, security_policy.limits.max_response_bytes)
 
+    def operation_response(record: object) -> RemoteOperationResult | JSONResponse:
+        from tunnelminion.operation.contracts import OperationRecord
+
+        validated = OperationRecord.model_validate(record)
+        response = RemoteOperationResult(
+            protocol=GATEWAY_PROTOCOL,
+            execution_node_id=node_id,
+            summary=OperationSummary.from_record(validated),
+        )
+        serialized = json.dumps(
+            response.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode()
+        if len(serialized) > security_policy.limits.max_response_bytes:
+            return _error(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                GatewayErrorCode.RESPONSE_TOO_LARGE,
+                "操作状态超过网关响应预算",
+            )
+        return response
+
+    async def submit_operation(
+        request: RemoteOperationSubmission,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RemoteOperationResult | JSONResponse:
+        peer = authenticate(authorization, "operation_submit")
+        if isinstance(peer, JSONResponse):
+            return peer
+        if operation_service is None:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_ALLOWED,
+                "目标节点未启用操作协议",
+                "operation_submit",
+                peer,
+            )
+        plan = request.plan
+        if not GATEWAY_PROTOCOL.is_compatible_with(request.protocol):
+            return reject(
+                status.HTTP_409_CONFLICT,
+                GatewayErrorCode.PROTOCOL_VERSION_UNSUPPORTED,
+                "网关协议主版本不兼容",
+                "operation_submit",
+                peer,
+            )
+        if plan.request_node_id != peer.node_id or plan.target_node_id != node_id:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "操作计划节点身份与认证 peer 不一致",
+                "operation_submit",
+                peer,
+            )
+        if plan.tool_name not in peer.allowed_operations:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.OPERATION_NOT_ALLOWED,
+                "该 peer 未获准请求此操作",
+                "operation_submit",
+                peer,
+            )
+        record = operation_service.submit(plan, at=datetime.now(UTC))
+        return operation_response(record)
+
+    async def execute_operation(
+        request: RemoteOperationExecution,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RemoteOperationResult | JSONResponse:
+        peer = authenticate(authorization, "operation_execute")
+        if isinstance(peer, JSONResponse):
+            return peer
+        if operation_service is None:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_ALLOWED,
+                "目标节点未启用操作协议",
+                "operation_execute",
+                peer,
+            )
+        if not GATEWAY_PROTOCOL.is_compatible_with(request.protocol):
+            return reject(
+                status.HTTP_409_CONFLICT,
+                GatewayErrorCode.PROTOCOL_VERSION_UNSUPPORTED,
+                "网关协议主版本不兼容",
+                "operation_execute",
+                peer,
+            )
+        existing = operation_service.get(request.operation_id)
+        if existing is None:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_FOUND,
+                "操作不存在",
+                "operation_execute",
+                peer,
+            )
+        if (
+            existing.plan.request_node_id != peer.node_id
+            or existing.plan.tool_name not in peer.allowed_operations
+        ):
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "认证 peer 不能执行该操作",
+                "operation_execute",
+                peer,
+            )
+        verifier = None
+        if request.verification_callback is not None:
+            callback_url = urlsplit(request.verification_callback.endpoint)
+            if peer.source_host is None or callback_url.hostname != peer.source_host:
+                return reject(
+                    status.HTTP_403_FORBIDDEN,
+                    GatewayErrorCode.FORBIDDEN,
+                    "验证回调必须指向认证 peer 的显式 WireGuard 地址",
+                    "operation_execute",
+                    peer,
+                )
+            verifier = CallbackRequesterVerifier(request.verification_callback)
+        try:
+            record = await operation_service.execute(
+                operation_id=request.operation_id,
+                plan_version=request.plan_version,
+                idempotency_key=request.idempotency_key,
+                request_node_id=request.request_node_id,
+                target_node_id=request.target_node_id,
+                thread_id=request.thread_id,
+                run_id=request.run_id,
+                tool_run_ids=request.tool_run_ids,
+                at=datetime.now(UTC),
+                verifier=verifier,
+            )
+        except ValueError as exc:
+            code = (
+                GatewayErrorCode.PLAN_TAMPERED
+                if str(exc) == "plan_tampered"
+                else GatewayErrorCode.OPERATION_STATE_CONFLICT
+            )
+            return reject(
+                status.HTTP_409_CONFLICT,
+                code,
+                "操作计划不匹配或当前状态不可执行",
+                "operation_execute",
+                peer,
+            )
+        return operation_response(record)
+
+    async def operation_status(
+        operation_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RemoteOperationResult | JSONResponse:
+        from pydantic import ValidationError
+
+        from tunnelminion.domain.identifiers import OperationId
+
+        peer = authenticate(authorization, "operation_status")
+        if isinstance(peer, JSONResponse):
+            return peer
+        if operation_service is None:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_ALLOWED,
+                "目标节点未启用操作协议",
+                "operation_status",
+                peer,
+            )
+        try:
+            identifier = OperationId(operation_id)
+        except ValidationError:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_FOUND,
+                "操作不存在",
+                "operation_status",
+                peer,
+            )
+        record = operation_service.get(identifier)
+        if record is None:
+            return reject(
+                status.HTTP_404_NOT_FOUND,
+                GatewayErrorCode.OPERATION_NOT_FOUND,
+                "操作不存在",
+                "operation_status",
+                peer,
+            )
+        if (
+            record.plan.request_node_id != peer.node_id
+            or record.plan.tool_name not in peer.allowed_operations
+        ):
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "认证 peer 不能查看该操作",
+                "operation_status",
+                peer,
+            )
+        return operation_response(record)
+
     router.add_api_route("/v1/capabilities", capabilities, methods=["GET"], response_model=None)
     router.add_api_route(
         "/v1/tools/{tool_name}:call", call_tool, methods=["POST"], response_model=None
+    )
+    router.add_api_route(
+        "/v1/operations:submit",
+        submit_operation,
+        methods=["POST"],
+        response_model=None,
+    )
+    router.add_api_route(
+        "/v1/operations:execute",
+        execute_operation,
+        methods=["POST"],
+        response_model=None,
+    )
+    router.add_api_route(
+        "/v1/operations/{operation_id}",
+        operation_status,
+        methods=["GET"],
+        response_model=None,
     )
     return router

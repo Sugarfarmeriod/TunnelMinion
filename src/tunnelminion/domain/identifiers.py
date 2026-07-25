@@ -68,3 +68,27 @@ class MemoryId(_Identifier):
     """一条可查看和删除的长期记忆标识。"""
 
     prefix = "memory"
+
+
+class OperationId(_Identifier):
+    """一次持久化副作用操作的稳定标识。"""
+
+    prefix = "operation"
+
+
+class AuthorizationId(_Identifier):
+    """逐次授权或预授权决策的稳定标识。"""
+
+    prefix = "authorization"
+
+
+class LeaseId(_Identifier):
+    """限制临时资源生命周期的稳定标识。"""
+
+    prefix = "lease"
+
+
+class ResourceId(_Identifier):
+    """TunnelMinion 自有临时资源的稳定标识。"""
+
+    prefix = "resource"

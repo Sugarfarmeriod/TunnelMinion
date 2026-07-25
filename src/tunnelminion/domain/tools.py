@@ -11,7 +11,9 @@ class RiskLevel(StrEnum):
     """工具向模型暴露之前必须应用的策略等级。"""
 
     READ_ONLY = "read-only"
+    ADVISORY = "advisory"
     REQUIRES_APPROVAL = "requires-approval"
+    SENSITIVE = "sensitive"
     FORBIDDEN = "forbidden"
 
 

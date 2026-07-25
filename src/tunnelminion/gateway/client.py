@@ -10,16 +10,21 @@ import httpx
 from pydantic import JsonValue, ValidationError
 
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import NodeId, ToolRunId
+from tunnelminion.domain.identifiers import NodeId, OperationId, ToolRunId
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.contracts import (
     GATEWAY_PROTOCOL,
     GatewayCapabilities,
     GatewayErrorCode,
     GatewayErrorResponse,
+    RemoteOperationExecution,
+    RemoteOperationResult,
+    RemoteOperationSubmission,
     RemoteToolCall,
     RemoteToolResult,
+    RequesterVerificationCallback,
 )
+from tunnelminion.operation.contracts import OperationPlan
 from tunnelminion.tools.audit import AuditRecord, AuditSink
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -43,6 +48,11 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.UNAUTHENTICATED: ErrorCode.UNAUTHENTICATED,
     GatewayErrorCode.FORBIDDEN: ErrorCode.FORBIDDEN,
     GatewayErrorCode.RATE_LIMITED: ErrorCode.RATE_LIMITED,
+    GatewayErrorCode.OPERATION_NOT_ALLOWED: ErrorCode.FORBIDDEN,
+    GatewayErrorCode.OPERATION_NOT_FOUND: ErrorCode.INVALID_ARGUMENT,
+    GatewayErrorCode.OPERATION_STATE_CONFLICT: ErrorCode.INVALID_ARGUMENT,
+    GatewayErrorCode.PLAN_TAMPERED: ErrorCode.FORBIDDEN,
+    GatewayErrorCode.RESPONSE_TOO_LARGE: ErrorCode.RESULT_TOO_LARGE,
 }
 
 
@@ -142,6 +152,94 @@ class FixedGatewayClient:
             return result
         result = await self._send_call(tool_name, request, token, context)
         self._audit_result(context, tool_name, tool_version, arguments, started_at, result)
+        return result
+
+    async def submit_operation(self, plan: OperationPlan) -> RemoteOperationResult:
+        """把完整计划提交到固定目标节点重新校验。"""
+        self._validate_operation_nodes(plan)
+        request = RemoteOperationSubmission(protocol=GATEWAY_PROTOCOL, plan=plan)
+        result = await self._request_operation(
+            "POST",
+            "/v1/operations:submit",
+            content=request.model_dump_json(),
+        )
+        if result.summary.operation_id != plan.operation_id:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")
+        return result
+
+    async def execute_operation(
+        self,
+        plan: OperationPlan,
+        *,
+        verification_callback: RequesterVerificationCallback | None = None,
+    ) -> RemoteOperationResult:
+        """请求目标节点执行原计划；目标节点仍拥有最终授权权。"""
+        self._validate_operation_nodes(plan)
+        request = RemoteOperationExecution(
+            protocol=GATEWAY_PROTOCOL,
+            operation_id=plan.operation_id,
+            plan_version=plan.plan_version,
+            idempotency_key=plan.idempotency_key,
+            request_node_id=plan.request_node_id,
+            target_node_id=plan.target_node_id,
+            thread_id=plan.thread_id,
+            run_id=plan.run_id,
+            tool_run_ids=plan.tool_run_ids,
+            verification_callback=verification_callback,
+        )
+        return await self._request_operation(
+            "POST",
+            "/v1/operations:execute",
+            content=request.model_dump_json(),
+        )
+
+    async def get_operation(self, operation_id: OperationId) -> RemoteOperationResult:
+        """读取固定 peer 上属于本请求节点的脱敏操作状态。"""
+        result = await self._request_operation(
+            "GET",
+            f"/v1/operations/{operation_id}",
+        )
+        if result.summary.operation_id != operation_id:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")
+        return result
+
+    def _validate_operation_nodes(self, plan: OperationPlan) -> None:
+        if plan.request_node_id != self._local_node_id:
+            raise ValueError("操作计划 request_node_id 与本地节点不一致")
+        if plan.target_node_id != self._remote_node_id:
+            raise ValueError("操作计划 target_node_id 与远端节点不一致")
+
+    async def _request_operation(
+        self,
+        method: str,
+        path: str,
+        *,
+        content: str | None = None,
+    ) -> RemoteOperationResult:
+        async with self._http_client() as client:
+            try:
+                response = await client.request(
+                    method,
+                    path,
+                    content=content,
+                    headers={"Content-Type": "application/json"} if content is not None else None,
+                    timeout=30,
+                )
+            except httpx.TimeoutException as exc:
+                raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "远端操作请求超时") from exc
+            except httpx.RequestError as exc:
+                raise RemoteGatewayError(ErrorCode.NODE_UNREACHABLE, "远端节点不可达") from exc
+        self._check_response_size(response)
+        if not response.is_success:
+            raise self._protocol_error(response)
+        try:
+            result = RemoteOperationResult.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应格式无效") from exc
+        if result.execution_node_id != self._remote_node_id:
+            raise RemoteGatewayError(ErrorCode.FORBIDDEN, "远端操作响应节点身份不匹配")
+        if not GATEWAY_PROTOCOL.is_compatible_with(result.protocol):
+            raise RemoteGatewayError(ErrorCode.VERSION_INCOMPATIBLE, "远端操作协议不兼容")
         return result
 
     async def _send_call(
@@ -246,6 +344,7 @@ class FixedGatewayClient:
             base_url=self._endpoint,
             headers={"Authorization": f"Bearer {self._token}"},
             transport=self._transport,
+            trust_env=False,
         )
 
     def _check_response_size(self, response: httpx.Response) -> None:

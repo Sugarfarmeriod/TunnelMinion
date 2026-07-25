@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "phase": "submit",
+  "recorded_at": "2026-07-25T04:23:34.187007+00:00",
+  "elapsed_ms": 8471.47,
+  "operation_id": "operation_d7939e3ca54544c0b785f435399af651",
+  "status": "authorized",
+  "plan": {
+    "protocol_version": {
+      "major": 1,
+      "minor": 0
+    },
+    "operation_id": "operation_d7939e3ca54544c0b785f435399af651",
+    "plan_version": 1,
+    "idempotency_key": "opkey_bf61ed3fb945dc018e53ca52f9b25b2a8bf46c0eaeb4cb12a0c1ffe22e348668",
+    "request_node_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+    "target_node_id": "node_cdfc8cdc99cc4aef81b63b0fa48dc44f",
+    "thread_id": "thread_47254929a1364f569a17683098e6a7a8",
+    "run_id": "run_e4d07137422640708b5e6f20212bf5bb",
+    "tool_run_ids": [
+      "toolrun_067efc56654c4e67aacc3b99273de661",
+      "toolrun_3b887576073c419bbf70a501c05f76f1",
+      "toolrun_2da3c51a75ae47f5a90e43cb70ac4c17",
+      "toolrun_7d4195417ea44893855b5879ee05147f"
+    ],
+    "tool_name": "share_local_http_service",
+    "level": 2,
+    "service": {
+      "service_id": "http:127.0.0.1:18880:Python",
+      "scheme": "http",
+      "host": "127.0.0.1",
+      "port": 18880,
+      "process_or_container": "Python",
+      "fingerprint": "sha256:873c22ac2c02df6c5e543a74ca73a75e983ca6f19cc44a242b4654b8ed9b52e0",
+      "observed_at": "2026-07-25T04:23:28.657149Z"
+    },
+    "expected_change": "本机电网内 HTTP 服务通过指定 IP 和端口临时对外共享",
+    "access_scope": {
+      "allowed_peer_id": "node_f462d4d82dbb4ebc8778dbe1580fcf07",
+      "bind_host": "10.77.0.1",
+      "bind_port": 18884,
+      "duration_seconds": 15
+    },
+    "risk_summary": "本地监听端口在隔离网络中短暂开放，允许指定远端节点访问",
+    "verification_method": "连接指定 IP 和端口并验证 HTTP 响应",
+    "rollback_method": "断开指定端口的本地映射连接",
+    "generation_trace": {
+      "prompt_id": "temporary-service-sharing-plan",
+      "prompt_version": "v1",
+      "provider_name": "openai-compatible",
+      "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+      "tool_schema_version": "share-local-http-service/v1",
+      "evidence_snapshot_version": "sha256:d65d1f656e60a1db5ce0d4d806064a81a94dcb801bb34e5c43d7de47826dcc7a",
+      "context_schema_version": "candidate-plan-context/v1",
+      "message_count": 2,
+      "tool_count": 0,
+      "result_count": 63,
+      "evidence_count": 4,
+      "input_chars": 1888,
+      "truncated_items": 0,
+      "realtime_evidence_precedence": true,
+      "input_tokens": 880,
+      "output_tokens": 88,
+      "total_tokens": 968
+    },
+    "created_at": "2026-07-25T04:23:34.074557Z"
+  },
+  "diagnostic": {
+    "port": 18880,
+    "address": "127.0.0.1",
+    "accessibility": "local-only",
+    "reachability": "local-only",
+    "evidence_tool_run_ids": [
+      "toolrun_067efc56654c4e67aacc3b99273de661",
+      "toolrun_3b887576073c419bbf70a501c05f76f1",
+      "toolrun_2da3c51a75ae47f5a90e43cb70ac4c17",
+      "toolrun_7d4195417ea44893855b5879ee05147f"
+    ]
+  },
+  "model_error_code": null,
+  "plan_error_code": null,
+  "model_usage": null,
+  "plan_trace": {
+    "prompt_id": "temporary-service-sharing-plan",
+    "prompt_version": "v1",
+    "provider_name": "openai-compatible",
+    "model_name": "/Volumes/DarkAI/LLM/GGUF/Qwen/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf",
+    "tool_schema_version": "share-local-http-service/v1",
+    "evidence_snapshot_version": "sha256:d65d1f656e60a1db5ce0d4d806064a81a94dcb801bb34e5c43d7de47826dcc7a",
+    "context_schema_version": "candidate-plan-context/v1",
+    "message_count": 2,
+    "tool_count": 0,
+    "result_count": 63,
+    "evidence_count": 4,
+    "input_chars": 1888,
+    "truncated_items": 0,
+    "realtime_evidence_precedence": true,
+    "input_tokens": 880,
+    "output_tokens": 88,
+    "total_tokens": 968
+  },
+  "audit_record_count": 4,
+  "excluded_categories": [
+    "gateway_token",
+    "authorization_header",
+    "temporary_share_token",
+    "raw_process_and_container_bodies"
+  ]
+}

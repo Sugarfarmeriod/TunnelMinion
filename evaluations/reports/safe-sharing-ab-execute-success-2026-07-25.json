@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "phase": "execute",
+  "recorded_at": "2026-07-25T04:23:06.130864+00:00",
+  "elapsed_ms": 15571.53,
+  "operation_id": "operation_fdd61652f8a545f8aa6d6e21f8e6ae8d",
+  "execution_status": "succeeded",
+  "final_status": "expired",
+  "verification_results": [
+    "passed"
+  ],
+  "browser_bridge_status": 200,
+  "browser_bridge_bytes": 2959,
+  "lease_expired": true,
+  "temporary_credential_retained_in_memory_only": true,
+  "excluded_categories": [
+    "gateway_token",
+    "callback_token",
+    "temporary_share_token",
+    "authorization_header",
+    "browser_response_body"
+  ]
+}

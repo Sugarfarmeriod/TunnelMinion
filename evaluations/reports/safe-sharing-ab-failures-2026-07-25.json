@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "evaluation": "safe-sharing-ab-failure-injection",
+  "recorded_at": "2026-07-25T04:30:00Z",
+  "cases": [
+    {
+      "case_id": "bad-gateway-credential",
+      "result": "rejected",
+      "http_status": 401
+    },
+    {
+      "case_id": "occupied-entry-port",
+      "operation_id": "operation_e935b45c865c474c9df1a9ef364a1a62",
+      "result": "rolled_back",
+      "error_code": "execution_failed",
+      "cleanup": "succeeded"
+    },
+    {
+      "case_id": "requester-offline",
+      "operation_id": "operation_52770c4233444813b916fb2e16f61593",
+      "result": "rolled_back",
+      "verification": "requester_offline",
+      "cleanup": "succeeded"
+    },
+    {
+      "case_id": "service-process-replaced",
+      "operation_id": "operation_0f3ff40529984899a33895f172e91bc4",
+      "result": "rolled_back",
+      "error_code": "service_changed",
+      "cleanup": "succeeded"
+    },
+    {
+      "case_id": "verification-status-failed",
+      "operation_id": "operation_72ea39c20149471b8746cf013a13e42d",
+      "result": "rolled_back",
+      "verification": "failed",
+      "status_code": 404,
+      "cleanup": "succeeded"
+    },
+    {
+      "case_id": "gateway-restart-during-active-lease",
+      "operation_id": "operation_0ef9774ce4d04cba96831236d774bcae",
+      "result": "rolled_back",
+      "cleanup": "succeeded",
+      "write_replayed": false
+    },
+    {
+      "case_id": "cleanup-failure-and-ownership-mismatch",
+      "evidence": "automated-fault-adapter",
+      "result": "cleanup_failed",
+      "unknown_resource_deleted": false
+    }
+  ],
+  "invariance": {
+    "formal_listener_snapshot_unchanged": true,
+    "docker_summary_sha256_unchanged": true,
+    "temporary_b_ports_remaining": []
+  },
+  "excluded_categories": [
+    "gateway_token",
+    "callback_token",
+    "temporary_share_token",
+    "authorization_header",
+    "raw_service_response"
+  ]
+}
