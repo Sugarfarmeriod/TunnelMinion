@@ -57,12 +57,21 @@ def test_confirmed_memory_can_be_saved_revised_deleted_and_cleared(tmp_path: Pat
     assert memories.list(first_scope) == (saved,)
     assert memories.list(second_scope) == (other,)
     revised = memories.revise(saved.memory_id, "B 是书房里的 Mac", "用户修正")
-    assert revised.memory_id == saved.memory_id
+    assert revised.memory_id != saved.memory_id
+    assert revised.revision_of == saved.memory_id
     assert revised.updated_at >= saved.updated_at
     assert memories.list(first_scope) == (revised,)
+    superseded = memories._store.get(saved.memory_id)  # pyright: ignore[reportPrivateUsage]
+    assert superseded is not None
+    assert superseded.content == "[SUPERSEDED]"
+    assert superseded.superseded_by == revised.memory_id
 
-    memories.delete(revised.memory_id)
+    memories.delete(saved.memory_id)
     assert memories.list(first_scope) == ()
+    tombstone = memories._store.get(revised.memory_id)  # pyright: ignore[reportPrivateUsage]
+    assert tombstone is not None
+    assert tombstone.content == "[DELETED]"
+    assert tombstone.deleted_at is not None
     memories.clear(second_scope)
     assert memories.list(second_scope) == ()
 

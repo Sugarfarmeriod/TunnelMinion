@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Coroutine
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -19,8 +20,14 @@ from tunnelminion.agent.conversation import (
     StartRunInput,
 )
 from tunnelminion.agent.runtime import AgentStopReason
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
-from tunnelminion.memory.contracts import CheckpointStatus
+from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId
+from tunnelminion.memory.contracts import (
+    CheckpointStatus,
+    LongTermMemory,
+    MemoryKind,
+    MemoryNamespace,
+)
+from tunnelminion.memory.service import MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
 
 T = TypeVar("T")
@@ -133,6 +140,58 @@ def test_continued_run_includes_prior_thread_messages() -> None:
     assert "第一次检查 8082" in contents
     assert any("已确认服务状态" in item for item in contents)
     assert contents[-1] == "继续刚才的检查"
+
+
+def test_run_retrieves_only_relevant_memory_for_current_node(tmp_path: Path) -> None:
+    """生产会话入口只注入当前五层作用域内的相关确认记忆。"""
+    stores = SQLiteStores.open(tmp_path / "memory-context.sqlite3")
+    node = NodeId.new()
+    stores.memories.put(
+        LongTermMemory(
+            memory_id=MemoryId.new(),
+            namespace=MemoryNamespace(user="local-user", network="home", node_id=node),
+            kind=MemoryKind.PREFERENCE,
+            content="偏好使用中文回答",
+            source="用户设置",
+            user_confirmed=True,
+            updated_at=datetime.now(UTC),
+        )
+    )
+    stores.memories.put(
+        LongTermMemory(
+            memory_id=MemoryId.new(),
+            namespace=MemoryNamespace(
+                user="local-user",
+                network="home",
+                node_id=NodeId.new(),
+            ),
+            kind=MemoryKind.PREFERENCE,
+            content="其他节点的秘密偏好",
+            source="其他节点",
+            user_confirmed=True,
+            updated_at=datetime.now(UTC),
+        )
+    )
+    provider = ScriptedProvider()
+    conversations = InMemoryConversationService(
+        node,
+        lambda: build_agent(provider)[0],
+        memory_retriever=MemoryContextRetriever(stores.memories),
+    )
+    thread = conversations.create_thread()
+
+    async def scenario() -> None:
+        started = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="请用中文检查 8082", tool_names=("probe_service",)),
+        )
+        _ = await collect(conversations.stream_events(started.run_id))
+
+    run(scenario())
+
+    contents = [item.content for item in provider.requests[0].messages]
+    assert any("偏好使用中文回答" in item for item in contents)
+    assert all("其他节点的秘密偏好" not in item for item in contents)
 
 
 def test_user_cancel_and_failed_run_reach_terminal_events() -> None:

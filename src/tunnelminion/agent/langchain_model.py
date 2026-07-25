@@ -23,6 +23,7 @@ from tunnelminion.agent.context_contracts import (
 )
 from tunnelminion.agent.context_runtime import ContextModelRuntime
 from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelMessage,
@@ -61,6 +62,7 @@ class TunnelMinionChatModel(BaseChatModel):
     thread_id: ThreadId | None = None
     run_id: RunId | None = None
     history_context: HistoryContext | None = None
+    memories: tuple[LongTermMemory, ...] = ()
 
     @property
     def _llm_type(self) -> str:
@@ -117,6 +119,7 @@ class TunnelMinionChatModel(BaseChatModel):
             tools=self._convert_tools(cast(list[dict[str, Any]], kwargs.get("tools", []))),
             require_tool_call=kwargs.get("tool_choice") in {"required", "any"},
             history=self.history_context,
+            memories=self.memories,
         )
         invocation = await ContextModelRuntime(
             cast(ModelProvider, self.provider),

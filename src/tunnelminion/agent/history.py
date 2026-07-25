@@ -17,6 +17,7 @@ from tunnelminion.agent.context_contracts import (
     RollingSummary,
     WorkflowContextState,
 )
+from tunnelminion.domain.identifiers import MemoryId
 from tunnelminion.model.contracts import ModelMessage
 
 _FACT_PRIORITY = {
@@ -71,6 +72,7 @@ class ThreadHistoryAssembler:
         history_budget: int,
         previous_summary: RollingSummary | None = None,
         workflow_state: WorkflowContextState | None = None,
+        memory_ids: Sequence[MemoryId] = (),
     ) -> HistoryContext:
         """当前消息由调用方单独保留；这里只对既有 thread 历史使用独立预算。"""
         if not messages and previous_summary is None:
@@ -96,6 +98,7 @@ class ThreadHistoryAssembler:
                 refs = (
                     previous_summary.source_message_refs if previous_summary is not None else ()
                 ) + tuple(self._message_ref(item, index) for index, item in enumerate(older))
+                refs += tuple(f"memory:{memory_id}" for memory_id in memory_ids)
                 summary = RollingSummary(
                     version=self.SUMMARY_VERSION,
                     content=content,

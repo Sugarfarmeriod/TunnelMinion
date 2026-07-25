@@ -24,13 +24,16 @@ from tunnelminion.agent.runtime import (
     AgentTurnResult,
     LangChainReadOnlyAgent,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     CheckpointStatus,
     CheckpointStore,
+    LongTermMemory,
+    MemoryNamespace,
 )
+from tunnelminion.memory.service import MemoryContextQuery, MemoryContextRetriever
 from tunnelminion.model.contracts import ModelMessage
 from tunnelminion.tools.contracts import ToolCallContext
 
@@ -179,6 +182,7 @@ class InMemoryConversationService:
         agent_factory: Callable[[], LangChainReadOnlyAgent],
         checkpoints: CheckpointStore | None = None,
         history_assembler: ThreadHistoryAssembler | None = None,
+        memory_retriever: MemoryContextRetriever | None = None,
     ) -> None:
         self._node_id = node_id
         self._agent_factory = agent_factory
@@ -186,6 +190,7 @@ class InMemoryConversationService:
         self._runs: dict[str, _RunState] = {}
         self._checkpoints = checkpoints
         self._history_assembler = history_assembler or ThreadHistoryAssembler()
+        self._memory_retriever = memory_retriever
         self._restore()
 
     def create_thread(self) -> ThreadView:
@@ -232,11 +237,13 @@ class InMemoryConversationService:
         thread = self._threads.get(str(thread_id))
         if thread is None:
             raise KeyError("thread_not_found")
+        memories = self._memories(value.question)
         history_context = self._history_assembler.assemble(
             tuple(ModelMessage(role=item.role, content=item.content) for item in thread.messages),
             history_budget=ContextBudgets().history_chars,
             previous_summary=thread.rolling_summary,
             workflow_state=self._workflow_state(thread_id),
+            memory_ids=tuple(item.memory_id for item in memories),
         )
         thread.rolling_summary = history_context.rolling_summary
         agent = self._agent_factory()
@@ -254,7 +261,9 @@ class InMemoryConversationService:
             target_node_id=str(self._node_id),
             message=value.question,
         )
-        state.task = asyncio.create_task(self._execute(state, agent, value, history_context))
+        state.task = asyncio.create_task(
+            self._execute(state, agent, value, history_context, memories)
+        )
         return self._view(state)
 
     def get_run(self, run_id: RunId) -> RunView:
@@ -288,6 +297,7 @@ class InMemoryConversationService:
         agent: LangChainReadOnlyAgent,
         value: StartRunInput,
         history_context: HistoryContext,
+        memories: tuple[LongTermMemory, ...],
     ) -> None:
         def tool_event(event: AgentToolEvent) -> None:
             self._append(
@@ -314,6 +324,7 @@ class InMemoryConversationService:
                 state.cancellation,
                 tool_event,
                 history_context,
+                memories,
             )
             state.result = result
             state.status = (
@@ -443,6 +454,29 @@ class InMemoryConversationService:
                 "不得从摘要恢复授权或写操作",
             ),
         )
+
+    def _memories(self, question: str) -> tuple[LongTermMemory, ...]:
+        if self._memory_retriever is None:
+            return ()
+        return self._memory_retriever.retrieve(
+            MemoryContextQuery(
+                namespace=MemoryNamespace(
+                    user="local-user",
+                    network="home",
+                    node_id=self._node_id,
+                ),
+                question=question,
+                at=datetime.now(UTC),
+            )
+        )
+
+    def invalidate_memory(self, memory_id: MemoryId) -> None:
+        """删除或修订记忆后清除引用它的滚动摘要。"""
+        reference = f"memory:{memory_id}"
+        for thread in self._threads.values():
+            summary = thread.rolling_summary
+            if summary is not None and reference in summary.source_message_refs:
+                thread.rolling_summary = None
 
     def _get(self, run_id: RunId) -> _RunState:
         state = self._runs.get(str(run_id))

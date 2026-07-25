@@ -263,7 +263,11 @@ class SQLiteLongTermMemoryStore:
                 ORDER BY rowid""",
                 (namespace.user, namespace.network, str(namespace.node_id)),
             ).fetchall()
-        return tuple(LongTermMemory.model_validate_json(row[0]) for row in rows)
+        return tuple(
+            memory
+            for row in rows
+            if (memory := LongTermMemory.model_validate_json(row[0])).namespace == namespace
+        )
 
     def delete(self, memory_id: MemoryId) -> None:
         with self._database.connect() as connection:

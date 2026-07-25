@@ -22,6 +22,7 @@ from tunnelminion.agent.context_contracts import HistoryContext
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.domain.tools import Platform
+from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import CancellationToken
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -191,6 +192,7 @@ class LangChainReadOnlyAgent:
         cancellation: AgentCancellationToken | None = None,
         tool_event_sink: Callable[[AgentToolEvent], None] | None = None,
         history_context: HistoryContext | None = None,
+        memories: tuple[LongTermMemory, ...] = (),
     ) -> AgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
         budget = limits or AgentRunLimits()
@@ -226,6 +228,7 @@ class LangChainReadOnlyAgent:
                 "thread_id": context.thread_id,
                 "run_id": context.run_id,
                 "history_context": history_context,
+                "memories": memories,
             }
         )
         evidence: list[EvidenceReference] = []
