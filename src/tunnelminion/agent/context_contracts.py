@@ -1,0 +1,157 @@
+"""统一生产模型调用使用的上下文请求与不可变快照契约。"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId
+from tunnelminion.memory.context import (
+    ContextBudgets,
+    ToolResultContext,
+)
+from tunnelminion.memory.contracts import LongTermMemory
+from tunnelminion.model.contracts import ModelMessage, ModelRequest, ToolDefinition
+
+
+class ContextTaskType(StrEnum):
+    """决定 prompt、工具集合和分项预算的生产任务类型。"""
+
+    LOCAL_CONVERSATION = "local-conversation"
+    CROSS_NODE_DIAGNOSTIC = "cross-node-diagnostic"
+    OPERATION_PLAN = "operation-plan"
+    PROVIDER_VALIDATION = "provider-validation"
+    EVALUATION = "evaluation"
+
+
+class ContextContentKind(StrEnum):
+    """快照中可独立预算、追踪和裁剪的内容类别。"""
+
+    PROMPT = "prompt"
+    MESSAGE = "message"
+    TOOL_SCHEMA = "tool-schema"
+    TOOL_RESULT = "tool-result"
+    EVIDENCE = "evidence"
+    MEMORY = "memory"
+    ARTIFACT = "artifact"
+    HISTORY_SUMMARY = "history-summary"
+    WORKFLOW_STATE = "workflow-state"
+
+
+class ContextTrust(StrEnum):
+    """内容在进入 prompt 前的确定性信任边界。"""
+
+    SYSTEM_CONSTRAINT = "system-constraint"
+    VERIFIED_EVIDENCE = "verified-evidence"
+    USER_CONFIRMED = "user-confirmed"
+    UNTRUSTED_DATA = "untrusted-data"
+
+
+class ContextTruncationReason(StrEnum):
+    """内容未进入快照或只保留预览的稳定原因。"""
+
+    BUDGET_EXCEEDED = "budget-exceeded"
+    OVERSIZED_RESULT_ARTIFACT = "oversized-result-artifact"
+    STALE = "stale"
+    SCOPE_MISMATCH = "scope-mismatch"
+    UNCONFIRMED = "unconfirmed"
+    SUPERSEDED = "superseded"
+    DELETED = "deleted"
+    REDACTED = "redacted"
+
+
+class ContextContentReference(BaseModel):
+    """不复制敏感正文的内容来源、规模和完整性引用。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ContextContentKind
+    source_id: str = Field(min_length=1, max_length=256)
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    content_chars: int = Field(ge=0)
+    trust: ContextTrust
+    observed_at: datetime | None = None
+    artifact_id: ArtifactId | None = None
+
+
+class ContextBudgetDecision(BaseModel):
+    """某类内容的预算使用和确定性取舍结果。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ContextContentKind
+    limit_chars: int = Field(ge=0)
+    used_chars: int = Field(ge=0)
+    included_count: int = Field(ge=0)
+    dropped_count: int = Field(ge=0)
+    truncated_count: int = Field(ge=0)
+
+
+class ContextTruncation(BaseModel):
+    """单个来源被裁剪、排除或制品化的审计决定。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ContextContentKind
+    source_id: str = Field(min_length=1, max_length=256)
+    reason: ContextTruncationReason
+    original_chars: int = Field(ge=0)
+    retained_chars: int = Field(ge=0)
+
+
+class RedactedContextTrace(BaseModel):
+    """普通日志可保存的脱敏快照组成，不包含消息或凭据正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prompt_id: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=64)
+    provider_name: str = Field(min_length=1, max_length=128)
+    model_name: str = Field(min_length=1, max_length=256)
+    builder_version: str = Field(min_length=1, max_length=64)
+    tool_schema_version: str = Field(min_length=1, max_length=128)
+    message_count: int = Field(ge=0)
+    tool_count: int = Field(ge=0)
+    result_count: int = Field(ge=0)
+    memory_count: int = Field(ge=0)
+    input_chars: int = Field(ge=0)
+
+
+class ContextRequest(BaseModel):
+    """Agent 提交给 ContextBuilder 的结构化输入，不能直接交给 Provider。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task_type: ContextTaskType
+    current_intent: str = Field(min_length=1, max_length=20_000)
+    thread_id: ThreadId
+    run_id: RunId
+    prompt_id: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=64)
+    messages: tuple[ModelMessage, ...] = ()
+    tools: tuple[ToolDefinition, ...] = ()
+    tool_results: tuple[ToolResultContext, ...] = ()
+    memories: tuple[LongTermMemory, ...] = ()
+    evidence: tuple[ContextContentReference, ...] = ()
+    artifact_references: tuple[ContextContentReference, ...] = ()
+    budgets: ContextBudgets = Field(default_factory=ContextBudgets)
+
+
+class ContextSnapshot(BaseModel):
+    """Builder 生成且 Provider 边界将校验的不可变、可追踪上下文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    snapshot_id: str = Field(pattern=r"^context_[0-9a-f]{32}$")
+    task_type: ContextTaskType
+    thread_id: ThreadId
+    run_id: RunId
+    created_at: datetime
+    builder_version: str = Field(min_length=1, max_length=64)
+    model_request: ModelRequest
+    content_references: tuple[ContextContentReference, ...]
+    budget_decisions: tuple[ContextBudgetDecision, ...]
+    truncations: tuple[ContextTruncation, ...] = ()
+    trace: RedactedContextTrace
