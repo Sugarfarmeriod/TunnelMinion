@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Coroutine
 from typing import Any, TypeVar, cast
 
@@ -19,7 +20,7 @@ from tunnelminion.agent.runtime import (
     EvidenceReference,
     LangChainReadOnlyAgent,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
+from tunnelminion.domain.identifiers import ArtifactId, NodeId, RunId, ThreadId, ToolRunId
 from tunnelminion.domain.tools import (
     DataSensitivity,
     Platform,
@@ -427,6 +428,40 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
         model._convert_message(  # pyright: ignore[reportPrivateUsage]
             ChatMessage(role="custom", content="x")
         )
+
+    tool_run_id = ToolRunId.new()
+    artifact_id = ArtifactId.new()
+    model.invoke(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "artifact-call",
+                        "name": "probe_service",
+                        "args": {},
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=json.dumps(
+                    {
+                        "result": {
+                            "tool_run_id": str(tool_run_id),
+                            "artifact_id": str(artifact_id),
+                            "content_bytes": 1000,
+                            "content_type": "application/json",
+                            "truncated": True,
+                        }
+                    }
+                ),
+                tool_call_id="artifact-call",
+                name="probe_service",
+            ),
+        ]
+    )
+    assert provider.requests[-1].messages[-1].role == "tool"
 
 
 def test_agent_result_helpers_handle_content_variants() -> None:

@@ -109,6 +109,7 @@ def test_safe_export_uses_allowlist_and_excludes_secret_artifacts(tmp_path: Path
             tool_run_id=ToolRunId.new(),
             content=secret_artifact,
             content_bytes=len(secret_artifact),
+            content_hash="sha256:" + ("0" * 64),
             created_at=now,
         )
     )

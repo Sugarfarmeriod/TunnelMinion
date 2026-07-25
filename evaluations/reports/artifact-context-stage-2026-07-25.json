@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "artifact-context",
+  "artifact_policy": "bounded-preview/v1",
+  "metrics": {
+    "scenario_count": 5,
+    "context_limit_rate": 1.0,
+    "artifact_isolation_rate": 1.0,
+    "security_contamination_rate": 0.0,
+    "average_builder_latency_ms": 0.32695200003217906,
+    "provider_tokens": 0,
+    "estimated_cost": 0.0
+  },
+  "notes": [
+    "本门禁只验证确定性制品与上下文组装，不调用模型 Provider。",
+    "模型文本不能触发制品展开；后续读取必须经过独立权限和预算检查。"
+  ]
+}

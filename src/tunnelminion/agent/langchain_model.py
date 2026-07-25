@@ -17,12 +17,16 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.context_contracts import (
+    ContextContentKind,
+    ContextContentReference,
     ContextRequest,
     ContextTaskType,
+    ContextTrust,
     HistoryContext,
 )
-from tunnelminion.agent.context_runtime import ContextModelRuntime
-from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
+from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId, ToolRunId
+from tunnelminion.memory.context import ToolResultContext
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import (
     CancellationToken,
@@ -108,6 +112,27 @@ class TunnelMinionChatModel(BaseChatModel):
     async def _complete(self, messages: list[BaseMessage], kwargs: dict[str, Any]) -> ChatResult:
         if self.thread_id is None or self.run_id is None:
             raise ValueError("生产模型调用必须关联 thread_id 和 run_id")
+        converted = tuple(self._convert_message(message) for message in messages)
+        normal_messages: list[ModelMessage] = []
+        tool_results: list[ToolResultContext] = []
+        artifact_references: list[ContextContentReference] = []
+        for message in converted:
+            result = self._tool_result_context(message)
+            if result is None:
+                normal_messages.append(message)
+                continue
+            tool_results.append(result)
+            if result.artifact_id is not None:
+                artifact_references.append(
+                    make_context_reference(
+                        ContextContentKind.ARTIFACT,
+                        f"tool-run:{result.tool_run_id}",
+                        result.content,
+                        ContextTrust.UNTRUSTED_DATA,
+                        artifact_id=result.artifact_id,
+                        content_chars=result.content_bytes,
+                    )
+                )
         request = ContextRequest(
             task_type=ContextTaskType.LOCAL_CONVERSATION,
             current_intent=self._text_content(messages[-1].content),
@@ -115,8 +140,10 @@ class TunnelMinionChatModel(BaseChatModel):
             run_id=self.run_id,
             prompt_id="readonly-agent",
             prompt_version="v1",
-            messages=tuple(self._convert_message(message) for message in messages),
+            messages=tuple(normal_messages),
             tools=self._convert_tools(cast(list[dict[str, Any]], kwargs.get("tools", []))),
+            tool_results=tuple(tool_results),
+            artifact_references=tuple(artifact_references),
             require_tool_call=kwargs.get("tool_choice") in {"required", "any"},
             history=self.history_context,
             memories=self.memories,
@@ -131,6 +158,31 @@ class TunnelMinionChatModel(BaseChatModel):
         response = invocation.response
         self.run_metrics.record(response)
         return self._convert_response(response)
+
+    @staticmethod
+    def _tool_result_context(message: ModelMessage) -> ToolResultContext | None:
+        """从本项目生成的 ToolMessage 信封提取独立预算和制品元数据。"""
+        if message.role != "tool":
+            return None
+        try:
+            payload = cast(dict[str, Any], json.loads(message.content))
+            result = cast(dict[str, Any], payload["result"])
+            tool_run_id = ToolRunId(str(result["tool_run_id"]))
+            raw_artifact_id = result.get("artifact_id")
+            return ToolResultContext(
+                tool_run_id=tool_run_id,
+                content=message.content,
+                artifact_id=(
+                    ArtifactId(str(raw_artifact_id)) if raw_artifact_id is not None else None
+                ),
+                tool_call_id=message.tool_call_id,
+                tool_name=message.name,
+                content_bytes=int(result.get("content_bytes") or len(message.content)),
+                content_type=str(result.get("content_type") or "application/json"),
+                truncated=bool(result.get("truncated")),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     @classmethod
     def _convert_message(cls, message: BaseMessage) -> ModelMessage:

@@ -12,6 +12,8 @@ from pydantic import JsonValue, ValidationError
 from tunnelminion.domain.identifiers import ArtifactId, MemoryId, NodeId, ToolRunId
 from tunnelminion.memory.context import (
     ArtifactContextManager,
+    ArtifactReadRequest,
+    ArtifactReadService,
     ContextBudgets,
     ContextBuilder,
     ToolResultContext,
@@ -202,3 +204,48 @@ def test_artifact_manager_rejects_useless_budgets(tmp_path: Path, values: dict[s
     store = SQLiteStores.open(tmp_path / "invalid.sqlite3").artifacts
     with pytest.raises(ValueError, match="预算过小"):
         ArtifactContextManager(store, **values)
+
+
+def test_artifact_preview_and_read_are_bounded_authorized_and_redacted(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteStores.open(tmp_path / "artifact-read.sqlite3").artifacts
+    manager = ArtifactContextManager(store, inline_bytes=256, preview_chars=128)
+    tool_run_id = ToolRunId.new()
+    prepared = manager.prepare(
+        tool_run_id,
+        cast(
+            JsonValue,
+            {
+                "authorization": ("Be" + "arer super-secret-token-value"),
+                "logs": ["x" * 300],
+            },
+        ),
+        "authorization logs",
+    )
+    assert prepared.artifact_id is not None
+    assert "super-secret-token-value" not in prepared.content
+    service = ArtifactReadService(store)
+    request = ArtifactReadRequest(
+        artifact_id=prepared.artifact_id,
+        source_tool_run_id=tool_run_id,
+        authorized=True,
+        max_chars=80,
+    )
+    result = service.read(request)
+    assert result.truncated
+    assert result.content_type == "application/json"
+    assert "super-secret-token-value" not in result.preview
+
+    with pytest.raises(PermissionError, match="artifact_read_forbidden"):
+        service.read(request.model_copy(update={"authorized": False}))
+    with pytest.raises(PermissionError, match="artifact_source_mismatch"):
+        service.read(request.model_copy(update={"source_tool_run_id": ToolRunId.new()}))
+    with pytest.raises(KeyError, match="artifact_not_found"):
+        service.read(request.model_copy(update={"artifact_id": ArtifactId.new()}))
+
+    artifact = store.get(prepared.artifact_id)
+    assert artifact is not None
+    store.put(artifact.model_copy(update={"content_type": "application/octet-stream"}))
+    with pytest.raises(ValueError, match="artifact_content_type_unsupported"):
+        service.read(request)

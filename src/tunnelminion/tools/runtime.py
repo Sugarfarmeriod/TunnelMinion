@@ -12,8 +12,9 @@ from jsonschema.exceptions import ValidationError
 from pydantic import JsonValue
 
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import ToolRunId
+from tunnelminion.domain.identifiers import ArtifactId, ToolRunId
 from tunnelminion.domain.tools import Platform, RiskLevel
+from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.tools.audit import AuditRecord, AuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
@@ -37,12 +38,14 @@ class ToolRuntime:
         audit_sink: AuditSink,
         *,
         max_concurrency: int = 4,
+        artifact_manager: ArtifactContextManager | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency 必须至少为 1")
         self._registry = registry
         self._platform = platform
         self._audit_sink = audit_sink
+        self._artifact_manager = artifact_manager
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def execute(
@@ -141,8 +144,21 @@ class ToolRuntime:
 
         serialized = json.dumps(output, ensure_ascii=False, separators=(",", ":")).encode()
         if len(serialized) > entry.definition.max_result_bytes:
-            preview = serialized[: entry.definition.max_result_bytes].decode(
-                "utf-8", errors="ignore"
+            prepared = (
+                self._artifact_manager.prepare(
+                    tool_run_id,
+                    output,
+                    request.tool_name,
+                )
+                if self._artifact_manager is not None
+                else None
+            )
+            preview = (
+                prepared.content
+                if prepared is not None
+                else serialized[: entry.definition.max_result_bytes].decode(
+                    "utf-8", errors="ignore"
+                )
             )
             return self._finish(
                 request,
@@ -157,6 +173,9 @@ class ToolRuntime:
                 ),
                 output=preview,
                 truncated=True,
+                artifact_id=prepared.artifact_id if prepared is not None else None,
+                content_bytes=len(serialized),
+                content_type="application/json",
             )
         return self._finish(
             request,
@@ -230,12 +249,18 @@ class ToolRuntime:
         *,
         output: JsonValue | None = None,
         truncated: bool = False,
+        artifact_id: ArtifactId | None = None,
+        content_bytes: int | None = None,
+        content_type: str | None = None,
     ) -> ToolExecutionResult:
         result = ToolExecutionResult(
             tool_run_id=tool_run_id,
             status=status,
             output=output,
             truncated=truncated,
+            artifact_id=artifact_id,
+            content_bytes=content_bytes,
+            content_type=content_type,
             error=error,
         )
         context = request.context

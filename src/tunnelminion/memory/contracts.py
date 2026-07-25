@@ -50,6 +50,8 @@ class ToolArtifact(BaseModel):
     tool_run_id: ToolRunId
     content: JsonValue
     content_bytes: int = Field(ge=0)
+    content_type: str = Field(default="application/json", min_length=1, max_length=128)
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     created_at: datetime
 
 

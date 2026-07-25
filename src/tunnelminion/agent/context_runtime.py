@@ -24,7 +24,8 @@ from tunnelminion.agent.context_contracts import (
     ResolvedFact,
 )
 from tunnelminion.agent.history import FactResolver
-from tunnelminion.memory.context import ContextBuilder
+from tunnelminion.domain.identifiers import ArtifactId
+from tunnelminion.memory.context import ContextBuilder, ToolResultContext
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import (
     CancellationToken,
@@ -44,15 +45,18 @@ def make_context_reference(
     trust: ContextTrust,
     *,
     observed_at: datetime | None = None,
+    artifact_id: ArtifactId | None = None,
+    content_chars: int | None = None,
 ) -> ContextContentReference:
     """为正文生成只含哈希和规模的脱敏来源引用。"""
     return ContextContentReference(
         kind=kind,
         source_id=source_id,
         content_hash=f"sha256:{hashlib.sha256(content.encode()).hexdigest()}",
-        content_chars=len(content),
+        content_chars=len(content) if content_chars is None else content_chars,
         trust=trust,
         observed_at=observed_at,
+        artifact_id=artifact_id,
     )
 
 
@@ -194,6 +198,14 @@ class ContextSnapshotBuilder:
                 dropped_count=built.dropped.memories,
                 truncated_count=0,
             ),
+            ContextBudgetDecision(
+                kind=ContextContentKind.ARTIFACT,
+                limit_chars=request.budgets.tool_result_chars,
+                used_chars=sum(item.content_chars for item in request.artifact_references),
+                included_count=len(request.artifact_references),
+                dropped_count=0,
+                truncated_count=len(request.artifact_references),
+            ),
         )
         truncations = tuple(
             ContextTruncation(
@@ -233,6 +245,23 @@ class ContextSnapshotBuilder:
                     ),
                 ),
             )
+        truncations += tuple(
+            ContextTruncation(
+                kind=ContextContentKind.ARTIFACT,
+                source_id=reference.source_id,
+                reason=ContextTruncationReason.OVERSIZED_RESULT_ARTIFACT,
+                original_chars=reference.content_chars,
+                retained_chars=next(
+                    (
+                        len(item.content)
+                        for item in built.tool_results
+                        if item.artifact_id == reference.artifact_id
+                    ),
+                    0,
+                ),
+            )
+            for reference in request.artifact_references
+        )
         return ContextSnapshot(
             snapshot_id=f"context_{uuid4().hex}",
             task_type=request.task_type,
@@ -266,15 +295,12 @@ class ContextSnapshotBuilder:
     @staticmethod
     def _messages_with_context(
         messages: tuple[ModelMessage, ...],
-        tool_results: tuple[object, ...],
+        tool_results: tuple[ToolResultContext, ...],
         memories: tuple[LongTermMemory, ...],
         history: HistoryContext | None,
         resolved_facts: tuple[ResolvedFact, ...],
         fact_conflicts: tuple[FactConflict, ...],
     ) -> tuple[ModelMessage, ...]:
-        # 工具结果与记忆正文分别在 5.x 和 4.x 开启；历史和事实从 3.x 起显式分层。
-        if tool_results:
-            raise ValueError("工具结果的生产注入将在后续独立阶段启用")
         system_messages = tuple(item for item in messages if item.role == "system")
         current_messages = tuple(item for item in messages if item.role != "system")
         context_messages: list[ModelMessage] = [*system_messages]
@@ -349,7 +375,32 @@ class ContextSnapshotBuilder:
                     ),
                 )
             )
-        context_messages.extend(current_messages)
+        pending_results = list(tool_results)
+        for message in current_messages:
+            context_messages.append(message)
+            call_ids = {call.call_id for call in message.tool_calls}
+            matched = tuple(item for item in pending_results if item.tool_call_id in call_ids)
+            for item in matched:
+                context_messages.append(
+                    ModelMessage(
+                        role="tool",
+                        content=item.content,
+                        tool_call_id=item.tool_call_id,
+                        name=item.tool_name,
+                    )
+                )
+                pending_results.remove(item)
+        for item in pending_results:
+            if item.tool_call_id is None or item.tool_name is None:
+                raise ValueError("工具结果必须关联 tool_call_id 和 tool_name")
+            context_messages.append(
+                ModelMessage(
+                    role="tool",
+                    content=item.content,
+                    tool_call_id=item.tool_call_id,
+                    name=item.tool_name,
+                )
+            )
         return tuple(context_messages)
 
 

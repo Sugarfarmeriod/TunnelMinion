@@ -18,6 +18,7 @@ from tunnelminion.model.contracts import (
     ModelResponse,
     ProviderError,
     ProviderErrorCode,
+    ToolCall,
     ToolDefinition,
 )
 
@@ -90,7 +91,7 @@ def test_runtime_builds_versioned_snapshot_and_calls_provider_once() -> None:
     assert provider.requests[0] == first.snapshot.model_request
 
 
-def test_builder_records_budget_drop_and_rejects_unimplemented_result_injection() -> None:
+def test_builder_records_budget_drop_and_injects_bounded_tool_result() -> None:
     builder = ContextSnapshotBuilder()
     request = _request(
         messages=(
@@ -109,7 +110,47 @@ def test_builder_records_budget_drop_and_rejects_unimplemented_result_injection(
 
     assert snapshot.budget_decisions[0].dropped_count == 1
     assert snapshot.truncations[0].reason.value == "budget-exceeded"
-    with pytest.raises(ValueError, match="后续独立阶段"):
+    tool_snapshot = builder.build(
+        _request(
+            messages=(
+                ModelMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(ToolCall(call_id="call-1", name="probe", arguments={}),),
+                ),
+            ),
+            tool_results=(
+                ToolResultContext(
+                    tool_run_id=ToolRunId.new(),
+                    content='{"status":"ok"}',
+                    tool_call_id="call-1",
+                    tool_name="probe",
+                ),
+            ),
+        ),
+        provider_name="provider",
+        model_name="model",
+        tool_schema_version="tools/v1",
+    )
+    assert tool_snapshot.model_request.messages[-1].role == "tool"
+    assert tool_snapshot.budget_decisions[3].included_count == 1
+    appended = builder.build(
+        _request(
+            tool_results=(
+                ToolResultContext(
+                    tool_run_id=ToolRunId.new(),
+                    content='{"status":"ok"}',
+                    tool_call_id="orphan-call",
+                    tool_name="probe",
+                ),
+            ),
+        ),
+        provider_name="provider",
+        model_name="model",
+        tool_schema_version="tools/v1",
+    )
+    assert appended.model_request.messages[-1].tool_call_id == "orphan-call"
+    with pytest.raises(ValueError, match="必须关联"):
         builder.build(
             _request(
                 tool_results=(
@@ -117,7 +158,7 @@ def test_builder_records_budget_drop_and_rejects_unimplemented_result_injection(
                         tool_run_id=ToolRunId.new(),
                         content='{"status":"ok"}',
                     ),
-                )
+                ),
             ),
             provider_name="provider",
             model_name="model",

@@ -28,6 +28,7 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.operations import TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.api import create_model_router
@@ -224,7 +225,13 @@ def _build_macos_node(
         ),
     )
     register_safe_http_sharing_operation(registry)
-    runtime = ToolRuntime(registry, Platform.MACOS, audit)
+    stores = SQLiteStores.open(root / "runtime.sqlite3")
+    runtime = ToolRuntime(
+        registry,
+        Platform.MACOS,
+        audit,
+        artifact_manager=ArtifactContextManager(stores.artifacts),
+    )
     return MacOSNode(root, node_id, model_service, runtime, audit, registry, reader)
 
 

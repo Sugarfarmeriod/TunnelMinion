@@ -9,7 +9,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from tunnelminion.domain.errors import ToolError
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import ArtifactId, NodeId, RunId, ThreadId, ToolRunId
 
 
 class ToolCancellationToken:
@@ -92,6 +92,9 @@ class ToolExecutionResult(BaseModel):
     status: ToolExecutionStatus
     output: JsonValue | None = None
     truncated: bool = False
+    artifact_id: ArtifactId | None = None
+    content_bytes: int | None = Field(default=None, ge=0)
+    content_type: str | None = Field(default=None, min_length=1, max_length=128)
     error: ToolError | None = None
 
     @model_validator(mode="after")
@@ -103,6 +106,10 @@ class ToolExecutionResult(BaseModel):
         elif self.status is ToolExecutionStatus.PARTIAL:
             if self.error is None or not self.truncated or self.output is None:
                 raise ValueError("部分结果必须包含输出、截断标记和错误")
+            if self.artifact_id is not None and (
+                self.content_bytes is None or self.content_type is None
+            ):
+                raise ValueError("制品化结果必须包含大小和类型")
         else:
             if self.output is not None:
                 raise ValueError("失败或取消结果不得包含输出")
