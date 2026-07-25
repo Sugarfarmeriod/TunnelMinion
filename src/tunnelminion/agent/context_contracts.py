@@ -60,6 +60,7 @@ class ContextTruncationReason(StrEnum):
     SUPERSEDED = "superseded"
     DELETED = "deleted"
     REDACTED = "redacted"
+    SUMMARY_FAILED = "summary-failed"
 
 
 class ContextContentReference(BaseModel):
@@ -119,6 +120,89 @@ class RedactedContextTrace(BaseModel):
     input_chars: int = Field(ge=0)
 
 
+class RollingSummary(BaseModel):
+    """更早 thread 消息的版本化导航摘要，不承担安全约束或实时事实。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: str = Field(pattern=r"^rolling-summary/v[1-9][0-9]*$")
+    content: str = Field(min_length=1, max_length=20_000)
+    covered_message_count: int = Field(ge=1)
+    source_message_refs: tuple[str, ...] = Field(min_length=1)
+    generated_at: datetime
+    invalidation_conditions: tuple[str, ...] = Field(min_length=1)
+
+
+class WorkflowContextState(BaseModel):
+    """不得依赖自由文本摘要恢复的未完成工作流状态。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: str = Field(min_length=1, max_length=64)
+    pending_steps: tuple[str, ...] = ()
+    source_run_ids: tuple[RunId, ...] = ()
+    safety_constraints: tuple[str, ...] = Field(min_length=1)
+
+
+class HistoryContext(BaseModel):
+    """独立预算后的近期原文、滚动摘要与结构化工作流状态。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    recent_messages: tuple[ModelMessage, ...] = ()
+    rolling_summary: RollingSummary | None = None
+    workflow_state: WorkflowContextState | None = None
+    dropped_message_count: int = Field(ge=0)
+    history_chars: int = Field(ge=0)
+    summary_error_code: str | None = Field(default=None, max_length=128)
+
+
+class FactSource(StrEnum):
+    """越靠前越可信的确定性事实来源。"""
+
+    REALTIME_EVIDENCE = "realtime-evidence"
+    CONFIRMED_MEMORY = "confirmed-memory"
+    HISTORY = "history"
+    MODEL_INFERENCE = "model-inference"
+
+
+class ContextFact(BaseModel):
+    """可按稳定键比较的事实候选。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str = Field(min_length=1, max_length=256)
+    value: str = Field(min_length=1, max_length=20_000)
+    source: FactSource
+    source_id: str = Field(min_length=1, max_length=256)
+    observed_at: datetime | None = None
+
+
+class ResolvedFact(BaseModel):
+    """确定性优先级选出的当前事实。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    value: str
+    source: FactSource
+    source_id: str
+    observed_at: datetime | None = None
+
+
+class FactConflict(BaseModel):
+    """被更高优先级或更新来源否决的陈旧事实。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    selected_source_id: str
+    stale_value: str
+    stale_source: FactSource
+    stale_source_id: str
+    reason: str = "lower-priority-or-older"
+
+
 class ContextRequest(BaseModel):
     """Agent 提交给 ContextBuilder 的结构化输入，不能直接交给 Provider。"""
 
@@ -139,6 +223,8 @@ class ContextRequest(BaseModel):
     budgets: ContextBudgets = Field(default_factory=ContextBudgets)
     require_tool_call: bool = False
     response_schema: dict[str, JsonValue] | None = None
+    history: HistoryContext | None = None
+    facts: tuple[ContextFact, ...] = ()
 
 
 class ContextSnapshot(BaseModel):
@@ -156,4 +242,6 @@ class ContextSnapshot(BaseModel):
     content_references: tuple[ContextContentReference, ...]
     budget_decisions: tuple[ContextBudgetDecision, ...]
     truncations: tuple[ContextTruncation, ...] = ()
+    resolved_facts: tuple[ResolvedFact, ...] = ()
+    fact_conflicts: tuple[FactConflict, ...] = ()
     trace: RedactedContextTrace

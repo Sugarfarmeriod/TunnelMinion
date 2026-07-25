@@ -16,7 +16,11 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field, JsonValue
 
-from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
+from tunnelminion.agent.context_contracts import (
+    ContextRequest,
+    ContextTaskType,
+    HistoryContext,
+)
 from tunnelminion.agent.context_runtime import ContextModelRuntime
 from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.model.contracts import (
@@ -56,6 +60,7 @@ class TunnelMinionChatModel(BaseChatModel):
     cancellation_token: CancellationToken | None = None
     thread_id: ThreadId | None = None
     run_id: RunId | None = None
+    history_context: HistoryContext | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -111,6 +116,7 @@ class TunnelMinionChatModel(BaseChatModel):
             messages=tuple(self._convert_message(message) for message in messages),
             tools=self._convert_tools(cast(list[dict[str, Any]], kwargs.get("tools", []))),
             require_tool_call=kwargs.get("tool_choice") in {"required", "any"},
+            history=self.history_context,
         )
         invocation = await ContextModelRuntime(
             cast(ModelProvider, self.provider),

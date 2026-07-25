@@ -10,6 +10,12 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tunnelminion.agent.context_contracts import (
+    HistoryContext,
+    RollingSummary,
+    WorkflowContextState,
+)
+from tunnelminion.agent.history import ThreadHistoryAssembler
 from tunnelminion.agent.runtime import (
     AgentCancellationToken,
     AgentRunLimits,
@@ -19,11 +25,13 @@ from tunnelminion.agent.runtime import (
     LangChainReadOnlyAgent,
 )
 from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     CheckpointStatus,
     CheckpointStore,
 )
+from tunnelminion.model.contracts import ModelMessage
 from tunnelminion.tools.contracts import ToolCallContext
 
 
@@ -130,6 +138,7 @@ class _ConversationCheckpointState(BaseModel):
     messages: tuple[ThreadMessage, ...]
     run: RunView
     events: tuple[RunEvent, ...]
+    rolling_summary: RollingSummary | None = None
 
 
 @dataclass
@@ -158,6 +167,7 @@ class _ThreadState:
     created_at: datetime
     updated_at: datetime
     messages: list[ThreadMessage] = field(default_factory=lambda: [])
+    rolling_summary: RollingSummary | None = None
 
 
 class InMemoryConversationService:
@@ -168,12 +178,14 @@ class InMemoryConversationService:
         node_id: NodeId,
         agent_factory: Callable[[], LangChainReadOnlyAgent],
         checkpoints: CheckpointStore | None = None,
+        history_assembler: ThreadHistoryAssembler | None = None,
     ) -> None:
         self._node_id = node_id
         self._agent_factory = agent_factory
         self._threads: dict[str, _ThreadState] = {}
         self._runs: dict[str, _RunState] = {}
         self._checkpoints = checkpoints
+        self._history_assembler = history_assembler or ThreadHistoryAssembler()
         self._restore()
 
     def create_thread(self) -> ThreadView:
@@ -217,8 +229,16 @@ class InMemoryConversationService:
 
     async def start_run(self, thread_id: ThreadId, value: StartRunInput) -> RunView:
         """验证线程与模型后，在后台启动一次 Agent run。"""
-        if str(thread_id) not in self._threads:
+        thread = self._threads.get(str(thread_id))
+        if thread is None:
             raise KeyError("thread_not_found")
+        history_context = self._history_assembler.assemble(
+            tuple(ModelMessage(role=item.role, content=item.content) for item in thread.messages),
+            history_budget=ContextBudgets().history_chars,
+            previous_summary=thread.rolling_summary,
+            workflow_state=self._workflow_state(thread_id),
+        )
+        thread.rolling_summary = history_context.rolling_summary
         agent = self._agent_factory()
         state = _RunState(
             run_id=RunId.new(),
@@ -234,7 +254,7 @@ class InMemoryConversationService:
             target_node_id=str(self._node_id),
             message=value.question,
         )
-        state.task = asyncio.create_task(self._execute(state, agent, value))
+        state.task = asyncio.create_task(self._execute(state, agent, value, history_context))
         return self._view(state)
 
     def get_run(self, run_id: RunId) -> RunView:
@@ -267,6 +287,7 @@ class InMemoryConversationService:
         state: _RunState,
         agent: LangChainReadOnlyAgent,
         value: StartRunInput,
+        history_context: HistoryContext,
     ) -> None:
         def tool_event(event: AgentToolEvent) -> None:
             self._append(
@@ -292,6 +313,7 @@ class InMemoryConversationService:
                 value.limits,
                 state.cancellation,
                 tool_event,
+                history_context,
             )
             state.result = result
             state.status = (
@@ -352,6 +374,7 @@ class InMemoryConversationService:
                     messages=tuple(thread.messages),
                     run=self._view(state),
                     events=tuple(state.events),
+                    rolling_summary=thread.rolling_summary,
                 ).model_dump(mode="json"),
                 tool_run_ids=(
                     tuple(ToolRunId(item) for item in state.result.tool_run_ids)
@@ -375,6 +398,7 @@ class InMemoryConversationService:
                 created_at=thread_view.created_at,
                 updated_at=thread_view.updated_at,
                 messages=messages,
+                rolling_summary=public.rolling_summary,
             )
             run_view = public.run
             state = _RunState(
@@ -400,6 +424,25 @@ class InMemoryConversationService:
                     RunEventType.INTERRUPTED,
                     message=state.error_message,
                 )
+
+    def _workflow_state(self, thread_id: ThreadId) -> WorkflowContextState | None:
+        pending = tuple(
+            item
+            for item in self._runs.values()
+            if item.thread_id == thread_id
+            and item.status in {RunStatus.RUNNING, RunStatus.INTERRUPTED}
+        )
+        if not pending:
+            return None
+        return WorkflowContextState(
+            status="unfinished",
+            pending_steps=tuple(f"{item.run_id}:{item.status.value}" for item in pending),
+            source_run_ids=tuple(item.run_id for item in pending),
+            safety_constraints=(
+                "不得自动重放工具调用",
+                "不得从摘要恢复授权或写操作",
+            ),
+        )
 
     def _get(self, run_id: RunId) -> _RunState:
         state = self._runs.get(str(run_id))

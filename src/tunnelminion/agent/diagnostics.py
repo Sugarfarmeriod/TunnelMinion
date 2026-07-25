@@ -11,9 +11,11 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 
 from tunnelminion.agent.context_contracts import (
     ContextContentKind,
+    ContextFact,
     ContextRequest,
     ContextTaskType,
     ContextTrust,
+    FactSource,
 )
 from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
 from tunnelminion.agent.planning import CandidateOperationPlanner, CandidatePlanIntent
@@ -203,6 +205,7 @@ class CrossNodeDiagnosticAgent:
                     ContextTrust.VERIFIED_EVIDENCE,
                 ),
             ),
+            facts=self._diagnostic_facts(report),
         )
         explanation: str | None = None
         model_error_code: str | None = None
@@ -260,6 +263,31 @@ class CrossNodeDiagnosticAgent:
             plan_error_code=plan_error_code,
             plan_failure_attribution=plan_failure_attribution,
         )
+
+    @staticmethod
+    def _diagnostic_facts(
+        report: CrossNodeDiagnosticReport,
+    ) -> tuple[ContextFact, ...]:
+        facts: list[ContextFact] = []
+        for item in report.diagnostics:
+            owner = item.service.container_name or item.service.process_name or item.service.address
+            latest = (
+                max(item.evidence, key=lambda value: value.observed_at) if item.evidence else None
+            )
+            facts.append(
+                ContextFact(
+                    key=f"service:{item.service.node_id}:{owner}:port",
+                    value=str(item.service.port),
+                    source=FactSource.REALTIME_EVIDENCE,
+                    source_id=(
+                        f"toolrun:{latest.tool_run_id}"
+                        if latest is not None
+                        else f"diagnostic:{report.node_summary_tool_run_id}"
+                    ),
+                    observed_at=latest.observed_at if latest is not None else None,
+                )
+            )
+        return tuple(facts)
 
 
 class CrossNodeDiagnosticWorkflow:

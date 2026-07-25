@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import pytest
-from tests.agent.test_langchain_agent import SlowProvider, build_agent
+from tests.agent.test_langchain_agent import ScriptedProvider, SlowProvider, build_agent
 
 from tunnelminion.agent.conversation import (
     InMemoryConversationService,
@@ -105,6 +105,36 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     assert conversations.list_threads()[0].thread_id == second.thread_id
 
 
+def test_continued_run_includes_prior_thread_messages() -> None:
+    """第二次 run 通过独立历史上下文看到同一 thread 的近期原文。"""
+    provider = ScriptedProvider()
+    conversations = InMemoryConversationService(
+        NodeId.new(),
+        lambda: build_agent(provider)[0],
+    )
+    thread = conversations.create_thread()
+
+    async def scenario() -> None:
+        first = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="第一次检查 8082", tool_names=("probe_service",)),
+        )
+        _ = await collect(conversations.stream_events(first.run_id))
+        second = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="继续刚才的检查", tool_names=("probe_service",)),
+        )
+        _ = await collect(conversations.stream_events(second.run_id))
+
+    run(scenario())
+
+    second_run_request = provider.requests[2]
+    contents = [item.content for item in second_run_request.messages]
+    assert "第一次检查 8082" in contents
+    assert any("已确认服务状态" in item for item in contents)
+    assert contents[-1] == "继续刚才的检查"
+
+
 def test_user_cancel_and_failed_run_reach_terminal_events() -> None:
     """取消和内部失败都产生稳定终态，且异常正文不外泄。"""
     conversations = service(slow=True)
@@ -139,6 +169,34 @@ def test_user_cancel_and_failed_run_reach_terminal_events() -> None:
     assert failed.error_code == "agent_run_failed"
     assert failed.error_message == "Agent run 执行失败"
     assert failed_events[-1].event_type is RunEventType.FAILED
+
+
+def test_concurrent_run_creates_structured_unfinished_workflow_state() -> None:
+    """同一 thread 的在途 run 进入结构化状态，而不是写进自由文本摘要。"""
+    conversations = service(slow=True)
+    thread = conversations.create_thread()
+
+    async def scenario() -> None:
+        first = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="第一项仍在执行", tool_names=("probe_service",)),
+        )
+        second = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="第二项", tool_names=("probe_service",)),
+        )
+        workflow = conversations._workflow_state(  # pyright: ignore[reportPrivateUsage]
+            thread.thread_id
+        )
+        assert workflow is not None
+        assert workflow.status == "unfinished"
+        assert str(first.run_id) in workflow.pending_steps[0]
+        conversations.cancel_run(first.run_id)
+        conversations.cancel_run(second.run_id)
+        _ = await collect(conversations.stream_events(first.run_id))
+        _ = await collect(conversations.stream_events(second.run_id))
+
+    run(scenario())
 
 
 def test_unknown_thread_and_run_are_rejected() -> None:

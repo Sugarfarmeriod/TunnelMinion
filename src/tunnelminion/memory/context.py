@@ -18,11 +18,12 @@ T = TypeVar("T")
 
 
 class ContextBudgets(BaseModel):
-    """四类上下文互不借用的字符预算。"""
+    """历史、消息、工具、结果和记忆互不借用的字符预算。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     message_chars: int = Field(default=16_000, ge=256, le=2_000_000)
+    history_chars: int = Field(default=12_000, ge=256, le=2_000_000)
     tool_schema_chars: int = Field(default=16_000, ge=256, le=2_000_000)
     tool_result_chars: int = Field(default=24_000, ge=256, le=2_000_000)
     memory_chars: int = Field(default=8_000, ge=256, le=2_000_000)

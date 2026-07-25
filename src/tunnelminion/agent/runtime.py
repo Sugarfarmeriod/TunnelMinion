@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from tunnelminion.agent.context_contracts import HistoryContext
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.domain.tools import Platform
@@ -189,6 +190,7 @@ class LangChainReadOnlyAgent:
         limits: AgentRunLimits | None = None,
         cancellation: AgentCancellationToken | None = None,
         tool_event_sink: Callable[[AgentToolEvent], None] | None = None,
+        history_context: HistoryContext | None = None,
     ) -> AgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
         budget = limits or AgentRunLimits()
@@ -223,6 +225,7 @@ class LangChainReadOnlyAgent:
                 "cancellation_token": model_token,
                 "thread_id": context.thread_id,
                 "run_id": context.run_id,
+                "history_context": history_context,
             }
         )
         evidence: list[EvidenceReference] = []
