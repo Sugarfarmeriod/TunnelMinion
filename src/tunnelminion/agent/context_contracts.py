@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId
 from tunnelminion.memory.context import (
@@ -137,6 +137,8 @@ class ContextRequest(BaseModel):
     evidence: tuple[ContextContentReference, ...] = ()
     artifact_references: tuple[ContextContentReference, ...] = ()
     budgets: ContextBudgets = Field(default_factory=ContextBudgets)
+    require_tool_call: bool = False
+    response_schema: dict[str, JsonValue] | None = None
 
 
 class ContextSnapshot(BaseModel):

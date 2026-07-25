@@ -9,14 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 SOURCE = ROOT / "src" / "tunnelminion"
 
-_LEGACY_DIRECT_CALLS = Counter(
-    {
-        ("agent/diagnostics.py", "answer"): 1,
-        ("agent/langchain_model.py", "_complete"): 1,
-        ("agent/planning.py", "generate"): 1,
-        ("model/configuration.py", "_validate_provider"): 2,
-    }
-)
+_RAW_PROVIDER_BOUNDARY = Counter({("agent/context_runtime.py", "invoke"): 1})
+_MODEL_REQUEST_BOUNDARY = Counter({("agent/context_runtime.py", "build"): 1})
 
 
 class _CallVisitor(ast.NodeVisitor):
@@ -51,8 +45,8 @@ def test_production_provider_calls_match_migration_inventory() -> None:
         visitor.relative_path = path.relative_to(SOURCE).as_posix()
         visitor.visit(ast.parse(path.read_text(encoding="utf-8")))
 
-    assert visitor.provider_calls == _LEGACY_DIRECT_CALLS
-    assert visitor.request_constructions == _LEGACY_DIRECT_CALLS
+    assert visitor.provider_calls == _RAW_PROVIDER_BOUNDARY
+    assert visitor.request_constructions == _MODEL_REQUEST_BOUNDARY
 
 
 def test_scripted_model_is_isolated_from_production_runtime() -> None:

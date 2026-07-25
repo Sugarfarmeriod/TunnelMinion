@@ -10,6 +10,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
+from tunnelminion.agent.context_contracts import (
+    ContextContentKind,
+    ContextRequest,
+    ContextTaskType,
+    ContextTrust,
+)
+from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
 from tunnelminion.agent.services import (
     CrossNodeReachability,
     CrossNodeServiceDiagnostic,
@@ -19,7 +26,6 @@ from tunnelminion.model.contracts import (
     CancellationToken,
     ModelMessage,
     ModelProvider,
-    ModelRequest,
     ModelUsage,
     ProviderError,
 )
@@ -144,13 +150,27 @@ class CandidateOperationPlanner:
         )
         snapshot_version = self._snapshot_version(report, diagnostic)
         user_content = self._user_context(question, report, diagnostic, intent)
-        request = ModelRequest(
+        request = ContextRequest(
+            task_type=ContextTaskType.OPERATION_PLAN,
+            current_intent=question,
+            thread_id=context.thread_id,
+            run_id=context.run_id,
+            prompt_id=PLAN_PROMPT_ID,
+            prompt_version=PLAN_PROMPT_VERSION,
             messages=(
                 ModelMessage(role="system", content=_SYSTEM_PROMPT),
                 ModelMessage(role="user", content=user_content),
             ),
             # llama.cpp grammar 不接受 Pydantic 的长度和展示注解；完整约束仍在响应后校验。
             response_schema=_PROVIDER_RESPONSE_SCHEMA,
+            evidence=(
+                make_context_reference(
+                    ContextContentKind.EVIDENCE,
+                    f"diagnostic:{snapshot_version}",
+                    user_content,
+                    ContextTrust.VERIFIED_EVIDENCE,
+                ),
+            ),
         )
         if not self._provider.capabilities.structured_output:
             return CandidatePlanResult(
@@ -161,7 +181,13 @@ class CandidateOperationPlanner:
                 )
             )
         try:
-            response = await self._provider.complete(request, cancellation)
+            invocation = await ContextModelRuntime(
+                self._provider,
+                provider_name=self._provider_name,
+                model_name=self._model_name,
+                tool_schema_version=PLAN_TOOL_SCHEMA_VERSION,
+            ).invoke(request, cancellation)
+            response = invocation.response
             if response.tool_calls or response.structured_output is None:
                 raise ValueError("模型没有返回唯一的结构化候选计划说明")
             narrative = PlanNarrative.model_validate(response.structured_output)

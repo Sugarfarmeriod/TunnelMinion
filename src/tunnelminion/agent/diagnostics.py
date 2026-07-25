@@ -9,6 +9,13 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from tunnelminion.agent.context_contracts import (
+    ContextContentKind,
+    ContextRequest,
+    ContextTaskType,
+    ContextTrust,
+)
+from tunnelminion.agent.context_runtime import ContextModelRuntime, make_context_reference
 from tunnelminion.agent.planning import CandidateOperationPlanner, CandidatePlanIntent
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.runtime import AgentToolExecutor
@@ -25,7 +32,6 @@ from tunnelminion.model.contracts import (
     CancellationToken,
     ModelMessage,
     ModelProvider,
-    ModelRequest,
     ModelUsage,
     ProviderError,
 )
@@ -167,7 +173,14 @@ class CrossNodeDiagnosticAgent:
                 elapsed_ms=(perf_counter() - started_at) * 1000,
             )
         fallback = report.evidence_answer(port)
-        request = ModelRequest(
+        report_context = report.untrusted_context()
+        request = ContextRequest(
+            task_type=ContextTaskType.CROSS_NODE_DIAGNOSTIC,
+            current_intent=question,
+            thread_id=context.thread_id,
+            run_id=context.run_id,
+            prompt_id="cross-node-diagnostic-explanation",
+            prompt_version="v1",
             messages=(
                 ModelMessage(
                     role="system",
@@ -179,16 +192,28 @@ class CrossNodeDiagnosticAgent:
                 ),
                 ModelMessage(
                     role="user",
-                    content=f"用户问题：{question}\n诊断报告：{report.untrusted_context()}",
+                    content=f"用户问题：{question}\n诊断报告：{report_context}",
                 ),
-            )
+            ),
+            evidence=(
+                make_context_reference(
+                    ContextContentKind.EVIDENCE,
+                    f"diagnostic:{report.node_summary_tool_run_id}",
+                    report_context,
+                    ContextTrust.VERIFIED_EVIDENCE,
+                ),
+            ),
         )
         explanation: str | None = None
         model_error_code: str | None = None
         model_usage: ModelUsage | None = None
         if plan_intent is None:
             try:
-                response = await self._provider.complete(request, model_cancellation)
+                invocation = await ContextModelRuntime(
+                    self._provider,
+                    tool_schema_version="cross-node-diagnostic/v1",
+                ).invoke(request, model_cancellation)
+                response = invocation.response
                 explanation = response.content.strip() if response.content else None
                 model_usage = response.usage
             except ProviderError as exc:

@@ -13,7 +13,10 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
+from tunnelminion.agent.context_runtime import ContextModelRuntime
 from tunnelminion.agent.policy import evaluate_request_policy
+from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.evaluation import (
     EvaluationDataset,
     EvaluationReport,
@@ -28,7 +31,6 @@ from tunnelminion.evaluation.fakes import FakeToolRuntime
 from tunnelminion.model.contracts import (
     ModelMessage,
     ModelProvider,
-    ModelRequest,
     ToolDefinition,
 )
 from tunnelminion.model.openai_compatible import (
@@ -139,6 +141,12 @@ async def record_scenario(
     total_tokens = 0
     started = perf_counter()
     final_answer = ""
+    model_runtime = ContextModelRuntime(
+        provider,
+        tool_schema_version="evaluation-tools/v1",
+    )
+    thread_id = ThreadId.new()
+    run_id = RunId.new()
 
     policy = evaluate_request_policy(scenario.question)
     if policy is not None:
@@ -156,7 +164,20 @@ async def record_scenario(
         )
 
     for _ in range(max_rounds):
-        response = await provider.complete(ModelRequest(messages=tuple(messages), tools=tools))
+        response = (
+            await model_runtime.invoke(
+                ContextRequest(
+                    task_type=ContextTaskType.EVALUATION,
+                    current_intent=scenario.question,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    prompt_id="readonly-agent",
+                    prompt_version=PROMPT_VERSION,
+                    messages=tuple(messages),
+                    tools=tools,
+                )
+            )
+        ).response
         input_tokens += response.usage.input_tokens or 0
         output_tokens += response.usage.output_tokens or 0
         total_tokens += response.usage.total_tokens or 0

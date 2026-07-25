@@ -23,3 +23,13 @@
 - `loopback-pdf-diagnosis`：跨节点诊断，固定三项工具选择、210 ms、114 tokens、成本 0。
 
 这些延迟和成本是离线记录值，只用于比较迁移前后行为是否漂移，不代表 10.77.0.1 真实模型的实时性能。
+
+## 统一入口迁移结果
+
+2.x 阶段完成后，表中生产调用与真实评估脚本均提交 `ContextRequest`。`ContextSnapshotBuilder` 负责预算、
+内容哈希、来源引用和快照版本，`SnapshotModelProvider` 是生产源码中唯一允许调用原始 Provider
+`complete()` 的位置。架构测试同时锁定 `ModelRequest` 只能在快照 Builder 内构造。
+
+迁移使用兼容上下文：尚未启用后续阶段的历史摘要、长期记忆或制品正文注入，因此既有消息顺序、工具
+schema 和结构化输出契约保持不变。机器可读的迁移比较见
+`evaluations/reports/context-runtime-entry-migration-2026-07-25.json`。

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "change": "integrate-agent-context-and-prompt-runtime",
+  "stage": "unified-production-entry",
+  "baseline": "evaluations/baselines/context-runtime-v1.json",
+  "candidate_builder_version": "context-builder/v1",
+  "production_boundary": "SnapshotModelProvider",
+  "comparison": {
+    "scenario_count": 2,
+    "answer_changes": 0,
+    "tool_selection_changes": 0,
+    "recorded_latency_delta_ms": 0,
+    "input_token_delta": 0,
+    "output_token_delta": 0,
+    "total_token_delta": 0,
+    "estimated_cost_delta": 0.0
+  },
+  "representative_scenarios": [
+    {
+      "scenario_id": "normal-node-summary",
+      "recorded_latency_ms": 35,
+      "total_tokens": 42,
+      "estimated_cost": 0.0
+    },
+    {
+      "scenario_id": "loopback-pdf-diagnosis",
+      "recorded_latency_ms": 210,
+      "total_tokens": 114,
+      "estimated_cost": 0.0
+    }
+  ],
+  "notes": [
+    "比较值来自固定离线记录，用于确认迁移没有改变消息、回答与工具选择。",
+    "该报告不代表 10.77.0.1 真实模型的网络和生成延迟。",
+    "真实模型 A/B 比较保留到综合验收阶段执行。"
+  ]
+}

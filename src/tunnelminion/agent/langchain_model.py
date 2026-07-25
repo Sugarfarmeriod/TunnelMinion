@@ -16,11 +16,13 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field, JsonValue
 
+from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
+from tunnelminion.agent.context_runtime import ContextModelRuntime
+from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelMessage,
     ModelProvider,
-    ModelRequest,
     ModelResponse,
     ToolCall,
     ToolDefinition,
@@ -52,6 +54,8 @@ class TunnelMinionChatModel(BaseChatModel):
     provider: object
     run_metrics: ModelRunMetrics = Field(default_factory=ModelRunMetrics)
     cancellation_token: CancellationToken | None = None
+    thread_id: ThreadId | None = None
+    run_id: RunId | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -95,14 +99,27 @@ class TunnelMinionChatModel(BaseChatModel):
         return await self._complete(messages, kwargs)
 
     async def _complete(self, messages: list[BaseMessage], kwargs: dict[str, Any]) -> ChatResult:
-        request = ModelRequest(
+        if self.thread_id is None or self.run_id is None:
+            raise ValueError("生产模型调用必须关联 thread_id 和 run_id")
+        request = ContextRequest(
+            task_type=ContextTaskType.LOCAL_CONVERSATION,
+            current_intent=self._text_content(messages[-1].content),
+            thread_id=self.thread_id,
+            run_id=self.run_id,
+            prompt_id="readonly-agent",
+            prompt_version="v1",
             messages=tuple(self._convert_message(message) for message in messages),
             tools=self._convert_tools(cast(list[dict[str, Any]], kwargs.get("tools", []))),
             require_tool_call=kwargs.get("tool_choice") in {"required", "any"},
         )
-        response = await cast(ModelProvider, self.provider).complete(
-            request, self.cancellation_token
+        invocation = await ContextModelRuntime(
+            cast(ModelProvider, self.provider),
+            tool_schema_version="readonly-tools/v1",
+        ).invoke(
+            request,
+            self.cancellation_token,
         )
+        response = invocation.response
         self.run_metrics.record(response)
         return self._convert_response(response)
 

@@ -221,6 +221,8 @@ class LangChainReadOnlyAgent:
                 "run_metrics": metrics,
                 "provider": self._model.provider,
                 "cancellation_token": model_token,
+                "thread_id": context.thread_id,
+                "run_id": context.run_id,
             }
         )
         evidence: list[EvidenceReference] = []

@@ -402,7 +402,15 @@ def test_agent_rejects_invalid_dynamic_tool_sets(names: tuple[str, ...], message
 def test_chat_model_sync_entry_and_message_guards() -> None:
     """同步入口可用，未知消息类型则明确拒绝。"""
     provider = ScriptedProvider()
-    model = TunnelMinionChatModel(provider=provider)
+    with pytest.raises(ValueError, match="必须关联"):
+        TunnelMinionChatModel(provider=provider).invoke([HumanMessage(content="你好")])
+
+    call_context = context()
+    model = TunnelMinionChatModel(
+        provider=provider,
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
 
     response = model.invoke([HumanMessage(content="你好")])
 

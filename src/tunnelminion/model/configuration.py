@@ -8,10 +8,12 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
+from tunnelminion.agent.context_runtime import ContextModelRuntime
+from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.model.contracts import (
     ModelMessage,
     ModelProvider,
-    ModelRequest,
     ProviderError,
     ProviderErrorCode,
     ToolDefinition,
@@ -212,35 +214,59 @@ class ModelConfigurationService:
                 "additionalProperties": False,
             },
         )
-        tool_response = await provider.complete(
-            ModelRequest(
-                messages=(
-                    ModelMessage(
-                        role="user",
-                        content="调用 report_capability，并把 status 设为 ok。",
-                    ),
-                ),
-                tools=(tool,),
-                require_tool_call=True,
-            )
+        runtime = ContextModelRuntime(
+            provider,
+            provider_name="openai-compatible",
+            model_name=config.model,
+            tool_schema_version="provider-capability/v1",
         )
+        thread_id = ThreadId.new()
+        run_id = RunId.new()
+        tool_response = (
+            await runtime.invoke(
+                ContextRequest(
+                    task_type=ContextTaskType.PROVIDER_VALIDATION,
+                    current_intent="验证 Provider 工具调用能力",
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    prompt_id="provider-tool-capability",
+                    prompt_version="v1",
+                    messages=(
+                        ModelMessage(
+                            role="user",
+                            content="调用 report_capability，并把 status 设为 ok。",
+                        ),
+                    ),
+                    tools=(tool,),
+                    require_tool_call=True,
+                )
+            )
+        ).response
         if not tool_response.tool_calls or tool_response.tool_calls[0].name != tool.name:
             raise ProviderError(
                 ProviderErrorCode.CAPABILITY_INCOMPATIBLE,
                 "模型未返回要求的结构化工具调用",
             )
 
-        structured_response = await provider.complete(
-            ModelRequest(
-                messages=(ModelMessage(role="user", content="返回可用状态。"),),
-                response_schema={
-                    "type": "object",
-                    "properties": {"status": {"type": "string", "enum": ["ok"]}},
-                    "required": ["status"],
-                    "additionalProperties": False,
-                },
+        structured_response = (
+            await runtime.invoke(
+                ContextRequest(
+                    task_type=ContextTaskType.PROVIDER_VALIDATION,
+                    current_intent="验证 Provider 结构化输出能力",
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    prompt_id="provider-structured-capability",
+                    prompt_version="v1",
+                    messages=(ModelMessage(role="user", content="返回可用状态。"),),
+                    response_schema={
+                        "type": "object",
+                        "properties": {"status": {"type": "string", "enum": ["ok"]}},
+                        "required": ["status"],
+                        "additionalProperties": False,
+                    },
+                )
             )
-        )
+        ).response
         if structured_response.structured_output != {"status": "ok"}:
             raise ProviderError(
                 ProviderErrorCode.CAPABILITY_INCOMPATIBLE,
