@@ -10,13 +10,13 @@
 
 ## 2. Coordinator 节点注册与持久化
 
-- [ ] 2.1 建立 Coordinator 独立应用工厂、显式 WireGuard Agent API 监听配置和环回管理员 API 配置
-- [ ] 2.2 实现 SQLite network、node、credential、enrollment token、signing key、revocation、revision 和 audit 存储
-- [ ] 2.3 实现只保存哈希、绑定 network/TTL/次数且原子消费的一次性 enrollment token 服务
-- [ ] 2.4 实现节点首次注册、幂等重试、稳定 node ID、refresh 凭据签发和 keyring 兼容存储边界
-- [ ] 2.5 实现 refresh 凭据认证、轮换、旧凭据失效、速率限制和不含秘密的审计
-- [ ] 2.6 覆盖 token 过期/重放/撤销/跨 network、并发消费、重复注册、身份占用和数据库重启恢复测试
-- [ ] 2.7 运行节点注册正确性、隔离、秘密零泄漏和存储迁移门禁，提交并推送注册阶段
+- [x] 2.1 建立 Coordinator 独立应用工厂、显式 WireGuard Agent API 监听配置和环回管理员 API 配置
+- [x] 2.2 实现 SQLite network、node、credential、enrollment token、signing key、revocation、revision 和 audit 存储
+- [x] 2.3 实现只保存哈希、绑定 network/TTL/次数且原子消费的一次性 enrollment token 服务
+- [x] 2.4 实现节点首次注册、幂等重试、稳定 node ID、refresh 凭据签发和 keyring 兼容存储边界
+- [x] 2.5 实现 refresh 凭据认证、轮换、旧凭据失效、速率限制和不含秘密的审计
+- [x] 2.6 覆盖 token 过期/重放/撤销/跨 network、并发消费、重复注册、身份占用和数据库重启恢复测试
+- [x] 2.7 运行节点注册正确性、隔离、秘密零泄漏和存储迁移门禁，提交并推送注册阶段
 
 ## 3. 签名身份、心跳与撤销
 

@@ -11,8 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from tunnelminion.domain.identifiers import (
     CoordinatorAuditId,
+    EnrollmentTokenId,
     NetworkId,
     NodeId,
+    RefreshCredentialId,
     ServiceId,
     SnapshotId,
 )
@@ -334,3 +336,87 @@ class CoordinatorAuditRecord(BaseModel):
     error_code: CoordinatorErrorCode | None = None
     item_count: int = Field(default=0, ge=0, le=10_000)
     occurred_at: datetime
+
+
+class EnrollmentTokenRequest(BaseModel):
+    """本机管理员创建一次性 enrollment token 的有界请求。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    network_id: NetworkId
+    expires_in_seconds: int = Field(default=600, ge=30, le=3600)
+    max_uses: int = Field(default=1, ge=1, le=10)
+
+
+class EnrollmentTokenCreated(BaseModel):
+    """仅在创建响应出现一次的完整 enrollment token。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    token_id: EnrollmentTokenId
+    network_id: NetworkId
+    token: str = Field(min_length=43, max_length=512, repr=False)
+    expires_at: datetime
+    max_uses: int = Field(ge=1, le=10)
+
+
+class NodeRegistrationRequest(BaseModel):
+    """Agent 首次注册提交的稳定身份与一次性材料。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: NodeIdentity
+    device_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    enrollment_token: str = Field(min_length=43, max_length=512, repr=False)
+    idempotency_key: str = Field(pattern=r"^regkey_[0-9a-f]{64}$")
+
+
+class NodeRegistrationResponse(BaseModel):
+    """注册或幂等恢复后返回的节点身份与新 refresh 凭据。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = COORDINATOR_PROTOCOL
+    identity: NodeIdentity
+    credential_id: RefreshCredentialId
+    refresh_credential: str = Field(min_length=43, max_length=512, repr=False)
+    server_revision: int = Field(ge=1)
+    issued_at: datetime
+
+
+class RefreshAuthentication(BaseModel):
+    """节点使用 keyring 内 refresh 凭据完成控制面认证。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = COORDINATOR_PROTOCOL
+    network_id: NetworkId
+    node_id: NodeId
+    refresh_credential: str = Field(min_length=43, max_length=512, repr=False)
+
+
+class RegisteredNodeView(BaseModel):
+    """管理员和服务层可读取的不含凭据节点视图。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: NodeIdentity
+    device_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: NodeStatus
+    server_revision: int = Field(ge=1)
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
+class SigningKeyMetadata(BaseModel):
+    """SQLite 只保存秘密后端引用、公钥和轮换时间，不保存私钥正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$")
+    private_key_reference: str = Field(min_length=1, max_length=200)
+    public_key: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    activates_at: datetime
+    retires_at: datetime | None = None
+    destroyed_at: datetime | None = None
