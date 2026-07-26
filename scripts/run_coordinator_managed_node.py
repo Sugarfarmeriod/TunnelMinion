@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from tunnelminion.agent.coordinator import (
     AgentCoordinatorSynchronizer,
+    CoordinatorAuthorizationView,
     CoordinatorCache,
     CoordinatorCheckpointStore,
     CoordinatorClientConfig,
@@ -25,8 +26,10 @@ from tunnelminion.agent.coordinator import (
 )
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.coordinator.contracts import (
+    DirectoryQuery,
     GatewayEndpoint,
     NodeIdentity,
+    RefreshAuthentication,
     ServiceAccessibility,
     ServiceLifecycle,
     ServiceProtocol,
@@ -130,10 +133,35 @@ async def run_managed_node(args: argparse.Namespace) -> None:
             else ServiceLifecycle.STOPPED
         ),
     )
+    async def synchronize() -> None:
+        while True:
+            await synchronizer.sync_once(capabilities, (model_service,))
+            refresh = credentials.load(args.network_id, args.node_id)
+            if refresh is None:
+                raise RuntimeError("B 节点 refresh 凭据缺失")
+            authentication = RefreshAuthentication(
+                network_id=args.network_id,
+                node_id=args.node_id,
+                refresh_credential=refresh,
+            )
+            directory = await transport.query(
+                authentication,
+                DirectoryQuery(network_id=args.network_id),
+            )
+            cache.replace(
+                CoordinatorAuthorizationView(
+                    network_id=args.network_id,
+                    generated_at=directory.generated_at,
+                    expires_at=directory.generated_at
+                    + timedelta(seconds=args.cache_ttl_seconds),
+                    nodes=directory.nodes,
+                    verification_keys=await transport.verification_keys(),
+                )
+            )
+            await asyncio.sleep(2)
+
     await synchronizer.sync_once(capabilities, (model_service,))
-    sync_task = asyncio.create_task(
-        synchronizer.run(lambda: capabilities, lambda: (model_service,))
-    )
+    sync_task = asyncio.create_task(synchronize())
 
     policy = GatewaySecurityPolicy(
         [],
