@@ -25,8 +25,11 @@ from tunnelminion.coordinator.contracts import (
     NodeIdentity,
     NodeStatus,
     RefreshAuthentication,
+    ServiceAccessibility,
     ServiceLifecycle,
+    ServiceProtocol,
     ServiceSnapshot,
+    ServiceSummary,
     SnapshotKind,
     SnapshotReceipt,
 )
@@ -38,7 +41,7 @@ from tunnelminion.coordinator.registry import (
     insert_audit_for_transaction,
     next_revision_for_transaction,
 )
-from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion
 
@@ -541,6 +544,11 @@ def _node_summary(
             cast(str, row["network_id"]),
             cast(str, row["node_id"]),
         ),
+        services=_node_services(
+            connection,
+            cast(str, row["network_id"]),
+            cast(str, row["node_id"]),
+        ),
         capability_count=cast(int, row["capability_count"]),
         service_count=cast(int, row["service_count"]),
         server_revision=cast(int, row["server_revision"]),
@@ -572,6 +580,36 @@ def _node_capabilities(
             risk_level=RiskLevel(cast(str, item["risk_level"])),
             availability=CapabilityAvailability(cast(str, item["availability"])),
             schema_hash=cast(str, item["schema_hash"]),
+        )
+        for item in rows
+    )
+
+
+def _node_services(
+    connection: sqlite3.Connection,
+    network_id: str,
+    node_id: str,
+) -> tuple[ServiceSummary, ...]:
+    """只返回活动服务的脱敏目录摘要。"""
+    rows = connection.execute(
+        """SELECT service_id, protocol, host, port, accessibility, source,
+                  confidence, observed_at, lifecycle
+           FROM service_directory
+           WHERE network_id=? AND node_id=? AND lifecycle=?
+           ORDER BY service_id""",
+        (network_id, node_id, ServiceLifecycle.ACTIVE.value),
+    ).fetchall()
+    return tuple(
+        ServiceSummary(
+            service_id=ServiceId(cast(str, item["service_id"])),
+            protocol=ServiceProtocol(cast(str, item["protocol"])),
+            host=cast(str, item["host"]),
+            port=cast(int, item["port"]),
+            accessibility=ServiceAccessibility(cast(str, item["accessibility"])),
+            source=cast(str, item["source"]),
+            confidence=cast(float, item["confidence"]),
+            observed_at=datetime.fromisoformat(cast(str, item["observed_at"])),
+            lifecycle=ServiceLifecycle(cast(str, item["lifecycle"])),
         )
         for item in rows
     )

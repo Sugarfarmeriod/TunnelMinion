@@ -61,11 +61,11 @@
 
 ## 7. 管理与资源体验
 
-- [ ] 7.1 提供环回管理员页面/API，创建一次性 token、查看节点状态/最后心跳/版本并执行撤销与凭据轮换
-- [ ] 7.2 扩展本地资源页面/API，显示 Coordinator 连接、目录 revision、新鲜度、节点、能力和服务摘要
-- [ ] 7.3 在目录或 Coordinator 故障时明确显示 stale/offline/incompatible/managed-auth-expired，不把缓存表示为实时状态
-- [ ] 7.4 建立响应与页面零泄漏测试，禁止显示完整 enrollment/refresh/assertion、认证头、签名私钥或远端正文
-- [ ] 7.5 运行无模型页面、键盘操作、错误状态、分页、性能和 Web 安全门禁，提交并推送体验阶段
+- [x] 7.1 提供环回管理员页面/API，创建一次性 token、查看节点状态/最后心跳/版本并执行撤销与凭据轮换
+- [x] 7.2 扩展本地资源页面/API，显示 Coordinator 连接、目录 revision、新鲜度、节点、能力和服务摘要
+- [x] 7.3 在目录或 Coordinator 故障时明确显示 stale/offline/incompatible/managed-auth-expired，不把缓存表示为实时状态
+- [x] 7.4 建立响应与页面零泄漏测试，禁止显示完整 enrollment/refresh/assertion、认证头、签名私钥或远端正文
+- [x] 7.5 运行无模型页面、键盘操作、错误状态、分页、性能和 Web 安全门禁，提交并推送体验阶段
 
 ## 8. 综合评估与安全验证
 

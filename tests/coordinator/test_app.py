@@ -72,6 +72,12 @@ def test_coordinator_builds_separate_agent_and_loopback_admin_apps(tmp_path: Pat
     assert admin.get("/api/v1/agent/health").status_code == 404
     assert agent.get("/openapi.json").status_code == 404
     assert admin.get("/api/docs").status_code == 200
+    page = admin.get("/")
+    assert page.status_code == 200
+    assert "创建并复制一次性 token" in page.text
+    assert "refresh_credential" not in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "0.0.0.0", "224.0.0.1", "8.8.8.8"])
