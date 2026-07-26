@@ -50,14 +50,14 @@
 
 ## 6. Gateway 身份与动态远端工具
 
-- [ ] 6.1 扩展 Tool/Operation Gateway 认证，区分显式 static token 与 Coordinator assertion，保持现有 static peer 兼容
-- [ ] 6.2 实现本地 Coordinator 授权缓存、验证公钥、节点状态与 TTL；撤销到达立即拒绝，缓存过期对 managed peer 失败关闭
-- [ ] 6.3 实现按稳定 node ID 解析目录 endpoint，禁止模型直接注入未知 endpoint 或认证材料
-- [ ] 6.4 实现目录预筛选 → 短期 assertion → Gateway 验签 → 目标能力直连复核 → 工具执行链路
-- [ ] 6.5 实现 network、节点状态、endpoint TTL、授权、平台、协议/工具版本、风险和任务阶段的动态工具过滤
-- [ ] 6.6 记录目录 revision、直连能力 revision、候选/保留/排除计数与原因，并在冲突时以目标实时证据为准
-- [ ] 6.7 覆盖 assertion 过期/撤销/audience 错误、Coordinator 篡改能力、目录陈旧、static 回退和写操作不扩权测试
-- [ ] 6.8 运行 Gateway 认证、动态工具正确性、操作治理和兼容回归门禁，提交并推送集成阶段
+- [x] 6.1 扩展 Tool/Operation Gateway 认证，区分显式 static token 与 Coordinator assertion，保持现有 static peer 兼容
+- [x] 6.2 实现本地 Coordinator 授权缓存、验证公钥、节点状态与 TTL；撤销到达立即拒绝，缓存过期对 managed peer 失败关闭
+- [x] 6.3 实现按稳定 node ID 解析目录 endpoint，禁止模型直接注入未知 endpoint 或认证材料
+- [x] 6.4 实现目录预筛选 → 短期 assertion → Gateway 验签 → 目标能力直连复核 → 工具执行链路
+- [x] 6.5 实现 network、节点状态、endpoint TTL、授权、平台、协议/工具版本、风险和任务阶段的动态工具过滤
+- [x] 6.6 记录目录 revision、直连能力 revision、候选/保留/排除计数与原因，并在冲突时以目标实时证据为准
+- [x] 6.7 覆盖 assertion 过期/撤销/audience 错误、Coordinator 篡改能力、目录陈旧、static 回退和写操作不扩权测试
+- [x] 6.8 运行 Gateway 认证、动态工具正确性、操作治理和兼容回归门禁，提交并推送集成阶段
 
 ## 7. 管理与资源体验
 

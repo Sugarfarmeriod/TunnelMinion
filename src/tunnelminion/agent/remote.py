@@ -11,7 +11,7 @@ from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import NodeId, ToolRunId
 from tunnelminion.domain.tools import Platform, RiskLevel, ToolDefinition
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
-from tunnelminion.gateway.contracts import RemoteToolResult
+from tunnelminion.gateway.contracts import GatewayCapabilities, RemoteToolResult
 from tunnelminion.platforms.windows.models import NodeSummary
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
@@ -122,16 +122,19 @@ class RemoteCapabilityLoader:
         context: ToolCallContext,
         requested_tools: tuple[str, ...],
         cancellation: ToolCancellationToken | None = None,
+        *,
+        capabilities: GatewayCapabilities | None = None,
     ) -> PreparedRemoteAgentTools:
         """远端不可达、摘要失败或无匹配能力时返回空工具前的明确失败。"""
         if not requested_tools:
             raise ValueError("远端任务必须声明至少一个候选工具")
         if len(requested_tools) != len(set(requested_tools)):
             raise ValueError("远端候选工具不得重复")
-        try:
-            capabilities = await self._client.discover()
-        except RemoteGatewayError as exc:
-            raise RemotePreparationError(exc.code, str(exc)) from exc
+        if capabilities is None:
+            try:
+                capabilities = await self._client.discover()
+            except RemoteGatewayError as exc:
+                raise RemotePreparationError(exc.code, str(exc)) from exc
         summary_definition = next(
             (item for item in capabilities.tools if item.name == "get_node_summary"), None
         )
