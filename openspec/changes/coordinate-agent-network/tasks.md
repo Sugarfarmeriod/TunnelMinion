@@ -1,12 +1,12 @@
 ## 1. 协议、安全与基线
 
-- [ ] 1.1 盘点静态 peer、Gateway 认证、节点摘要、动态工具加载、资源 API 和 A/B 配置的现有入口与迁移约束
-- [ ] 1.2 用隔离 spike 比较标准 Ed25519 JWT 实现，固定 assertion 字段、算法、key ID、TTL、audience 和拒绝规则
-- [ ] 1.3 定义 Coordinator 协议版本、network/node 身份、状态、修订、快照、分页、错误和审计契约
-- [ ] 1.4 定义 enrollment、refresh、assertion、签名私钥和验证公钥的数据分类、存储、轮换与删除规则
-- [ ] 1.5 固定现有静态 A/B 诊断、动态工具选择、延迟、token、成本和网络不变性迁移基线
-- [ ] 1.6 建立架构测试，禁止 Coordinator 接收工具正文、操作正文、模型密钥、记忆、对话或 WireGuard 私钥
-- [ ] 1.7 运行协议、密码学、安全扫描、格式和类型门禁，提交并推送基线阶段
+- [x] 1.1 盘点静态 peer、Gateway 认证、节点摘要、动态工具加载、资源 API 和 A/B 配置的现有入口与迁移约束
+- [x] 1.2 用隔离 spike 比较标准 Ed25519 JWT 实现，固定 assertion 字段、算法、key ID、TTL、audience 和拒绝规则
+- [x] 1.3 定义 Coordinator 协议版本、network/node 身份、状态、修订、快照、分页、错误和审计契约
+- [x] 1.4 定义 enrollment、refresh、assertion、签名私钥和验证公钥的数据分类、存储、轮换与删除规则
+- [x] 1.5 固定现有静态 A/B 诊断、动态工具选择、延迟、token、成本和网络不变性迁移基线
+- [x] 1.6 建立架构测试，禁止 Coordinator 接收工具正文、操作正文、模型密钥、记忆、对话或 WireGuard 私钥
+- [x] 1.7 运行协议、密码学、安全扫描、格式和类型门禁，提交并推送基线阶段
 
 ## 2. Coordinator 节点注册与持久化
 

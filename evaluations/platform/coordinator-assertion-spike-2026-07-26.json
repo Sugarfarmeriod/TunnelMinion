@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "evaluation": "coordinator-ed25519-assertion-spike",
+  "date": "2026-07-26",
+  "selected_implementation": {
+    "library": "PyJWT",
+    "version": "2.13.x",
+    "crypto_backend": "cryptography",
+    "algorithm": "EdDSA",
+    "key_type": "Ed25519"
+  },
+  "protocol": {
+    "header_fields": ["alg", "typ", "kid"],
+    "required_claims": ["iss", "sub", "net", "aud", "iat", "nbf", "exp", "jti", "pv"],
+    "ttl_seconds": 120,
+    "audiences": ["coordinator-agent", "tool-gateway", "operation-gateway"]
+  },
+  "checks": {
+    "valid_signature_accepted": true,
+    "algorithm_allowlist_fixed": true,
+    "unknown_key_id_rejected": true,
+    "wrong_audience_rejected": true,
+    "cross_network_rejected": true,
+    "expired_rejected": true,
+    "tampered_signature_rejected": true,
+    "protocol_mismatch_rejected": true,
+    "malformed_claims_rejected": true,
+    "private_key_or_token_persisted": false,
+    "network_listener_created": false
+  },
+  "alternatives": [
+    {
+      "library": "Authlib",
+      "executed": false,
+      "decision": "not_selected",
+      "reason": "当前不需要更广的 JOSE/OAuth 协议面"
+    },
+    {
+      "library": "python-jose",
+      "executed": false,
+      "decision": "not_selected",
+      "reason": "没有证明比已执行的 PyJWT spike 提供额外的首版安全或维护收益"
+    }
+  ]
+}
