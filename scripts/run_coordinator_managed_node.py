@@ -10,7 +10,9 @@ import os
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
+import jwt
 import uvicorn
 from fastapi import FastAPI, Header
 
@@ -219,7 +221,40 @@ async def run_managed_node(args: argparse.Namespace) -> None:
                 network_id=view.network_id,
             )
         except AssertionVerificationError as exc:
-            return {"accepted": False, "reason": str(exc)}
+            claims = cast(
+                dict[str, object],
+                jwt.decode(
+                    authorization.removeprefix("Bearer "),
+                    options={"verify_signature": False},
+                ),
+            )
+            now_epoch = int(datetime.now(UTC).timestamp())
+            issued = claims.get("iat")
+            expires = claims.get("exp")
+            not_before = claims.get("nbf")
+            return {
+                "accepted": False,
+                "reason": str(exc),
+                "subject_matches_node": claims.get("sub") == claims.get("node"),
+                "network_matches": claims.get("net") == str(view.network_id),
+                "protocol_matches": claims.get("pv") == 1,
+                "jti_shape_valid": (
+                    isinstance(claims.get("jti"), str)
+                    and len(cast(str, claims["jti"])) == 32
+                ),
+                "not_before_matches_issued": not_before == issued,
+                "ttl_seconds": (
+                    expires - issued
+                    if isinstance(expires, int) and isinstance(issued, int)
+                    else None
+                ),
+                "issued_minus_now_seconds": (
+                    issued - now_epoch if isinstance(issued, int) else None
+                ),
+                "expires_minus_now_seconds": (
+                    expires - now_epoch if isinstance(expires, int) else None
+                ),
+            }
         node = next(
             (item for item in view.nodes if item.identity.node_id == verified.node_id),
             None,
