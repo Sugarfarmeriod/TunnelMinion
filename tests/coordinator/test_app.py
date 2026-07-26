@@ -7,6 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from tests.coordinator.test_directory import capability_snapshot, service_snapshot
 from tests.coordinator.test_registry import (
     NETWORK,
     MemorySecrets,
@@ -23,7 +24,14 @@ from tunnelminion.coordinator.app import (
     CoordinatorApplicationConfig,
     build_coordinator_applications,
 )
-from tunnelminion.coordinator.contracts import AccessAssertionRequest
+from tunnelminion.coordinator.contracts import (
+    AccessAssertionRequest,
+    AuthenticatedCapabilitySnapshot,
+    AuthenticatedDirectoryQuery,
+    AuthenticatedServiceSnapshot,
+    DirectoryQuery,
+)
+from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService, SigningKeyService
 from tunnelminion.coordinator.registry import CoordinatorRegistryService, SQLiteCoordinatorStore
 
@@ -34,6 +42,8 @@ class ApiClient(Protocol):
     def get(self, url: str) -> httpx.Response: ...
 
     def post(self, url: str, *, json: Any | None = None) -> httpx.Response: ...
+
+    def put(self, url: str, *, json: Any | None = None) -> httpx.Response: ...
 
 
 def test_coordinator_builds_separate_agent_and_loopback_admin_apps(tmp_path: Path) -> None:
@@ -94,6 +104,7 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
     keys = SigningKeyService(store, secrets, clock=clock.utcnow)
     keys.rotate()
     assertions = AssertionService(registry, keys, clock=clock.utcnow)
+    directory = CoordinatorDirectoryService(store, registry, clock=clock.utcnow)
     config = CoordinatorApplicationConfig(
         data_path=store.path,
         agent_bind=CoordinatorAgentBindConfig(host="10.77.0.1", port=8790),
@@ -102,6 +113,7 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
         config,
         registry=registry,
         assertions=assertions,
+        directory=directory,
     )
     agent = cast(ApiClient, TestClient(applications.agent_app))
     admin = cast(ApiClient, TestClient(applications.admin_app))
@@ -124,6 +136,62 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
     assert assertion.status_code == 200
     assert assertion.json()["assertion"] not in str(registry.audit_records(NETWORK))
     assert agent.get("/api/v1/agent/verification-keys").status_code == 200
+    capability_payload = AuthenticatedCapabilitySnapshot(
+        authentication=auth,
+        snapshot=capability_snapshot(auth),
+    )
+    assert (
+        agent.put(
+            "/api/v1/agent/snapshots/capabilities",
+            json=capability_payload.model_dump(mode="json"),
+        ).status_code
+        == 200
+    )
+    assert (
+        agent.put(
+            "/api/v1/agent/snapshots/services",
+            json=AuthenticatedServiceSnapshot(
+                authentication=auth,
+                snapshot=service_snapshot(auth),
+            ).model_dump(mode="json"),
+        ).status_code
+        == 200
+    )
+    directory_response = agent.post(
+        "/api/v1/agent/directory/query",
+        json=AuthenticatedDirectoryQuery(
+            authentication=auth,
+            query=DirectoryQuery(network_id=NETWORK),
+        ).model_dump(mode="json"),
+    )
+    assert directory_response.status_code == 200
+    assert directory_response.json()["nodes"][0]["capability_count"] == 1
+    out_of_order = agent.put(
+        "/api/v1/agent/snapshots/capabilities",
+        json=AuthenticatedCapabilitySnapshot(
+            authentication=auth,
+            snapshot=capability_snapshot(auth, key_character="c"),
+        ).model_dump(mode="json"),
+    )
+    assert out_of_order.status_code == 400
+    service_out_of_order = agent.put(
+        "/api/v1/agent/snapshots/services",
+        json=AuthenticatedServiceSnapshot(
+            authentication=auth,
+            snapshot=service_snapshot(auth, key_character="c"),
+        ).model_dump(mode="json"),
+    )
+    assert service_out_of_order.status_code == 400
+    forbidden_directory = agent.post(
+        "/api/v1/agent/directory/query",
+        json=AuthenticatedDirectoryQuery(
+            authentication=auth,
+            query=DirectoryQuery(
+                network_id=type(NETWORK)("network_ffffffffffffffffffffffffffffffff")
+            ),
+        ).model_dump(mode="json"),
+    )
+    assert forbidden_directory.status_code == 403
 
     prefix = f"/api/v1/admin/networks/{NETWORK}/nodes/{auth.node_id}"
     assert admin.get(f"/api/v1/admin/networks/{NETWORK}/nodes").status_code == 200

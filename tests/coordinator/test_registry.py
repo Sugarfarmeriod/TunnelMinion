@@ -615,7 +615,7 @@ def test_schema_v1_migration_adds_heartbeat_timestamps(tmp_path: Path) -> None:
     store = SQLiteCoordinatorStore(path)
     with store.connect() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(nodes)").fetchall()}
-    assert store.schema_version() == 2
+    assert store.schema_version() == 3
     assert {"last_received_at", "last_agent_sent_at"} <= columns
 
 
