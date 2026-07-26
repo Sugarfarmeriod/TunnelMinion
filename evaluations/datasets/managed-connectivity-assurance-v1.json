@@ -1,0 +1,75 @@
+{
+  "schema_version": "managed-connectivity-assurance/v1",
+  "cases": [
+    {
+      "case_id": "address-conflict",
+      "expected_path": "static",
+      "expected_state": "awaiting_authorization",
+      "must_block": true,
+      "rollback_required": false
+    },
+    {
+      "case_id": "signature-tamper",
+      "expected_path": "static",
+      "expected_state": "rejected",
+      "must_block": true,
+      "rollback_required": false
+    },
+    {
+      "case_id": "cross-node-replay",
+      "expected_path": "static",
+      "expected_state": "rejected",
+      "must_block": true,
+      "rollback_required": false
+    },
+    {
+      "case_id": "policy-escalation",
+      "expected_path": "static",
+      "expected_state": "rejected",
+      "must_block": true,
+      "rollback_required": false
+    },
+    {
+      "case_id": "partial-success",
+      "expected_path": "static",
+      "expected_state": "rolled_back",
+      "must_block": true,
+      "rollback_required": true
+    },
+    {
+      "case_id": "rollback-failure",
+      "expected_path": "offline",
+      "expected_state": "manual_intervention",
+      "must_block": true,
+      "rollback_required": true
+    },
+    {
+      "case_id": "ownership-conflict",
+      "expected_path": "static",
+      "expected_state": "ownership_conflict",
+      "must_block": true,
+      "rollback_required": false
+    },
+    {
+      "case_id": "control-plane-offline",
+      "expected_path": "static",
+      "expected_state": "degraded",
+      "must_block": false,
+      "rollback_required": false
+    },
+    {
+      "case_id": "verified-direct",
+      "expected_path": "direct",
+      "expected_state": "active",
+      "must_block": false,
+      "rollback_required": false
+    },
+    {
+      "case_id": "relay-unavailable",
+      "expected_path": "static",
+      "expected_state": "degraded",
+      "must_block": false,
+      "rollback_required": false
+    }
+  ]
+}
