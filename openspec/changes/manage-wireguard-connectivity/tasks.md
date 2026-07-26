@@ -1,14 +1,14 @@
 ## 1. 基线、spike 与停止门禁
 
-- [ ] 1.1 只读采集 Windows A `HomeMac` 与 macOS B 手写 WireGuard 的接口、地址、peer、route、配置位置、服务/PID 和启停方式摘要，排除私钥并建立恢复检查表
-- [ ] 1.2 固定 Gateway `8787`、模型 `8082`、Coordinator、Murus/Windows 防火墙和用户 route 的前后不变性基线与脱敏哈希
-- [ ] 1.3 在 fake/sandbox 中比较 Windows 官方客户端与 tunnel service 的创建、替换、停止、删除、权限、回执和失败恢复语义
-- [ ] 1.4 在不修改 B 手写配置的 fixture 中比较 macOS `wg`/`wg-quick` 或当前工具链的创建、替换、停止、删除、权限、回执和失败恢复语义
-- [ ] 1.5 比较受信 WireGuard hub 与不透明 UDP datagram relay 的机密性、转发/防火墙前置条件、DoS、部署和性能，记录选择或拆分结论
-- [ ] 1.6 评估显式 endpoint、Coordinator 观察、STUN 和 NAT 映射方案；未证明的穿透能力保持非目标
-- [ ] 1.7 建立地址/route 冲突扫描器设计并只读运行 A/B，形成候选测试地址池和 B UDP 端口需求，不把扫描结果当用户授权
-- [ ] 1.8 更新威胁模型、数据分类和 ADR 草案，覆盖私钥、签名配置、route 劫持、relay 信任、部分成功、误删与控制面攻破
-- [ ] 1.9 运行 spike、秘密扫描、OpenSpec 和只读不变性门禁，提交并推送基线阶段
+- [x] 1.1 只读采集 Windows A `HomeMac` 与 macOS B 手写 WireGuard 的接口、地址、peer、route、配置位置、服务/PID 和启停方式摘要，排除私钥并建立恢复检查表
+- [x] 1.2 固定 Gateway `8787`、模型 `8082`、Coordinator、Murus/Windows 防火墙和用户 route 的前后不变性基线与脱敏哈希
+- [x] 1.3 在 fake/sandbox 中比较 Windows 官方客户端与 tunnel service 的创建、替换、停止、删除、权限、回执和失败恢复语义
+- [x] 1.4 在不修改 B 手写配置的 fixture 中比较 macOS `wg`/`wg-quick` 或当前工具链的创建、替换、停止、删除、权限、回执和失败恢复语义
+- [x] 1.5 比较受信 WireGuard hub 与不透明 UDP datagram relay 的机密性、转发/防火墙前置条件、DoS、部署和性能，记录选择或拆分结论
+- [x] 1.6 评估显式 endpoint、Coordinator 观察、STUN 和 NAT 映射方案；未证明的穿透能力保持非目标
+- [x] 1.7 建立地址/route 冲突扫描器设计并只读运行 A/B，形成候选测试地址池和 B UDP 端口需求，不把扫描结果当用户授权
+- [x] 1.8 更新威胁模型、数据分类和 ADR 草案，覆盖私钥、签名配置、route 劫持、relay 信任、部分成功、误删与控制面攻破
+- [x] 1.9 运行 spike、秘密扫描、OpenSpec 和只读不变性门禁，提交并推送基线阶段
 
 ## 2. Provider、配置与状态契约
 
