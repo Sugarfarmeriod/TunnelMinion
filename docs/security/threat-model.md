@@ -5,7 +5,9 @@
 本威胁模型覆盖只读诊断和首个 L2 写路径“临时共享本机 HTTP 服务”，包括本地 Web UI、
 模型 Provider、候选计划、确定性 Tool/Operation Runtime、目标节点授权、租约、资源所有权、
 请求节点验证和恢复，以及 Coordinator 节点注册、目录、短期 assertion、撤销和缓存降级。
-自动管理 WireGuard、通用 TCP、服务重启、Docker 控制、公开共享和企业 RBAC 不属于当前范围。
+本模型还覆盖受管 WireGuard 的只读基线、Provider 边界、签名配置、地址/route 冲突、relay
+选择和停止门禁；真实网络写入尚未获授权。通用 TCP、服务重启、Docker 控制、公开共享和
+企业 RBAC 不属于当前范围。
 
 ## 资产与信任边界
 
@@ -53,6 +55,13 @@ WireGuard 负责网络 peer 认证，但不能替代应用认证或工具授权�
 | 临时入口泄露 | token 进入 URL、日志、模型或导出 | 高熵 token 只进秘密存储和 A 的验证内存；浏览器由 A 环回桥注入请求头 | 秘密扫描与错误凭据测试；普通输出仅显示凭据已配置 |
 | 错误资源清理 | 恢复器删除用户原有代理或同端口新进程 | 每个资源保存 owner fingerprint；停止和删除前再次匹配 | 不匹配进入 `cleanup_failed`，给出人工建议而不误删 |
 | 假成功 | B 创建代理后自行声称成功 | 必须由 A 沿真实路径回调验证；A 离线、超时、认证失败或状态码不符立即回滚 | “验证失败却报告成功”为零容忍发布失败 |
+| WireGuard 私钥泄漏 | 私钥进入 Coordinator、SQLite、diff、日志或模型上下文 | 私钥仅在所属节点生成并进入系统秘密存储或 ACL 受限必需文件；控制面只接收公钥和秘密引用状态 | schema、导出和秘密扫描发现私钥/PSK 即阻断；删除后验证引用与临时明文均消失 |
+| 签名配置扩权或重放 | Coordinator key 被盗后增加 route、改目标 node 或重放旧 revision | 域分离签名绑定 network/node/父 revision/有效期；本地 L3 policy 与最终 Provider diff 独立裁决 | 未知 key、跳 revision、跨节点/网络、范围扩大均失败关闭 |
+| route 劫持或地址冲突 | 受管 `/32` 覆盖 Mihomo/用户 route，或配置默认路由 | 只读冲突扫描；拒绝默认路由；批准绑定精确 host route、原命中接口与计划哈希 | 任一重叠或选路变化停在 `awaiting_authorization`，不能自动换地址绕过 |
+| relay 扩大信任或成为放大器 | 普通 Coordinator 匿名转发 UDP，或受信 hub 查看节点明文 | relay 使用独立身份、认证、network/node 隔离、容量与速率预算；禁止匿名裸 UDP 和静默 hub | 无三节点身份、隔离、DoS 与路径验证证据时只报告 `degraded` |
+| 两端部分成功 | A 已改 route、B 配置失败或 acknowledgement 丢失 | 共同 revision saga、逐步回执、父 revision、单并发和逆序回滚 | 任一节点失败触发已应用节点回滚；回滚失败进入 `manual_intervention` |
+| 所有权混淆与误删 | 同名接口被用户替换，卸载按前缀删除 `HomeMac`/`utun4` | 本地账本与实时稳定 ID/公钥/指纹双重匹配；用户资源永远 `observed-user` | 不匹配进入 `ownership_conflict`，没有自动 force-delete |
+| 控制面攻破 | 攻击者签发合法格式配置并要求敏感网络变化 | Coordinator 签名只证明来源；本机 L3 授权、地址/route allowlist 和 Provider 固定步骤仍是最终边界 | 紧急停止、恢复和 static peer 不依赖模型或 Coordinator |
 
 ## 安全不变量
 
@@ -62,6 +71,10 @@ WireGuard 负责网络 peer 认证，但不能替代应用认证或工具授权�
 - 单个依赖缺失或权限不足只能使对应能力降级，不得导致整个运行时失败。
 - 实时状态结论必须引用有效证据；缺少证据时必须明确标记未知，禁止使用模型猜测。
 - 现有 `HomeMac` 和 B 的 WireGuard 配置不得被创建、修改或删除。
+- WireGuard 私钥与预共享密钥不得离开生成节点；普通数据库、控制面、报告和模型上下文不得接收。
+- 签名 desired config 不能替代本机 L3 批准，Coordinator 或模型均不能单独授权网络写入。
+- 受管资源修改与删除必须同时匹配本地所有权账本和实时系统指纹。
+- 默认路由、未批准子网、匿名 relay 和把普通 Coordinator 当数据面 relay 必须失败关闭。
 - Coordinator 不得接收工具/操作正文、模型密钥、对话、记忆或 WireGuard 私钥，也不得代理数据面。
 - managed 缓存到期必须失败关闭；static peer 不得被 Coordinator 配置删除或扩权。
 - 模型不可批准、预授权、执行、撤销或清理操作；这些路径在模型不可用时仍必须工作。
@@ -80,5 +93,7 @@ namespace 越权和删除记忆残留。真机验收必须证明模型从本次�
 ## 剩余风险
 
 已授权本机用户可以查看本机元数据，已授权 peer 可以查看工具策略明确允许的元数据。
-应用无法完全阻止操作系统账户或模型 Provider 已被攻破的情况。MVP 通过凭据仅保存在所属
-节点、最小化返回数据、排除写操作工具以及使用审计 ID 追踪远端操作来限制影响范围。
+当前 A/B 的 Mihomo 宽路由会覆盖常见私有候选池，B 手写 WireGuard 配置位置与 Murus UDP
+规则也尚未自动证明；因此真实写入保持停止。后续即使得到授权，操作系统管理员、Coordinator
+签名 key、relay 主机或模型 Provider 已被攻破仍是剩余风险，通过本机 L3 policy、双重所有权、
+最小化元数据、端到端 WireGuard 加密和可恢复审计限制影响范围。

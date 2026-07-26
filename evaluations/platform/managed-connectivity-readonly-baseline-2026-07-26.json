@@ -1,0 +1,149 @@
+{
+  "schema_version": "managed-connectivity-readonly-baseline.v1",
+  "captured_on": "2026-07-26",
+  "mode": "observe-only",
+  "writes_performed": false,
+  "hash_normalization": {
+    "windows_routes": "DestinationPrefix,InterfaceIndex,NextHop,RouteMetric,Protocol,State 排序",
+    "macos_routes": "destination,gateway,flags,interface 排序；排除易变 expire 字段",
+    "secrets_and_configuration_bodies": "excluded"
+  },
+  "nodes": {
+    "windows_a": {
+      "wireguard": {
+        "interface": "HomeMac",
+        "interface_index": 57,
+        "addresses": [
+          "10.77.0.2"
+        ],
+        "peer_visibility": "permission_denied",
+        "configuration_location": "C:\\Program Files\\WireGuard\\Data\\Configurations\\HomeMac.conf.dpapi",
+        "configuration_content_read": false,
+        "services": [
+          {
+            "name": "WireGuardManager",
+            "state": "Running",
+            "start_mode": "Auto",
+            "pid_at_capture": 6384
+          },
+          {
+            "name": "WireGuardTunnel$HomeMac",
+            "state": "Running",
+            "start_mode": "Auto",
+            "pid_at_capture": 6376
+          }
+        ]
+      },
+      "invariance_sha256": {
+        "interface": "a8161d21fa559f8d8d04ee52dccb92913b20c75c3d50e8b32cb629b504f813ec",
+        "routes": "36de55df9b7930f8d2cd8a98863ed22841995a14676f0000a73a45d66448c70c",
+        "wireguard_services": "f079e9fd7955c180e09bd783f3f2420bf80f457bd2623cacc7f08a6e5c266373",
+        "firewall_profiles": "1aee9cab34ec888208755ec8fa121c1476fdb2c385404bb09a4d1736df18169d"
+      },
+      "udp_18881_18889": "no_listener_observed"
+    },
+    "macos_b": {
+      "wireguard": {
+        "interface": "utun4",
+        "addresses": [
+          "10.77.0.1"
+        ],
+        "implementation": "wireguard-go",
+        "process_command": "wireguard-go utun",
+        "pid_at_capture": 73924,
+        "peer_visibility": "permission_denied",
+        "configuration_location": "unknown_not_scanned",
+        "configuration_content_read": false,
+        "tools": {
+          "wg": "/opt/homebrew/bin/wg",
+          "wg_quick": "/opt/homebrew/bin/wg-quick",
+          "version_source": "Homebrew wireguard-tools 1.0.20250521"
+        }
+      },
+      "production_listeners": {
+        "10.77.0.1:8787": "listening",
+        "*:8082": "listening",
+        "coordinator_test_ports": "not_running"
+      },
+      "firewall": {
+        "manager": "Murus",
+        "cli_snapshot": "permission_denied",
+        "configuration_read": false,
+        "observable_state_sha256": "23e53cd9d44b12a703ffb665250b193f72faa65fffb662743eb6546649235e99",
+        "rules_sha256": null
+      },
+      "invariance_sha256": {
+        "interface": "4b89165bb56aace6c7e96ade7806e30c4ce5acb901bd0f80d682c50a3a6f51ba",
+        "routes": "de5c680404d653c0188f65452fee29c10a806f3364993dc352590627f9143c13",
+        "wireguard_process": "342ff542cad4c7bbab5709d3bd4b3d4ee4c44583da8e0ba20e8a0e0907d445d3",
+        "production_listeners": "eeff6eff07338f3a95cfdeab37857c516773792f14ddc9c1bb5928a6d50ba8a4"
+      },
+      "udp_18881_18889": "no_listener_observed"
+    }
+  },
+  "coordinator": {
+    "windows_agent_8790": "not_listening",
+    "windows_admin_8791": "not_listening",
+    "macos_test_18888": "not_listening",
+    "observable_state_sha256": "be65203007c462f681dc5e878d0ec7290c21a226fb473bc429a2a3e7c9c1bef4"
+  },
+  "candidate_scan": {
+    "result": "no_conflict_free_ipv4_private_pool_proven",
+    "reason": "Windows A 与 macOS B 的 Mihomo TUN 均已有覆盖候选地址的较宽路由；创建更具体 host route 会改变现有选路，必须单独批准。",
+    "candidates": [
+      {
+        "pool": "10.203.0.0/24",
+        "windows_route": "Mihomo 10.128.0.0/9",
+        "macos_route": "utun1024 10.128.0.0/9",
+        "status": "route_overlap"
+      },
+      {
+        "pool": "10.253.0.0/24",
+        "windows_route": "Mihomo 10.128.0.0/9",
+        "macos_route": "utun1024 10.128.0.0/9",
+        "status": "route_overlap"
+      },
+      {
+        "pool": "172.31.253.0/24",
+        "windows_route": "Mihomo 172.24.0.0/13",
+        "macos_route": "utun1024 128.0.0.0/2",
+        "status": "route_overlap"
+      }
+    ],
+    "conditional_test_port": {
+      "endpoint": "macos_b",
+      "port": 18889,
+      "protocol": "udp",
+      "listener_conflict": false,
+      "murus_udp_rule_verified": false,
+      "authorized": false
+    }
+  },
+  "recovery_checklist": [
+    "确认 HomeMac 接口、地址、服务状态和四项 Windows 脱敏哈希与本报告一致",
+    "确认 B 的 utun4、wireguard-go 进程、8787、8082 和四项 macOS 脱敏哈希与本报告一致",
+    "任何真实写入前由 B 所有者人工确认手写配置的实际位置和启动方式，不扫描或读取配置正文",
+    "任何真实写入前确认候选地址的更具体 host route 与 Mihomo 共存策略",
+    "任何真实写入前确认 Murus 对 18889/udp 的入站规则，而不是仅确认同号 TCP 端口",
+    "回滚或卸载只处理同时匹配本地账本与实时指纹的独立 TunnelMinion 测试资源",
+    "HomeMac、utun4、生产 8787、模型 8082、Murus 和用户已有路由均不得作为自动清理目标"
+  ],
+  "post_gate_verification": {
+    "windows_interface": "unchanged",
+    "windows_routes": "unchanged",
+    "windows_wireguard_services": "unchanged",
+    "windows_firewall_profiles": "unchanged",
+    "macos_interface": "unchanged",
+    "macos_routes": "unchanged_after_canonicalization",
+    "macos_wireguard_process": "unchanged",
+    "macos_production_listeners": "unchanged",
+    "murus_rules": "not_verifiable_without_interactive_privilege",
+    "writes_performed": false
+  },
+  "stop_gates": [
+    "尚未证明无冲突 IPv4 私有地址池",
+    "B 手写配置位置和启动编排尚未由所有者确认",
+    "Murus 的 18889/udp 规则尚未验证",
+    "未获得创建独立测试接口和更具体 host route 的用户授权"
+  ]
+}
