@@ -12,14 +12,14 @@
 
 ## 2. Provider、配置与状态契约
 
-- [ ] 2.1 定义 `NetworkProvider` 的 observe/plan/apply/verify/rollback/recover 协议、结构化错误和取消安全点
-- [ ] 2.2 定义 observed-user、managed-owned、ownership-conflict、配置 revision、计划、步骤、回执、验证和恢复契约
-- [ ] 2.3 定义受管 network identity、公钥、地址租约、候选 endpoint、relay role、signed desired config 和 acknowledgement 契约
-- [ ] 2.4 定义 unconfigured/awaiting-authorization/applying/probing/direct/relayed/degraded/rolling-back/manual-intervention 状态机
-- [ ] 2.5 建立契约预算、协议版本、JSON 序列化、未知字段拒绝和禁止秘密字段的架构测试
-- [ ] 2.6 实现内存 fake Provider，覆盖幂等成功、响应丢失、逐步失败、验证失败、回滚失败、取消和崩溃恢复
-- [ ] 2.7 建立地址、route、接口、公钥和所有权 fixture，覆盖默认路由、重叠地址、名称复用和外部替换
-- [ ] 2.8 运行契约、状态机、分支覆盖、格式和严格类型门禁，提交并推送核心契约阶段
+- [x] 2.1 定义 `NetworkProvider` 的 observe/plan/apply/verify/rollback/recover 协议、结构化错误和取消安全点
+- [x] 2.2 定义 observed-user、managed-owned、ownership-conflict、配置 revision、计划、步骤、回执、验证和恢复契约
+- [x] 2.3 定义受管 network identity、公钥、地址租约、候选 endpoint、relay role、signed desired config 和 acknowledgement 契约
+- [x] 2.4 定义 unconfigured/awaiting-authorization/applying/probing/direct/relayed/degraded/rolling-back/manual-intervention 状态机
+- [x] 2.5 建立契约预算、协议版本、JSON 序列化、未知字段拒绝和禁止秘密字段的架构测试
+- [x] 2.6 实现内存 fake Provider，覆盖幂等成功、响应丢失、逐步失败、验证失败、回滚失败、取消和崩溃恢复
+- [x] 2.7 建立地址、route、接口、公钥和所有权 fixture，覆盖默认路由、重叠地址、名称复用和外部替换
+- [x] 2.8 运行契约、状态机、分支覆盖、格式和严格类型门禁，提交并推送核心契约阶段
 
 ## 3. Coordinator 地址、配置与路径控制面
 
