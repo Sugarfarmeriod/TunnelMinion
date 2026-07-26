@@ -17,9 +17,13 @@ from tunnelminion.coordinator.contracts import (
     AuthenticatedHeartbeat,
     AuthenticatedServiceSnapshot,
     DirectoryPage,
+    EnrollmentTokenCreated,
+    EnrollmentTokenRequest,
     HeartbeatResponse,
+    NodeRegistrationRequest,
     NodeRegistrationResponse,
     NodeRevocationRequest,
+    RefreshAuthentication,
     RegisteredNodeView,
     SnapshotReceipt,
     VerificationKeySet,
@@ -118,6 +122,30 @@ def build_coordinator_applications(
 
     if registry is not None:
 
+        async def create_enrollment(
+            payload: EnrollmentTokenRequest,
+        ) -> EnrollmentTokenCreated:
+            try:
+                return registry.create_enrollment_token(payload)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def register_node(
+            payload: NodeRegistrationRequest,
+        ) -> NodeRegistrationResponse:
+            try:
+                return registry.register(payload)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def rotate_own_refresh(
+            payload: RefreshAuthentication,
+        ) -> NodeRegistrationResponse:
+            try:
+                return registry.rotate_refresh(payload)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
         async def heartbeat(payload: AuthenticatedHeartbeat) -> HeartbeatResponse:
             try:
                 return registry.heartbeat(payload.authentication, payload.heartbeat)
@@ -168,6 +196,24 @@ def build_coordinator_applications(
             heartbeat,
             methods=["POST"],
             response_model=HeartbeatResponse,
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/registrations",
+            register_node,
+            methods=["POST"],
+            response_model=NodeRegistrationResponse,
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/refresh/rotate",
+            rotate_own_refresh,
+            methods=["POST"],
+            response_model=NodeRegistrationResponse,
+        )
+        admin_app.add_api_route(
+            "/api/v1/admin/enrollments",
+            create_enrollment,
+            methods=["POST"],
+            response_model=EnrollmentTokenCreated,
         )
         admin_app.add_api_route(
             "/api/v1/admin/networks/{network_id}/nodes",

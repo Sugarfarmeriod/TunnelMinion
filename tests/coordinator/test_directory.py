@@ -378,6 +378,19 @@ def test_directory_freshness_propagates_status_and_snapshot_ttl(tmp_path: Path) 
         DirectoryQuery(network_id=NETWORK),
     )
     assert fresh.nodes[0].freshness is DirectoryFreshness.FRESH
+    no_changes = directory.query(
+        auth,
+        DirectoryQuery(
+            network_id=NETWORK,
+            after_revision=fresh.server_revision,
+        ),
+    )
+    assert no_changes.nodes == () and not no_changes.full_sync_required
+    compacted = directory.query(
+        auth,
+        DirectoryQuery(network_id=NETWORK, after_revision=0),
+    )
+    assert compacted.full_sync_required
 
     clock.now += timedelta(seconds=120)
     stale_snapshot = directory.query(

@@ -40,13 +40,13 @@
 
 ## 5. Agent Coordinator 客户端与降级
 
-- [ ] 5.1 实现 Agent Coordinator 配置、enrollment 命令/API、refresh keyring 保存和验证公钥指纹确认
-- [ ] 5.2 实现后台心跳、能力/服务完整快照同步、server revision 保存和 full-sync 恢复
-- [ ] 5.3 实现超时、取消、数量/字节/并发预算，以及带抖动的指数退避和停止生命周期
-- [ ] 5.4 实现最小化能力摘要与服务快照渲染，排除 schema 秘密示例、环境变量、正文、对话和记忆
-- [ ] 5.5 实现目录增量拉取、本地有界缓存、last-success/freshness/error 状态和授权状态只读视图
-- [ ] 5.6 证明 Coordinator 离线、认证失败、快照过大和本地无模型时资源 API、静态 peer 与操作恢复仍可用
-- [ ] 5.7 运行客户端生命周期、退避、缓存、降级和秘密扫描门禁，提交并推送同步阶段
+- [x] 5.1 实现 Agent Coordinator 配置、enrollment 命令/API、refresh keyring 保存和验证公钥指纹确认
+- [x] 5.2 实现后台心跳、能力/服务完整快照同步、server revision 保存和 full-sync 恢复
+- [x] 5.3 实现超时、取消、数量/字节/并发预算，以及带抖动的指数退避和停止生命周期
+- [x] 5.4 实现最小化能力摘要与服务快照渲染，排除 schema 秘密示例、环境变量、正文、对话和记忆
+- [x] 5.5 实现目录增量拉取、本地有界缓存、last-success/freshness/error 状态和授权状态只读视图
+- [x] 5.6 证明 Coordinator 离线、认证失败、快照过大和本地无模型时资源 API、静态 peer 与操作恢复仍可用
+- [x] 5.7 运行客户端生命周期、退避、缓存、降级和秘密扫描门禁，提交并推送同步阶段
 
 ## 6. Gateway 身份与动态远端工具
 
