@@ -31,6 +31,14 @@ from tunnelminion.coordinator.contracts import (
 )
 from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService
+from tunnelminion.coordinator.network_control import (
+    AddressPoolRequest,
+    AddressPoolView,
+    ManagedNetworkControlService,
+    ManagedNetworkRequest,
+    RelayRoleRequest,
+    RelayRoleView,
+)
 from tunnelminion.coordinator.registry import CoordinatorRegistryService, RegistryError
 from tunnelminion.domain.identifiers import NetworkId, NodeId
 
@@ -149,6 +157,7 @@ def build_coordinator_applications(
     registry: CoordinatorRegistryService | None = None,
     assertions: AssertionService | None = None,
     directory: CoordinatorDirectoryService | None = None,
+    network_control: ManagedNetworkControlService | None = None,
 ) -> CoordinatorApplications:
     """建立隔离应用工厂；本函数不启动监听器。"""
     agent_app = FastAPI(
@@ -378,6 +387,71 @@ def build_coordinator_applications(
             query_directory,
             methods=["POST"],
             response_model=DirectoryPage,
+        )
+
+    if network_control is not None:
+
+        async def create_managed_network(
+            payload: ManagedNetworkRequest,
+        ) -> ManagedNetworkRequest:
+            try:
+                network_control.create_network(payload.network_id)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+            return payload
+
+        async def configure_address_pool(
+            network_id: str,
+            payload: AddressPoolRequest,
+        ) -> AddressPoolView:
+            try:
+                return network_control.configure_address_pool(NetworkId(network_id), payload)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def list_address_pools(network_id: str) -> tuple[AddressPoolView, ...]:
+            try:
+                return network_control.list_address_pools(NetworkId(network_id))
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def set_relay_role(
+            network_id: str,
+            node_id: str,
+            payload: RelayRoleRequest,
+        ) -> RelayRoleView:
+            try:
+                return network_control.set_relay_role(
+                    NetworkId(network_id),
+                    NodeId(node_id),
+                    payload,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        admin_app.add_api_route(
+            "/api/v1/admin/networks",
+            create_managed_network,
+            methods=["POST"],
+            response_model=ManagedNetworkRequest,
+        )
+        admin_app.add_api_route(
+            "/api/v1/admin/networks/{network_id}/address-pools",
+            configure_address_pool,
+            methods=["POST"],
+            response_model=AddressPoolView,
+        )
+        admin_app.add_api_route(
+            "/api/v1/admin/networks/{network_id}/address-pools",
+            list_address_pools,
+            methods=["GET"],
+            response_model=tuple[AddressPoolView, ...],
+        )
+        admin_app.add_api_route(
+            "/api/v1/admin/networks/{network_id}/nodes/{node_id}/relay-role",
+            set_relay_role,
+            methods=["PUT"],
+            response_model=RelayRoleView,
         )
     return CoordinatorApplications(agent_app, admin_app, config)
 

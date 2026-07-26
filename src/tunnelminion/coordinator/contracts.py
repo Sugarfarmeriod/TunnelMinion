@@ -112,6 +112,14 @@ class CoordinatorAuditAction(StrEnum):
     ASSERTION_ISSUED = "assertion_issued"
     NODE_STATUS_CHANGED = "node_status_changed"
     DIRECTORY_READ = "directory_read"
+    NETWORK_CREATED = "network_created"
+    ADDRESS_POOL_CONFIGURED = "address_pool_configured"
+    ADDRESS_LEASE_CHANGED = "address_lease_changed"
+    NETWORK_KEY_CHANGED = "network_key_changed"
+    ENDPOINT_CANDIDATES_REPLACED = "endpoint_candidates_replaced"
+    RELAY_ROLE_CHANGED = "relay_role_changed"
+    DESIRED_CONFIG_PUBLISHED = "desired_config_published"
+    NETWORK_ACKNOWLEDGED = "network_acknowledged"
 
 
 class CoordinatorAuditResult(StrEnum):

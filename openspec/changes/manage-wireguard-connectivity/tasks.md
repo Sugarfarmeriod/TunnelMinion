@@ -23,15 +23,15 @@
 
 ## 3. Coordinator 地址、配置与路径控制面
 
-- [ ] 3.1 扩展 SQLite schema，保存 network 地址池、稳定租约、节点公钥、候选、relay role、desired/parent revision 和逐节点 acknowledgement
-- [ ] 3.2 实现事务地址分配、保留/重叠拒绝、并发唯一性、撤销/恢复和数据库重启恢复
-- [ ] 3.3 实现公钥注册/轮换的 pending/active/retired 生命周期，拒绝私钥、预共享密钥和完整配置正文
-- [ ] 3.4 实现候选 endpoint 来源、数量/字节、有效期和速率预算，拒绝跨 network、模型输入和畸形地址
-- [ ] 3.5 实现域分离 Ed25519 desired config 签名、固定指纹、目标/父修订/有效期绑定和 key 轮换窗口
-- [ ] 3.6 实现共同 revision saga、节点阶段 acknowledgement、全部验证后 active、任一失败后的回滚指令和幂等恢复
-- [ ] 3.7 实现管理员 network/address-pool/relay-role 管理 API，只绑定环回管理员应用并提供不含秘密的审计
-- [ ] 3.8 覆盖并发租约、乱序/篡改配置、未知 key、跨节点重放、跨 network、部分成功、撤销和存储增长测试
-- [ ] 3.9 运行控制面正确性、事务、签名、安全、性能和 OpenSpec 门禁，提交并推送 Coordinator 阶段
+- [x] 3.1 扩展 SQLite schema，保存 network 地址池、稳定租约、节点公钥、候选、relay role、desired/parent revision 和逐节点 acknowledgement
+- [x] 3.2 实现事务地址分配、保留/重叠拒绝、并发唯一性、撤销/恢复和数据库重启恢复
+- [x] 3.3 实现公钥注册/轮换的 pending/active/retired 生命周期，拒绝私钥、预共享密钥和完整配置正文
+- [x] 3.4 实现候选 endpoint 来源、数量/字节、有效期和速率预算，拒绝跨 network、模型输入和畸形地址
+- [x] 3.5 实现域分离 Ed25519 desired config 签名、固定指纹、目标/父修订/有效期绑定和 key 轮换窗口
+- [x] 3.6 实现共同 revision saga、节点阶段 acknowledgement、全部验证后 active、任一失败后的回滚指令和幂等恢复
+- [x] 3.7 实现管理员 network/address-pool/relay-role 管理 API，只绑定环回管理员应用并提供不含秘密的审计
+- [x] 3.8 覆盖并发租约、乱序/篡改配置、未知 key、跨节点重放、跨 network、部分成功、撤销和存储增长测试
+- [x] 3.9 运行控制面正确性、事务、签名、安全、性能和 OpenSpec 门禁，提交并推送 Coordinator 阶段
 
 ## 4. Agent 同步、所有权账本与 L3 治理
 
