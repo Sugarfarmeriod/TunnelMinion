@@ -59,14 +59,14 @@
 
 ## 6. macOS Provider 纵向切片
 
-- [ ] 6.1 实现 macOS observe-only 适配器，读取当前 `wg`/接口/peer/address/route/进程状态且不读取 B 私钥
-- [ ] 6.2 实现 macOS 平台权限/依赖预检和固定参数 runner，禁止 sudo prompt、Shell 字符串和动态配置路径
-- [ ] 6.3 实现独立配置目录、接口标识、0600 必需秘密文件、所有权指纹和计划 diff，不触碰 B 手写配置
-- [ ] 6.4 实现 create/update/stop/remove 的固定步骤、幂等回执、实时 verify 和父 revision rollback
-- [ ] 6.5 实现 macOS 重启恢复、半写配置检测、ownership conflict 和卸载清理
-- [ ] 6.6 用 fake runner 覆盖每个步骤失败、权限不足、依赖缺失、接口/route 冲突和外部替换
-- [ ] 6.7 在只读模式真机复核 B 基线；任何 managed 写入前核对 Murus/UDP 前置条件并等待用户明确授权
-- [ ] 6.8 运行 macOS Provider、状态不变性、安全和全量回归门禁，提交并推送 macOS 阶段
+- [x] 6.1 实现 macOS observe-only 适配器，读取当前 `wg`/接口/peer/address/route/进程状态且不读取 B 私钥
+- [x] 6.2 实现 macOS 平台权限/依赖预检和固定参数 runner，禁止 sudo prompt、Shell 字符串和动态配置路径
+- [x] 6.3 实现独立配置目录、接口标识、0600 必需秘密文件、所有权指纹和计划 diff，不触碰 B 手写配置
+- [x] 6.4 实现 create/update/stop/remove 的固定步骤、幂等回执、实时 verify 和父 revision rollback
+- [x] 6.5 实现 macOS 重启恢复、半写配置检测、ownership conflict 和卸载清理
+- [x] 6.6 用 fake runner 覆盖每个步骤失败、权限不足、依赖缺失、接口/route 冲突和外部替换
+- [x] 6.7 在只读模式真机复核 B 基线；任何 managed 写入前核对 Murus/UDP 前置条件并等待用户明确授权
+- [x] 6.8 运行 macOS Provider、状态不变性、安全和全量回归门禁，提交并推送 macOS 阶段
 
 ## 7. 直连路径闭环
 

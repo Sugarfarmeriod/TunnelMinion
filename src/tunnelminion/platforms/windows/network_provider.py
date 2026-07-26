@@ -241,12 +241,18 @@ class WindowsNetworkProvider:
         journals: SQLiteWindowsOperationJournal,
         *,
         clock: Callable[[], datetime] | None = None,
+        provider_kind: ProviderKind = ProviderKind.WINDOWS,
+        protected_interfaces: frozenset[str] = frozenset({"HomeMac"}),
+        platform_label: str = "Windows",
     ) -> None:
         self._backend = backend
         self._ledger = ledger
         self._journals = journals
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = asyncio.Lock()
+        self._provider_kind = provider_kind
+        self._protected_interfaces = protected_interfaces
+        self._platform_label = platform_label
 
     async def observe(self, interface_name: str) -> NetworkObservation:
         snapshot = await self._backend.observe(interface_name)
@@ -254,7 +260,7 @@ class WindowsNetworkProvider:
         ownership = self._classify_ownership(snapshot, entry)
         preflight = self._backend.preflight()
         return NetworkObservation(
-            provider=ProviderKind.WINDOWS,
+            provider=self._provider_kind,
             mode=preflight.mode,
             interface_name=interface_name,
             stable_interface_id=snapshot.stable_interface_id,
@@ -274,12 +280,15 @@ class WindowsNetworkProvider:
         observed: NetworkObservation,
         ownership: ManagedResourceOwnership | None,
     ) -> NetworkPlan:
-        if desired.provider is not ProviderKind.WINDOWS:
-            raise ValueError("Windows Provider 只接受 windows desired config")
-        if desired.interface_name == "HomeMac" or not desired.interface_name.startswith(
-            _MANAGED_PREFIX
+        if desired.provider is not self._provider_kind:
+            raise ValueError(
+                f"{self._platform_label.lower()} Provider 不接受其他平台 desired config"
+            )
+        if (
+            desired.interface_name in self._protected_interfaces
+            or not desired.interface_name.startswith(_MANAGED_PREFIX)
         ):
-            raise ValueError("Windows Provider 不管理用户接口或非受管前缀")
+            raise ValueError(f"{self._platform_label} Provider 不管理用户接口或非受管前缀")
         if desired.interface_name != observed.interface_name:
             raise ValueError("desired config 与实时接口名称不一致")
         if action is NetworkAction.CREATE:
@@ -617,7 +626,7 @@ class WindowsNetworkProvider:
             resource_id=current.ownership.resource_id if current is not None else ResourceId.new(),
             network_id=desired.network_id,
             node_id=desired.target_node_id,
-            provider=ProviderKind.WINDOWS,
+            provider=self._provider_kind,
             interface_name=desired.interface_name,
             stable_interface_id=snapshot.stable_interface_id,
             creation_nonce=journal.creation_nonce,
@@ -702,14 +711,14 @@ class WindowsNetworkProvider:
             (
                 item
                 for item in self._ledger.list_all()
-                if item.ownership.provider is ProviderKind.WINDOWS
+                if item.ownership.provider is self._provider_kind
                 and item.ownership.interface_name == interface_name
             ),
             None,
         )
 
-    @staticmethod
     def _classify_ownership(
+        self,
         snapshot: WindowsTunnelSnapshot,
         entry: ManagedResourceLedgerEntry | None,
     ) -> OwnershipState:
@@ -787,8 +796,8 @@ class WindowsNetworkProvider:
         if requested & existing:
             raise ValueError("受管 host route 与现有 Windows route 冲突")
 
-    @staticmethod
     def _steps(
+        self,
         action: NetworkAction,
         interface_name: str,
     ) -> tuple[NetworkPlanStep, ...]:
@@ -830,7 +839,7 @@ class WindowsNetworkProvider:
                 index=index,
                 kind=kind,
                 target=interface_name,
-                expected_effect=f"windows:{action.value}:{kind.value}",
+                expected_effect=f"{self._provider_kind.value}:{action.value}:{kind.value}",
                 rollback_kind=rollback[kind],
             )
             for index, kind in enumerate(kinds)
@@ -839,5 +848,5 @@ class WindowsNetworkProvider:
     def _now(self) -> datetime:
         now = self._clock()
         if now.tzinfo is None:
-            raise ValueError("Windows Provider 时钟必须包含时区")
+            raise ValueError(f"{self._platform_label} Provider 时钟必须包含时区")
         return now.astimezone(UTC)
