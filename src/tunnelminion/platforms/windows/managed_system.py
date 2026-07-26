@@ -357,4 +357,4 @@ def windows_is_administrator(
 def _native_windows_is_administrator() -> bool:  # pragma: no cover - Windows 原生 API 薄封装
     import ctypes
 
-    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())  # pyright: ignore
