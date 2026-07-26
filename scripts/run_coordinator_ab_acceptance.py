@@ -266,9 +266,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             expected=401,
             timeout=90,
         )
-        ready = json.loads(
-            _ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo)
-        )
+        ready = json.loads(_ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo))
 
         a_root = runtime / "a"
         (a_root / "node-id").parent.mkdir(parents=True, exist_ok=True)
@@ -294,11 +292,11 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             gateway_endpoint=GatewayEndpoint(host=args.agent_host, port=18_887),
         )
         a_token = registry.create_enrollment_token(EnrollmentTokenRequest(network_id=network_id))
-        await CoordinatorEnrollmentClient(
-            a_config, a_transport, a_credentials
-        ).enroll(
+        await CoordinatorEnrollmentClient(a_config, a_transport, a_credentials).enroll(
             a_identity,
-            device_identity_hash=hashlib.sha256(f"coordinator-ab:{_A_NODE_ID}".encode()).hexdigest(),
+            device_identity_hash=hashlib.sha256(
+                f"coordinator-ab:{_A_NODE_ID}".encode()
+            ).hexdigest(),
             enrollment_token=a_token.token,
         )
         a_cache = CoordinatorCache()
@@ -332,16 +330,13 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             CoordinatorAuthorizationView(
                 network_id=network_id,
                 generated_at=full_directory.generated_at,
-                expires_at=full_directory.generated_at
-                + timedelta(seconds=args.cache_ttl_seconds),
+                expires_at=full_directory.generated_at + timedelta(seconds=args.cache_ttl_seconds),
                 nodes=full_directory.nodes,
                 verification_keys=await a_transport.verification_keys(),
             )
         )
         for _ in range(15):
-            ready = json.loads(
-                _ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo)
-            )
+            ready = json.loads(_ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo))
             authorization_nodes = cast(
                 list[object],
                 cast(dict[str, object], ready).get("authorization_nodes", []),
@@ -427,6 +422,33 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             caller_node_id=_A_NODE_ID,
             execution_node_id=_B_NODE_ID,
         )
+        assertion = (
+            await a_transport.issue_assertion(
+                AccessAssertionRequest(
+                    authentication=a_authentication,
+                    audience="tool-gateway",
+                )
+            )
+        ).assertion
+        async with httpx.AsyncClient(timeout=5) as client:
+            assertion_diagnostic = cast(
+                dict[str, object],
+                (
+                    await client.get(
+                        (
+                            f"http://{args.b_host}:{args.b_gateway_port}"
+                            "/acceptance/assertion-diagnostic"
+                        ),
+                        headers={"Authorization": f"Bearer {assertion}"},
+                    )
+                ).json(),
+            )
+        evidence["assertion_diagnostic"] = assertion_diagnostic
+        if assertion_diagnostic.get("accepted") is not True:
+            raise RuntimeError(
+                "B 节点 assertion 离线验签失败："
+                + json.dumps(assertion_diagnostic, ensure_ascii=False)
+            )
         prepared = await dynamic.prepare(
             _B_NODE_ID,
             context,
@@ -438,14 +460,6 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 tool_name="list_network_listeners",
             )
         )
-        assertion = (
-            await a_transport.issue_assertion(
-                AccessAssertionRequest(
-                    authentication=a_authentication,
-                    audience="tool-gateway",
-                )
-            )
-        ).assertion
         async with httpx.AsyncClient(timeout=5) as client:
             incompatible_status = (
                 await client.get(
@@ -519,8 +533,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                     "endpoint": static_data["endpoint"],
                     "unauthenticated_status": static_data["unauthenticated_status"],
                     "tool_statuses": {
-                        name: value["status"]
-                        for name, value in static_data["tool_results"].items()
+                        name: value["status"] for name, value in static_data["tool_results"].items()
                     },
                 },
                 "remote_pid": int(remote_pid),

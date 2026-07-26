@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 
 from tunnelminion.agent.coordinator import (
     AgentCoordinatorSynchronizer,
@@ -34,6 +34,10 @@ from tunnelminion.coordinator.contracts import (
     ServiceLifecycle,
     ServiceProtocol,
     ServiceSummary,
+)
+from tunnelminion.coordinator.identity import (
+    AssertionVerificationError,
+    OfflineAssertionVerifier,
 )
 from tunnelminion.domain.identifiers import NetworkId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
@@ -99,9 +103,7 @@ async def run_managed_node(args: argparse.Namespace) -> None:
     enrollment = CoordinatorEnrollmentClient(config, transport, credentials)
     await enrollment.enroll(
         identity,
-        device_identity_hash=hashlib.sha256(
-            f"coordinator-ab:{args.node_id}".encode()
-        ).hexdigest(),
+        device_identity_hash=hashlib.sha256(f"coordinator-ab:{args.node_id}".encode()).hexdigest(),
         enrollment_token=enrollment_token,
     )
     enrollment_token = ""
@@ -170,8 +172,7 @@ async def run_managed_node(args: argparse.Namespace) -> None:
                 CoordinatorAuthorizationView(
                     network_id=args.network_id,
                     generated_at=directory.generated_at,
-                    expires_at=directory.generated_at
-                    + timedelta(seconds=args.cache_ttl_seconds),
+                    expires_at=directory.generated_at + timedelta(seconds=args.cache_ttl_seconds),
                     nodes=directory.nodes,
                     verification_keys=await transport.verification_keys(),
                 )
@@ -199,6 +200,43 @@ async def run_managed_node(args: argparse.Namespace) -> None:
         pinned_fingerprints={args.pinned_fingerprint},
     )
     gateway = FastAPI(title="TunnelMinion Coordinator A/B managed Gateway")
+
+    async def diagnose_assertion(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        view = cache.read()
+        if view is None:
+            return {"accepted": False, "reason": "cache_missing"}
+        if authorization is None or not authorization.startswith("Bearer "):
+            return {"accepted": False, "reason": "credential_missing"}
+        try:
+            verified = OfflineAssertionVerifier(
+                view.verification_keys,
+                {args.pinned_fingerprint},
+            ).verify(
+                authorization.removeprefix("Bearer "),
+                audience="tool-gateway",
+                network_id=view.network_id,
+            )
+        except AssertionVerificationError as exc:
+            return {"accepted": False, "reason": str(exc)}
+        node = next(
+            (item for item in view.nodes if item.identity.node_id == verified.node_id),
+            None,
+        )
+        return {
+            "accepted": policy.authenticate(authorization) is not None,
+            "reason": "verified",
+            "node_present": node is not None,
+            "node_status": None if node is None else node.status.value,
+            "node_freshness": None if node is None else node.freshness.value,
+        }
+
+    gateway.add_api_route(
+        "/acceptance/assertion-diagnostic",
+        diagnose_assertion,
+        methods=["GET"],
+    )
     gateway.include_router(
         create_gateway_router(
             args.node_id,
