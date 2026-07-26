@@ -40,6 +40,30 @@ class NodeId(_Identifier):
     prefix = "node"
 
 
+class NetworkId(_Identifier):
+    """Coordinator 内硬隔离的私有网络标识。"""
+
+    prefix = "network"
+
+
+class SnapshotId(_Identifier):
+    """能力或服务完整快照的幂等身份标识。"""
+
+    prefix = "snapshot"
+
+
+class ServiceId(_Identifier):
+    """节点所报告服务的稳定身份标识。"""
+
+    prefix = "service"
+
+
+class CoordinatorAuditId(_Identifier):
+    """Coordinator 脱敏审计事件标识。"""
+
+    prefix = "coordaudit"
+
+
 class ThreadId(_Identifier):
     """本地对话线程的身份标识。"""
 

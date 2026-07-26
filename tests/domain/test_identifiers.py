@@ -4,18 +4,34 @@ from pydantic import ValidationError
 from tunnelminion.domain import (
     ArtifactId,
     AuthorizationId,
+    CoordinatorAuditId,
     LeaseId,
     MemoryId,
+    NetworkId,
     NodeId,
     OperationId,
     ResourceId,
     RunId,
+    ServiceId,
+    SnapshotId,
     ThreadId,
     ToolRunId,
 )
 
 
-@pytest.mark.parametrize("identifier_type", [NodeId, ThreadId, RunId, ToolRunId])
+@pytest.mark.parametrize(
+    "identifier_type",
+    [
+        NodeId,
+        NetworkId,
+        SnapshotId,
+        ServiceId,
+        CoordinatorAuditId,
+        ThreadId,
+        RunId,
+        ToolRunId,
+    ],
+)
 def test_identifiers_generate_unique_prefixed_values(identifier_type: type[NodeId]) -> None:
     first = identifier_type.new()
     second = identifier_type.new()
