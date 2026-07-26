@@ -179,6 +179,10 @@ Agent 应完成以下闭环：
 - `manage-wireguard-connectivity`：受管配置、直连探测、回退和资源所有权。
 - `add-linux-node-provider`：Linux 系统适配、systemd、权限和干净环境生命周期。
 
+`manage-wireguard-connectivity` 已完成提案、设计、规格与任务拆分。实施先从只读基线和
+Provider/回退机制 spike 开始；在地址池、UDP 端口、受管资源边界和回滚方案经明确批准前，
+不得对 A/B 现有 WireGuard、Murus、防火墙或生产端口执行写操作。
+
 ### 阶段 5：游戏与服务智能识别
 
 - 建立可扩展探测器，支持 Steam A2S、Minecraft 和常见服务。
@@ -230,7 +234,7 @@ Agent 应完成以下闭环：
 | 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已完成并归档 | 稳定需求已同步到主规范 |
 | 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已完成并归档 | 稳定需求已同步到主规范 |
 | Coordinator 与服务目录 | `coordinate-agent-network` 已完成并归档 | 稳定需求已同步到主规范 |
-| WireGuard 自动管理与连接优化 | 旧 `deliver-minimum-viable-mesh` 过大 | 暂停并拆分后重新规划 |
+| WireGuard 自动管理与连接优化 | `manage-wireguard-connectivity` 已建立 | 先完成只读基线与 Provider/回退机制 spike；真实写入前再次确认 |
 | Linux 节点 Provider | 旧 change 中混合存在 | 建立独立 change |
 | 本地产品体验 | 路线图候选 | 在安全操作闭环得到真实反馈后提案 |
 | 一键安装、安全升级与卸载 | 路线图候选 | 建立独立 change |
