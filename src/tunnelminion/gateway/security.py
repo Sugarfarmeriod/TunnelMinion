@@ -21,6 +21,10 @@ from tunnelminion.coordinator.identity import (
     OfflineAssertionVerifier,
 )
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.network.path_controller import (
+    GatewayPathEndpoint,
+    select_gateway_endpoint,
+)
 
 
 class GatewayBindConfig(BaseModel):
@@ -124,6 +128,9 @@ class GatewaySecurityPolicy:
         pinned_fingerprints: Iterable[str] = (),
         clock: Callable[[], float] = monotonic,
         wall_clock: Callable[[], datetime] | None = None,
+        managed_path_endpoint: (
+            Callable[[NodeId, datetime], GatewayPathEndpoint | None] | None
+        ) = None,
     ) -> None:
         values = tuple(peers)
         managed = tuple(managed_peers)
@@ -142,6 +149,7 @@ class GatewaySecurityPolicy:
         self.limits = limits or GatewayLimits()
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
+        self._managed_path_endpoint = managed_path_endpoint
         self._requests: defaultdict[str, deque[float]] = defaultdict(deque)
 
     def authenticate(
@@ -200,12 +208,26 @@ class GatewaySecurityPolicy:
             or node.freshness is not DirectoryFreshness.FRESH
         ):
             return None
+        path_endpoint = (
+            self._managed_path_endpoint(managed.node_id, now)
+            if self._managed_path_endpoint is not None
+            else None
+        )
+        selected_path = (
+            select_gateway_endpoint((path_endpoint,), now=now)
+            if path_endpoint is not None
+            else None
+        )
         return GatewayPeerPolicy(
             node_id=managed.node_id,
             token_digest=b"",
             allowed_tools=managed.allowed_tools,
             allowed_operations=managed.allowed_operations,
-            source_host=node.identity.gateway_endpoint.host,
+            source_host=(
+                selected_path.host
+                if selected_path is not None
+                else node.identity.gateway_endpoint.host
+            ),
             authentication_kind=GatewayAuthenticationKind.COORDINATOR,
         )
 

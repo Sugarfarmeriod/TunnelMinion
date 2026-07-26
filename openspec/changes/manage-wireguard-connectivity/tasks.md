@@ -70,14 +70,14 @@
 
 ## 7. 直连路径闭环
 
-- [ ] 7.1 实现本机策略过滤后的候选排序和有界探测，不接受模型/对话提供的 endpoint
-- [ ] 7.2 实现 handshake、期望 host route 与请求节点目标探测的联合 direct 验证和证据模型
-- [ ] 7.3 实现连续失败阈值、成功稳定窗口、最小驻留时间、hysteresis 和单并发路径控制器
-- [ ] 7.4 实现路径 revision 与配置 saga 联动，切换失败恢复 last-known-good
-- [ ] 7.5 扩展目录/Gateway endpoint 选择，优先 fresh verified managed path，并明确区分 direct、relayed 与 static
-- [ ] 7.6 扩展资源页显示 Provider、revision、授权、候选/握手/route/目标探测新鲜度和稳定错误码
-- [ ] 7.7 覆盖旧握手、route 缺失、目标探测失败、单次丢包、持续失败、恢复抖动、static 回退和控制面离线
-- [ ] 7.8 运行路径正确性、延迟、切换稳定性、安全和 Web 零泄漏门禁，提交并推送 direct 阶段
+- [x] 7.1 实现本机策略过滤后的候选排序和有界探测，不接受模型/对话提供的 endpoint
+- [x] 7.2 实现 handshake、期望 host route 与请求节点目标探测的联合 direct 验证和证据模型
+- [x] 7.3 实现连续失败阈值、成功稳定窗口、最小驻留时间、hysteresis 和单并发路径控制器
+- [x] 7.4 实现路径 revision 与配置 saga 联动，切换失败恢复 last-known-good
+- [x] 7.5 扩展目录/Gateway endpoint 选择，优先 fresh verified managed path，并明确区分 direct、relayed 与 static
+- [x] 7.6 扩展资源页显示 Provider、revision、授权、候选/握手/route/目标探测新鲜度和稳定错误码
+- [x] 7.7 覆盖旧握手、route 缺失、目标探测失败、单次丢包、持续失败、恢复抖动、static 回退和控制面离线
+- [x] 7.8 运行路径正确性、延迟、切换稳定性、安全和 Web 零泄漏门禁，提交并推送 direct 阶段
 
 ## 8. relay 机制与隔离三节点闭环
 
