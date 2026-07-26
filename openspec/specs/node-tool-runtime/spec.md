@@ -109,4 +109,3 @@ Operation Policy 和本地批准 SHALL 在每次调用继续执行最终校验�
 #### Scenario: 目录包含未授权写操作
 - **WHEN** 畸形或被攻破的 Coordinator 条目声称 B 支持已批准的写操作
 - **THEN** A 不得因此向普通模型暴露该操作，B 的确定性策略仍 SHALL 拒绝未授权执行
-

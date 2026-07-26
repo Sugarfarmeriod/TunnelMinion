@@ -121,4 +121,3 @@ Coordinator 不可用时，Runtime MAY 使用显式静态 peer，或在 endpoint
 #### Scenario: 只有过期目录 endpoint
 - **WHEN** 目标没有 static peer 且缓存 endpoint 已超过 TTL
 - **THEN** Runtime SHALL 返回目录陈旧或节点不可解析，不尝试网络调用
-
