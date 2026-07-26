@@ -338,6 +338,22 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 verification_keys=await a_transport.verification_keys(),
             )
         )
+        for _ in range(15):
+            ready = json.loads(
+                _ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo)
+            )
+            authorization_nodes = ready.get("authorization_nodes", [])
+            if isinstance(authorization_nodes, list) and any(
+                isinstance(node, dict)
+                and node.get("node_id") == str(_A_NODE_ID)
+                and node.get("status") == "online"
+                and node.get("freshness") == "fresh"
+                for node in authorization_nodes
+            ):
+                break
+            await asyncio.sleep(1)
+        else:
+            raise RuntimeError("B 节点授权缓存未在期限内收敛到 A")
 
         replay_identity = a_identity.model_copy(update={"node_id": NodeId.new()})
         replay_request = NodeRegistrationRequest(

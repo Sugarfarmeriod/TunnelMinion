@@ -133,7 +133,25 @@ async def run_managed_node(args: argparse.Namespace) -> None:
             else ServiceLifecycle.STOPPED
         ),
     )
+    ready_path = Path(args.ready_file)
+    authorization_nodes: list[dict[str, str]] = []
+
+    def write_ready() -> None:
+        ready = {
+            "node_id": str(args.node_id),
+            "gateway": f"{args.gateway_host}:{args.gateway_port}",
+            "capability_count": len(capabilities),
+            "service_state": model_service.lifecycle.value,
+            "token_file_removed": not token_path.exists(),
+            "authorization_nodes": authorization_nodes,
+        }
+        ready_path.write_text(
+            json.dumps(ready, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
     async def synchronize() -> None:
+        nonlocal authorization_nodes
         while True:
             await synchronizer.sync_once(capabilities, (model_service,))
             refresh = credentials.load(args.network_id, args.node_id)
@@ -158,6 +176,15 @@ async def run_managed_node(args: argparse.Namespace) -> None:
                     verification_keys=await transport.verification_keys(),
                 )
             )
+            authorization_nodes = [
+                {
+                    "node_id": str(node.identity.node_id),
+                    "status": node.status.value,
+                    "freshness": node.freshness.value,
+                }
+                for node in directory.nodes
+            ]
+            write_ready()
             await asyncio.sleep(2)
 
     await synchronizer.sync_once(capabilities, (model_service,))
@@ -191,17 +218,7 @@ async def run_managed_node(args: argparse.Namespace) -> None:
             access_log=False,
         )
     )
-    ready = {
-        "node_id": str(args.node_id),
-        "gateway": f"{args.gateway_host}:{args.gateway_port}",
-        "capability_count": len(capabilities),
-        "service_state": model_service.lifecycle.value,
-        "token_file_removed": not token_path.exists(),
-    }
-    Path(args.ready_file).write_text(
-        json.dumps(ready, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    write_ready()
     try:
         await server.serve()
     finally:
