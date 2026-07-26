@@ -239,8 +239,7 @@ async def run_managed_node(args: argparse.Namespace) -> None:
                 "network_matches": claims.get("net") == str(view.network_id),
                 "protocol_matches": claims.get("pv") == 1,
                 "jti_shape_valid": (
-                    isinstance(claims.get("jti"), str)
-                    and len(cast(str, claims["jti"])) == 32
+                    isinstance(claims.get("jti"), str) and len(cast(str, claims["jti"])) == 32
                 ),
                 "not_before_matches_issued": not_before == issued,
                 "ttl_seconds": (

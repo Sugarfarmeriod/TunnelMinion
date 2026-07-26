@@ -10,7 +10,7 @@ schema 并经过对等节点授权。WireGuard 已建立连接不代表应用数
 | 秘密 | 模型 API key、网关凭据、认证头、WireGuard 私钥 | 操作系统凭据存储；禁止进入应用数据库 | 禁止使用 | 直到撤销或删除所属配置 |
 | Coordinator enrollment token | 一次性注册材料 | Coordinator 只保存带独立盐的哈希；完整值只在环回管理员创建响应出现一次 | 禁止使用 | 默认 10 分钟或首次成功消费即删除；撤销只保留脱敏审计 |
 | Coordinator refresh 凭据 | 单节点长期重连材料 | Agent 操作系统 keyring；Coordinator 只保存验证哈希 | 禁止使用 | 轮换时新值原子生效、旧哈希立即删除；节点撤销或卸载时删除 |
-| Coordinator access assertion | 绑定 network/node/audience/jti/protocol/iat/exp 的 Ed25519 JWT | Agent 仅内存；Gateway 仅在请求验证期间解析 | 禁止使用 | 固定 120 秒 TTL，不落盘；到期自然删除，撤销缓存可提前拒绝 |
+| Coordinator access assertion | 绑定 network/node/audience/jti/protocol/iat/exp 的 Ed25519 JWT | Agent 仅内存；Gateway 仅在请求验证期间解析 | 禁止使用 | 固定 120 秒 TTL，不落盘；仅容忍 5 秒未来签发/激活时钟偏差且不延长到期；撤销缓存可提前拒绝 |
 | Coordinator signing private key | Ed25519 assertion 签名私钥 | 仅 Coordinator 服务端秘密存储，禁止配置、日志、备份明文和模型上下文 | 禁止使用 | 按 key ID 轮换；重叠窗口结束后销毁旧私钥，泄漏时立即停发 managed assertion |
 | Coordinator verification public key | Ed25519 公钥、key ID 与管理员确认的指纹 | Coordinator 发布公钥集合；Agent/Gateway 本地固定指纹 | 禁止进入 prompt | 轮换窗口保留新旧公钥；过窗删除旧公钥，未知 key ID 必须拒绝 |
 | Coordinator 目录元数据 | network/node、私有 endpoint、状态、能力/服务摘要、修订与新鲜度 | Coordinator SQLite 与 Agent 有界缓存 | 只允许脱敏摘要用于节点选择 | 删除节点业务摘要后只保留最小撤销与审计关系；缓存按 TTL/修订失效 |

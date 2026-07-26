@@ -69,6 +69,22 @@ flowchart LR
 预算约束的 TCP 探测，并把它标成“主动探测、远端归属未知”的低置信度服务证据。它足以回答
 “从 A 是否可达”，但不足以证明进程归属、监听地址或满足临时发布条件。
 
+## Coordinator 控制面与直连数据面
+
+Coordinator 是可选控制面，不是工具流量代理。它只接受稳定节点身份、心跳、私有 Gateway
+endpoint、能力摘要、服务摘要、修订和脱敏审计；工具结果、操作正文、对话、记忆、模型密钥和
+WireGuard 私钥不会进入 Coordinator。
+
+1. B 使用一次性 enrollment token 注册，再把 refresh 凭据写入本机秘密存储；A 随后注册。
+2. 两端周期同步完整能力/服务快照并缓存带新鲜度的目录和验证公钥。
+3. A 只把稳定 B node ID 交给动态工具协调器；endpoint 与认证材料在模型外解析。
+4. A 获取 120 秒、绑定 `tool-gateway` audience 的 Ed25519 assertion。
+5. B 使用固定公钥指纹和未过期授权缓存离线验签，再返回实时能力供 A 复核。
+6. Coordinator 离线时 managed 新调用失败关闭；现有 static peer、本地资源页和操作恢复继续工作。
+
+真实 A/B 验收只临时使用 Windows `10.77.0.2:8790`、环回 `127.0.0.1:8791` 和 B
+`10.77.0.1:18888`。生产 B Gateway `8787`、模型 `8082`、WireGuard 和防火墙配置前后不变。
+
 ## 一次临时共享本机服务
 
 1. A 先用 L0 只读工具确认 B 的 HTTP 服务只监听环回地址。
@@ -131,6 +147,7 @@ TunnelMinion 自有的限时 HTTP 代理资源。
 - [ADR-0003：上下文、checkpoint 与长期记忆](adr/0003-context-checkpoint-and-memory.md)
 - [ADR-0004：跨节点应用认证](adr/0004-cross-node-application-authentication.md)
 - [ADR-0005：临时 HTTP 共享](adr/0005-temporary-http-sharing.md)
+- [ADR-0006：Coordinator 身份、目录与数据面分离](adr/0006-coordinator-identity-and-directory.md)
 - [标准概念映射](guide/Prompt-Context-Harness概念映射.md)
 - [Context、Prompt 与 Runtime 评估指南](guide/上下文与Prompt评估指南.md)
 - [威胁模型](security/threat-model.md)

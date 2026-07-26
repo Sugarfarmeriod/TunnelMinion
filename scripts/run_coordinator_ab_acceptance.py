@@ -10,7 +10,9 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -150,13 +152,53 @@ def _snapshot_b(host: str) -> dict[str, object]:
     return result
 
 
+def _remove_runtime(path: Path) -> bool:
+    """重试清理 Windows 可能短暂占用的隔离 SQLite 目录。"""
+    for _ in range(10):
+        try:
+            shutil.rmtree(path)
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            time.sleep(0.5)
+        else:
+            return True
+    return False
+
+
+def _schedule_runtime_cleanup(path: Path) -> None:
+    """让独立进程在当前 Python 释放 Windows SQLite 句柄后完成清理。"""
+    cleanup = (
+        "import shutil,sys,time\n"
+        "from pathlib import Path\n"
+        "path=Path(sys.argv[1])\n"
+        "time.sleep(2)\n"
+        "for _ in range(30):\n"
+        " try:\n"
+        "  shutil.rmtree(path)\n"
+        "  break\n"
+        " except FileNotFoundError:\n"
+        "  break\n"
+        " except PermissionError:\n"
+        "  time.sleep(1)\n"
+    )
+    subprocess.Popen(
+        [sys.executable, "-c", cleanup, str(path)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=0x08000000 if os.name == "nt" else 0,
+    )
+
+
 async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
     repo = Path(args.repo).resolve()
     output = Path(args.output).resolve()
-    runtime = output.parent / ".coordinator-ab-runtime"
-    if runtime.exists():
-        shutil.rmtree(runtime)
-    runtime.mkdir(parents=True)
+    legacy_runtime = output.parent / ".coordinator-ab-runtime"
+    if legacy_runtime.exists() and not _remove_runtime(legacy_runtime):
+        raise RuntimeError("无法清理旧版仓库内验收运行目录")
+    runtime = Path(tempfile.mkdtemp(prefix="tunnelminion-coordinator-ab-"))
     network_id = NetworkId.new()
     before = _snapshot_b(args.b_host)
     remote_root = ""
@@ -447,6 +489,14 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 "B 节点 assertion 离线验签失败："
                 + json.dumps(assertion_diagnostic, ensure_ascii=False)
             )
+        async with httpx.AsyncClient(timeout=5) as client:
+            incompatible_status = (
+                await client.get(
+                    f"http://{args.b_host}:{args.b_gateway_port}/v1/capabilities",
+                    params={"protocol_major": 2},
+                    headers={"Authorization": f"Bearer {assertion}"},
+                )
+            ).status_code
         prepared = await dynamic.prepare(
             _B_NODE_ID,
             context,
@@ -464,15 +514,6 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 tool_name="get_node_summary",
             )
         )
-        async with httpx.AsyncClient(timeout=5) as client:
-            incompatible_status = (
-                await client.get(
-                    f"http://{args.b_host}:{args.b_gateway_port}/v1/capabilities",
-                    params={"protocol_major": 2},
-                    headers={"Authorization": f"Bearer {assertion}"},
-                )
-            ).status_code
-
         registry.revoke_node(network_id, _A_NODE_ID, reason="acceptance")
         await asyncio.sleep(3)
         revoked_prepare_failed = False
@@ -571,6 +612,10 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             "temporary_18888_removed": after.get(str(args.b_gateway_port)) is False,
         }
         evidence["finished_at"] = datetime.now(UTC).isoformat()
+        runtime_removed = _remove_runtime(runtime)
+        if not runtime_removed:
+            _schedule_runtime_cleanup(runtime)
+        evidence["local_runtime_cleanup"] = "removed" if runtime_removed else "scheduled_after_exit"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(
             json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
