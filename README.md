@@ -4,9 +4,10 @@ TunnelMinion 是一个面向私有网络的跨平台分布式 AI Agent 平台。
 Agent，通过受控工具发现和诊断本机及已授权对等节点上的服务，并利用现有 WireGuard
 隧道完成跨节点通信。
 
-项目当前正在实现首个只读 Windows/macOS MVP，具体范围由
-[`openspec/changes/deliver-ai-agent-over-existing-mesh`](openspec/changes/deliver-ai-agent-over-existing-mesh)
-定义。
+项目已经交付并归档首个只读 Windows/macOS Agent MVP、人工审批的临时服务共享，以及统一
+Prompt/Context Runtime。稳定需求位于 [`openspec/specs`](openspec/specs)，下一阶段按
+[`openspec/ROADMAP.md`](openspec/ROADMAP.md) 规划 Coordinator、节点身份和服务目录，不直接
+实施范围过大的旧自动组网 change。
 
 如果希望先用非框架术语理解产品、当前进度以及 FastAPI、LangChain、LangGraph 的分工，
 请阅读[《从零理解 TunnelMinion》](docs/guide/从零理解-tunnelminion.md)。

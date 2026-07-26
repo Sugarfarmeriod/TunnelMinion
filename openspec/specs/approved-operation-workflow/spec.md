@@ -1,7 +1,10 @@
 # approved-operation-workflow Specification
 
 ## Purpose
-TBD - created by archiving change approve-and-share-local-service. Update Purpose after archive.
+
+规定有副作用操作从结构化计划、目标节点授权、执行、请求节点验证到回滚、到期和恢复的完整
+状态机与审计边界。
+
 ## Requirements
 ### Requirement: Agent 必须生成结构化且可复核的操作计划
 系统 SHALL 要求候选计划包含目标服务证据、请求与目标节点、操作等级、预期变化、访问范围、持续时间、风险、验证方法和回滚方法，并在授权前由服务端重新校验。
@@ -96,4 +99,3 @@ TBD - created by archiving change approve-and-share-local-service. Update Purpos
 #### Scenario: 模型在共享期间不可用
 - **WHEN** 已成功共享的入口尚未过期但模型 Provider 失败
 - **THEN** 系统 SHALL 保持租约计时并在到期时清理入口
-
