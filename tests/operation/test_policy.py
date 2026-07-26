@@ -131,6 +131,31 @@ def test_policy_uses_registry_level_and_refuses_model_downgrade(tmp_path: Path) 
     assert decision.action is PolicyAction.REFUSE
 
 
+def test_explicit_l3_workflow_requires_dedicated_governance_and_stays_out_of_model_tools(
+    tmp_path: Path,
+) -> None:
+    registry = _registry()
+    registry.register(
+        _definition("managed_network_apply", RiskLevel.SENSITIVE),
+        FakeToolAdapter(),
+    )
+    stores = SQLiteStores.open(tmp_path / "l3-governance.sqlite3")
+    policy = OperationPolicy(
+        registry,
+        stores.preauthorizations,
+        l3_governance_workflows=frozenset({"managed_network_apply"}),
+    )
+    decision = policy.evaluate(
+        _plan_for("managed_network_apply", OperationLevel.L3),
+        at=NOW,
+    )
+    assert decision.action is PolicyAction.AWAIT_AUTHORIZATION
+    assert decision.code == "dedicated_governance_required"
+    assert "managed_network_apply" not in {
+        definition.name for definition in registry.model_tools(Platform.WINDOWS)
+    }
+
+
 def test_preauthorization_requires_every_scope_dimension_to_match(tmp_path: Path) -> None:
     stores = SQLiteStores.open(tmp_path / "preauth.sqlite3")
     policy = OperationPolicy(_registry(), stores.preauthorizations)
