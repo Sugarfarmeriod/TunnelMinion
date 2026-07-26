@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -136,20 +137,17 @@ async def _start_server(
     return server, task
 
 
-def _snapshot_b(target: str, cwd: Path) -> dict[str, object]:
-    script = (
-        "python3 - <<'PY'\n"
-        "import json,socket\n"
-        "result={}\n"
-        "for port in (8082,8787,*range(18881,18890)):\n"
-        " s=socket.socket();s.settimeout(.4)\n"
-        " try:s.connect(('10.77.0.1',port));result[str(port)]=True\n"
-        " except OSError:result[str(port)]=False\n"
-        " finally:s.close()\n"
-        "print(json.dumps(result,sort_keys=True))\n"
-        "PY"
-    )
-    return json.loads(_ssh(target, script, cwd=cwd))
+def _snapshot_b(host: str) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for port in (8082, 8787, *range(18_881, 18_890)):
+        try:
+            connection = socket.create_connection((host, port), timeout=0.6)
+        except OSError:
+            result[str(port)] = False
+        else:
+            connection.close()
+            result[str(port)] = True
+    return result
 
 
 async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
@@ -160,7 +158,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         shutil.rmtree(runtime)
     runtime.mkdir(parents=True)
     network_id = NetworkId.new()
-    before = _snapshot_b(args.ssh_target, repo)
+    before = _snapshot_b(args.b_host)
     remote_root = ""
     remote_pid = ""
     agent_server: uvicorn.Server | None = None
@@ -460,6 +458,12 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 tool_name="list_network_listeners",
             )
         )
+        node_summary = await prepared.tools.executor.execute(
+            ToolExecutionRequest(
+                context=context,
+                tool_name="get_node_summary",
+            )
+        )
         async with httpx.AsyncClient(timeout=5) as client:
             incompatible_status = (
                 await client.get(
@@ -521,6 +525,8 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                     "summary_tool_run_id": str(prepared.tools.summary_tool_run_id),
                     "listener_tool_run_id": str(listeners.tool_run_id),
                     "listener_status": listeners.status.value,
+                    "node_summary_tool_run_id": str(node_summary.tool_run_id),
+                    "node_summary_status": node_summary.status.value,
                     "selection": prepared.selection.model_dump(mode="json"),
                 },
                 "fault_matrix": {
@@ -557,11 +563,11 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
                 ),
                 cwd=repo,
             )
-        after = _snapshot_b(args.ssh_target, repo)
+        after = _snapshot_b(args.b_host)
         evidence["after"] = after
         evidence["production_unchanged"] = {
-            "model_8082": before.get("8082") == after.get("8082") is True,
-            "gateway_8787": before.get("8787") == after.get("8787") is True,
+            "model_8082": before.get("8082") is True and after.get("8082") is True,
+            "gateway_8787": before.get("8787") is True and after.get("8787") is True,
             "temporary_18888_removed": after.get(str(args.b_gateway_port)) is False,
         }
         evidence["finished_at"] = datetime.now(UTC).isoformat()
