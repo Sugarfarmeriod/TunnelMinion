@@ -118,6 +118,14 @@ class CoordinatorDirectoryService:
                     nodes=(),
                     full_sync_required=True,
                 )
+            if query.cursor is None and query.after_revision is not None:
+                connection.commit()
+                return DirectoryPage(
+                    server_revision=revision,
+                    generated_at=now,
+                    nodes=(),
+                    full_sync_required=query.after_revision != revision,
+                )
             rows = _query_node_rows(
                 connection,
                 query,

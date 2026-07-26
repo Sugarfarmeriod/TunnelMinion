@@ -299,6 +299,7 @@ class DirectoryQuery(BaseModel):
     service_port: int | None = Field(default=None, ge=1, le=65535)
     service_accessibility: ServiceAccessibility | None = None
     freshness: DirectoryFreshness | None = None
+    after_revision: int | None = Field(default=None, ge=0)
     page_size: int = Field(default=50, ge=1, le=200)
     cursor: str | None = Field(default=None, min_length=16, max_length=512)
 

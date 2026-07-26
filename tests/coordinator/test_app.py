@@ -10,11 +10,13 @@ from pydantic import ValidationError
 from tests.coordinator.test_directory import capability_snapshot, service_snapshot
 from tests.coordinator.test_registry import (
     NETWORK,
+    OTHER_NETWORK,
     MemorySecrets,
     MutableClock,
     authentication,
     enrollment,
     heartbeat_for,
+    identity,
     registration,
 )
 
@@ -30,6 +32,7 @@ from tunnelminion.coordinator.contracts import (
     AuthenticatedDirectoryQuery,
     AuthenticatedServiceSnapshot,
     DirectoryQuery,
+    EnrollmentTokenRequest,
 )
 from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService, SigningKeyService
@@ -118,6 +121,48 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
     agent = cast(ApiClient, TestClient(applications.agent_app))
     admin = cast(ApiClient, TestClient(applications.admin_app))
 
+    forbidden_enrollment = admin.post(
+        "/api/v1/admin/enrollments",
+        json=EnrollmentTokenRequest(network_id=OTHER_NETWORK).model_dump(mode="json"),
+    )
+    assert forbidden_enrollment.status_code == 403
+    created_enrollment = admin.post(
+        "/api/v1/admin/enrollments",
+        json=EnrollmentTokenRequest(network_id=NETWORK).model_dump(mode="json"),
+    )
+    assert created_enrollment.status_code == 200
+    second_registration = registration(
+        created_enrollment.json()["token"],
+        identity(node_id=type(auth.node_id).new(), display_name="second"),
+        device="c" * 64,
+        key="d" * 64,
+    )
+    registered_second = agent.post(
+        "/api/v1/agent/registrations",
+        json=second_registration.model_dump(mode="json"),
+    )
+    assert registered_second.status_code == 200
+    invalid_registration = agent.post(
+        "/api/v1/agent/registrations",
+        json=second_registration.model_copy(
+            update={"enrollment_token": f"tmne_{'x' * 43}"}
+        ).model_dump(mode="json"),
+    )
+    assert invalid_registration.status_code == 409
+    second_auth = authentication(type(registered).model_validate(registered_second.json()))
+    rotated_self = agent.post(
+        "/api/v1/agent/refresh/rotate",
+        json=second_auth.model_dump(mode="json"),
+    )
+    assert rotated_self.status_code == 200
+    assert (
+        agent.post(
+            "/api/v1/agent/refresh/rotate",
+            json=second_auth.model_dump(mode="json"),
+        ).status_code
+        == 401
+    )
+
     heartbeat = agent.post(
         "/api/v1/agent/heartbeat",
         json={
@@ -165,7 +210,7 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
         ).model_dump(mode="json"),
     )
     assert directory_response.status_code == 200
-    assert directory_response.json()["nodes"][0]["capability_count"] == 1
+    assert any(node["capability_count"] == 1 for node in directory_response.json()["nodes"])
     out_of_order = agent.put(
         "/api/v1/agent/snapshots/capabilities",
         json=AuthenticatedCapabilitySnapshot(
