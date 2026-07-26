@@ -129,7 +129,7 @@ Agent 应完成以下闭环：
 - 使用动态工具选择和最小上下文，避免把全部节点工具和状态放进单次提示。
 - 建立工具选择正确率、参数错误率、任务完成率、诊断证据一致性、延迟和成本报告。
 
-对应第一优先级 change：`deliver-ai-agent-over-existing-mesh`。
+已完成并归档 change：`deliver-ai-agent-over-existing-mesh`。
 
 ### 阶段 2：人工审批的安全操作闭环
 
@@ -142,7 +142,7 @@ Agent 应完成以下闭环：
 - 复用同一机制临时开放远程调试面板，但增加一次性访问令牌。
 - 本地页面展示计划、风险、授权依据、执行、验证、回滚和到期状态，不在本阶段重写独立 React 前端。
 
-当前 change：`approve-and-share-local-service`。
+已完成并归档 change：`approve-and-share-local-service`。
 
 ### 阶段 2.5：统一 Prompt 与 Context Runtime
 
@@ -152,7 +152,7 @@ Agent 应完成以下闭环：
 - 建立最小 prompt 注册、版本、输入契约、变更记录和黄金/对抗评估。
 - 将失败区分为上下文、prompt/模型、工具 Harness 和治理问题，并保持无模型时的确定性降级路径。
 
-建议 change：`integrate-agent-context-and-prompt-runtime`。
+已完成并归档 change：`integrate-agent-context-and-prompt-runtime`。
 
 ### 阶段 3：Coordinator 与服务目录
 
@@ -223,9 +223,9 @@ Agent 应完成以下闭环：
 
 | 交付主题 | OpenSpec 状态 | 下一步 |
 |---|---|---|
-| 现有组网上的只读分布式 Agent | `deliver-ai-agent-over-existing-mesh` 已完成 | 归档并同步稳定 specs |
+| 现有组网上的只读分布式 Agent | `deliver-ai-agent-over-existing-mesh` 已完成并归档 | 稳定需求已同步到主规范 |
 | 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已完成并归档 | 稳定需求已同步到主规范 |
-| 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已建立 | 当前实施阶段，按独立任务组提交与验收 |
+| 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已完成并归档 | 稳定需求已同步到主规范 |
 | Coordinator 与服务目录 | 路线图候选 | 建立独立 change |
 | WireGuard 自动管理与连接优化 | 旧 `deliver-minimum-viable-mesh` 过大 | 暂停并拆分后重新规划 |
 | Linux 节点 Provider | 旧 change 中混合存在 | 建立独立 change |

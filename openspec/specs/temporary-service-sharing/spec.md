@@ -1,7 +1,10 @@
 # temporary-service-sharing Specification
 
 ## Purpose
-TBD - created by archiving change approve-and-share-local-service. Update Purpose after archive.
+
+规定在现有 WireGuard 私网中为实时确认的本机 HTTP 服务创建限时、可撤销、可验证且只清理
+自有资源的临时共享入口。
+
 ## Requirements
 ### Requirement: 临时共享必须针对实时确认的本机服务
 系统 SHALL 只为目标节点实时工具已确认存在、仅本机可访问且与计划服务指纹一致的服务创建共享入口。
@@ -60,4 +63,3 @@ TBD - created by archiving change approve-and-share-local-service. Update Purpos
 #### Scenario: 完整共享生命周期结束
 - **WHEN** 一个共享入口创建、验证、使用并到期清理
 - **THEN** 系统 SHALL 证明用户原有 WireGuard、服务、容器和网络配置摘要与操作前一致
-

@@ -1,7 +1,10 @@
 # operation-policy Specification
 
 ## Purpose
-TBD - created by archiving change approve-and-share-local-service. Update Purpose after archive.
+
+规定 L0～L4 确定性风险等级、逐次批准、细粒度预授权、节点所有权和模型不得扩大权限的治理
+规则。
+
 ## Requirements
 ### Requirement: 系统必须使用确定性操作等级
 系统 SHALL 将工具和操作分类为 L0 只读观察、L1 无副作用建议、L2 低风险可逆操作、L3 敏感操作或 L4 禁止操作，并由确定性策略而非模型输出决定实际等级。
@@ -57,4 +60,3 @@ TBD - created by archiving change approve-and-share-local-service. Update Purpos
 #### Scenario: 请求重启服务或修改 WireGuard
 - **WHEN** 用户要求 Agent 重启服务、控制容器或修改 WireGuard 配置
 - **THEN** 系统 SHALL 不把该请求转换为临时共享操作，也 SHALL 不执行任何写工具
-
