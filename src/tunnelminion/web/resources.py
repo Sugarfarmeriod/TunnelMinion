@@ -9,7 +9,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Body
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.coordinator import (
     CoordinatorCache,
@@ -21,6 +21,12 @@ from tunnelminion.coordinator.contracts import (
     NodeStatus,
 )
 from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
+from tunnelminion.network.contracts import ProviderKind
+from tunnelminion.network.path_controller import (
+    DirectPathEvidence,
+    NetworkPathType,
+    PathSelection,
+)
 from tunnelminion.tools.contracts import ToolCallContext, ToolExecutionRequest
 from tunnelminion.tools.runtime import ToolRuntime
 
@@ -33,7 +39,8 @@ pre{overflow:auto}</style>
 <p>这些数据来自确定性只读工具，即使模型不可用也能刷新。</p>
 <button onclick="refreshAll()">刷新</button><div id="content"></div>
 <script>
-const paths=['node-summary','wireguard','listeners','processes','docker','coordinator'];
+const paths=['node-summary','wireguard','listeners','processes','docker',
+'coordinator','network-path'];
 async function refreshAll(){const root=document.getElementById('content');root.innerHTML='';
 for(const name of paths){let data;
 try{const r=await fetch('/api/resources/'+name);data=await r.json();}
@@ -70,12 +77,34 @@ class CoordinatorResourceView(BaseModel):
     nodes: tuple[dict[str, JsonValue], ...] = ()
 
 
+class ManagedPathResourceView(BaseModel):
+    """只展示受管路径维度和新鲜度，不暴露 endpoint 或完整 route。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    configured: bool
+    provider: ProviderKind | None = None
+    revision: int = 0
+    authorization_state: str = Field(default="unconfigured", min_length=1, max_length=64)
+    path_type: NetworkPathType | None = None
+    candidate_count: int = Field(default=0, ge=0, le=8)
+    handshake_fresh: bool = False
+    host_route_present: bool = False
+    target_probe_succeeded: bool = False
+    last_handshake_at: datetime | None = None
+    last_probe_at: datetime | None = None
+    stable_error_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 def create_resource_router(
     runtime: ToolRuntime,
     node_id: NodeId,
     *,
     coordinator_status: Callable[[], CoordinatorSyncStatus] | None = None,
     coordinator_cache: CoordinatorCache | None = None,
+    path_selection: Callable[[], PathSelection | None] | None = None,
+    path_evidence: Callable[[], DirectPathEvidence | None] | None = None,
+    path_authorization: Callable[[], str] | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> APIRouter:
     """创建不依赖模型 Provider 的本机资源路由。"""
@@ -120,6 +149,34 @@ def create_resource_router(
             now=(clock or (lambda: datetime.now(UTC)))(),
         )
 
+    async def network_path() -> ManagedPathResourceView:
+        selection = path_selection() if path_selection is not None else None
+        evidence = path_evidence() if path_evidence is not None else None
+        if selection is None:
+            return ManagedPathResourceView(configured=False)
+        return ManagedPathResourceView(
+            configured=True,
+            provider=selection.provider,
+            revision=selection.revision,
+            authorization_state=(
+                path_authorization() if path_authorization is not None else "unknown"
+            ),
+            path_type=selection.path_type,
+            candidate_count=selection.candidate_count,
+            handshake_fresh=evidence.handshake_fresh if evidence is not None else False,
+            host_route_present=(evidence.host_route_present if evidence is not None else False),
+            target_probe_succeeded=(
+                evidence.target_probe_succeeded if evidence is not None else False
+            ),
+            last_handshake_at=(evidence.last_handshake_at if evidence is not None else None),
+            last_probe_at=evidence.target_probe_at if evidence is not None else None,
+            stable_error_code=(
+                selection.stable_error_code.value
+                if selection.stable_error_code is not None
+                else None
+            ),
+        )
+
     async def probe(
         payload: Annotated[dict[str, JsonValue], Body()],
     ) -> dict[str, object]:
@@ -148,6 +205,12 @@ def create_resource_router(
         coordinator,
         methods=["GET"],
         response_model=CoordinatorResourceView,
+    )
+    router.add_api_route(
+        "/api/resources/network-path",
+        network_path,
+        methods=["GET"],
+        response_model=ManagedPathResourceView,
     )
     router.add_api_route("/api/resources/probe", probe, methods=["POST"])
     router.add_api_route("/resources", page, methods=["GET"], response_class=HTMLResponse)

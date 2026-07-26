@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,7 @@ from tunnelminion.gateway.security import (
     GatewayPeerPolicy,
     GatewaySecurityPolicy,
 )
+from tunnelminion.network.path_controller import GatewayPathEndpoint, NetworkPathType
 
 STATIC_TOKEN = "tmn_test-static-credential-with-more-than-thirty-two-characters"
 
@@ -83,6 +84,40 @@ def test_managed_assertion_is_offline_verified_and_audience_bound(tmp_path: Path
     assert peer.allowed_operations == frozenset()
     assert policy.authenticate(f"Bearer {assertion}", audience="operation-gateway") is None
     assert policy.authenticate(f"Bearer {assertion}tampered") is None
+
+
+def test_managed_assertion_prefers_fresh_verified_path_source(tmp_path: Path) -> None:
+    clock, keys, cache, node, assertion = authorization_view(tmp_path)
+    calls: list[NodeId] = []
+
+    def managed_endpoint(node_id: NodeId, _now: datetime) -> GatewayPathEndpoint:
+        calls.append(node_id)
+        return GatewayPathEndpoint(
+            host="10.203.0.2",
+            port=8787,
+            path_type=NetworkPathType.DIRECT,
+            revision=2,
+            verified_at=NOW,
+            expires_at=NOW + timedelta(seconds=30),
+        )
+
+    policy = GatewaySecurityPolicy(
+        [],
+        managed_peers=[
+            GatewayManagedPeerPolicy(
+                node.identity.node_id,
+                frozenset({"get_node_summary"}),
+            )
+        ],
+        coordinator_cache=cache,
+        pinned_fingerprints={keys.keys[0].fingerprint},
+        wall_clock=clock.utcnow,
+        managed_path_endpoint=managed_endpoint,
+    )
+    peer = policy.authenticate(f"Bearer {assertion}")
+    assert peer is not None
+    assert peer.source_host == "10.203.0.2"
+    assert calls == [node.identity.node_id]
 
 
 def test_revocation_and_cache_expiry_fail_closed_without_breaking_static(

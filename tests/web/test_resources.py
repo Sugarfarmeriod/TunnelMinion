@@ -28,6 +28,12 @@ from tunnelminion.coordinator.contracts import (
 )
 from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.network.contracts import ProviderKind
+from tunnelminion.network.path_controller import (
+    DirectPathEvidence,
+    NetworkPathType,
+    PathSelection,
+)
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.fakes import FakeToolAdapter
 from tunnelminion.tools.registry import ToolRegistry
@@ -86,6 +92,70 @@ def test_resource_routes_work_without_model_provider() -> None:
     assert "即使模型不可用" in page.text
     assert "refreshAll" in page.text
     assert page.headers["cache-control"] == "no-store"
+    assert client.get("/api/resources/network-path").json() == {
+        "configured": False,
+        "provider": None,
+        "revision": 0,
+        "authorization_state": "unconfigured",
+        "path_type": None,
+        "candidate_count": 0,
+        "handshake_fresh": False,
+        "host_route_present": False,
+        "target_probe_succeeded": False,
+        "last_handshake_at": None,
+        "last_probe_at": None,
+        "stable_error_code": None,
+    }
+
+
+def test_network_path_resource_is_redacted_and_explicit() -> None:
+    registry = ToolRegistry()
+    runtime = ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink())
+    selection = PathSelection(
+        path_type=NetworkPathType.DIRECT,
+        provider=ProviderKind.WINDOWS,
+        revision=2,
+        last_known_good_revision=2,
+        candidate_count=2,
+        consecutive_failures=0,
+        consecutive_successes=2,
+        selected_at=NOW,
+        last_evidence_at=NOW,
+    )
+    evidence = DirectPathEvidence(
+        provider=ProviderKind.WINDOWS,
+        revision=2,
+        candidate_count=2,
+        selected_candidate_hash=f"sha256:{'a' * 64}",
+        endpoint_probe_at=NOW,
+        endpoint_probe_succeeded=True,
+        last_handshake_at=NOW,
+        handshake_fresh=True,
+        host_route_present=True,
+        target_probe_at=NOW,
+        target_probe_succeeded=True,
+        verified=True,
+        observed_at=NOW,
+    )
+    app = FastAPI()
+    app.include_router(
+        create_resource_router(
+            runtime,
+            NodeId.new(),
+            path_selection=lambda: selection,
+            path_evidence=lambda: evidence,
+            path_authorization=lambda: "authorized-l3",
+        )
+    )
+    body = cast(ApiClient, TestClient(app)).get("/api/resources/network-path").json()
+    assert body["path_type"] == "direct"
+    assert body["provider"] == "windows"
+    assert body["revision"] == 2
+    assert body["authorization_state"] == "authorized-l3"
+    assert body["handshake_fresh"]
+    serialized = str(body).lower()
+    for forbidden in ("endpoint", "private_key", "selected_candidate_hash", "10.203"):
+        assert forbidden not in serialized
 
 
 def test_coordinator_resource_api_reports_safe_freshness_and_summaries() -> None:

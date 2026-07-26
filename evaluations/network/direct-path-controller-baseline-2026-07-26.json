@@ -1,0 +1,44 @@
+{
+  "schema_version": "direct-path-controller-baseline.v1",
+  "captured_on": "2026-07-26",
+  "mode": "deterministic-offline",
+  "real_managed_network_writes": false,
+  "correctness": {
+    "approved_candidate_success": "pass",
+    "no_approved_candidate": "pass",
+    "endpoint_unreachable": "pass",
+    "handshake_stale": "pass",
+    "host_route_missing": "pass",
+    "target_unreachable": "pass",
+    "expired_direct_rejected": "pass",
+    "static_fallback_without_coordinator": "pass",
+    "revision_rollback_callback": "pass"
+  },
+  "probe_budget": {
+    "default_max_candidates": 4,
+    "per_candidate_timeout_seconds": 1.0,
+    "target_timeout_seconds": 2.0,
+    "theoretical_serial_upper_bound_seconds": 6.0,
+    "note": "这是配置预算上界，不代表真实 A/B 网络延迟。"
+  },
+  "stability": {
+    "default_consecutive_failure_threshold": 3,
+    "default_consecutive_success_threshold": 2,
+    "default_minimum_dwell_seconds": 30,
+    "single_packet_loss_switches_path": false,
+    "sustained_failure_switches_to_static": true,
+    "recovery_requires_success_window": true
+  },
+  "security": {
+    "accepts_raw_conversation_endpoint": false,
+    "candidate_sources_are_structured": true,
+    "resource_view_contains_endpoint": false,
+    "resource_view_contains_full_route": false,
+    "resource_view_contains_secret": false
+  },
+  "limitations": [
+    "未在未授权的新 WireGuard 接口上测量真实切换中断或吞吐。",
+    "未宣称验证 NAT 类型或 relay 数据面。",
+    "真实 managed 写入仍由 OpenSpec 第 10 阶段授权门禁阻止。"
+  ]
+}
