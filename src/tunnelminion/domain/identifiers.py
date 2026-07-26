@@ -64,6 +64,18 @@ class CoordinatorAuditId(_Identifier):
     prefix = "coordaudit"
 
 
+class EnrollmentTokenId(_Identifier):
+    """一次性 enrollment token 的非秘密记录标识。"""
+
+    prefix = "enrollment"
+
+
+class RefreshCredentialId(_Identifier):
+    """逐节点 refresh 凭据的非秘密记录标识。"""
+
+    prefix = "refresh"
+
+
 class ThreadId(_Identifier):
     """本地对话线程的身份标识。"""
 
