@@ -13,7 +13,9 @@ from typing import cast
 
 from tunnelminion.coordinator.contracts import (
     COORDINATOR_PROTOCOL,
+    CapabilityAvailability,
     CapabilitySnapshot,
+    CapabilitySummary,
     CoordinatorAuditAction,
     CoordinatorErrorCode,
     DirectoryFreshness,
@@ -37,6 +39,8 @@ from tunnelminion.coordinator.registry import (
     next_revision_for_transaction,
 )
 from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.domain.tools import Platform, RiskLevel
+from tunnelminion.domain.versioning import ProtocolVersion
 
 
 @dataclass(frozen=True)
@@ -132,7 +136,9 @@ class CoordinatorDirectoryService:
                 after_node=after_node,
                 snapshot_cutoff=now - timedelta(seconds=self._policy.snapshot_ttl_seconds),
             )
-            summaries = tuple(_node_summary(row, query, now, self._policy) for row in rows)
+            summaries = tuple(
+                _node_summary(connection, row, query, now, self._policy) for row in rows
+            )
             selected = summaries[: query.page_size]
             has_more = len(summaries) > query.page_size
             next_cursor = (
@@ -508,6 +514,7 @@ def _query_node_rows(
 
 
 def _node_summary(
+    connection: sqlite3.Connection,
     row: sqlite3.Row,
     query: DirectoryQuery,
     now: datetime,
@@ -529,9 +536,44 @@ def _node_summary(
             if row["last_received_at"] is not None
             else None
         ),
+        capabilities=_node_capabilities(
+            connection,
+            cast(str, row["network_id"]),
+            cast(str, row["node_id"]),
+        ),
         capability_count=cast(int, row["capability_count"]),
         service_count=cast(int, row["service_count"]),
         server_revision=cast(int, row["server_revision"]),
+    )
+
+
+def _node_capabilities(
+    connection: sqlite3.Connection,
+    network_id: str,
+    node_id: str,
+) -> tuple[CapabilitySummary, ...]:
+    """返回目录预筛选所需的最小能力字段，不暴露 schema 或工具正文。"""
+    rows = connection.execute(
+        """SELECT name, version_major, version_minor, platform, risk_level,
+                  availability, schema_hash
+           FROM capability_directory
+           WHERE network_id=? AND node_id=?
+           ORDER BY name, version_major, version_minor""",
+        (network_id, node_id),
+    ).fetchall()
+    return tuple(
+        CapabilitySummary(
+            name=cast(str, item["name"]),
+            version=ProtocolVersion(
+                major=cast(int, item["version_major"]),
+                minor=cast(int, item["version_minor"]),
+            ),
+            platform=Platform(cast(str, item["platform"])),
+            risk_level=RiskLevel(cast(str, item["risk_level"])),
+            availability=CapabilityAvailability(cast(str, item["availability"])),
+            schema_hash=cast(str, item["schema_hash"]),
+        )
+        for item in rows
     )
 
 

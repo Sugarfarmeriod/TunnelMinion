@@ -19,6 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.coordinator.contracts import (
+    AccessAssertionRequest,
+    AccessAssertionResponse,
     CapabilityAvailability,
     CapabilitySnapshot,
     CapabilitySummary,
@@ -149,6 +151,19 @@ class HttpCoordinatorTransport:
     async def verification_keys(self) -> VerificationKeySet:
         return VerificationKeySet.model_validate(
             await self._request("GET", "/api/v1/agent/verification-keys")
+        )
+
+    async def issue_assertion(
+        self,
+        request: AccessAssertionRequest,
+    ) -> AccessAssertionResponse:
+        """为一次目标直连获取短期、指定 audience 的签名身份。"""
+        return AccessAssertionResponse.model_validate(
+            await self._request(
+                "POST",
+                "/api/v1/agent/assertions",
+                request.model_dump(mode="json"),
+            )
         )
 
     async def heartbeat(

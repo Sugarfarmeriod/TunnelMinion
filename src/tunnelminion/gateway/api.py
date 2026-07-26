@@ -138,7 +138,8 @@ def create_gateway_router(
         return _error(status_code, code, message)
 
     def authenticate(authorization: str | None, action: str) -> GatewayPeerPolicy | JSONResponse:
-        peer = security_policy.authenticate(authorization)
+        audience = "operation-gateway" if action.startswith("operation_") else "tool-gateway"
+        peer = security_policy.authenticate(authorization, audience=audience)
         if peer is None:
             return reject(
                 status.HTTP_401_UNAUTHORIZED,

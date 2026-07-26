@@ -278,6 +278,7 @@ class DirectoryNodeSummary(BaseModel):
     status: NodeStatus
     freshness: DirectoryFreshness
     last_received_at: datetime | None
+    capabilities: tuple[CapabilitySummary, ...] = Field(default=(), max_length=256)
     capability_count: int = Field(ge=0)
     service_count: int = Field(ge=0)
     server_revision: int = Field(ge=0)

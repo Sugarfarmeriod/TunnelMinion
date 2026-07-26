@@ -39,6 +39,8 @@ from tunnelminion.agent.coordinator import (
 )
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.coordinator.contracts import (
+    AccessAssertionRequest,
+    AccessAssertionResponse,
     CapabilitySnapshot,
     CapabilitySummary,
     DirectoryPage,
@@ -545,6 +547,15 @@ async def test_http_transport_success_errors_timeout_and_invalid_json() -> None:
             return httpx.Response(200, json=response.model_dump(mode="json"))
         if request.url.path.endswith("verification-keys"):
             return httpx.Response(200, json=key_set().model_dump(mode="json"))
+        if request.url.path.endswith("assertions"):
+            return httpx.Response(
+                200,
+                json=AccessAssertionResponse(
+                    assertion="x" * 80,
+                    key_id="key-test",
+                    expires_at=NOW + timedelta(seconds=120),
+                ).model_dump(mode="json"),
+            )
         if request.url.path.endswith("heartbeat"):
             return httpx.Response(
                 200,
@@ -586,6 +597,11 @@ async def test_http_transport_success_errors_timeout_and_invalid_json() -> None:
     )
     assert (await transport.register(registration_request)).identity.node_id
     assert (await transport.verification_keys()).keys
+    assert (
+        await transport.issue_assertion(
+            AccessAssertionRequest(authentication=auth, audience="tool-gateway")
+        )
+    ).key_id == "key-test"
     heartbeat = HeartbeatRequest(
         network_id=auth.network_id,
         node_id=auth.node_id,
