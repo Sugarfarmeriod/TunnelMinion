@@ -81,14 +81,14 @@
 
 ## 8. relay 机制与隔离三节点闭环
 
-- [ ] 8.1 根据 1.5 spike 结果固定 relay 机制、信任边界、协议、身份、容量、超时、速率和部署前置条件；若证据不足则拆分 change 而不伪实现
-- [ ] 8.2 实现显式 relay-capable/active 角色、管理员启用/撤销和 Coordinator 路径修订
-- [ ] 8.3 实现 relay 客户端/服务端最小数据面或受信 hub Provider，不复用普通 Coordinator API 监听
-- [ ] 8.4 实现 relay 身份认证、network/node 隔离、容量/并发/带宽预算、审计和敏感数据边界
-- [ ] 8.5 实现 direct 达阈值后切换 relayed、实际路径验证、状态展示和 direct 稳定恢复后的安全切回
-- [ ] 8.6 建立隔离三节点环境，验证至少一条 direct、一条 relayed、relay 离线、容量耗尽、撤销和恢复
-- [ ] 8.7 记录 relay 与 direct 的握手、切换中断、延迟、吞吐、CPU/内存和信任差异，不宣称未测 NAT 类型
-- [ ] 8.8 运行 relay 协议、隔离、DoS、性能、安全和恢复门禁，提交并推送 relay 阶段
+- [x] 8.1 根据 1.5 spike 确认不透明专用 packet relay 方向；因缺少协议/DoS/三节点证据，拆分为 `build-isolated-packet-relay`
+- [x] 8.2 将 relay-capable/active、管理员启用/撤销和路径 revision 迁移到独立 change，本 change 保留现有角色契约
+- [x] 8.3 禁止在本 change 伪实现 relay 数据面或复用普通 Coordinator；客户端/服务端迁移到独立 change
+- [x] 8.4 将 relay 身份、network/node 隔离、容量/带宽、审计和敏感数据边界迁移到独立 change
+- [x] 8.5 将 direct/relayed 切换、实际 relay 验证与安全切回迁移到独立 change；当前无 relay 时保持 static/degraded
+- [x] 8.6 将隔离三节点 direct/relayed、离线、容量、撤销和恢复矩阵迁移到独立 change
+- [x] 8.7 将真实握手、切换中断、延迟、吞吐、CPU/内存和信任对照迁移到独立 change，不宣称未测 NAT 类型
+- [x] 8.8 完成 relay 拆分门禁；本 change 不提交未经验证的协议/数据面，独立 change 自行执行全套门禁
 
 ## 9. 评估、运维与安全收尾
 
