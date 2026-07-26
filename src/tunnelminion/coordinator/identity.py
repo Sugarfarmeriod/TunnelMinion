@@ -40,6 +40,7 @@ from tunnelminion.model.secrets import SecretStore
 
 ASSERTION_ISSUER = "tunnelminion-coordinator"
 SIGNING_KEY_REFERENCE_PREFIX = "coordinator-signing:"
+ASSERTION_ISSUED_AT_LEEWAY_SECONDS = 5
 
 
 class AssertionVerificationError(ValueError):
@@ -253,7 +254,10 @@ class OfflineAssertionVerifier:
         if key.fingerprint not in self._pins:
             raise AssertionVerificationError("assertion key 指纹未固定")
         now = _utc_now(self._clock())
-        if key.activates_at > now or (key.retires_at is not None and key.retires_at <= now):
+        issued_at_leeway = timedelta(seconds=ASSERTION_ISSUED_AT_LEEWAY_SECONDS)
+        if key.activates_at > now + issued_at_leeway or (
+            key.retires_at is not None and key.retires_at <= now
+        ):
             raise AssertionVerificationError("assertion key 不在验证窗口")
         try:
             public_key = Ed25519PublicKey.from_public_bytes(_b64url_decode(key.public_key))
@@ -315,7 +319,7 @@ class OfflineAssertionVerifier:
             or any(character not in "0123456789abcdef" for character in jti)
             or not_before != issued
             or expires - issued != timedelta(seconds=ASSERTION_TTL_SECONDS)
-            or issued > now
+            or issued > now + issued_at_leeway
             or expires <= now
         ):
             raise AssertionVerificationError("assertion 绑定或时间边界无效")

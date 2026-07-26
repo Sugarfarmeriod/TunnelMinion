@@ -161,7 +161,10 @@ Agent 应完成以下闭环：
 - 根据节点、用户权限和任务阶段动态暴露工具。
 - 为跨节点请求建立认证、授权、速率限制和审计。
 
-建议 change：`coordinate-agent-network`。
+`coordinate-agent-network` 已在 2026-07-26 完成实现和真实 A/B 迁移验收：节点注册、撤销、
+心跳、能力/服务目录、Ed25519 短期身份、动态工具复核、管理/资源视图、综合评估和 static
+回退均已建立。它没有修改 WireGuard、生产 Gateway、模型端口或防火墙；下一阶段仍是独立的
+自动组网 change。
 
 ### 阶段 4：自动组网与连接优化
 
@@ -226,7 +229,7 @@ Agent 应完成以下闭环：
 | 现有组网上的只读分布式 Agent | `deliver-ai-agent-over-existing-mesh` 已完成并归档 | 稳定需求已同步到主规范 |
 | 批准与预授权的临时服务共享 | `approve-and-share-local-service` 已完成并归档 | 稳定需求已同步到主规范 |
 | 统一 Prompt 与 Context Runtime | `integrate-agent-context-and-prompt-runtime` 已完成并归档 | 稳定需求已同步到主规范 |
-| Coordinator 与服务目录 | `coordinate-agent-network` 已建立 | 需求核对后按独立任务组实施 |
+| Coordinator 与服务目录 | `coordinate-agent-network` 已完成真机验收 | 合并后归档并同步稳定规范 |
 | WireGuard 自动管理与连接优化 | 旧 `deliver-minimum-viable-mesh` 过大 | 暂停并拆分后重新规划 |
 | Linux 节点 Provider | 旧 change 中混合存在 | 建立独立 change |
 | 本地产品体验 | 路线图候选 | 在安全操作闭环得到真实反馈后提案 |

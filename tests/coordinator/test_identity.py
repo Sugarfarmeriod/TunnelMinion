@@ -159,6 +159,21 @@ def test_issue_and_verify_bound_assertion_with_bounded_replay(tmp_path: Path) ->
     assert verified.expires_at - verified.issued_at == timedelta(seconds=120)
     assert issued.key_id == verified.key_id
 
+    clock.now -= timedelta(seconds=5)
+    verifier.verify(
+        issued.assertion,
+        audience="tool-gateway",
+        network_id=NETWORK,
+    )
+    clock.now -= timedelta(seconds=1)
+    with pytest.raises(AssertionVerificationError, match="验证窗口"):
+        verifier.verify(
+            issued.assertion,
+            audience="tool-gateway",
+            network_id=NETWORK,
+        )
+
+    clock.now += timedelta(seconds=6)
     clock.now += timedelta(seconds=120)
     with pytest.raises(AssertionVerificationError, match="时间边界"):
         verifier.verify(
@@ -249,7 +264,7 @@ def test_assertion_rejects_key_windows_and_malformed_claim_types(
     }
 
     future_set = key_set.model_copy(
-        update={"keys": (key.model_copy(update={"activates_at": NOW + timedelta(seconds=1)}),)}
+        update={"keys": (key.model_copy(update={"activates_at": NOW + timedelta(seconds=6)}),)}
     )
     with pytest.raises(AssertionVerificationError, match="验证窗口"):
         OfflineAssertionVerifier(

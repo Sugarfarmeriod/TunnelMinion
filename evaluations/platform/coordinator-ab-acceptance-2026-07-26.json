@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "acceptance": "coordinator-real-ab-migration",
+  "started_at": "2026-07-26T08:50:16.424730+00:00",
+  "network_id": "network_e5db1c34d059402d85365b5f20ca3664",
+  "nodes": {
+    "a": "node_129841509f55473d8d9d3ca363850204",
+    "b": "node_406913ccf29f4774a908c0435dbe8c5b"
+  },
+  "bindings": {
+    "agent": "10.77.0.2:8790",
+    "admin": "127.0.0.1:8791",
+    "temporary_b_gateway": "10.77.0.1:18888"
+  },
+  "before": {
+    "8082": true,
+    "8787": true,
+    "18881": false,
+    "18882": false,
+    "18883": false,
+    "18884": false,
+    "18885": false,
+    "18886": false,
+    "18887": false,
+    "18888": false,
+    "18889": false
+  },
+  "assertion_diagnostic": {
+    "accepted": true,
+    "reason": "verified",
+    "node_present": true,
+    "node_status": "online",
+    "node_freshness": "fresh"
+  },
+  "registration_order": [
+    "b",
+    "a"
+  ],
+  "remote_ready": {
+    "node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+    "gateway": "10.77.0.1:18888",
+    "capability_count": 6,
+    "service_state": "stopped",
+    "token_file_removed": true,
+    "authorization_nodes": [
+      {
+        "node_id": "node_129841509f55473d8d9d3ca363850204",
+        "status": "online",
+        "freshness": "fresh"
+      },
+      {
+        "node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+        "status": "online",
+        "freshness": "fresh"
+      }
+    ]
+  },
+  "enrollment_replay_status": 401,
+  "managed_flow": {
+    "selected_tools": [
+      "list_network_listeners",
+      "get_node_summary"
+    ],
+    "summary_tool_run_id": "toolrun_2f7b1f6ea4ef40bc95107e6bd70a8acd",
+    "listener_tool_run_id": "toolrun_f584cb761fc747a48d87ff1cf1035afa",
+    "listener_status": "success",
+    "node_summary_tool_run_id": "toolrun_ce0c765ee11b43d89677034fa139c2ce",
+    "node_summary_status": "success",
+    "selection": {
+      "network_id": "network_e5db1c34d059402d85365b5f20ca3664",
+      "target_node_id": "node_406913ccf29f4774a908c0435dbe8c5b",
+      "server_revision": 12,
+      "direct_capability_revision": "7470497496bc96625b0dab052061441cf40d56c5351b7580b04352829b894c68",
+      "candidate_count": 6,
+      "retained_count": 2,
+      "excluded_count": 4,
+      "exclusion_reasons": {
+        "task_stage": 4
+      },
+      "used_static_fallback": false
+    }
+  },
+  "fault_matrix": {
+    "protocol_incompatible_status": 409,
+    "revoked_node_denied": true,
+    "coordinator_offline": true,
+    "expired_cache_unauthenticated_status": 401
+  },
+  "static_fallback": {
+    "endpoint": "http://10.77.0.1:8787",
+    "unauthenticated_status": 401,
+    "tool_statuses": {
+      "get_wireguard_status": "success",
+      "list_network_listeners": "success",
+      "get_process_summary": "success",
+      "list_docker_services": "failed",
+      "probe_service_reachability": "success",
+      "get_node_summary": "success"
+    }
+  },
+  "remote_pid": 80275,
+  "after": {
+    "8082": true,
+    "8787": true,
+    "18881": false,
+    "18882": false,
+    "18883": false,
+    "18884": false,
+    "18885": false,
+    "18886": false,
+    "18887": false,
+    "18888": false,
+    "18889": false
+  },
+  "production_unchanged": {
+    "model_8082": true,
+    "gateway_8787": true,
+    "temporary_18888_removed": true
+  },
+  "finished_at": "2026-07-26T08:51:32.569492+00:00",
+  "local_runtime_cleanup": "scheduled_after_exit"
+}

@@ -4,8 +4,8 @@
 
 本威胁模型覆盖只读诊断和首个 L2 写路径“临时共享本机 HTTP 服务”，包括本地 Web UI、
 模型 Provider、候选计划、确定性 Tool/Operation Runtime、目标节点授权、租约、资源所有权、
-请求节点验证和恢复。自动管理 WireGuard、通用 TCP、服务重启、Docker 控制、公开共享、
-Coordinator 和企业 RBAC 不属于当前 change。
+请求节点验证和恢复，以及 Coordinator 节点注册、目录、短期 assertion、撤销和缓存降级。
+自动管理 WireGuard、通用 TCP、服务重启、Docker 控制、公开共享和企业 RBAC 不属于当前范围。
 
 ## 资产与信任边界
 
@@ -34,6 +34,9 @@ WireGuard 负责网络 peer 认证，但不能替代应用认证或工具授权�
 | 工具参数注入 | 模型加入命令参数、shell 语法、未知字段或端口 70000 | Pydantic schema 禁止额外字段并在适配器调用前校验范围；适配器只使用固定 API/参数列表 | 返回 `invalid_argument`，不得产生系统调用 |
 | 编造工具或版本 | 模型编造 `restart_service` 或请求不兼容 schema | 注册表精确匹配、只读允许列表、主版本兼容检查 | 返回 `tool_not_found`、`operation_not_supported` 或 `version_incompatible` |
 | 未认证远端访问 | 局域网进程或未知 WireGuard peer 调用 B | 网关仅绑定配置的 WireGuard 地址；独立节点凭据和 peer 允许列表 | 调度前返回 `unauthenticated`；只记录无秘密的审计元数据 |
+| Coordinator 身份伪造 | 重放 enrollment、伪造 assertion、算法降级或跨 network 使用 | 一次性原子消费 token；refresh 哈希；Ed25519、固定 key ID/指纹、audience/network/node/protocol/TTL 绑定 | 重放返回 401；未知 key、错误 audience、篡改和跨 network 全部失败关闭 |
+| 撤销或陈旧目录绕过 | Coordinator 离线后继续把撤销节点或旧 endpoint 当实时节点 | Gateway 仅使用有 TTL 的本地授权缓存；撤销修订到达立即拒绝；缓存过期 managed 身份失败关闭 | 页面显示 stale/offline/managed-auth-expired；static peer 不被目录静默覆盖 |
+| 节点时钟轻微偏差 | assertion 在 A 签发后因 B 慢约 1 秒而被误判“来自未来” | 只对 `issued_at` 和 key 激活时间允许固定 5 秒未来偏差；固定 120 秒 TTL 与过期判断不延长 | 超过 5 秒仍拒绝；真机记录秒级差值但不保存 assertion |
 | 跨 namespace 访问 | A 请求 B 的对话、模型配置或私有记忆 | 远端 schema 仅暴露批准的系统元数据；存储必须校验用户/网络/节点 namespace | 返回 `forbidden`；建立 namespace 隔离回归测试 |
 | 秘密泄露 | 异常、日志、导出、模型 prompt 或 API 响应包含 API key | 操作系统凭据存储、允许列表序列化、秘密类型不进入通用模型、禁止读取 WireGuard 私钥 | 测试与发布检查扫描秘密；未知导出字段默认拒绝 |
 | 拒绝服务 | 重复调用昂贵工具、巨大结果、慢 peer 或无限模型循环 | 每个 run 具有模型/工具预算、速率限制、并发限制、超时、取消和字节限制 | 返回明确超时/大小/速率错误；保留有界审计元数据 |
@@ -59,6 +62,8 @@ WireGuard 负责网络 peer 认证，但不能替代应用认证或工具授权�
 - 单个依赖缺失或权限不足只能使对应能力降级，不得导致整个运行时失败。
 - 实时状态结论必须引用有效证据；缺少证据时必须明确标记未知，禁止使用模型猜测。
 - 现有 `HomeMac` 和 B 的 WireGuard 配置不得被创建、修改或删除。
+- Coordinator 不得接收工具/操作正文、模型密钥、对话、记忆或 WireGuard 私钥，也不得代理数据面。
+- managed 缓存到期必须失败关闭；static peer 不得被 Coordinator 配置删除或扩权。
 - 模型不可批准、预授权、执行、撤销或清理操作；这些路径在模型不可用时仍必须工作。
 - 禁止操作执行、安全边界绕过、凭据泄露、错误资源删除和假成功出现一次即阻断发布。
 
