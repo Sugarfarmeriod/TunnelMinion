@@ -41,7 +41,7 @@ from tunnelminion.domain.identifiers import (
     RefreshCredentialId,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ENROLLMENT_PREFIX = "tmne_"
 REFRESH_PREFIX = "tmnr_"
 
@@ -223,6 +223,110 @@ class SQLiteCoordinatorStore:
                     ON capability_directory(network_id, name, version_major, version_minor);
                 CREATE INDEX IF NOT EXISTS service_lookup
                     ON service_directory(network_id, protocol, port, accessibility, lifecycle);
+                CREATE TABLE IF NOT EXISTS network_address_pools (
+                    network_id TEXT NOT NULL,
+                    pool TEXT NOT NULL,
+                    reserved_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    revoked_at TEXT,
+                    PRIMARY KEY(network_id, pool),
+                    FOREIGN KEY(network_id) REFERENCES networks(network_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_address_leases (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    address TEXT NOT NULL,
+                    pool TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    released_at TEXT,
+                    PRIMARY KEY(network_id, node_id),
+                    FOREIGN KEY(network_id, pool)
+                        REFERENCES network_address_pools(network_id, pool),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_public_keys (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    activated_at TEXT,
+                    retired_at TEXT,
+                    PRIMARY KEY(network_id, node_id, public_key),
+                    UNIQUE(network_id, public_key),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_endpoint_candidates (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id, host, port, source),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_relay_roles (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    capability_verified INTEGER NOT NULL,
+                    revision INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_sagas (
+                    network_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    parent_revision INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    required_nodes_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, revision),
+                    FOREIGN KEY(network_id) REFERENCES networks(network_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_desired_configs (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    parent_revision INTEGER NOT NULL,
+                    key_id TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    envelope_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id, revision),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS network_acknowledgements (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    stage TEXT NOT NULL,
+                    plan_hash TEXT,
+                    receipt_hash TEXT,
+                    error_code TEXT,
+                    error_json TEXT,
+                    acknowledged_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id, revision),
+                    FOREIGN KEY(network_id, revision)
+                        REFERENCES network_sagas(network_id, revision),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE INDEX IF NOT EXISTS network_candidate_expiry
+                    ON network_endpoint_candidates(network_id, node_id, expires_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS network_active_lease_address
+                    ON network_address_leases(network_id, address)
+                    WHERE status != 'released';
+                CREATE INDEX IF NOT EXISTS network_config_lookup
+                    ON network_desired_configs(network_id, node_id, revision);
                 """
             )
             row = cast(
@@ -244,6 +348,9 @@ class SQLiteCoordinatorStore:
             if version == 2:
                 connection.execute("UPDATE schema_metadata SET version=3")
                 version = 3
+            if version == 3:
+                connection.execute("UPDATE schema_metadata SET version=4")
+                version = 4
             if version != SCHEMA_VERSION:
                 raise RuntimeError("Coordinator SQLite schema 版本不兼容")
 
@@ -1025,7 +1132,7 @@ def _next_revision(connection: sqlite3.Connection, network_id: NetworkId) -> int
 def _insert_audit(
     connection: sqlite3.Connection,
     network_id: NetworkId,
-    node_id: NodeId,
+    node_id: NodeId | None,
     revision: int,
     action: CoordinatorAuditAction,
     now: datetime,
@@ -1040,7 +1147,7 @@ def _insert_audit(
         (
             str(CoordinatorAuditId.new()),
             str(network_id),
-            str(node_id),
+            str(node_id) if node_id is not None else None,
             revision,
             action.value,
             CoordinatorAuditResult.SUCCEEDED.value,
@@ -1094,7 +1201,7 @@ def next_revision_for_transaction(
 def insert_audit_for_transaction(
     connection: sqlite3.Connection,
     network_id: NetworkId,
-    node_id: NodeId,
+    node_id: NodeId | None,
     revision: int,
     action: CoordinatorAuditAction,
     now: datetime,

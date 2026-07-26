@@ -170,6 +170,14 @@ def test_store_schema_is_versioned_complete_and_reopens(tmp_path: Path) -> None:
         "revisions",
         "coordinator_audit",
         "registration_idempotency",
+        "network_address_pools",
+        "network_address_leases",
+        "network_public_keys",
+        "network_endpoint_candidates",
+        "network_relay_roles",
+        "network_sagas",
+        "network_desired_configs",
+        "network_acknowledgements",
     }
     assert store.schema_version() == SCHEMA_VERSION
     assert expected <= store.table_names()
@@ -615,7 +623,7 @@ def test_schema_v1_migration_adds_heartbeat_timestamps(tmp_path: Path) -> None:
     store = SQLiteCoordinatorStore(path)
     with store.connect() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(nodes)").fetchall()}
-    assert store.schema_version() == 3
+    assert store.schema_version() == SCHEMA_VERSION
     assert {"last_received_at", "last_agent_sent_at"} <= columns
 
 

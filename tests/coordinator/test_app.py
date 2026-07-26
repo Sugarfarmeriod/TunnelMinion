@@ -31,12 +31,25 @@ from tunnelminion.coordinator.contracts import (
     AuthenticatedCapabilitySnapshot,
     AuthenticatedDirectoryQuery,
     AuthenticatedServiceSnapshot,
+    CoordinatorErrorCode,
     DirectoryQuery,
     EnrollmentTokenRequest,
 )
 from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService, SigningKeyService
-from tunnelminion.coordinator.registry import CoordinatorRegistryService, SQLiteCoordinatorStore
+from tunnelminion.coordinator.network_control import (
+    AddressPoolRequest,
+    ManagedNetworkControlService,
+    ManagedNetworkRequest,
+    RelayRoleRequest,
+)
+from tunnelminion.coordinator.registry import (
+    CoordinatorRegistryService,
+    RegistryError,
+    SQLiteCoordinatorStore,
+)
+from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.network.contracts import RelayRole
 
 
 class ApiClient(Protocol):
@@ -101,6 +114,51 @@ def test_admin_api_rejects_non_loopback_and_config_rejects_unknown_fields(
         )
 
 
+def test_managed_network_admin_routes_map_service_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = SQLiteCoordinatorStore(tmp_path / "coordinator.sqlite3")
+    keys = SigningKeyService(store, MemorySecrets())
+    keys.rotate()
+    control = ManagedNetworkControlService(store, keys)
+    config = CoordinatorApplicationConfig(
+        data_path=store.path,
+        agent_bind=CoordinatorAgentBindConfig(host="10.77.0.1", port=8790),
+    )
+    admin = cast(
+        ApiClient,
+        TestClient(
+            build_coordinator_applications(
+                config,
+                network_control=control,
+            ).admin_app
+        ),
+    )
+
+    def reject(*_args: object, **_kwargs: object) -> None:
+        raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "测试拒绝")
+
+    monkeypatch.setattr(control, "create_network", reject)
+    assert (
+        admin.post(
+            "/api/v1/admin/networks",
+            json=ManagedNetworkRequest(network_id=NETWORK).model_dump(mode="json"),
+        ).status_code
+        == 403
+    )
+    monkeypatch.setattr(control, "list_address_pools", reject)
+    assert admin.get(f"/api/v1/admin/networks/{NETWORK}/address-pools").status_code == 403
+    monkeypatch.setattr(control, "set_relay_role", reject)
+    assert (
+        admin.put(
+            f"/api/v1/admin/networks/{NETWORK}/nodes/{NodeId.new()}/relay-role",
+            json=RelayRoleRequest(role=RelayRole.NONE).model_dump(mode="json"),
+        ).status_code
+        == 403
+    )
+
+
 def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
     clock = MutableClock()
     store = SQLiteCoordinatorStore(tmp_path / "coordinator.sqlite3")
@@ -114,6 +172,7 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
     keys.rotate()
     assertions = AssertionService(registry, keys, clock=clock.utcnow)
     directory = CoordinatorDirectoryService(store, registry, clock=clock.utcnow)
+    network_control = ManagedNetworkControlService(store, keys, clock=clock.utcnow)
     config = CoordinatorApplicationConfig(
         data_path=store.path,
         agent_bind=CoordinatorAgentBindConfig(host="10.77.0.1", port=8790),
@@ -123,9 +182,47 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
         registry=registry,
         assertions=assertions,
         directory=directory,
+        network_control=network_control,
     )
     agent = cast(ApiClient, TestClient(applications.agent_app))
     admin = cast(ApiClient, TestClient(applications.admin_app))
+
+    managed = admin.post(
+        "/api/v1/admin/networks",
+        json=ManagedNetworkRequest(network_id=NETWORK).model_dump(mode="json"),
+    )
+    assert managed.json() == {"network_id": str(NETWORK)}
+    pool_path = f"/api/v1/admin/networks/{NETWORK}/address-pools"
+    pool_request = AddressPoolRequest(
+        pool="10.204.0.0/29",
+        reserved_addresses=("10.204.0.1",),
+    )
+    assert admin.post(pool_path, json=pool_request.model_dump(mode="json")).status_code == 200
+    assert admin.get(pool_path).json()[0]["pool"] == "10.204.0.0/29"
+    relay_path = f"/api/v1/admin/networks/{NETWORK}/nodes/{auth.node_id}/relay-role"
+    relay = admin.put(
+        relay_path,
+        json=RelayRoleRequest(
+            role=RelayRole.CAPABLE,
+            capability_verified=True,
+        ).model_dump(mode="json"),
+    )
+    assert relay.json()["role"] == RelayRole.CAPABLE.value
+    assert agent.get(pool_path).status_code == 404
+    assert (
+        admin.post(
+            f"/api/v1/admin/networks/{OTHER_NETWORK}/address-pools",
+            json=pool_request.model_dump(mode="json"),
+        ).status_code
+        == 403
+    )
+    assert (
+        admin.put(
+            relay_path,
+            json={"role": "active", "capability_verified": False},
+        ).status_code
+        == 422
+    )
 
     forbidden_enrollment = admin.post(
         "/api/v1/admin/enrollments",
