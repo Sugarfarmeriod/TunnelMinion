@@ -53,5 +53,6 @@ uv run tunnelminion --data-dir .data/a --port 8765
 `http://127.0.0.1:8765/api/docs` 查看模型配置、thread/run、记忆与资源 API。服务固定绑定环回
 地址，不会直接暴露到局域网或 WireGuard 网络。
 
-MVP 将现有 WireGuard 网络视为只读基础设施。任何开发命令和测试都不得创建、修改或
-删除 WireGuard 配置。
+默认运行仍将现有 WireGuard 网络视为用户基础设施。仓库包含受管网络 Provider 的离线实现与
+fake 测试，但真实 A/B 写入必须使用独立接口、完整回滚计划并获得单独明确授权；普通开发命令
+和测试不得创建、修改或删除现有 WireGuard 配置。

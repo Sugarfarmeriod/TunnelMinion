@@ -121,8 +121,22 @@ WireGuard 私钥不会进入 Coordinator。
 | 临时资源是否可删除 | 租约、资源所有权指纹与恢复器 |
 | 成功是否成立 | A 的独立回调验证，不接受 B 自报成功 |
 
-架构仍不修改 WireGuard、路由、防火墙、原服务或 Docker。唯一写路径是创建和清理
-TunnelMinion 自有的限时 HTTP 代理资源。
+默认运行和现有 A/B 生产路径仍不修改 WireGuard、路由、防火墙、原服务或 Docker。仓库已经
+实现受管 WireGuard 的 L3 Provider、配置 saga 和路径控制器，但它们只能管理具有双重所有权
+证据的独立资源，并继续受本机批准门禁约束；真实 A/B 尚未授权启用。当前已验收的生产写路径
+仍只有创建和清理 TunnelMinion 自有的限时 HTTP 代理资源。
+
+## 受管连接 Harness 与模型边界
+
+受管连接沿 `signed desired config → local policy → provider plan → apply receipts → independent
+verify → rollback/recover` 收敛。地址、route、endpoint、revision 和授权都来自结构化控制面
+与本机策略，不从聊天文本、Prompt、记忆或模型输出读取。
+
+路径控制器只把新鲜 handshake、精确 host route 和目标探测同时通过的候选标为 `direct`。
+relay 没有三节点证据时保持 `static/degraded`；控制面离线时保留 last-known-good 和 static
+peer。模型可为状态生成解释，但启用或禁用模型后，Provider 计划哈希、授权、执行、验证、
+回滚和路径选择必须完全相同。固定故障矩阵与指标见
+[受管连接第 9 阶段证据映射](../evaluations/reports/managed-connectivity-assurance-evidence-map-2026-07-26.md)。
 
 ## Prompt、Context 与 Harness 分层
 
@@ -150,5 +164,6 @@ TunnelMinion 自有的限时 HTTP 代理资源。
 - [ADR-0006：Coordinator 身份、目录与数据面分离](adr/0006-coordinator-identity-and-directory.md)
 - [标准概念映射](guide/Prompt-Context-Harness概念映射.md)
 - [Context、Prompt 与 Runtime 评估指南](guide/上下文与Prompt评估指南.md)
+- [受管连接恢复、人工干预与卸载](guide/受管连接恢复与卸载.md)
 - [威胁模型](security/threat-model.md)
 - [数据分类与保留](security/data-classification.md)
