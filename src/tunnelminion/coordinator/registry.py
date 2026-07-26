@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 from collections import defaultdict, deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import monotonic
@@ -22,6 +23,8 @@ from tunnelminion.coordinator.contracts import (
     CoordinatorErrorCode,
     EnrollmentTokenCreated,
     EnrollmentTokenRequest,
+    HeartbeatRequest,
+    HeartbeatResponse,
     NodeIdentity,
     NodeRegistrationRequest,
     NodeRegistrationResponse,
@@ -38,9 +41,23 @@ from tunnelminion.domain.identifiers import (
     RefreshCredentialId,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ENROLLMENT_PREFIX = "tmne_"
 REFRESH_PREFIX = "tmnr_"
+
+
+@dataclass(frozen=True)
+class HeartbeatPolicy:
+    """服务器接收时间驱动的节点新鲜度阈值。"""
+
+    stale_after_seconds: int = 30
+    offline_after_seconds: int = 90
+
+    def __post_init__(self) -> None:
+        if self.stale_after_seconds < 1:
+            raise ValueError("stale 阈值必须大于零")
+        if self.offline_after_seconds <= self.stale_after_seconds:
+            raise ValueError("offline 阈值必须大于 stale 阈值")
 
 
 class RegistryError(RuntimeError):
@@ -92,6 +109,8 @@ class SQLiteCoordinatorStore:
                     server_revision INTEGER NOT NULL,
                     created_at TEXT NOT NULL,
                     revoked_at TEXT,
+                    last_received_at TEXT,
+                    last_agent_sent_at TEXT,
                     UNIQUE(network_id, device_identity_hash),
                     FOREIGN KEY(network_id) REFERENCES networks(network_id)
                 );
@@ -148,8 +167,23 @@ class SQLiteCoordinatorStore:
                 );
                 """
             )
-            row = connection.execute("SELECT version FROM schema_metadata").fetchone()
-            if row is None or row["version"] != SCHEMA_VERSION:
+            row = cast(
+                sqlite3.Row,
+                connection.execute("SELECT version FROM schema_metadata").fetchone(),
+            )
+            version = cast(int, row["version"])
+            if version == 1:
+                columns = {
+                    cast(str, column["name"])
+                    for column in connection.execute("PRAGMA table_info(nodes)").fetchall()
+                }
+                if "last_received_at" not in columns:
+                    connection.execute("ALTER TABLE nodes ADD COLUMN last_received_at TEXT")
+                if "last_agent_sent_at" not in columns:
+                    connection.execute("ALTER TABLE nodes ADD COLUMN last_agent_sent_at TEXT")
+                connection.execute("UPDATE schema_metadata SET version=2")
+                version = 2
+            if version != SCHEMA_VERSION:
                 raise RuntimeError("Coordinator SQLite schema 版本不兼容")
 
     def connect(self) -> sqlite3.Connection:
@@ -437,6 +471,152 @@ class CoordinatorRegistryService:
             issued_at=now,
         )
 
+    def admin_rotate_refresh(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> NodeRegistrationResponse:
+        """管理员无需旧凭据即可轮换非撤销节点的 refresh。"""
+        now = self._now()
+        with self.store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM nodes WHERE network_id=? AND node_id=? AND status<>?",
+                (str(network_id), str(node_id), NodeStatus.REVOKED.value),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "节点不可轮换凭据")
+            identity = NodeIdentity.model_validate_json(cast(str, row["identity_json"]))
+            credential_id, refresh = _replace_refresh(connection, node_id, now)
+            revision = cast(int, row["server_revision"])
+            _insert_audit(
+                connection,
+                network_id,
+                node_id,
+                revision,
+                CoordinatorAuditAction.CREDENTIAL_ROTATED,
+                now,
+            )
+            connection.commit()
+        return NodeRegistrationResponse(
+            identity=identity,
+            credential_id=credential_id,
+            refresh_credential=refresh,
+            server_revision=revision,
+            issued_at=now,
+        )
+
+    def heartbeat(
+        self,
+        authentication: RefreshAuthentication,
+        heartbeat: HeartbeatRequest,
+    ) -> HeartbeatResponse:
+        """认证心跳，并只用服务器接收时间更新在线状态。"""
+        self._consume_refresh_attempt(authentication.node_id)
+        now = self._now()
+        with self.store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = _authenticated_node(connection, authentication)
+            if row is None:
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.UNAUTHENTICATED, "节点凭据无效")
+            if (
+                heartbeat.network_id != authentication.network_id
+                or heartbeat.node_id != authentication.node_id
+            ):
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "心跳身份绑定不匹配")
+            current_status = NodeStatus(cast(str, row["status"]))
+            if not heartbeat.protocol.is_compatible_with(COORDINATOR_PROTOCOL):
+                self._change_status(
+                    connection,
+                    authentication.network_id,
+                    authentication.node_id,
+                    current_status,
+                    NodeStatus.INCOMPATIBLE,
+                    now,
+                )
+                connection.commit()
+                raise RegistryError(
+                    CoordinatorErrorCode.VERSION_INCOMPATIBLE,
+                    "心跳协议主版本不兼容",
+                )
+            revision = self._change_status(
+                connection,
+                authentication.network_id,
+                authentication.node_id,
+                current_status,
+                NodeStatus.ONLINE,
+                now,
+            )
+            connection.execute(
+                """UPDATE nodes
+                SET last_received_at=?, last_agent_sent_at=?
+                WHERE network_id=? AND node_id=?""",
+                (
+                    now.isoformat(),
+                    heartbeat.sent_at.astimezone(UTC).isoformat(),
+                    str(authentication.network_id),
+                    str(authentication.node_id),
+                ),
+            )
+            _insert_audit(
+                connection,
+                authentication.network_id,
+                authentication.node_id,
+                revision,
+                CoordinatorAuditAction.HEARTBEAT_ACCEPTED,
+                now,
+            )
+            connection.commit()
+        return HeartbeatResponse(
+            received_at=now,
+            node_status=NodeStatus.ONLINE,
+            server_revision=revision,
+        )
+
+    def refresh_node_states(
+        self,
+        network_id: NetworkId,
+        *,
+        policy: HeartbeatPolicy | None = None,
+    ) -> tuple[RegisteredNodeView, ...]:
+        """按服务器最后接收时间推进 online/stale/offline 状态。"""
+        actual_policy = policy or HeartbeatPolicy()
+        now = self._now()
+        with self.store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT * FROM nodes WHERE network_id=? ORDER BY created_at, node_id",
+                (str(network_id),),
+            ).fetchall()
+            for row in rows:
+                current = NodeStatus(cast(str, row["status"]))
+                if current in {NodeStatus.REVOKED, NodeStatus.INCOMPATIBLE}:
+                    continue
+                received_raw = cast(str | None, row["last_received_at"])
+                if received_raw is None:
+                    target = NodeStatus.OFFLINE
+                else:
+                    age = (now - datetime.fromisoformat(received_raw)).total_seconds()
+                    if age >= actual_policy.offline_after_seconds:
+                        target = NodeStatus.OFFLINE
+                    elif age >= actual_policy.stale_after_seconds:
+                        target = NodeStatus.STALE
+                    else:
+                        target = NodeStatus.ONLINE
+                self._change_status(
+                    connection,
+                    network_id,
+                    NodeId(cast(str, row["node_id"])),
+                    current,
+                    target,
+                    now,
+                )
+            connection.commit()
+        return self.list_nodes(network_id)
+
     def revoke_node(self, network_id: NetworkId, node_id: NodeId, *, reason: str) -> None:
         """撤销节点和全部 refresh，并生成 network 修订与脱敏审计。"""
         now = self._now()
@@ -488,6 +668,54 @@ class CoordinatorRegistryService:
                 now,
             )
             connection.commit()
+
+    def restore_node(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> NodeRegistrationResponse:
+        """显式恢复已撤销节点，并签发全新的 refresh 凭据。"""
+        now = self._now()
+        with self.store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM nodes WHERE network_id=? AND node_id=? AND status=?",
+                (str(network_id), str(node_id), NodeStatus.REVOKED.value),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "节点不可恢复")
+            revision = _next_revision(connection, network_id)
+            connection.execute(
+                """UPDATE nodes
+                SET status=?, server_revision=?, revoked_at=NULL,
+                    last_received_at=NULL, last_agent_sent_at=NULL
+                WHERE network_id=? AND node_id=?""",
+                (
+                    NodeStatus.OFFLINE.value,
+                    revision,
+                    str(network_id),
+                    str(node_id),
+                ),
+            )
+            credential_id, refresh = _replace_refresh(connection, node_id, now)
+            identity = NodeIdentity.model_validate_json(cast(str, row["identity_json"]))
+            _insert_audit(
+                connection,
+                network_id,
+                node_id,
+                revision,
+                CoordinatorAuditAction.NODE_RESTORED,
+                now,
+            )
+            connection.commit()
+        return NodeRegistrationResponse(
+            identity=identity,
+            credential_id=credential_id,
+            refresh_credential=refresh,
+            server_revision=revision,
+            issued_at=now,
+        )
 
     def list_nodes(self, network_id: NetworkId) -> tuple[RegisteredNodeView, ...]:
         """按 network 隔离返回不含凭据的节点。"""
@@ -569,6 +797,39 @@ class CoordinatorRegistryService:
         if len(attempts) >= self._refresh_limit:
             raise RegistryError(CoordinatorErrorCode.RATE_LIMITED, "refresh 请求过于频繁")
         attempts.append(now)
+
+    @staticmethod
+    def _change_status(
+        connection: sqlite3.Connection,
+        network_id: NetworkId,
+        node_id: NodeId,
+        current: NodeStatus,
+        target: NodeStatus,
+        now: datetime,
+    ) -> int:
+        if current is target:
+            row = connection.execute(
+                "SELECT server_revision FROM nodes WHERE network_id=? AND node_id=?",
+                (str(network_id), str(node_id)),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("节点状态记录缺失")
+            return cast(int, row["server_revision"])
+        revision = _next_revision(connection, network_id)
+        connection.execute(
+            """UPDATE nodes SET status=?, server_revision=?
+            WHERE network_id=? AND node_id=?""",
+            (target.value, revision, str(network_id), str(node_id)),
+        )
+        _insert_audit(
+            connection,
+            network_id,
+            node_id,
+            revision,
+            CoordinatorAuditAction.NODE_STATUS_CHANGED,
+            now,
+        )
+        return revision
 
     def _now(self) -> datetime:
         value = self._clock()
@@ -735,6 +996,16 @@ def _node_view(row: sqlite3.Row) -> RegisteredNodeView:
         revoked_at=(
             datetime.fromisoformat(cast(str, row["revoked_at"]))
             if row["revoked_at"] is not None
+            else None
+        ),
+        last_received_at=(
+            datetime.fromisoformat(cast(str, row["last_received_at"]))
+            if row["last_received_at"] is not None
+            else None
+        ),
+        last_agent_sent_at=(
+            datetime.fromisoformat(cast(str, row["last_agent_sent_at"]))
+            if row["last_agent_sent_at"] is not None
             else None
         ),
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from tunnelminion.coordinator.contracts import (
     CoordinatorErrorCode,
     EnrollmentTokenRequest,
     GatewayEndpoint,
+    HeartbeatRequest,
     NodeIdentity,
     NodeRegistrationRequest,
     NodeStatus,
@@ -26,6 +28,7 @@ from tunnelminion.coordinator.contracts import (
 from tunnelminion.coordinator.registry import (
     SCHEMA_VERSION,
     CoordinatorRegistryService,
+    HeartbeatPolicy,
     RegistryError,
     SQLiteCoordinatorStore,
 )
@@ -140,6 +143,20 @@ def authentication(response: object) -> RefreshAuthentication:
     )
 
 
+def heartbeat_for(
+    auth: RefreshAuthentication,
+    *,
+    sent_at: datetime = NOW,
+    protocol: ProtocolVersion = PROTOCOL,
+) -> HeartbeatRequest:
+    return HeartbeatRequest(
+        protocol=protocol,
+        network_id=auth.network_id,
+        node_id=auth.node_id,
+        sent_at=sent_at,
+    )
+
+
 def test_store_schema_is_versioned_complete_and_reopens(tmp_path: Path) -> None:
     store = SQLiteCoordinatorStore(tmp_path / "nested" / "coordinator.sqlite3")
     expected = {
@@ -180,11 +197,11 @@ def test_store_schema_is_versioned_complete_and_reopens(tmp_path: Path) -> None:
     assert store.list_signing_keys() == (updated, second_key)
 
     with store.connect() as connection:
-        connection.execute("UPDATE schema_metadata SET version=2")
+        connection.execute("UPDATE schema_metadata SET version=99")
     with pytest.raises(RuntimeError, match="版本"):
         SQLiteCoordinatorStore(store.path)
     with store.connect() as connection:
-        connection.execute("UPDATE schema_metadata SET version=1")
+        connection.execute("UPDATE schema_metadata SET version=2")
         connection.execute("DELETE FROM schema_metadata")
     with pytest.raises(RuntimeError, match="metadata"):
         store.schema_version()
@@ -474,3 +491,156 @@ def test_audit_optional_fields_and_clock_storage_failures_are_bounded(tmp_path: 
         connection.execute("DELETE FROM revisions WHERE network_id=?", (str(NETWORK),))
     with pytest.raises(RuntimeError, match="修订"):
         broken.register(registration(token))
+
+
+def test_heartbeat_uses_server_time_and_progresses_freshness(tmp_path: Path) -> None:
+    clock = MutableClock()
+    registry = service(tmp_path, clock)
+    registry.create_network(NETWORK)
+    token, _ = enrollment(registry)
+    registered = registry.register(registration(token))
+    auth = authentication(registered)
+
+    response = registry.heartbeat(
+        auth,
+        heartbeat_for(auth, sent_at=NOW + timedelta(days=365)),
+    )
+    assert response.received_at == NOW
+    assert response.node_status is NodeStatus.ONLINE
+    online = registry.list_nodes(NETWORK)[0]
+    assert online.last_received_at == NOW
+    assert online.last_agent_sent_at == NOW + timedelta(days=365)
+
+    clock.now += timedelta(seconds=30)
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.STALE
+    clock.now += timedelta(seconds=60)
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.OFFLINE
+    restored = registry.heartbeat(auth, heartbeat_for(auth))
+    assert restored.node_status is NodeStatus.ONLINE
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.ONLINE
+
+
+def test_heartbeat_rejects_bad_binding_version_and_revocation(tmp_path: Path) -> None:
+    registry = service(tmp_path)
+    registry.create_network(NETWORK)
+    token, _ = enrollment(registry)
+    registered = registry.register(registration(token))
+    auth = authentication(registered)
+    mismatched = heartbeat_for(auth).model_copy(update={"node_id": NodeId.new()})
+    with pytest.raises(RegistryError) as forbidden:
+        registry.heartbeat(auth, mismatched)
+    assert forbidden.value.code is CoordinatorErrorCode.FORBIDDEN
+
+    incompatible = heartbeat_for(
+        auth,
+        protocol=ProtocolVersion(major=2, minor=0),
+    )
+    with pytest.raises(RegistryError) as version:
+        registry.heartbeat(auth, incompatible)
+    assert version.value.code is CoordinatorErrorCode.VERSION_INCOMPATIBLE
+    node = registry.list_nodes(NETWORK)[0]
+    assert node.status is NodeStatus.INCOMPATIBLE
+    assert node.last_received_at is None
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.INCOMPATIBLE
+
+    registry.revoke_node(NETWORK, auth.node_id, reason="lost")
+    with pytest.raises(RegistryError) as revoked:
+        registry.heartbeat(auth, heartbeat_for(auth))
+    assert revoked.value.code is CoordinatorErrorCode.UNAUTHENTICATED
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.REVOKED
+
+
+def test_admin_rotation_revocation_and_explicit_restore(tmp_path: Path) -> None:
+    registry = service(tmp_path)
+    registry.create_network(NETWORK)
+    token, _ = enrollment(registry)
+    registered = registry.register(registration(token))
+    node_id = registered.identity.node_id
+    rotated = registry.admin_rotate_refresh(NETWORK, node_id)
+    with pytest.raises(RegistryError):
+        registry.authenticate_refresh(authentication(registered))
+    assert registry.authenticate_refresh(authentication(rotated)).identity.node_id == node_id
+
+    registry.revoke_node(NETWORK, node_id, reason="compromised")
+    restored = registry.restore_node(NETWORK, node_id)
+    restored_node = registry.authenticate_refresh(authentication(restored))
+    assert restored_node.status is NodeStatus.OFFLINE
+    actions = tuple(record.action for record in registry.audit_records(NETWORK))
+    assert CoordinatorAuditAction.NODE_RESTORED in actions
+    with registry.store.connect() as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) AS count FROM revocations WHERE node_id=?",
+            (str(node_id),),
+        ).fetchone()
+    assert count is not None and count["count"] == 1
+
+    with pytest.raises(RegistryError):
+        registry.restore_node(NETWORK, node_id)
+    registry.revoke_node(NETWORK, node_id, reason="again")
+    with pytest.raises(RegistryError):
+        registry.admin_rotate_refresh(NETWORK, node_id)
+
+
+@pytest.mark.parametrize(
+    ("stale", "offline"),
+    [(0, 2), (10, 10)],
+)
+def test_heartbeat_policy_rejects_invalid_thresholds(stale: int, offline: int) -> None:
+    with pytest.raises(ValueError):
+        HeartbeatPolicy(
+            stale_after_seconds=stale,
+            offline_after_seconds=offline,
+        )
+
+
+def test_schema_v1_migration_adds_heartbeat_timestamps(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE schema_metadata (version INTEGER NOT NULL);
+            INSERT INTO schema_metadata(version) VALUES (1);
+            CREATE TABLE nodes (
+                node_id TEXT PRIMARY KEY,
+                network_id TEXT NOT NULL,
+                device_identity_hash TEXT NOT NULL,
+                identity_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                server_revision INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT
+            );
+            """
+        )
+    store = SQLiteCoordinatorStore(path)
+    with store.connect() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(nodes)").fetchall()}
+    assert store.schema_version() == 2
+    assert {"last_received_at", "last_agent_sent_at"} <= columns
+
+
+def test_unheard_node_remains_offline_and_missing_status_row_fails(tmp_path: Path) -> None:
+    registry = service(tmp_path)
+    registry.create_network(NETWORK)
+    token, _ = enrollment(registry)
+    registry.register(registration(token))
+    assert registry.refresh_node_states(NETWORK)[0].status is NodeStatus.OFFLINE
+
+    with registry.store.connect() as connection, pytest.raises(RuntimeError, match="状态记录"):
+        registry._change_status(  # pyright: ignore[reportPrivateUsage]
+            connection,
+            NETWORK,
+            NodeId.new(),
+            NodeStatus.OFFLINE,
+            NodeStatus.OFFLINE,
+            NOW,
+        )
+
+
+def test_heartbeat_rejects_naive_agent_timestamp() -> None:
+    with pytest.raises(ValueError, match="时区"):
+        HeartbeatRequest(
+            network_id=NETWORK,
+            node_id=NodeId.new(),
+            sent_at=datetime(2026, 7, 26),
+        )

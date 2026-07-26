@@ -107,6 +107,10 @@ class CoordinatorAuditAction(StrEnum):
     SERVICES_REPLACED = "services_replaced"
     CREDENTIAL_ROTATED = "credential_rotated"
     NODE_REVOKED = "node_revoked"
+    NODE_RESTORED = "node_restored"
+    SIGNING_KEY_ROTATED = "signing_key_rotated"
+    ASSERTION_ISSUED = "assertion_issued"
+    NODE_STATUS_CHANGED = "node_status_changed"
     DIRECTORY_READ = "directory_read"
 
 
@@ -163,6 +167,13 @@ class HeartbeatRequest(BaseModel):
     node_id: NodeId
     sent_at: datetime
     last_server_revision: int = Field(default=0, ge=0)
+
+    @field_validator("sent_at")
+    @classmethod
+    def validate_sent_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("心跳时间必须包含时区")
+        return value
 
 
 class HeartbeatResponse(BaseModel):
@@ -406,6 +417,8 @@ class RegisteredNodeView(BaseModel):
     server_revision: int = Field(ge=1)
     created_at: datetime
     revoked_at: datetime | None = None
+    last_received_at: datetime | None = None
+    last_agent_sent_at: datetime | None = None
 
 
 class SigningKeyMetadata(BaseModel):
@@ -420,3 +433,77 @@ class SigningKeyMetadata(BaseModel):
     activates_at: datetime
     retires_at: datetime | None = None
     destroyed_at: datetime | None = None
+
+
+class VerificationKeyView(BaseModel):
+    """Agent/Gateway 可固定指纹的 Ed25519 验证公钥。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$")
+    public_key: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    activates_at: datetime
+    retires_at: datetime | None = None
+
+
+class VerificationKeySet(BaseModel):
+    """带生成时间的有界验证公钥集合。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = COORDINATOR_PROTOCOL
+    generated_at: datetime
+    keys: tuple[VerificationKeyView, ...] = Field(min_length=1)
+
+
+class AccessAssertionRequest(BaseModel):
+    """使用 refresh 凭据申请特定 audience 的短期 assertion。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    audience: str = Field(pattern=r"^(coordinator-agent|tool-gateway|operation-gateway)$")
+
+
+class AccessAssertionResponse(BaseModel):
+    """只在响应和 Agent 内存中出现的短期签名 assertion。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    protocol: ProtocolVersion = COORDINATOR_PROTOCOL
+    assertion: str = Field(min_length=80, max_length=4096, repr=False)
+    key_id: str
+    expires_at: datetime
+
+
+class VerifiedAssertion(BaseModel):
+    """Gateway 离线验签后的最小身份声明。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    network_id: NetworkId
+    node_id: NodeId
+    audience: str
+    key_id: str
+    jti: str = Field(pattern=r"^[0-9a-f]{32}$")
+    protocol_major: int = Field(ge=0)
+    issued_at: datetime
+    expires_at: datetime
+
+
+class AuthenticatedHeartbeat(BaseModel):
+    """refresh 认证与心跳正文的显式组合。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    heartbeat: HeartbeatRequest
+
+
+class NodeRevocationRequest(BaseModel):
+    """本机管理员撤销节点时的有界原因。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: str = Field(min_length=1, max_length=200)

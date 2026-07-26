@@ -1,12 +1,21 @@
 """Coordinator 双应用工厂与监听配置边界测试。"""
 
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from tests.coordinator.test_registry import (
+    NETWORK,
+    MemorySecrets,
+    MutableClock,
+    authentication,
+    enrollment,
+    heartbeat_for,
+    registration,
+)
 
 from tunnelminion.coordinator.app import (
     CoordinatorAdminBindConfig,
@@ -14,12 +23,17 @@ from tunnelminion.coordinator.app import (
     CoordinatorApplicationConfig,
     build_coordinator_applications,
 )
+from tunnelminion.coordinator.contracts import AccessAssertionRequest
+from tunnelminion.coordinator.identity import AssertionService, SigningKeyService
+from tunnelminion.coordinator.registry import CoordinatorRegistryService, SQLiteCoordinatorStore
 
 
 class ApiClient(Protocol):
     """屏蔽 TestClient 当前缺失的严格类型标注。"""
 
     def get(self, url: str) -> httpx.Response: ...
+
+    def post(self, url: str, *, json: Any | None = None) -> httpx.Response: ...
 
 
 def test_coordinator_builds_separate_agent_and_loopback_admin_apps(tmp_path: Path) -> None:
@@ -66,3 +80,77 @@ def test_admin_api_rejects_non_loopback_and_config_rejects_unknown_fields(
                 "token": "should-not-be-here",
             }
         )
+
+
+def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
+    clock = MutableClock()
+    store = SQLiteCoordinatorStore(tmp_path / "coordinator.sqlite3")
+    registry = CoordinatorRegistryService(store, clock=clock.utcnow)
+    registry.create_network(NETWORK)
+    token, _ = enrollment(registry)
+    registered = registry.register(registration(token))
+    auth = authentication(registered)
+    secrets = MemorySecrets()
+    keys = SigningKeyService(store, secrets, clock=clock.utcnow)
+    keys.rotate()
+    assertions = AssertionService(registry, keys, clock=clock.utcnow)
+    config = CoordinatorApplicationConfig(
+        data_path=store.path,
+        agent_bind=CoordinatorAgentBindConfig(host="10.77.0.1", port=8790),
+    )
+    applications = build_coordinator_applications(
+        config,
+        registry=registry,
+        assertions=assertions,
+    )
+    agent = cast(ApiClient, TestClient(applications.agent_app))
+    admin = cast(ApiClient, TestClient(applications.admin_app))
+
+    heartbeat = agent.post(
+        "/api/v1/agent/heartbeat",
+        json={
+            "authentication": auth.model_dump(mode="json"),
+            "heartbeat": heartbeat_for(auth).model_dump(mode="json"),
+        },
+    )
+    assert heartbeat.status_code == 200
+    assertion = agent.post(
+        "/api/v1/agent/assertions",
+        json=AccessAssertionRequest(
+            authentication=auth,
+            audience="tool-gateway",
+        ).model_dump(mode="json"),
+    )
+    assert assertion.status_code == 200
+    assert assertion.json()["assertion"] not in str(registry.audit_records(NETWORK))
+    assert agent.get("/api/v1/agent/verification-keys").status_code == 200
+
+    prefix = f"/api/v1/admin/networks/{NETWORK}/nodes/{auth.node_id}"
+    assert admin.get(f"/api/v1/admin/networks/{NETWORK}/nodes").status_code == 200
+    rotated = admin.post(f"{prefix}/rotate-refresh")
+    assert rotated.status_code == 200
+    revoked = admin.post(f"{prefix}/revoke", json={"reason": "lost"})
+    assert revoked.json() == {"status": "revoked"}
+    assert admin.post(f"{prefix}/rotate-refresh").status_code == 403
+    assert admin.post(f"{prefix}/revoke", json={"reason": "again"}).status_code == 403
+    denied = agent.post(
+        "/api/v1/agent/heartbeat",
+        json={
+            "authentication": auth.model_dump(mode="json"),
+            "heartbeat": heartbeat_for(auth).model_dump(mode="json"),
+        },
+    )
+    assert denied.status_code == 401
+    assert auth.refresh_credential not in denied.text
+    restored = admin.post(f"{prefix}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["refresh_credential"] != auth.refresh_credential
+    assert admin.post(f"{prefix}/restore").status_code == 403
+    offline_assertion = agent.post(
+        "/api/v1/agent/assertions",
+        json=AccessAssertionRequest(
+            authentication=authentication(type(registered).model_validate(restored.json())),
+            audience="tool-gateway",
+        ).model_dump(mode="json"),
+    )
+    assert offline_assertion.status_code == 403

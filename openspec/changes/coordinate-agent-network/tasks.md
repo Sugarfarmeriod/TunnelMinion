@@ -20,13 +20,13 @@
 
 ## 3. 签名身份、心跳与撤销
 
-- [ ] 3.1 实现 Coordinator Ed25519 签名密钥秘密存储、验证公钥发布、固定指纹和 key ID 轮换窗口
-- [ ] 3.2 实现绑定 network/node/audience/protocol/jti/iat/exp 的短期 access assertion 签发
-- [ ] 3.3 实现 assertion 的标准离线验证器，拒绝未知 key、算法降级、错误 audience、跨 network、过期和畸形声明
-- [ ] 3.4 实现认证心跳和基于服务器接收时间的 online → stale → offline → revoked/incompatible 状态机
-- [ ] 3.5 实现管理员节点查看、refresh 轮换、撤销和显式恢复 API，并在撤销事务生成目录修订
-- [ ] 3.6 覆盖签名篡改、未知 key ID、旧 key 窗口、assertion 重放、Agent 时钟漂移、心跳超时和撤销测试
-- [ ] 3.7 运行认证、状态机、时间边界和故障注入门禁，提交并推送签名身份阶段
+- [x] 3.1 实现 Coordinator Ed25519 签名密钥秘密存储、验证公钥发布、固定指纹和 key ID 轮换窗口
+- [x] 3.2 实现绑定 network/node/audience/protocol/jti/iat/exp 的短期 access assertion 签发
+- [x] 3.3 实现 assertion 的标准离线验证器，拒绝未知 key、算法降级、错误 audience、跨 network、过期和畸形声明
+- [x] 3.4 实现认证心跳和基于服务器接收时间的 online → stale → offline → revoked/incompatible 状态机
+- [x] 3.5 实现管理员节点查看、refresh 轮换、撤销和显式恢复 API，并在撤销事务生成目录修订
+- [x] 3.6 覆盖签名篡改、未知 key ID、旧 key 窗口、assertion 重放、Agent 时钟漂移、心跳超时和撤销测试
+- [x] 3.7 运行认证、状态机、时间边界和故障注入门禁，提交并推送签名身份阶段
 
 ## 4. 能力与服务目录
 
