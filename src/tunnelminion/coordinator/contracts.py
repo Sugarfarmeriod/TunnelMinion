@@ -294,8 +294,10 @@ class DirectoryQuery(BaseModel):
     node_status: NodeStatus | None = None
     platform: Platform | None = None
     tool_name: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    tool_version: ProtocolVersion | None = None
     service_protocol: ServiceProtocol | None = None
     service_port: int | None = Field(default=None, ge=1, le=65535)
+    service_accessibility: ServiceAccessibility | None = None
     freshness: DirectoryFreshness | None = None
     page_size: int = Field(default=50, ge=1, le=200)
     cursor: str | None = Field(default=None, min_length=16, max_length=512)
@@ -499,6 +501,33 @@ class AuthenticatedHeartbeat(BaseModel):
 
     authentication: RefreshAuthentication
     heartbeat: HeartbeatRequest
+
+
+class AuthenticatedCapabilitySnapshot(BaseModel):
+    """refresh 认证与能力完整快照的显式组合。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    snapshot: CapabilitySnapshot
+
+
+class AuthenticatedServiceSnapshot(BaseModel):
+    """refresh 认证与服务完整快照的显式组合。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    snapshot: ServiceSnapshot
+
+
+class AuthenticatedDirectoryQuery(BaseModel):
+    """refresh 认证与 network 内目录查询的显式组合。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    query: DirectoryQuery
 
 
 class NodeRevocationRequest(BaseModel):

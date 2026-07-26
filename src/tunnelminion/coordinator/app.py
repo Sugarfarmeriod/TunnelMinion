@@ -12,13 +12,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from tunnelminion.coordinator.contracts import (
     AccessAssertionRequest,
     AccessAssertionResponse,
+    AuthenticatedCapabilitySnapshot,
+    AuthenticatedDirectoryQuery,
     AuthenticatedHeartbeat,
+    AuthenticatedServiceSnapshot,
+    DirectoryPage,
     HeartbeatResponse,
     NodeRegistrationResponse,
     NodeRevocationRequest,
     RegisteredNodeView,
+    SnapshotReceipt,
     VerificationKeySet,
 )
+from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService
 from tunnelminion.coordinator.registry import CoordinatorRegistryService, RegistryError
 from tunnelminion.domain.identifiers import NetworkId, NodeId
@@ -86,6 +92,7 @@ def build_coordinator_applications(
     *,
     registry: CoordinatorRegistryService | None = None,
     assertions: AssertionService | None = None,
+    directory: CoordinatorDirectoryService | None = None,
 ) -> CoordinatorApplications:
     """建立隔离应用工厂；本函数不启动监听器。"""
     agent_app = FastAPI(
@@ -210,6 +217,55 @@ def build_coordinator_applications(
             methods=["GET"],
             response_model=VerificationKeySet,
         )
+
+    if directory is not None:
+
+        async def replace_capabilities(
+            payload: AuthenticatedCapabilitySnapshot,
+        ) -> SnapshotReceipt:
+            try:
+                return directory.replace_capabilities(
+                    payload.authentication,
+                    payload.snapshot,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def replace_services(
+            payload: AuthenticatedServiceSnapshot,
+        ) -> SnapshotReceipt:
+            try:
+                return directory.replace_services(
+                    payload.authentication,
+                    payload.snapshot,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def query_directory(payload: AuthenticatedDirectoryQuery) -> DirectoryPage:
+            try:
+                return directory.query(payload.authentication, payload.query)
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        agent_app.add_api_route(
+            "/api/v1/agent/snapshots/capabilities",
+            replace_capabilities,
+            methods=["PUT"],
+            response_model=SnapshotReceipt,
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/snapshots/services",
+            replace_services,
+            methods=["PUT"],
+            response_model=SnapshotReceipt,
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/directory/query",
+            query_directory,
+            methods=["POST"],
+            response_model=DirectoryPage,
+        )
     return CoordinatorApplications(agent_app, admin_app, config)
 
 
@@ -220,6 +276,7 @@ def _http_error(error: RegistryError) -> HTTPException:
         "conflict": 409,
         "version_incompatible": 426,
         "rate_limited": 429,
+        "snapshot_too_large": 413,
     }
     status_code = status_by_code.get(error.code.value, 400)
     return HTTPException(

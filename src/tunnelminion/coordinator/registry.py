@@ -41,7 +41,7 @@ from tunnelminion.domain.identifiers import (
     RefreshCredentialId,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ENROLLMENT_PREFIX = "tmne_"
 REFRESH_PREFIX = "tmnr_"
 
@@ -165,6 +165,64 @@ class SQLiteCoordinatorStore:
                     node_id TEXT NOT NULL,
                     FOREIGN KEY(node_id) REFERENCES nodes(node_id)
                 );
+                CREATE TABLE IF NOT EXISTS snapshot_heads (
+                    node_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    snapshot_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    server_revision INTEGER NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(node_id, kind),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS snapshot_receipts (
+                    idempotency_key TEXT PRIMARY KEY,
+                    request_fingerprint TEXT NOT NULL,
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    snapshot_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    server_revision INTEGER NOT NULL,
+                    received_at TEXT NOT NULL,
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS capability_directory (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    version_major INTEGER NOT NULL,
+                    version_minor INTEGER NOT NULL,
+                    platform TEXT NOT NULL,
+                    risk_level TEXT NOT NULL,
+                    availability TEXT NOT NULL,
+                    schema_hash TEXT NOT NULL,
+                    snapshot_id TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id, name),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE TABLE IF NOT EXISTS service_directory (
+                    network_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    service_id TEXT NOT NULL,
+                    protocol TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    accessibility TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    lifecycle TEXT NOT NULL,
+                    snapshot_id TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(network_id, node_id, service_id),
+                    FOREIGN KEY(node_id) REFERENCES nodes(node_id)
+                );
+                CREATE INDEX IF NOT EXISTS capability_lookup
+                    ON capability_directory(network_id, name, version_major, version_minor);
+                CREATE INDEX IF NOT EXISTS service_lookup
+                    ON service_directory(network_id, protocol, port, accessibility, lifecycle);
                 """
             )
             row = cast(
@@ -183,6 +241,9 @@ class SQLiteCoordinatorStore:
                     connection.execute("ALTER TABLE nodes ADD COLUMN last_agent_sent_at TEXT")
                 connection.execute("UPDATE schema_metadata SET version=2")
                 version = 2
+            if version == 2:
+                connection.execute("UPDATE schema_metadata SET version=3")
+                version = 3
             if version != SCHEMA_VERSION:
                 raise RuntimeError("Coordinator SQLite schema 版本不兼容")
 
@@ -968,12 +1029,14 @@ def _insert_audit(
     revision: int,
     action: CoordinatorAuditAction,
     now: datetime,
+    *,
+    item_count: int = 0,
 ) -> None:
     connection.execute(
         """INSERT INTO coordinator_audit(
             audit_id, network_id, node_id, server_revision, action,
             result, error_code, item_count, occurred_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)""",
         (
             str(CoordinatorAuditId.new()),
             str(network_id),
@@ -981,6 +1044,7 @@ def _insert_audit(
             revision,
             action.value,
             CoordinatorAuditResult.SUCCEEDED.value,
+            item_count,
             now.isoformat(),
         ),
     )
@@ -1008,4 +1072,42 @@ def _node_view(row: sqlite3.Row) -> RegisteredNodeView:
             if row["last_agent_sent_at"] is not None
             else None
         ),
+    )
+
+
+def authenticated_node_for_transaction(
+    connection: sqlite3.Connection,
+    authentication: RefreshAuthentication,
+) -> sqlite3.Row | None:
+    """供同一 SQLite 事务中的目录写入再次确认 refresh 身份。"""
+    return _authenticated_node(connection, authentication)
+
+
+def next_revision_for_transaction(
+    connection: sqlite3.Connection,
+    network_id: NetworkId,
+) -> int:
+    """在调用方已开启的事务中生成单调 network revision。"""
+    return _next_revision(connection, network_id)
+
+
+def insert_audit_for_transaction(
+    connection: sqlite3.Connection,
+    network_id: NetworkId,
+    node_id: NodeId,
+    revision: int,
+    action: CoordinatorAuditAction,
+    now: datetime,
+    *,
+    item_count: int = 0,
+) -> None:
+    """在调用方事务内写入不含秘密的 Coordinator 审计。"""
+    _insert_audit(
+        connection,
+        network_id,
+        node_id,
+        revision,
+        action,
+        now,
+        item_count=item_count,
     )
