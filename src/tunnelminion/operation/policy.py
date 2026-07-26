@@ -52,9 +52,12 @@ class OperationPolicy:
         self,
         registry: ToolRegistry,
         preauthorizations: PreauthorizationStore,
+        *,
+        l3_governance_workflows: frozenset[str] = frozenset(),
     ) -> None:
         self._registry = registry
         self._preauthorizations = preauthorizations
+        self._l3_governance_workflows = l3_governance_workflows
 
     def evaluate(self, plan: OperationPlan, *, at: datetime) -> OperationPolicyDecision:
         """模型声明不影响注册表中的实际等级。"""
@@ -112,6 +115,13 @@ class OperationPolicy:
                 basis="L2 默认需要目标节点本地用户逐次批准",
             )
         if level is OperationLevel.L3:
+            if plan.tool_name in self._l3_governance_workflows:
+                return OperationPolicyDecision(
+                    action=PolicyAction.AWAIT_AUTHORIZATION,
+                    actual_level=level,
+                    code="dedicated_governance_required",
+                    basis="L3 只能进入显式注册的独立治理工作流",
+                )
             return OperationPolicyDecision(
                 action=PolicyAction.REFUSE,
                 actual_level=level,

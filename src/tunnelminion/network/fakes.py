@@ -185,7 +185,15 @@ class InMemoryNetworkProvider:
         """重新读取假状态，而不是接受 apply 自报成功。"""
         self.verify_calls += 1
         checked = ("interface", "address", "peer", "host_route")
-        if self.behavior is FakeProviderBehavior.VERIFY_FAILURE:
+        if self.behavior in {
+            FakeProviderBehavior.VERIFY_FAILURE,
+            FakeProviderBehavior.OWNERSHIP_REPLACED,
+        }:
+            code = (
+                NetworkErrorCode.OWNERSHIP_CONFLICT
+                if self.behavior is FakeProviderBehavior.OWNERSHIP_REPLACED
+                else NetworkErrorCode.VERIFY_FAILED
+            )
             return VerificationResult(
                 plan_hash=plan.plan_hash,
                 revision=plan.desired.revision,
@@ -193,7 +201,7 @@ class InMemoryNetworkProvider:
                 checked_dimensions=checked,
                 observation=self._observation,
                 error=NetworkError(
-                    code=NetworkErrorCode.VERIFY_FAILED,
+                    code=code,
                     message="注入的独立验证失败",
                     correlation_id=plan.plan_hash,
                 ),

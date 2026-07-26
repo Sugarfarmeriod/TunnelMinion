@@ -35,16 +35,16 @@
 
 ## 4. Agent 同步、所有权账本与 L3 治理
 
-- [ ] 4.1 实现本地受管资源 SQLite 账本与操作系统秘密引用，普通数据库和导出不得保存 WireGuard 私钥
-- [ ] 4.2 实现 desired config 拉取、签名/指纹/目标/父修订/预算验证、pending 保存和 full-sync 恢复
-- [ ] 4.3 实现配置锁、单并发同步、超时、取消安全点、指数退避和 last-known-good 缓存
-- [ ] 4.4 扩展 Operation Policy，注册仅供治理工作流调用的 L3 network plan，保持普通 Tool Gateway 和模型工具集无写能力
-- [ ] 4.5 实现绑定 network/node/Provider/所有权/地址池/host routes/peer/relay/revision/hash/有效期的本机批准与预授权策略
-- [ ] 4.6 实现同一批准范围内的幂等自动修复，以及任一范围扩大、撤销或到期后重新进入 awaiting-authorization
-- [ ] 4.7 实现逐步回执、独立验证、逆序回滚、ownership conflict 熔断、本机紧急停止和无模型恢复
-- [ ] 4.8 扩展 Agent acknowledgement 与脱敏路径状态同步，排除私钥、用户完整 route 和未允许物理 endpoint
-- [ ] 4.9 覆盖模型/prompt/记忆尝试批准、签名配置扩权、并发 apply、取消、崩溃、Coordinator 离线和无模型测试
-- [ ] 4.10 运行治理、秘密、恢复、分支覆盖和严格类型门禁，提交并推送 Agent 治理阶段
+- [x] 4.1 实现本地受管资源 SQLite 账本与操作系统秘密引用，普通数据库和导出不得保存 WireGuard 私钥
+- [x] 4.2 实现 desired config 拉取、签名/指纹/目标/父修订/预算验证、pending 保存和 full-sync 恢复
+- [x] 4.3 实现配置锁、单并发同步、超时、取消安全点、指数退避和 last-known-good 缓存
+- [x] 4.4 扩展 Operation Policy，注册仅供治理工作流调用的 L3 network plan，保持普通 Tool Gateway 和模型工具集无写能力
+- [x] 4.5 实现绑定 network/node/Provider/所有权/地址池/host routes/peer/relay/revision/hash/有效期的本机批准与预授权策略
+- [x] 4.6 实现同一批准范围内的幂等自动修复，以及任一范围扩大、撤销或到期后重新进入 awaiting-authorization
+- [x] 4.7 实现逐步回执、独立验证、逆序回滚、ownership conflict 熔断、本机紧急停止和无模型恢复
+- [x] 4.8 扩展 Agent acknowledgement 与脱敏路径状态同步，排除私钥、用户完整 route 和未允许物理 endpoint
+- [x] 4.9 覆盖模型/prompt/记忆尝试批准、签名配置扩权、并发 apply、取消、崩溃、Coordinator 离线和无模型测试
+- [x] 4.10 运行治理、秘密、恢复、分支覆盖和严格类型门禁，提交并推送 Agent 治理阶段
 
 ## 5. Windows Provider 纵向切片
 

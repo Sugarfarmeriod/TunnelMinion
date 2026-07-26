@@ -27,13 +27,11 @@ from tunnelminion.coordinator.contracts import CoordinatorErrorCode
 from tunnelminion.coordinator.identity import SigningKeyService
 from tunnelminion.coordinator.network_control import (
     AddressPoolRequest,
-    DesiredConfigVerificationError,
     EndpointCandidateReport,
     ManagedNetworkControlService,
     NetworkPublicKeyRequest,
     RelayRoleRequest,
     SagaStatus,
-    verify_signed_desired_config,
 )
 from tunnelminion.coordinator.registry import RegistryError, SQLiteCoordinatorStore
 from tunnelminion.domain.identifiers import NetworkId, NodeId
@@ -48,6 +46,10 @@ from tunnelminion.network.contracts import (
     ProviderKind,
     RelayRole,
     canonical_sha256,
+)
+from tunnelminion.network.signing import (
+    DesiredConfigVerificationError,
+    verify_signed_desired_config,
 )
 
 NOW = datetime(2026, 7, 26, 10, 0, tzinfo=UTC)
