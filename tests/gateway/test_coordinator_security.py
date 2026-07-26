@@ -24,7 +24,7 @@ from tunnelminion.gateway.security import (
     GatewaySecurityPolicy,
 )
 
-STATIC_TOKEN = "tmn_static-token-with-more-than-thirty-two-characters"
+STATIC_TOKEN = "tmn_test-static-credential-with-more-than-thirty-two-characters"
 
 
 def authorization_view(
