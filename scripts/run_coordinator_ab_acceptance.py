@@ -13,7 +13,7 @@ import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import uvicorn
@@ -342,14 +342,23 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             ready = json.loads(
                 _ssh(args.ssh_target, f"cat {remote_root}/ready.json", cwd=repo)
             )
-            authorization_nodes = ready.get("authorization_nodes", [])
-            if isinstance(authorization_nodes, list) and any(
-                isinstance(node, dict)
-                and node.get("node_id") == str(_A_NODE_ID)
-                and node.get("status") == "online"
-                and node.get("freshness") == "fresh"
-                for node in authorization_nodes
-            ):
+            authorization_nodes = cast(
+                list[object],
+                cast(dict[str, object], ready).get("authorization_nodes", []),
+            )
+            converged = False
+            for node in authorization_nodes:
+                if not isinstance(node, dict):
+                    continue
+                view = cast(dict[str, object], node)
+                if (
+                    view.get("node_id") == str(_A_NODE_ID)
+                    and view.get("status") == "online"
+                    and view.get("freshness") == "fresh"
+                ):
+                    converged = True
+                    break
+            if converged:
                 break
             await asyncio.sleep(1)
         else:
