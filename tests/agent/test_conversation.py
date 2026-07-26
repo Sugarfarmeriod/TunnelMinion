@@ -292,16 +292,26 @@ def test_delete_running_thread_cancels_and_removes_owned_runs(tmp_path: Path) ->
     )
     thread = conversations.create_thread()
 
-    async def scenario() -> RunId:
+    async def scenario() -> tuple[RunId, Any]:
         started = await conversations.start_run(
             thread.thread_id,
             StartRunInput(question="等待后删除", tool_names=("probe_service",)),
         )
+        removed_state = conversations._runs[  # pyright: ignore[reportPrivateUsage]
+            str(started.run_id)
+        ]
         conversations.delete_thread(thread.thread_id)
         await asyncio.sleep(0.2)
-        return started.run_id
+        return started.run_id, removed_state
 
-    run_id = run(scenario())
+    run_id, removed_state = run(scenario())
+    conversations._persist(removed_state)  # pyright: ignore[reportPrivateUsage]
+    conversations._add_message(  # pyright: ignore[reportPrivateUsage]
+        thread.thread_id,
+        "assistant",
+        "迟到的后台结果",
+        run_id,
+    )
     assert conversations.list_threads() == ()
     assert stores.checkpoints.list_all() == ()
     with pytest.raises(KeyError, match="run_not_found"):
