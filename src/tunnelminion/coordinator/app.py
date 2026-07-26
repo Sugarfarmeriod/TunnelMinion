@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tunnelminion.coordinator.contracts import (
@@ -32,6 +33,57 @@ from tunnelminion.coordinator.directory import CoordinatorDirectoryService
 from tunnelminion.coordinator.identity import AssertionService
 from tunnelminion.coordinator.registry import CoordinatorRegistryService, RegistryError
 from tunnelminion.domain.identifiers import NetworkId, NodeId
+
+_ADMIN_PAGE = """<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>TunnelMinion Coordinator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem}
+label,button,input{font:inherit} input{padding:.45rem} button{margin:.25rem;padding:.45rem .7rem}
+section{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0}
+table{border-collapse:collapse;width:100%}
+th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
+.error{color:#a00}.muted{color:#555}</style></head>
+<body><h1>Coordinator 本机管理</h1>
+<p class="muted">页面仅允许环回访问；凭据不会写入页面或日志。</p>
+<label>Network ID <input id="network" autocomplete="off"></label>
+<button id="refresh" type="button">刷新节点</button>
+<button id="enroll" type="button">创建并复制一次性 token</button>
+<p id="status" role="status" aria-live="polite"></p>
+<section><h2>节点</h2><table><thead><tr><th>名称</th><th>平台</th><th>状态</th>
+<th>最后心跳</th><th>协议</th><th>操作</th></tr></thead><tbody id="nodes"></tbody></table></section>
+<script>
+const network=document.getElementById('network'),statusBox=document.getElementById('status');
+const nodes=document.getElementById('nodes');
+function say(text,error=false){statusBox.textContent=text;statusBox.className=error?'error':'';}
+async function jsonRequest(path,options){const response=await fetch(path,options);
+const data=await response.json();
+if(!response.ok)throw new Error(data.detail?.message||'请求失败');return data;}
+async function refreshNodes(){nodes.replaceChildren();
+const id=encodeURIComponent(network.value.trim());
+if(!id){say('请填写 Network ID',true);return;}
+try{const data=await jsonRequest('/api/v1/admin/networks/'+id+'/nodes');
+for(const item of data){const row=document.createElement('tr');
+for(const value of [item.identity.display_name,item.identity.platform,item.status,
+item.last_received_at||'从未',item.identity.protocol.major+'.'+item.identity.protocol.minor]){
+const cell=document.createElement('td');cell.textContent=String(value);row.appendChild(cell);}
+const actions=document.createElement('td');const revoke=document.createElement('button');
+revoke.type='button';revoke.textContent='撤销';revoke.onclick=()=>revokeNode(item.identity.node_id);
+actions.appendChild(revoke);row.appendChild(actions);nodes.appendChild(row);}say('节点状态已刷新');}
+catch(error){say(error.message,true);}}
+async function createEnrollment(){const id=network.value.trim();
+if(!id){say('请填写 Network ID',true);return;}
+try{const data=await jsonRequest('/api/v1/admin/enrollments',
+{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({network_id:id,expires_in_seconds:600,max_uses:1})});
+await navigator.clipboard.writeText(data.token);say('一次性 token 已复制；页面不会显示或保存它。');}
+catch(error){say(error.message,true);}}
+async function revokeNode(nodeId){const id=encodeURIComponent(network.value.trim());
+try{await jsonRequest('/api/v1/admin/networks/'+id+'/nodes/'+encodeURIComponent(nodeId)+'/revoke',
+{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'local-admin'})});
+await refreshNodes();}catch(error){say(error.message,true);}}
+document.getElementById('refresh').onclick=refreshNodes;
+document.getElementById('enroll').onclick=createEnrollment;
+</script></body></html>"""
 
 
 class CoordinatorAgentBindConfig(BaseModel):
@@ -119,6 +171,21 @@ def build_coordinator_applications(
 
     agent_app.add_api_route("/api/v1/agent/health", agent_health, methods=["GET"])
     admin_app.add_api_route("/api/v1/admin/health", admin_health, methods=["GET"])
+
+    def admin_page() -> HTMLResponse:
+        return HTMLResponse(
+            _ADMIN_PAGE,
+            headers={
+                "Content-Security-Policy": (
+                    "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                    "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                ),
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    admin_app.add_api_route("/", admin_page, methods=["GET"], response_class=HTMLResponse)
 
     if registry is not None:
 
