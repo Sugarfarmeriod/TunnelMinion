@@ -140,6 +140,27 @@
     "murus_rules": "not_verifiable_without_interactive_privilege",
     "writes_performed": false
   },
+  "windows_stage5_observe_only_recheck": {
+    "captured_on": "2026-07-26",
+    "writes_performed": false,
+    "interface": "HomeMac",
+    "interface_present": true,
+    "interface_status": "Up",
+    "interface_guid_present": true,
+    "addresses": [
+      "10.77.0.2/32",
+      "link_local_ipv6_redacted"
+    ],
+    "service": "WireGuardTunnel$HomeMac",
+    "service_status": "Running",
+    "wg_available": true,
+    "manager_available": true,
+    "managed_preflight": "observe_only_permission_denied",
+    "peer_visibility": "permission_denied",
+    "route_count": 6,
+    "default_route_present": false,
+    "candidate_plan": "继续使用 candidate_scan；地址池和 18889/udp 仍未授权，真实 managed 写入继续停止"
+  },
   "stop_gates": [
     "尚未证明无冲突 IPv4 私有地址池",
     "B 手写配置位置和启动编排尚未由所有者确认",

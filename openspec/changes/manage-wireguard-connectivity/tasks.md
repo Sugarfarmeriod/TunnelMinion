@@ -48,14 +48,14 @@
 
 ## 5. Windows Provider 纵向切片
 
-- [ ] 5.1 实现 Windows observe-only 适配器，读取官方 WireGuard 客户端/tunnel service 的接口、peer、地址、route 和服务状态
-- [ ] 5.2 实现 Windows 平台权限/依赖预检和固定参数 runner，禁止 Shell 字符串、动态命令和交互式提权
-- [ ] 5.3 实现独立接口命名、ACL 受限秘密/配置材料、所有权指纹和计划 diff，不触碰 `HomeMac`
-- [ ] 5.4 实现 create/update/stop/remove 的固定步骤、幂等回执、实时 verify 和父 revision rollback
-- [ ] 5.5 实现 Windows 重启恢复、半写配置检测、ownership conflict 和卸载清理
-- [ ] 5.6 用 fake runner 覆盖每个步骤失败、权限不足、服务缺失、名称冲突、route 冲突和外部替换
-- [ ] 5.7 在只读模式真机复核 A 基线；任何 managed 写入前保存候选地址/端口方案并等待用户明确授权
-- [ ] 5.8 运行 Windows Provider、状态不变性、安全和全量回归门禁，提交并推送 Windows 阶段
+- [x] 5.1 实现 Windows observe-only 适配器，读取官方 WireGuard 客户端/tunnel service 的接口、peer、地址、route 和服务状态
+- [x] 5.2 实现 Windows 平台权限/依赖预检和固定参数 runner，禁止 Shell 字符串、动态命令和交互式提权
+- [x] 5.3 实现独立接口命名、ACL 受限秘密/配置材料、所有权指纹和计划 diff，不触碰 `HomeMac`
+- [x] 5.4 实现 create/update/stop/remove 的固定步骤、幂等回执、实时 verify 和父 revision rollback
+- [x] 5.5 实现 Windows 重启恢复、半写配置检测、ownership conflict 和卸载清理
+- [x] 5.6 用 fake runner 覆盖每个步骤失败、权限不足、服务缺失、名称冲突、route 冲突和外部替换
+- [x] 5.7 在只读模式真机复核 A 基线；任何 managed 写入前保存候选地址/端口方案并等待用户明确授权
+- [x] 5.8 运行 Windows Provider、状态不变性、安全和全量回归门禁，提交并推送 Windows 阶段
 
 ## 6. macOS Provider 纵向切片
 
