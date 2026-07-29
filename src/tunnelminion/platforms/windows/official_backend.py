@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import getpass
 import ipaddress
@@ -9,6 +10,7 @@ import json
 import os
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -304,10 +306,19 @@ class OfficialWindowsManagedBackend:
         commands: FixedWindowsWireGuardCommands,
         observer: WindowsSnapshotObserver,
         materials: AclRestrictedWindowsConfigStore,
+        *,
+        settle_attempts: int = 10,
+        settle_delay_seconds: float = 0.25,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        if settle_attempts < 1 or settle_delay_seconds < 0:
+            raise ValueError("Windows 状态收敛参数无效")
         self._commands = commands
         self._observer = observer
         self._materials = materials
+        self._settle_attempts = settle_attempts
+        self._settle_delay_seconds = settle_delay_seconds
+        self._sleeper = sleeper
 
     def preflight(self) -> WindowsProviderPreflight:
         return self._commands.preflight()
@@ -322,10 +333,28 @@ class OfficialWindowsManagedBackend:
             if revision is not None
             else interface_name
         )
-        snapshot = await self._observer.observe(runtime_name)
+        snapshot = await self._observe_settled(runtime_name, wait_for_managed=revision is not None)
         return snapshot.model_copy(
             update={"interface_name": interface_name, "creation_nonce": nonce}
         )
+
+    async def _observe_settled(
+        self,
+        runtime_name: str,
+        *,
+        wait_for_managed: bool,
+    ) -> WindowsTunnelSnapshot:
+        snapshot = await self._observer.observe(runtime_name)
+        for _attempt in range(1, self._settle_attempts):
+            if not wait_for_managed or (
+                snapshot.interface_present
+                and snapshot.stable_interface_id is not None
+                and snapshot.public_key_hash is not None
+            ):
+                break
+            await self._sleeper(self._settle_delay_seconds)
+            snapshot = await self._observer.observe(runtime_name)
+        return snapshot
 
     def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)

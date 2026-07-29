@@ -76,6 +76,31 @@ class FakeObserver:
         return self.snapshot.model_copy(update={"interface_name": interface_name})
 
 
+class SettlingObserver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
+        self.calls += 1
+        if self.calls == 1:
+            return WindowsTunnelSnapshot(
+                interface_name=interface_name,
+                interface_present=False,
+                interface_up=False,
+                service_present=True,
+                service_running=True,
+            )
+        return WindowsTunnelSnapshot(
+            interface_name=interface_name,
+            interface_present=True,
+            interface_up=True,
+            service_present=True,
+            service_running=True,
+            public_key_hash="sha256:" + "a" * 64,
+            stable_interface_id="windows:tmn-test-a.r1",
+        )
+
+
 def fixed(tmp_path: Path, runner: FakeRunner) -> FixedWindowsWireGuardCommands:
     paths = WindowsProviderPaths(
         wireguard_exe=tmp_path / "wireguard.exe",
@@ -204,7 +229,12 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
     command_boundary = fixed(tmp_path, runner)
     store = materials(tmp_path, secrets_store, runner)
     observer = FakeObserver()
-    backend = OfficialWindowsManagedBackend(command_boundary, observer, store)
+    backend = OfficialWindowsManagedBackend(
+        command_boundary,
+        observer,
+        store,
+        settle_attempts=1,
+    )
     assert backend.preflight().administrator
     assert backend.ensure_identity(NETWORK_ID, NODE_A).public_key.endswith("=")
     reference = backend.ensure_secret(desired()).secret_reference
@@ -251,6 +281,41 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
     assert store.read_revision("tmn-test-a") is None
 
 
+def test_official_backend_waits_for_managed_interface_settlement(tmp_path: Path) -> None:
+    secrets_store = MemorySecrets()
+    runner = FakeRunner()
+    store = materials(tmp_path, secrets_store, runner)
+    reference = store.ensure_secret(desired()).secret_reference
+    asyncio.run(store.write(desired(), reference, "b" * 32))
+    observer = SettlingObserver()
+    delays: list[float] = []
+
+    async def sleeper(delay: float) -> None:
+        delays.append(delay)
+
+    backend = OfficialWindowsManagedBackend(
+        fixed(tmp_path, runner),
+        observer,
+        store,
+        settle_attempts=3,
+        settle_delay_seconds=0.125,
+        sleeper=sleeper,
+    )
+    snapshot = asyncio.run(backend.observe("tmn-test-a"))
+    assert snapshot.interface_present
+    assert observer.calls == 2
+    assert delays == [0.125]
+    with pytest.raises(ValueError, match="收敛参数"):
+        OfficialWindowsManagedBackend(fixed(tmp_path, runner), observer, store, settle_attempts=0)
+    with pytest.raises(ValueError, match="收敛参数"):
+        OfficialWindowsManagedBackend(
+            fixed(tmp_path, runner),
+            observer,
+            store,
+            settle_delay_seconds=-1,
+        )
+
+
 def test_official_backend_route_table_conflict_and_unavailable(tmp_path: Path) -> None:
     secrets_store = MemorySecrets()
     runner = FakeRunner()
@@ -258,6 +323,7 @@ def test_official_backend_route_table_conflict_and_unavailable(tmp_path: Path) -
         fixed(tmp_path, runner),
         FakeObserver(),
         materials(tmp_path, secrets_store, runner),
+        settle_attempts=1,
     )
     runner.stdout = """
       Network Destination        Netmask          Gateway       Interface  Metric
@@ -304,7 +370,12 @@ def test_official_backend_stop_remove_delete_failure_and_parent_restore(
     runner = FakeRunner()
     command_boundary = fixed(tmp_path, runner)
     store = materials(tmp_path, secrets_store, runner)
-    backend = OfficialWindowsManagedBackend(command_boundary, FakeObserver(), store)
+    backend = OfficialWindowsManagedBackend(
+        command_boundary,
+        FakeObserver(),
+        store,
+        settle_attempts=1,
+    )
     reference = backend.ensure_secret(desired()).secret_reference
     base_plan = asyncio.run(
         InMemoryNetworkProvider(observation()).plan(

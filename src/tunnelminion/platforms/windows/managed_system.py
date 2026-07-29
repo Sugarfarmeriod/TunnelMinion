@@ -284,7 +284,7 @@ class WindowsWireGuardObserver:
                 interface_name=interface_name,
                 interface_present=True,
                 interface_up=interface.is_up,
-                addresses=interface.addresses,
+                addresses=_canonical_host_addresses(interface.addresses),
                 service_present=service_present,
                 service_running=service_running,
                 observed_error_code="wireguard_query_failed",
@@ -322,7 +322,7 @@ class WindowsWireGuardObserver:
             interface_name=interface_name,
             interface_present=True,
             interface_up=interface.is_up,
-            addresses=interface.addresses,
+            addresses=_canonical_host_addresses(interface.addresses),
             service_present=service_present,
             service_running=service_running,
             peers=peers,
@@ -339,6 +339,17 @@ def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
         if len(parts) >= 2 and parts[0]:
             values[parts[0]] = parts[1:]
     return values
+
+
+def _canonical_host_addresses(values: tuple[str, ...]) -> tuple[str, ...]:
+    addresses: list[str] = []
+    for value in values:
+        try:
+            address = ipaddress.ip_address(value.split("%", maxsplit=1)[0])
+        except ValueError:
+            continue
+        addresses.append(f"{address}/{address.max_prefixlen}")
+    return tuple(sorted(set(addresses)))
 
 
 def _nonnegative_integer(value: str) -> int | None:

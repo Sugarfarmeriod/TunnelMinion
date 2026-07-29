@@ -209,13 +209,14 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
             InterfaceSnapshot(
                 name="tmn-test-a",
                 is_up=True,
-                addresses=("10.203.0.1",),
+                addresses=("10.203.0.1", "fd00::1%7", "invalid"),
             )
         ),
         fixed,
     )
     snapshot = asyncio.run(observer.observe("tmn-test-a"))
     assert snapshot.service_running
+    assert snapshot.addresses == ("10.203.0.1/32", "fd00::1/128")
     assert snapshot.host_routes == ("10.203.0.2/32",)
     assert snapshot.peers[0].latest_handshake_epoch == 123
     assert snapshot.peers[1].latest_handshake_epoch is None
