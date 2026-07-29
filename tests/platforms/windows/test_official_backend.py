@@ -72,7 +72,12 @@ class FakeObserver:
         )
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
-        assert interface_name in {"tmn-test-a", "tmn-test-a.r1", "HomeMac"}
+        assert interface_name in {
+            "tmn-test-a",
+            "tmn-test-a.r1",
+            "tmn-test-a.r2",
+            "HomeMac",
+        }
         return self.snapshot.model_copy(update={"interface_name": interface_name})
 
 
@@ -99,6 +104,17 @@ class SettlingObserver:
             public_key_hash="sha256:" + "a" * 64,
             stable_interface_id="windows:tmn-test-a.r1",
         )
+
+
+class SequenceObserver:
+    def __init__(self, snapshots: list[WindowsTunnelSnapshot]) -> None:
+        self.snapshots = snapshots
+        self.calls = 0
+
+    async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
+        index = min(self.calls, len(self.snapshots) - 1)
+        self.calls += 1
+        return self.snapshots[index].model_copy(update={"interface_name": interface_name})
 
 
 def fixed(tmp_path: Path, runner: FakeRunner) -> FixedWindowsWireGuardCommands:
@@ -234,6 +250,7 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
         observer,
         store,
         settle_attempts=1,
+        settle_delay_seconds=0,
     )
     assert backend.preflight().administrator
     assert backend.ensure_identity(NETWORK_ID, NODE_A).public_key.endswith("=")
@@ -316,6 +333,73 @@ def test_official_backend_waits_for_managed_interface_settlement(tmp_path: Path)
         )
 
 
+def test_official_backend_confirms_async_uninstall_convergence(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    store = materials(tmp_path, MemorySecrets(), runner)
+    present = WindowsTunnelSnapshot(
+        interface_name="tmn-test-a.r1",
+        interface_present=True,
+        interface_up=True,
+        service_present=True,
+        service_running=True,
+    )
+    absent = WindowsTunnelSnapshot(
+        interface_name="tmn-test-a.r1",
+        interface_present=False,
+        interface_up=False,
+        service_present=False,
+        service_running=False,
+    )
+    observer = SequenceObserver([present, absent])
+    backend = OfficialWindowsManagedBackend(
+        fixed(tmp_path, runner),
+        observer,
+        store,
+        settle_attempts=2,
+        settle_delay_seconds=0,
+    )
+    plan = asyncio.run(
+        InMemoryNetworkProvider(observation()).plan(
+            action=NetworkAction.CREATE,
+            desired=desired(),
+            observed=observation(),
+            ownership=None,
+        )
+    )
+    create_step = next(step for step in plan.steps if step.kind is PlanStepKind.CREATE_INTERFACE)
+    receipt = asyncio.run(
+        backend.rollback_step(
+            plan,
+            create_step,
+            secret_reference="keyring:test",
+            creation_nonce="b" * 32,
+            idempotency_key=f"netop_{'a' * 64}",
+        )
+    )
+    assert receipt.startswith("sha256:")
+    assert observer.calls == 3
+    assert sum("/uninstalltunnelservice" in command for command in runner.commands) == 2
+
+    stuck = OfficialWindowsManagedBackend(
+        fixed(tmp_path, FakeRunner()),
+        SequenceObserver([present]),
+        store,
+        settle_attempts=1,
+        settle_delay_seconds=0,
+    )
+    with pytest.raises(WindowsBackendError) as failure:
+        asyncio.run(
+            stuck.rollback_step(
+                plan,
+                create_step,
+                secret_reference="keyring:test",
+                creation_nonce="b" * 32,
+                idempotency_key=f"netop_{'a' * 64}",
+            )
+        )
+    assert failure.value.code is NetworkErrorCode.ROLLBACK_FAILED
+
+
 def test_official_backend_route_table_conflict_and_unavailable(tmp_path: Path) -> None:
     secrets_store = MemorySecrets()
     runner = FakeRunner()
@@ -324,6 +408,7 @@ def test_official_backend_route_table_conflict_and_unavailable(tmp_path: Path) -
         FakeObserver(),
         materials(tmp_path, secrets_store, runner),
         settle_attempts=1,
+        settle_delay_seconds=0,
     )
     runner.stdout = """
       Network Destination        Netmask          Gateway       Interface  Metric
@@ -375,6 +460,7 @@ def test_official_backend_stop_remove_delete_failure_and_parent_restore(
         FakeObserver(),
         store,
         settle_attempts=1,
+        settle_delay_seconds=0,
     )
     reference = backend.ensure_secret(desired()).secret_reference
     base_plan = asyncio.run(

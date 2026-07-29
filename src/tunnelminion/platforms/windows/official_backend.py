@@ -307,7 +307,7 @@ class OfficialWindowsManagedBackend:
         observer: WindowsSnapshotObserver,
         materials: AclRestrictedWindowsConfigStore,
         *,
-        settle_attempts: int = 10,
+        settle_attempts: int = 12,
         settle_delay_seconds: float = 0.25,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -430,10 +430,10 @@ class OfficialWindowsManagedBackend:
             result = await self._commands.stop_tunnel(self._active_runtime_interface_name(plan))
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.REMOVE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(
-                self._active_runtime_interface_name(plan)
+            return await self._uninstall_and_confirm(
+                self._active_runtime_interface_name(plan),
+                step,
             )
-            return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.DELETE_CONFIG:
             return await self._materials.delete_config(
                 desired.interface_name,
@@ -461,10 +461,10 @@ class OfficialWindowsManagedBackend:
         del idempotency_key
         desired = plan.desired
         if step.kind is PlanStepKind.CREATE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(
-                self._runtime_interface_name(desired.interface_name, desired.revision)
+            return await self._uninstall_and_confirm(
+                self._runtime_interface_name(desired.interface_name, desired.revision),
+                step,
             )
-            return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.WRITE_CONFIG:
             config_receipt = await self._materials.delete_config(
                 desired.interface_name,
@@ -521,6 +521,37 @@ class OfficialWindowsManagedBackend:
             desired.parent_revision if plan.action is NetworkAction.UPDATE else desired.revision
         )
         return cls._runtime_interface_name(desired.interface_name, revision)
+
+    async def _uninstall_and_confirm(
+        self,
+        runtime_name: str,
+        step: NetworkPlanStep,
+    ) -> str:
+        attempts = 0
+        result = await self._commands.uninstall_tunnel(runtime_name)
+        self._require_success(result.returncode, step)
+        for _attempt in range(self._settle_attempts):
+            await self._sleeper(self._settle_delay_seconds)
+            snapshot = await self._observer.observe(runtime_name)
+            if not snapshot.interface_present and not snapshot.service_present:
+                continue
+            attempts += 1
+            result = await self._commands.uninstall_tunnel(runtime_name)
+            self._require_success(result.returncode, step)
+        final = await self._observer.observe(runtime_name)
+        if final.interface_present or final.service_present:
+            raise WindowsBackendError(
+                NetworkErrorCode.ROLLBACK_FAILED,
+                "Windows tunnel service 在卸载收敛窗口后仍然存在",
+            )
+        return canonical_sha256(
+            {
+                "kind": step.kind.value,
+                "target": step.target,
+                "returncode": result.returncode,
+                "retry_count": attempts,
+            }
+        )
 
     @staticmethod
     def _require_success(returncode: int, step: NetworkPlanStep) -> str:
