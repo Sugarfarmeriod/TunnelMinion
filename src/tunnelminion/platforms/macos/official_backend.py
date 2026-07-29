@@ -300,15 +300,26 @@ class OfficialMacOSManagedBackend:
                 for route in peer.allowed_host_routes
             ),
         }
+        conflicts = {
+            (str(network), fingerprint)
+            for network, fingerprint in _parse_macos_ipv4_route_records(result.stdout)
+            if network.prefixlen != 0 and any(address in network for address in requested)
+        }
+        allowed = {
+            (overlap.route, overlap.observation_fingerprint)
+            for overlap in desired.allowed_route_overlaps
+        }
         conflict = next(
             (
-                network
-                for network in _parse_macos_ipv4_routes(result.stdout)
-                if network.prefixlen != 0 and any(address in network for address in requested)
+                item
+                for item in conflicts
+                if ipaddress.ip_network(item[0]).prefixlen == 32 or item not in allowed
             ),
             None,
         )
-        if conflict is not None:
+        if conflict is not None or allowed != {
+            item for item in conflicts if ipaddress.ip_network(item[0]).prefixlen < 32
+        }:
             raise MacOSBackendError(
                 NetworkErrorCode.ROUTE_NOT_ALLOWED,
                 "候选地址或 host route 命中现有 macOS 非默认路由",
@@ -421,20 +432,39 @@ class OfficialMacOSManagedBackend:
         )
 
 
-def _parse_macos_ipv4_routes(stdout: str) -> tuple[ipaddress.IPv4Network, ...]:
-    values: list[ipaddress.IPv4Network] = []
+def _parse_macos_ipv4_route_records(
+    stdout: str,
+) -> tuple[tuple[ipaddress.IPv4Network, str], ...]:
+    values: list[tuple[ipaddress.IPv4Network, str]] = []
     for line in stdout.splitlines():
         parts = line.split()
         if len(parts) < 4:
             continue
         token = parts[0]
         if token == "default":
-            values.append(ipaddress.IPv4Network("0.0.0.0/0"))
+            network = ipaddress.IPv4Network("0.0.0.0/0")
+            values.append(
+                (
+                    network,
+                    canonical_sha256({"route": str(network), "interface_locator": parts[3]}),
+                )
+            )
             continue
         try:
-            values.append(_macos_route_token(token))
+            network = _macos_route_token(token)
         except ValueError:
             continue
+        values.append(
+            (
+                network,
+                canonical_sha256(
+                    {
+                        "route": str(network),
+                        "interface_locator": parts[3],
+                    }
+                ),
+            )
+        )
     return tuple(dict.fromkeys(values))
 
 

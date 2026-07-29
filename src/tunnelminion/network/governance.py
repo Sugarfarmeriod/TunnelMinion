@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId, ResourceId
 from tunnelminion.network.contracts import (
     AcknowledgementStage,
+    ApprovedRouteOverlap,
     ManagedResourceOwnership,
     NetworkAcknowledgement,
     NetworkAction,
@@ -77,6 +78,7 @@ class NetworkAuthorizationScope(BaseModel):
     interface_prefix: str = Field(pattern=r"^tmn-[a-z0-9-]{0,32}$")
     address_pool: str
     allowed_host_routes: frozenset[str] = Field(max_length=256)
+    allowed_route_overlaps: frozenset[ApprovedRouteOverlap] = Field(max_length=32)
     peer_node_ids: tuple[NodeId, ...] = Field(min_length=1, max_length=32)
     maximum_peers: int = Field(ge=1, le=32)
     allowed_relay_roles: frozenset[RelayRole] = Field(min_length=1)
@@ -127,6 +129,7 @@ class NetworkAuthorizationScope(BaseModel):
             interface_prefix=interface_prefix,
             address_pool=address_pool,
             allowed_host_routes=routes,
+            allowed_route_overlaps=frozenset(plan.desired.allowed_route_overlaps),
             peer_node_ids=tuple(peer.node_id for peer in plan.desired.peers),
             maximum_peers=len(plan.desired.peers),
             allowed_relay_roles=relays,
@@ -157,6 +160,7 @@ class NetworkAuthorizationScope(BaseModel):
             and desired.interface_name.startswith(self.interface_prefix)
             and address in pool
             and routes <= self.allowed_host_routes
+            and frozenset(desired.allowed_route_overlaps) <= self.allowed_route_overlaps
             and {str(peer.node_id) for peer in desired.peers}
             <= {str(node_id) for node_id in self.peer_node_ids}
             and len(desired.peers) <= self.maximum_peers

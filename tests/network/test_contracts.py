@@ -26,6 +26,7 @@ from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.network.contracts import (
     AcknowledgementStage,
     AddressLease,
+    ApprovedRouteOverlap,
     DesiredNetworkConfig,
     LeaseStatus,
     ManagedResourceOwnership,
@@ -94,6 +95,32 @@ def test_desired_config_rejects_routes_revisions_peers_and_versions(
         desired(peers=(peer(node_id=NODE_A),))
     with pytest.raises(ValidationError, match="peer 节点"):
         desired(peers=(peer(), peer()))
+    with pytest.raises(ValidationError, match="非默认 IPv4 宽路由"):
+        ApprovedRouteOverlap(
+            route="0.0.0.0/0",
+            observation_fingerprint="sha256:" + "a" * 64,
+        )
+    with pytest.raises(ValidationError, match="规范形式"):
+        ApprovedRouteOverlap(
+            route="10.128.0.0/255.128.0.0",
+            observation_fingerprint="sha256:" + "a" * 64,
+        )
+    with pytest.raises(ValidationError, match="直接相关"):
+        desired(
+            allowed_route_overlaps=(
+                ApprovedRouteOverlap(
+                    route="192.168.0.0/16",
+                    observation_fingerprint="sha256:" + "a" * 64,
+                ),
+            )
+        )
+    overlap = ApprovedRouteOverlap(
+        route="10.128.0.0/9",
+        observation_fingerprint="sha256:" + "a" * 64,
+    )
+    with pytest.raises(ValidationError, match="不得重复"):
+        desired(allowed_route_overlaps=(overlap, overlap))
+    assert desired(allowed_route_overlaps=(overlap,)).allowed_route_overlaps == (overlap,)
 
     monkeypatch.setattr(contracts, "MAX_CONFIG_BYTES", 1)
     with pytest.raises(ValidationError, match="字节预算"):

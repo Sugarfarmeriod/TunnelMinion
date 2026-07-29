@@ -310,7 +310,7 @@ class OfficialWindowsManagedBackend:
                 NetworkErrorCode.PROVIDER_UNAVAILABLE,
                 "无法读取 Windows IPv4 路由冲突基线",
             )
-        networks = _parse_ipv4_route_networks(result.stdout)
+        routes = _parse_ipv4_route_records(result.stdout)
         requested_addresses = {
             ipaddress.ip_interface(desired.address).ip,
             *(
@@ -319,16 +319,26 @@ class OfficialWindowsManagedBackend:
                 for route in peer.allowed_host_routes
             ),
         }
+        conflicts = {
+            (str(network), fingerprint)
+            for network, fingerprint in routes
+            if network.prefixlen != 0 and any(address in network for address in requested_addresses)
+        }
+        allowed = {
+            (overlap.route, overlap.observation_fingerprint)
+            for overlap in desired.allowed_route_overlaps
+        }
         conflict = next(
             (
-                network
-                for network in networks
-                if network.prefixlen != 0
-                and any(address in network for address in requested_addresses)
+                item
+                for item in conflicts
+                if ipaddress.ip_network(item[0]).prefixlen == 32 or item not in allowed
             ),
             None,
         )
-        if conflict is not None:
+        if conflict is not None or allowed != {
+            item for item in conflicts if ipaddress.ip_network(item[0]).prefixlen < 32
+        }:
             raise WindowsBackendError(
                 NetworkErrorCode.ROUTE_NOT_ALLOWED,
                 "候选地址或 host route 命中现有 Windows 非默认路由",
@@ -429,9 +439,11 @@ class OfficialWindowsManagedBackend:
         )
 
 
-def _parse_ipv4_route_networks(stdout: str) -> tuple[ipaddress.IPv4Network, ...]:
-    """解析 route.exe 数字行，忽略接口名称、网关正文和本地化标题。"""
-    values: list[ipaddress.IPv4Network] = []
+def _parse_ipv4_route_records(
+    stdout: str,
+) -> tuple[tuple[ipaddress.IPv4Network, str], ...]:
+    """解析 route.exe 数字行，并绑定路由与平台接口定位符。"""
+    values: list[tuple[ipaddress.IPv4Network, str]] = []
     for line in stdout.splitlines():
         parts = line.split()
         if len(parts) < 5:
@@ -442,5 +454,15 @@ def _parse_ipv4_route_networks(stdout: str) -> tuple[ipaddress.IPv4Network, ...]
             network = ipaddress.IPv4Network(f"{destination}/{mask}", strict=False)
         except (ipaddress.AddressValueError, ipaddress.NetmaskValueError):
             continue
-        values.append(network)
+        values.append(
+            (
+                network,
+                canonical_sha256(
+                    {
+                        "route": str(network),
+                        "interface_locator": parts[3],
+                    }
+                ),
+            )
+        )
     return tuple(dict.fromkeys(values))

@@ -11,11 +11,13 @@ import pytest
 from tests.network.factories import NETWORK_ID, NODE_A, desired, observation
 
 from tunnelminion.network.contracts import (
+    ApprovedRouteOverlap,
     NetworkAction,
     NetworkErrorCode,
     NetworkPlanStep,
     PlanStepKind,
     ProviderKind,
+    canonical_sha256,
 )
 from tunnelminion.network.fakes import InMemoryNetworkProvider
 from tunnelminion.platforms.macos.managed_system import (
@@ -219,6 +221,34 @@ def test_backend_observe_conflicts_and_unavailable(tmp_path: Path) -> None:
     with pytest.raises(MacOSBackendError) as conflict:
         asyncio.run(backend.validate_no_conflicts(config()))
     assert conflict.value.code is NetworkErrorCode.ROUTE_NOT_ALLOWED
+    overlap = ApprovedRouteOverlap(
+        route="10.128.0.0/9",
+        observation_fingerprint=canonical_sha256(
+            {
+                "route": "10.128.0.0/9",
+                "interface_locator": "utun1024",
+            }
+        ),
+    )
+    asyncio.run(
+        backend.validate_no_conflicts(
+            config().model_copy(update={"allowed_route_overlaps": (overlap,)})
+        )
+    )
+    with pytest.raises(MacOSBackendError):
+        asyncio.run(
+            backend.validate_no_conflicts(
+                config().model_copy(
+                    update={
+                        "allowed_route_overlaps": (
+                            overlap.model_copy(
+                                update={"observation_fingerprint": "sha256:" + "f" * 64}
+                            ),
+                        )
+                    }
+                )
+            )
+        )
     runner.returncode = 1
     with pytest.raises(MacOSBackendError) as unavailable:
         asyncio.run(backend.validate_no_conflicts(config()))
