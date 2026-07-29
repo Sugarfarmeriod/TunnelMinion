@@ -19,6 +19,7 @@ from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
     LocalNetworkKeyMaterial,
+    NetworkAction,
     NetworkErrorCode,
     NetworkPlan,
     NetworkPlanStep,
@@ -168,18 +169,31 @@ class AclRestrictedWindowsConfigStore:
         )
 
     def read_creation_nonce(self, interface_name: str) -> str | None:
+        parsed = self._read_marker(interface_name)
+        if parsed is None:
+            return None
+        nonce = parsed.get("creation_nonce")
+        if not isinstance(nonce, str) or re.fullmatch(r"[0-9a-f]{32}", nonce) is None:
+            raise ValueError("Windows 所有权 marker 结构无效")
+        return nonce
+
+    def read_revision(self, interface_name: str) -> int | None:
+        parsed = self._read_marker(interface_name)
+        if parsed is None:
+            return None
+        revision = parsed.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise ValueError("Windows 所有权 marker 结构无效")
+        return revision
+
+    def _read_marker(self, interface_name: str) -> dict[str, object] | None:
         marker = self.marker_path(interface_name)
         if not marker.exists():
             return None
         parsed = json.loads(marker.read_text(encoding="utf-8"))
-        if not isinstance(parsed, dict) or not isinstance(
-            cast(dict[str, object], parsed).get("creation_nonce"), str
-        ):
+        if not isinstance(parsed, dict):
             raise ValueError("Windows 所有权 marker 结构无效")
-        nonce = cast(str, cast(dict[str, object], parsed)["creation_nonce"])
-        if re.fullmatch(r"[0-9a-f]{32}", nonce) is None:
-            raise ValueError("Windows 所有权 marker 结构无效")
-        return nonce
+        return cast(dict[str, object], parsed)
 
     def config_path(self, interface_name: str, revision: int) -> Path:
         if re.fullmatch(r"tmn-[a-z0-9-]{1,48}", interface_name) is None or revision < 1:
@@ -286,13 +300,19 @@ class OfficialWindowsManagedBackend:
         return self._commands.preflight()
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
-        snapshot = await self._observer.observe(interface_name)
-        nonce = (
-            self._materials.read_creation_nonce(interface_name)
-            if interface_name.startswith("tmn-")
-            else None
+        if not interface_name.startswith("tmn-"):
+            return await self._observer.observe(interface_name)
+        nonce = self._materials.read_creation_nonce(interface_name)
+        revision = self._materials.read_revision(interface_name)
+        runtime_name = (
+            self._runtime_interface_name(interface_name, revision)
+            if revision is not None
+            else interface_name
         )
-        return snapshot.model_copy(update={"creation_nonce": nonce})
+        snapshot = await self._observer.observe(runtime_name)
+        return snapshot.model_copy(
+            update={"interface_name": interface_name, "creation_nonce": nonce}
+        )
 
     def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)
@@ -365,10 +385,12 @@ class OfficialWindowsManagedBackend:
             )
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.STOP_INTERFACE:
-            result = await self._commands.stop_tunnel(desired.interface_name)
+            result = await self._commands.stop_tunnel(self._active_runtime_interface_name(plan))
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.REMOVE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(desired.interface_name)
+            result = await self._commands.uninstall_tunnel(
+                self._active_runtime_interface_name(plan)
+            )
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.DELETE_CONFIG:
             return await self._materials.delete_config(
@@ -397,7 +419,9 @@ class OfficialWindowsManagedBackend:
         del creation_nonce, idempotency_key
         desired = plan.desired
         if step.kind is PlanStepKind.CREATE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(desired.interface_name)
+            result = await self._commands.uninstall_tunnel(
+                self._runtime_interface_name(desired.interface_name, desired.revision)
+            )
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.WRITE_CONFIG:
             return await self._materials.delete_config(
@@ -426,6 +450,20 @@ class OfficialWindowsManagedBackend:
                 "secret_reference_configured": bool(secret_reference),
             }
         )
+
+    @staticmethod
+    def _runtime_interface_name(interface_name: str, revision: int) -> str:
+        if revision < 1:
+            raise ValueError("Windows 运行时接口 revision 必须为正数")
+        return f"{interface_name}.r{revision}"
+
+    @classmethod
+    def _active_runtime_interface_name(cls, plan: NetworkPlan) -> str:
+        desired = plan.desired
+        revision = (
+            desired.parent_revision if plan.action is NetworkAction.UPDATE else desired.revision
+        )
+        return cls._runtime_interface_name(desired.interface_name, revision)
 
     @staticmethod
     def _require_success(returncode: int, step: NetworkPlanStep) -> str:

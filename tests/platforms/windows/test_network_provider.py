@@ -595,14 +595,16 @@ def test_resume_crash_missing_ownership_successful_rollback_and_verified_not_rec
     incomplete.omit_ownership_after_create = True
     incomplete_value, _, _ = provider(tmp_path / "incomplete", incomplete)
     incomplete_plan = run(create_plan(incomplete_value))
-    with pytest.raises(WindowsBackendError, match="双重所有权"):
-        run(
-            incomplete_value.apply(
-                incomplete_plan,
-                idempotency_key=KEY,
-                cancellation=ToolCancellationToken(),
-            )
+    failed = run(
+        incomplete_value.apply(
+            incomplete_plan,
+            idempotency_key=KEY,
+            cancellation=ToolCancellationToken(),
         )
+    )
+    assert failed.status is ReceiptStatus.FAILED
+    assert failed.error is not None
+    assert failed.error.code is NetworkErrorCode.OWNERSHIP_CONFLICT
 
 
 def test_update_stop_remove_and_naive_clock(tmp_path: Path) -> None:

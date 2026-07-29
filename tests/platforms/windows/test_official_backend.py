@@ -72,7 +72,7 @@ class FakeObserver:
         )
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
-        assert interface_name in {"tmn-test-a", "HomeMac"}
+        assert interface_name in {"tmn-test-a", "tmn-test-a.r1", "HomeMac"}
         return self.snapshot.model_copy(update={"interface_name": interface_name})
 
 
@@ -161,6 +161,7 @@ def test_material_store_rejects_paths_accounts_refs_acl_and_corrupt_marker(
             account_name="bad;&",
         )
     store = materials(tmp_path, secrets_store, runner)
+    assert store.read_revision("tmn-test-a") is None
     with pytest.raises(ValueError, match="身份"):
         store.config_path("HomeMac", 1)
     with pytest.raises(ValueError, match="身份"):
@@ -188,6 +189,9 @@ def test_material_store_rejects_paths_accounts_refs_acl_and_corrupt_marker(
     marker.write_text('{"creation_nonce":"bad"}', encoding="utf-8")
     with pytest.raises(ValueError, match="marker"):
         store.read_creation_nonce("tmn-test-a")
+    marker.write_text('{"creation_nonce":"' + "a" * 32 + '","revision":false}', encoding="utf-8")
+    with pytest.raises(ValueError, match="marker"):
+        store.read_revision("tmn-test-a")
     marker.write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="marker"):
         store.read_creation_nonce("tmn-test-a")
@@ -224,9 +228,12 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
         )
         assert result.startswith("sha256:")
     snapshot = asyncio.run(backend.observe("tmn-test-a"))
+    assert snapshot.interface_name == "tmn-test-a"
     assert snapshot.creation_nonce == "b" * 32
+    assert store.read_revision("tmn-test-a") == 1
     assert asyncio.run(backend.observe("HomeMac")).creation_nonce is None
     assert any("/installtunnelservice" in command for command in runner.commands)
+    assert any(any("tmn-test-a.r1" in part for part in command) for command in runner.commands)
 
     for step in reversed(plan.steps):
         result = asyncio.run(
@@ -334,6 +341,22 @@ def test_official_backend_stop_remove_delete_failure_and_parent_restore(
             expected_effect="delete secret",
         ),
     )
+    invalid_update = base_plan.model_copy(
+        update={
+            "action": NetworkAction.UPDATE,
+            "desired": base_plan.desired.model_copy(update={"parent_revision": 0}),
+        }
+    )
+    with pytest.raises(ValueError, match="revision"):
+        asyncio.run(
+            backend.execute_step(
+                invalid_update,
+                steps[0],
+                secret_reference=reference,
+                creation_nonce="c" * 32,
+                idempotency_key=f"netop_{'b' * 64}",
+            )
+        )
     for step in steps:
         assert asyncio.run(
             backend.execute_step(

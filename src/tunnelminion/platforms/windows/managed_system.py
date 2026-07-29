@@ -15,6 +15,7 @@ from tunnelminion.network.contracts import ProviderMode, canonical_sha256
 from tunnelminion.platforms.windows.system import CommandResult, CommandRunner, SystemReader
 
 _MANAGED_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}$")
+_MANAGED_RUNTIME_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}\.r[1-9][0-9]*$")
 _ANY_INTERFACE = re.compile(r"^[A-Za-z0-9_. -]{1,64}$")
 _SERVICE_PREFIX = "WireGuardTunnel$"
 _MAX_PEERS = 32
@@ -230,8 +231,13 @@ class FixedWindowsWireGuardCommands:
 
     @staticmethod
     def _validate_interface(interface_name: str, *, managed_only: bool) -> None:
-        pattern = _MANAGED_INTERFACE if managed_only else _ANY_INTERFACE
-        if pattern.fullmatch(interface_name) is None:
+        valid = (
+            _MANAGED_INTERFACE.fullmatch(interface_name) is not None
+            or _MANAGED_RUNTIME_INTERFACE.fullmatch(interface_name) is not None
+            if managed_only
+            else _ANY_INTERFACE.fullmatch(interface_name) is not None
+        )
+        if not valid:
             raise ValueError("接口名称不符合固定格式")
 
     @staticmethod

@@ -113,6 +113,7 @@ def test_fixed_commands_reject_dynamic_fields_names_routes_and_paths(tmp_path: P
     fixed = commands(tmp_path, runner)
     config = fixed.config_path("tmn-test-a", 1)
     asyncio.run(fixed.install_tunnel("tmn-test-a", config))
+    asyncio.run(fixed.uninstall_tunnel("tmn-test-a.r1"))
     asyncio.run(fixed.uninstall_tunnel("tmn-test-a"))
     asyncio.run(fixed.stop_tunnel("tmn-test-a"))
     asyncio.run(fixed.show("HomeMac", "peers"))

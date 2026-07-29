@@ -447,7 +447,20 @@ class WindowsNetworkProvider:
                     }
                 )
                 self._journals.put(journal)
-            await self._commit_ledger(plan, journal)
+            try:
+                await self._commit_ledger(plan, journal)
+            except WindowsBackendError as exc:
+                failed = journal.model_copy(
+                    update={"status": ReceiptStatus.FAILED, "updated_at": self._now()}
+                )
+                self._journals.put(failed)
+                return self._receipt(
+                    failed,
+                    ReceiptStatus.FAILED,
+                    exc.code,
+                    str(exc),
+                    retryable=exc.retryable,
+                )
             applied = journal.model_copy(
                 update={"status": ReceiptStatus.APPLIED, "updated_at": self._now()}
             )
