@@ -8,14 +8,18 @@ Coordinator SHALL 在 network 的管理员配置地址池内为节点分配稳�
 - **WHEN** A 与 B 同时加入同一受管 network
 - **THEN** Coordinator SHALL 原子分配两个不同 host address 并生成单调配置修订
 
-#### Scenario: 本机预检发现地址或 route 冲突
-- **WHEN** Agent 发现分配地址与本机现有接口或 route 重叠
+#### Scenario: 本机预检发现地址冲突或未批准 route 重叠
+- **WHEN** Agent 发现分配地址与本机现有接口冲突，或目标 route 命中未被双重批准的既有路由
 - **THEN** Agent SHALL 拒绝应用并报告冲突，不得自行选择另一地址绕过 Coordinator
+
+#### Scenario: 已批准精确 host route 与既有宽路由共存
+- **WHEN** 分配地址不与接口冲突，且签名配置和本机 L3 授权同时绑定精确 IPv4 `/32`、原命中宽路由和观察指纹
+- **THEN** Agent MAY 进入 Provider 计划，但不得扩大到子网、默认路由或修改原宽路由
 
 ### Requirement: desired config 必须签名并绑定目标与父修订
 每份受管网络 desired config MUST 绑定 network、目标 node、配置 revision、父 revision、公钥、
-host routes、候选 endpoint、relay policy、有效期和策略摘要，并 SHALL 使用固定指纹的
-Coordinator Ed25519 key 对域分离 payload 签名。
+host routes、允许覆盖的既有宽路由摘要、候选 endpoint、relay policy、有效期和策略摘要，并
+SHALL 使用固定指纹的 Coordinator Ed25519 key 对域分离 payload 签名。
 
 #### Scenario: Agent 收到下一配置修订
 - **WHEN** 签名、目标 node、父 revision、协议和预算均有效

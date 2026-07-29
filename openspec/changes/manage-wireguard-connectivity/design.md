@@ -53,9 +53,12 @@ Provider 把资源分为：
   资源指纹的 TunnelMinion 自有资源；
 - `ownership-conflict`：记录存在但系统指纹不匹配，只能停止并给出人工建议。
 
-首版不提供“导入后接管用户现有接口”。创建名称使用专用前缀和独立配置目录；地址池必须与
-当前接口、路由和 Coordinator 已分配地址均不冲突。任何删除都同时要求本地账本与实时系统
-指纹匹配。相比依赖接口名前缀，双重所有权证据能抵抗名称复用和用户手工替换。
+首版不提供“导入后接管用户现有接口”。创建名称使用专用前缀和独立配置目录；host address
+必须与当前接口和 Coordinator 已分配地址均不冲突。现有非默认路由重叠默认拒绝；唯一例外是
+签名 desired config 与目标节点本机 L3 授权同时绑定的精确 IPv4 `/32`，且计划同时绑定原命中
+宽路由、接口与观察指纹。Provider 只能新增和删除自己拥有的 `/32`，不得修改、替换或降权原
+宽路由。任何删除都同时要求本地账本与实时系统指纹匹配。相比依赖接口名前缀，双重所有权证据
+能抵抗名称复用和用户手工替换。
 
 ### 3. 私钥本地生成，Coordinator 只保存最小公共网络元数据
 
@@ -70,8 +73,9 @@ Provider 把资源分为：
 
 Coordinator 在 network 内用事务分配单节点 host address，拒绝重叠、保留地址、跨 network
 租约和地址池变化中的静默重编号。每份 desired config 绑定 network/node、配置 revision、
-父 revision、公钥集合、host routes、候选、有效期和策略摘要，并使用固定指纹的 Coordinator
-Ed25519 key 对域分离 payload 签名。
+父 revision、公钥集合、host routes、候选、有效期、允许覆盖的既有宽路由摘要和策略摘要，
+并使用固定指纹的 Coordinator Ed25519 key 对域分离 payload 签名。宽路由摘要只包含与目标
+`/32` 直接相关的规范 CIDR 与本机观察绑定，不包含完整用户路由表。
 
 Agent 先验证 key 指纹、签名、目标 node、父 revision、协议和预算，再保存 pending revision。
 只有 Provider 验证成功后才提交 applied acknowledgement；乱序、重复和响应丢失按 revision 与
@@ -81,7 +85,8 @@ Agent 先验证 key 指纹、签名、目标 node、父 revision、协议和预�
 
 以下变化必须在受影响节点本机展示确定性 diff 并批准：首次创建接口、扩大地址/route 范围、
 更换公钥、启用/更换 relay、切换生产用途和删除资源。批准绑定 node/network、Provider、
-接口前缀、地址池、允许 routes、relay policy、配置 revision/父 revision、有效期和批准人。
+接口前缀、地址池、允许 routes、允许覆盖的既有宽路由摘要、relay policy、配置 revision/
+父 revision、计划哈希、有效期和批准人。
 
 同一批准 policy 内，仅限保持地址/route/peer 上限且所有权仍匹配的幂等修复可以自动执行。
 超出任一维度、授权撤销/过期或另一节点没有对应批准时停止在 `awaiting_authorization`。这满足
@@ -140,7 +145,8 @@ revision 才进入 `active`。任一节点失败时，已应用节点按回执�
 
 1. fake Provider/Coordinator 完成无网卡的正常、并发、部分失败和恢复测试；
 2. Windows/macOS `observe-only` 记录现有 A/B 不含秘密基线；
-3. 用不冲突地址、独立接口名和隔离数据目录创建 managed A/B 测试隧道；
+3. 用不冲突 host address、双重批准的精确 `/32`、独立接口名和隔离数据目录创建 managed
+   A/B 测试隧道；保留并验证原 Mihomo 宽路由不变；
 4. 验证直连、控制面离线、密钥轮换、单端失败、回滚、崩溃恢复和完整卸载；
 5. 在隔离三节点环境验证选定 relay，而不是让生产 A/B 兼任 relay；
 6. 清理测试资源并证明 `HomeMac`、B 手写配置、8787、8082、Murus 和用户路由前后不变。
@@ -152,7 +158,8 @@ revision 才进入 `active`。任一节点失败时，已应用节点按回执�
 - [Windows/macOS WireGuard 生命周期和权限语义不同] → 先做命令/API spike，Provider 契约测试
   与真机适配测试分开，权限不足结构化失败。
 - [错误 AllowedIPs 或 route 可能切断网络] → 首版只允许单节点 host route，拒绝默认路由和
-  非批准子网；应用前后保存路由摘要并从请求节点独立验证。
+  非批准子网；重叠默认拒绝，只有签名配置与本机授权共同绑定的精确 `/32` 可以覆盖已记录的
+  更宽路由；应用前后保存相关路由摘要并从请求节点独立验证，回滚只删除自有 `/32`。
 - [地址租约冲突] → Coordinator 事务唯一约束加 Agent 本机冲突预检；冲突不自动换地址重试。
 - [两端部分成功] → revision saga、父配置、逐步回执、反向回滚和 manual intervention 状态。
 - [relay 扩大信任边界或性能成本] → 显式角色、机制 spike、带宽/并发预算、可见状态和独立验收。
@@ -172,8 +179,8 @@ revision 才进入 `active`。任一节点失败时，已应用节点按回执�
 
 ## Open Questions
 
-- A/B 测试地址池和 B 的 UDP 监听端口由哪一段现有策略允许？实施前必须由只读冲突扫描和用户
-  确认决定，不能把文档示例当授权。
+- A/B 首轮已根据只读扫描与用户确认选择 `10.253.0.0/24` 中两个 host address 和
+  `18889/udp`；Mihomo 宽路由共存只允许经双重批准的精确 `/32`，文档示例不能扩展该授权。
 - relay 采用受信 hub 还是不透明 datagram relay？需先用 spike 比较机密性、部署和性能。
 - Windows 官方客户端、tunnel service 和 macOS 当前命令流程中，哪些操作可提供最可靠的
   原子替换/回滚回执？需在不修改现有接口的 sandbox fixture 中验证。
