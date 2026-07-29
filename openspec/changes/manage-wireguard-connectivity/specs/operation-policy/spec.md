@@ -6,7 +6,7 @@
 操作 MUST 始终拒绝，普通模型工具集不得包含 L3/L4 写适配器。
 
 #### Scenario: 用户批准创建独立受管 WireGuard 测试接口
-- **WHEN** 本机用户批准绑定 network/node、Provider、接口前缀、地址池、host routes、允许覆盖的既有宽路由摘要、配置修订、观察指纹和有效期的 L3 计划
+- **WHEN** 本机用户批准绑定 network/node、Provider、接口前缀、地址池、host routes、允许覆盖的既有宽路由摘要、UDP listen port、配置修订、观察指纹和有效期的 L3 计划
 - **THEN** 系统 SHALL 只允许确定性 NetworkProvider 执行该精确范围并要求执行后验证
 
 #### Scenario: 请求重启服务、控制容器或修改用户 WireGuard
@@ -22,7 +22,7 @@
 ### Requirement: L3 网络授权必须绑定完整变化范围
 受管网络 L3 授权 MUST 绑定 network/node、Provider、资源所有权、接口前缀、地址池、允许 host
 routes、允许覆盖的既有宽路由摘要、观察指纹、peer/relay 上限、配置与父 revision、计划哈希、
-批准人和有效期；超出任一维度 MUST 重新批准。
+UDP listen port、批准人和有效期；超出任一维度 MUST 重新批准。
 
 #### Scenario: 新 revision 只修复同一 peer
 - **WHEN** 幂等修复没有扩大地址、route、peer、relay 或资源范围且授权仍有效

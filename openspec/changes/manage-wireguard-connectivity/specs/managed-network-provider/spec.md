@@ -15,8 +15,8 @@
 ### Requirement: Provider 计划必须确定、有界且可预览
 Provider SHALL 根据结构化 desired config 和实时 observed state 生成不含秘密的差异计划；计划
 MUST 固定 network/node、接口、地址、host routes、peer 公钥、endpoint、允许覆盖的既有宽路由
-摘要、步骤上限、父配置修订、观察指纹和计划哈希，并 MUST 拒绝默认路由、未批准子网、未知
-字段和动态命令。
+摘要、可选 UDP listen port、步骤上限、父配置修订、观察指纹和计划哈希，并 MUST 拒绝默认
+路由、未批准子网、未批准端口、未知字段和动态命令。
 
 #### Scenario: 计划创建独立测试接口
 - **WHEN** desired config 使用不冲突 host address、明确 peer、允许的独立接口名称，且任何既有宽路由重叠都由签名配置精确列出
@@ -33,6 +33,14 @@ MUST 固定 network/node、接口、地址、host routes、peer 公钥、endpoin
 #### Scenario: 宽路由摘要缺失或观察结果变化
 - **WHEN** `/32` 命中的现有宽路由未被双重批准，或接口、CIDR、观察指纹与计划不一致
 - **THEN** Provider SHALL 在任何平台写入前返回 `route_not_allowed`
+
+#### Scenario: B 创建具有明确监听端口的测试接口
+- **WHEN** 签名 desired config 与 B 本机 L3 授权同时绑定 `listen_port=18889`
+- **THEN** Provider MAY 让独立测试接口监听 `*:18889/udp`，但不得修改 Murus、防火墙或端口转发
+
+#### Scenario: 配置请求未批准监听端口
+- **WHEN** desired config 的 listen port 与本机授权不同或超出端口预算
+- **THEN** Provider SHALL 在写配置前拒绝，且不得自动选择其他端口
 
 ### Requirement: WireGuard 私钥必须只属于生成节点
 Provider MUST 在所属节点生成 WireGuard 私钥，并只写入操作系统秘密存储或平台运行所必需的
@@ -110,4 +118,4 @@ Agent 重启或崩溃后 SHALL 对未完成回执执行恢复检查；卸载 SHA
 
 #### Scenario: 卸载时存在 HomeMac 和受管测试接口
 - **WHEN** 用户执行完整卸载
-- **THEN** 系统 SHALL 只删除指纹匹配的受管测试接口，`HomeMac`、B 手写配置和用户路由保持不变
+- **THEN** 系统 SHALL 只删除指纹匹配的受管测试接口并验证其 UDP 监听消失，`HomeMac`、B 手写配置和用户路由保持不变

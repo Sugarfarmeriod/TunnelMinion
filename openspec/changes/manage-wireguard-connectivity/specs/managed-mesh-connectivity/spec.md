@@ -18,8 +18,8 @@ Coordinator SHALL 在 network 的管理员配置地址池内为节点分配稳�
 
 ### Requirement: desired config 必须签名并绑定目标与父修订
 每份受管网络 desired config MUST 绑定 network、目标 node、配置 revision、父 revision、公钥、
-host routes、允许覆盖的既有宽路由摘要、候选 endpoint、relay policy、有效期和策略摘要，并
-SHALL 使用固定指纹的 Coordinator Ed25519 key 对域分离 payload 签名。
+host routes、允许覆盖的既有宽路由摘要、可选 UDP listen port、候选 endpoint、relay policy、
+有效期和策略摘要，并 SHALL 使用固定指纹的 Coordinator Ed25519 key 对域分离 payload 签名。
 
 #### Scenario: Agent 收到下一配置修订
 - **WHEN** 签名、目标 node、父 revision、协议和预算均有效

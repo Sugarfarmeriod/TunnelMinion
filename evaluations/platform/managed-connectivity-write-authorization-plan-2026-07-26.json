@@ -4,7 +4,8 @@
   "authorized_at": "2026-07-29",
   "authorization_basis": [
     "用户此前确认 B 端 macOS 已通过 Murus 放行 18881-18889 端口",
-    "用户在看到精确授权方案与权限门禁后要求继续完成 OpenSpec 剩余进度"
+    "用户在看到精确授权方案与权限门禁后要求继续完成 OpenSpec 剩余进度",
+    "用户于 2026-07-29 明确允许 B 测试接口临时监听所有本机地址的 UDP 18889"
   ],
   "captured_at": "2026-07-26T12:54:16Z",
   "read_only_recheck": {
@@ -48,7 +49,8 @@
       "actual_interface": "dynamic_utun_recorded_by_WG_TUN_NAME_FILE",
       "address": "10.253.0.1/32",
       "peer_host_route": "10.253.0.2/32",
-      "listen": "10.77.0.1:18889/udp",
+      "listen": "*:18889/udp",
+      "listen_semantics": "WireGuard 只配置 ListenPort；Murus 和现有网络边界继续控制实际可达性",
       "temporary_authenticated_probe": "10.253.0.1:18888/tcp",
       "data_directory": ".data/managed-acceptance/b"
     }
@@ -57,7 +59,7 @@
     "在隔离数据目录内生成两端本机 WireGuard 私钥并只保存秘密引用",
     "先在 B 创建独立受管测试接口，再在 A 创建独立受管测试服务和接口",
     "仅添加 10.253.0.1/32 与 10.253.0.2/32 两条测试 host route",
-    "仅在 B 的 10.77.0.1:18889/udp 启动测试 WireGuard 监听",
+    "仅在 B 临时启动 *:18889/udp 测试 WireGuard 监听，不修改 Murus、防火墙或端口转发",
     "仅在 B 的 10.253.0.1:18888/tcp 启动临时、认证且有界的目标探测服务",
     "执行握手、host route、目标探测、响应丢失、单端失败、验证失败、轮换、离线、崩溃和所有权冲突矩阵",
     "失败时按逐步回执逆序回滚，结束时清理所有指纹匹配的测试资源"
