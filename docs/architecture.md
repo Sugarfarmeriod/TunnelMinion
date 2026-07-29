@@ -123,8 +123,9 @@ WireGuard 私钥不会进入 Coordinator。
 
 默认运行和现有 A/B 生产路径仍不修改 WireGuard、路由、防火墙、原服务或 Docker。仓库已经
 实现受管 WireGuard 的 L3 Provider、配置 saga 和路径控制器，但它们只能管理具有双重所有权
-证据的独立资源，并继续受本机批准门禁约束；真实 A/B 尚未授权启用。当前已验收的生产写路径
-仍只有创建和清理 TunnelMinion 自有的限时 HTTP 代理资源。
+证据的独立资源，并继续受本机批准门禁约束。真实 A/B 曾在一次性明确授权下完成隔离接口验收；
+这不启用默认写能力，也不授权后续变更。当前常规产品写路径仍只有创建和清理 TunnelMinion
+自有的限时 HTTP 代理资源。
 
 ## 受管连接 Harness 与模型边界
 
@@ -137,6 +138,27 @@ relay 没有三节点证据时保持 `static/degraded`；控制面离线时保�
 peer。模型可为状态生成解释，但启用或禁用模型后，Provider 计划哈希、授权、执行、验证、
 回滚和路径选择必须完全相同。固定故障矩阵与指标见
 [受管连接第 9 阶段证据映射](../evaluations/reports/managed-connectivity-assurance-evidence-map-2026-07-26.md)。
+
+### 真实 A/B 验收路径
+
+```mermaid
+flowchart LR
+    A["Windows A<br/>10.253.0.2/32<br/>tmn-accept-a.r1"]
+    HA["既有 HomeMac<br/>10.77.0.2"]
+    HB["既有 B WireGuard<br/>10.77.0.1"]
+    B["macOS B<br/>10.253.0.1/32<br/>utun7"]
+    P["临时目标探测<br/>TCP 18888"]
+
+    A -->|"加密 WireGuard packet<br/>对端 /32 route"| HA
+    HA -->|"既有外层路径<br/>UDP 18889"| HB
+    HB --> B
+    B --> P
+```
+
+`HomeMac` 与 B 原 `utun4` 只是新 WireGuard 会话的外层可达路径，不归本次 Provider 所有。
+只有新鲜 handshake、对端 `/32` route 和 A 发起的目标探测同时通过时才标记 `direct`。
+真实执行、失败恢复与清理证据见
+[受管连接 A/B 真机验收](../evaluations/reports/managed-connectivity-ab-acceptance-2026-07-29.md)。
 
 ## Prompt、Context 与 Harness 分层
 

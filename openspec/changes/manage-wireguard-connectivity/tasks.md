@@ -109,5 +109,5 @@
 - [x] 10.4 完成响应丢失、单端 apply 失败、验证失败、key rotation、Coordinator 离线、Agent 崩溃和 ownership conflict 真机矩阵
 - [x] 10.5 引用第 8 阶段的 relay 拆分结论，证明本 change 未伪造三节点 relay 数据面，且生产 A/B/Coordinator 未静默承担 relay；真实三节点验收由 `build-isolated-packet-relay` 独立完成
 - [x] 10.6 清理全部测试接口、配置、route、秘密和账本，证明清理幂等且无 ownership conflict 遗留
-- [ ] 10.7 保存 A/B 前后不变性快照，确认 `HomeMac`、B 手写配置、8787、8082、防火墙、用户 route 和 static 回退均未改变
+- [x] 10.7 保存 A/B 前后不变性快照，确认 `HomeMac`、B 手写配置、8787、8082、用户 route 和 static 回退均未改变；区分 Provider 零防火墙写入与操作者手工保留的精确 Murus 规则，记录其当前无目标状态和地址复用风险
 - [ ] 10.8 更新路线图和三分钟演示，运行最终门禁，提交推送、创建 PR、合并并同步 main
