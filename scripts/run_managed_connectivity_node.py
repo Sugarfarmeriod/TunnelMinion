@@ -16,6 +16,8 @@ from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretS
 from tunnelminion.network.contracts import (
     NetworkAcknowledgement,
     NetworkAction,
+    OwnershipState,
+    ReceiptStatus,
     SignedDesiredConfig,
 )
 from tunnelminion.network.governance import (
@@ -23,6 +25,7 @@ from tunnelminion.network.governance import (
     NetworkAuthorizationGrant,
     NetworkAuthorizationScope,
     NetworkOperationPolicy,
+    NetworkPolicyAction,
     SQLiteNetworkGovernanceStore,
 )
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
@@ -87,14 +90,17 @@ def _provider(platform: str, root: Path):
             runner,
             system_root / "System32" / "icacls.exe",
         )
-        return WindowsNetworkProvider(
-            OfficialWindowsManagedBackend(
-                commands,
-                WindowsWireGuardObserver(PsutilSystemReader(), commands),
-                materials,
+        return (
+            WindowsNetworkProvider(
+                OfficialWindowsManagedBackend(
+                    commands,
+                    WindowsWireGuardObserver(PsutilSystemReader(), commands),
+                    materials,
+                ),
+                ledger,
+                SQLiteWindowsOperationJournal(root / "operations.sqlite3"),
             ),
             ledger,
-            SQLiteWindowsOperationJournal(root / "operations.sqlite3"),
         )
     paths = MacOSProviderPaths(
         wg=Path("/opt/homebrew/bin/wg"),
@@ -104,17 +110,20 @@ def _provider(platform: str, root: Path):
         config_root=root / "configs",
     )
     commands = FixedMacOSWireGuardCommands(paths, runner)
-    return MacOSNetworkProvider(
-        OfficialMacOSManagedBackend(
-            commands,
-            MacOSWireGuardObserver(commands),
-            RestrictedMacOSConfigStore(
-                paths.config_root,
-                RestrictedFileSecretStore(root / "secrets"),
+    return (
+        MacOSNetworkProvider(
+            OfficialMacOSManagedBackend(
+                commands,
+                MacOSWireGuardObserver(commands),
+                RestrictedMacOSConfigStore(
+                    paths.config_root,
+                    RestrictedFileSecretStore(root / "secrets"),
+                ),
             ),
+            ledger,
+            macos_operation_journal(root / "operations.sqlite3"),
         ),
         ledger,
-        macos_operation_journal(root / "operations.sqlite3"),
     )
 
 
@@ -128,7 +137,7 @@ async def execute(
     approve_plan_hash: str | None,
 ) -> dict[str, object]:
     root = data_directory.resolve()
-    provider = _provider(platform, root)
+    provider, ledger = _provider(platform, root)
     if command == "recover":
         receipts = await provider.recover(cancellation=ToolCancellationToken())
         return {
@@ -136,7 +145,7 @@ async def execute(
             "recovered": [receipt.model_dump(mode="json") for receipt in receipts],
         }
     if envelope_path is None or verification_key_path is None:
-        raise ValueError("preview/apply 必须提供签名配置和验证公钥")
+        raise ValueError("preview/apply/remove 必须提供签名配置和验证公钥")
     envelope = SignedDesiredConfig.model_validate_json(envelope_path.read_text(encoding="utf-8"))
     key = VerificationKeyView.model_validate_json(verification_key_path.read_text(encoding="utf-8"))
     desired = verify_signed_desired_config(
@@ -148,16 +157,29 @@ async def execute(
         parent_revision=0,
     )
     observed = await provider.observe(desired.interface_name)
+    removing = command in {"remove-preview", "remove"}
+    ownership_entry = ledger.get(desired.network_id, desired.target_node_id) if removing else None
+    if removing and ownership_entry is None:
+        if observed.ownership is not OwnershipState.ABSENT:
+            raise RuntimeError("接口仍存在但本地双重所有权账本缺失，拒绝按名称清理")
+        return {
+            "platform": platform,
+            "phase": "verified",
+            "plan_hash": None,
+            "receipt_status": "already_absent",
+            "writes_performed": False,
+        }
     plan = await provider.plan(
-        action=NetworkAction.CREATE,
+        action=NetworkAction.REMOVE if removing else NetworkAction.CREATE,
         desired=desired,
         observed=observed,
-        ownership=None,
+        ownership=None if ownership_entry is None else ownership_entry.ownership,
     )
-    if command == "preview":
+    if command in {"preview", "remove-preview"}:
         return {
             "platform": platform,
             "mode": observed.mode.value,
+            "action": plan.action.value,
             "plan_hash": plan.plan_hash,
             "interface": desired.interface_name,
             "address": desired.address,
@@ -184,6 +206,24 @@ async def execute(
         ),
         local_control=True,
     )
+    if removing:
+        decision = policy.evaluate(plan, at=now)
+        if decision.action is not NetworkPolicyAction.EXECUTE:
+            raise PermissionError("本机 L3 授权未覆盖实时清理计划")
+        receipt = await provider.apply(
+            plan,
+            idempotency_key=f"netop_{plan.plan_hash.removeprefix('sha256:')}",
+            cancellation=ToolCancellationToken(),
+        )
+        verification = await provider.verify(plan)
+        verified = receipt.status is ReceiptStatus.APPLIED and verification.succeeded
+        return {
+            "platform": platform,
+            "phase": "verified" if verified else "manual_intervention",
+            "plan_hash": plan.plan_hash,
+            "receipt_status": receipt.status.value,
+            "verification_succeeded": verification.succeeded,
+        }
     acknowledgements = Acknowledgements()
     record = await ManagedNetworkGovernanceWorkflow(
         provider,
@@ -202,7 +242,10 @@ async def execute(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preview", "apply", "recover"))
+    parser.add_argument(
+        "command",
+        choices=("preview", "apply", "remove-preview", "remove", "recover"),
+    )
     parser.add_argument("--platform", choices=("windows", "macos"), required=True)
     parser.add_argument("--data-directory", type=Path, required=True)
     parser.add_argument("--envelope", type=Path)
