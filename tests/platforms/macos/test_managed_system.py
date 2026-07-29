@@ -109,7 +109,9 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     runner.results[(str(paths.wg), "show", "interfaces")] = result("utun4 utun9\n")
     runner.results[(str(paths.ifconfig), "utun9")] = result(
         "utun9: flags=8051<UP> mtu 1420\n"
-        "\tinet 10.203.0.2 netmask 0xffffffff\n"
+        "\tinet 10.203.0.2 --> 10.203.0.2 netmask 0xffffffff\n"
+        "\tinet 10.203.0.3 netmask 0xffffffff\n"
+        "\tinet 10.203.0.4 unexpected layout\n"
         "\tinet bad netmask nope\n"
         "\tstatus: active\n"
     )
@@ -128,7 +130,7 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     )
     snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe("utun9"))
     assert snapshot.interface_up
-    assert snapshot.addresses == ("10.203.0.2/32",)
+    assert snapshot.addresses == ("10.203.0.2/32", "10.203.0.3/32")
     assert snapshot.host_routes == ("10.203.0.1/32",)
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.1/32",)
     assert snapshot.peers[0].latest_handshake_epoch == 123

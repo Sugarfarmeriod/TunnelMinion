@@ -175,7 +175,7 @@ class MacOSWireGuardObserver:
         return MacOSTunnelSnapshot(
             interface_name=interface_name,
             interface_present=True,
-            interface_up=interface.returncode == 0 and "status: active" in interface.stdout.lower(),
+            interface_up=interface.returncode == 0 and _interface_is_up(interface.stdout),
             addresses=_parse_addresses(interface.stdout),
             service_present=True,
             service_running=True,
@@ -235,12 +235,25 @@ def _parse_addresses(stdout: str) -> tuple[str, ...]:
         if len(parts) >= 4 and parts[0] == "inet":
             try:
                 address = ipaddress.IPv4Address(parts[1])
-                mask = int(parts[3], 16) if parts[3].startswith("0x") else int(parts[3])
+                if parts[2] == "netmask":
+                    mask_text = parts[3]
+                elif len(parts) >= 6 and parts[2] == "-->" and parts[4] == "netmask":
+                    mask_text = parts[5]
+                else:
+                    continue
+                mask = int(mask_text, 16) if mask_text.startswith("0x") else int(mask_text)
                 prefix = ipaddress.IPv4Network(f"0.0.0.0/{ipaddress.IPv4Address(mask)}").prefixlen
             except (ipaddress.AddressValueError, ValueError):
                 continue
             values.append(f"{address}/{prefix}")
     return tuple(sorted(set(values)))
+
+
+def _interface_is_up(stdout: str) -> bool:
+    if "status: active" in stdout.lower():
+        return True
+    flags = re.search(r"flags=\d+<([^>]*)>", stdout)
+    return flags is not None and "UP" in flags.group(1).split(",")
 
 
 def _parse_host_routes(stdout: str, interface_name: str) -> tuple[str, ...]:
