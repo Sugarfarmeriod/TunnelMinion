@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import getpass
 import ipaddress
@@ -9,14 +10,18 @@ import json
 import os
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Protocol, cast
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
+    NetworkAction,
     NetworkErrorCode,
     NetworkPlan,
     NetworkPlanStep,
@@ -76,8 +81,15 @@ class AclRestrictedWindowsConfigStore:
         self._icacls_path = icacls_path
         self._account = account
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
-        name = self._secret_name(desired)
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
+        return self.ensure_identity(desired.network_id, desired.target_node_id)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        name = self._secret_name(network_id, node_id)
         private_text = self._secrets.get(name)
         if private_text is None:
             private = X25519PrivateKey.generate()
@@ -94,8 +106,11 @@ class AclRestrictedWindowsConfigStore:
             serialization.Encoding.Raw,
             serialization.PublicFormat.Raw,
         )
-        return f"keyring:{name}", canonical_sha256(
-            {"public_key": base64.b64encode(public_raw).decode()}
+        public_key = base64.b64encode(public_raw).decode()
+        return LocalNetworkKeyMaterial(
+            secret_reference=f"keyring:{name}",
+            public_key=public_key,
+            public_key_hash=canonical_sha256({"public_key": public_key}),
         )
 
     async def write(
@@ -137,6 +152,19 @@ class AclRestrictedWindowsConfigStore:
             path.unlink()
         return canonical_sha256({"kind": "delete_config", "path": path.name, "revision": revision})
 
+    def delete_marker(self, interface_name: str) -> None:
+        marker = self.marker_path(interface_name)
+        if marker.exists():
+            marker.unlink()
+
+    async def restore_marker(
+        self,
+        interface_name: str,
+        revision: int,
+        creation_nonce: str,
+    ) -> None:
+        await self._write_marker(interface_name, revision, creation_nonce)
+
     async def delete_secret(
         self,
         desired: DesiredNetworkConfig,
@@ -156,18 +184,31 @@ class AclRestrictedWindowsConfigStore:
         )
 
     def read_creation_nonce(self, interface_name: str) -> str | None:
+        parsed = self._read_marker(interface_name)
+        if parsed is None:
+            return None
+        nonce = parsed.get("creation_nonce")
+        if not isinstance(nonce, str) or re.fullmatch(r"[0-9a-f]{32}", nonce) is None:
+            raise ValueError("Windows 所有权 marker 结构无效")
+        return nonce
+
+    def read_revision(self, interface_name: str) -> int | None:
+        parsed = self._read_marker(interface_name)
+        if parsed is None:
+            return None
+        revision = parsed.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise ValueError("Windows 所有权 marker 结构无效")
+        return revision
+
+    def _read_marker(self, interface_name: str) -> dict[str, object] | None:
         marker = self.marker_path(interface_name)
         if not marker.exists():
             return None
         parsed = json.loads(marker.read_text(encoding="utf-8"))
-        if not isinstance(parsed, dict) or not isinstance(
-            cast(dict[str, object], parsed).get("creation_nonce"), str
-        ):
+        if not isinstance(parsed, dict):
             raise ValueError("Windows 所有权 marker 结构无效")
-        nonce = cast(str, cast(dict[str, object], parsed)["creation_nonce"])
-        if re.fullmatch(r"[0-9a-f]{32}", nonce) is None:
-            raise ValueError("Windows 所有权 marker 结构无效")
-        return nonce
+        return cast(dict[str, object], parsed)
 
     def config_path(self, interface_name: str, revision: int) -> Path:
         if re.fullmatch(r"tmn-[a-z0-9-]{1,48}", interface_name) is None or revision < 1:
@@ -238,13 +279,14 @@ class AclRestrictedWindowsConfigStore:
         return secret_reference.removeprefix("keyring:")
 
     @staticmethod
-    def _secret_name(desired: DesiredNetworkConfig) -> str:
-        return f"tunnelminion/{desired.network_id}/{desired.target_node_id}/wg"
+    def _secret_name(network_id: NetworkId, node_id: NodeId) -> str:
+        return f"tunnelminion/{network_id}/{node_id}/wg"
 
     @staticmethod
     def _render_config(desired: DesiredNetworkConfig, private_key: str) -> str:
-        lines = ("[Interface]", f"PrivateKey = {private_key}", f"Address = {desired.address}")
-        peer_lines: list[str] = list(lines)
+        peer_lines = ["[Interface]", f"PrivateKey = {private_key}", f"Address = {desired.address}"]
+        if desired.listen_port is not None:
+            peer_lines.append(f"ListenPort = {desired.listen_port}")
         for peer in desired.peers:
             peer_lines.extend(("", "[Peer]", f"PublicKey = {peer.public_key}"))
             peer_lines.append(f"AllowedIPs = {','.join(peer.allowed_host_routes)}")
@@ -264,25 +306,65 @@ class OfficialWindowsManagedBackend:
         commands: FixedWindowsWireGuardCommands,
         observer: WindowsSnapshotObserver,
         materials: AclRestrictedWindowsConfigStore,
+        *,
+        settle_attempts: int = 12,
+        settle_delay_seconds: float = 0.25,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        if settle_attempts < 1 or settle_delay_seconds < 0:
+            raise ValueError("Windows 状态收敛参数无效")
         self._commands = commands
         self._observer = observer
         self._materials = materials
+        self._settle_attempts = settle_attempts
+        self._settle_delay_seconds = settle_delay_seconds
+        self._sleeper = sleeper
 
     def preflight(self) -> WindowsProviderPreflight:
         return self._commands.preflight()
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
-        snapshot = await self._observer.observe(interface_name)
-        nonce = (
-            self._materials.read_creation_nonce(interface_name)
-            if interface_name.startswith("tmn-")
-            else None
+        if not interface_name.startswith("tmn-"):
+            return await self._observer.observe(interface_name)
+        nonce = self._materials.read_creation_nonce(interface_name)
+        revision = self._materials.read_revision(interface_name)
+        runtime_name = (
+            self._runtime_interface_name(interface_name, revision)
+            if revision is not None
+            else interface_name
         )
-        return snapshot.model_copy(update={"creation_nonce": nonce})
+        snapshot = await self._observe_settled(runtime_name, wait_for_managed=revision is not None)
+        return snapshot.model_copy(
+            update={"interface_name": interface_name, "creation_nonce": nonce}
+        )
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
+    async def _observe_settled(
+        self,
+        runtime_name: str,
+        *,
+        wait_for_managed: bool,
+    ) -> WindowsTunnelSnapshot:
+        snapshot = await self._observer.observe(runtime_name)
+        for _attempt in range(1, self._settle_attempts):
+            if not wait_for_managed or (
+                snapshot.interface_present
+                and snapshot.stable_interface_id is not None
+                and snapshot.public_key_hash is not None
+            ):
+                break
+            await self._sleeper(self._settle_delay_seconds)
+            snapshot = await self._observer.observe(runtime_name)
+        return snapshot
+
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        return self._materials.ensure_identity(network_id, node_id)
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         result = await self._commands.route_table()
@@ -291,7 +373,7 @@ class OfficialWindowsManagedBackend:
                 NetworkErrorCode.PROVIDER_UNAVAILABLE,
                 "无法读取 Windows IPv4 路由冲突基线",
             )
-        networks = _parse_ipv4_route_networks(result.stdout)
+        routes = _parse_ipv4_route_records(result.stdout)
         requested_addresses = {
             ipaddress.ip_interface(desired.address).ip,
             *(
@@ -300,16 +382,26 @@ class OfficialWindowsManagedBackend:
                 for route in peer.allowed_host_routes
             ),
         }
+        conflicts = {
+            (str(network), fingerprint)
+            for network, fingerprint in routes
+            if network.prefixlen != 0 and any(address in network for address in requested_addresses)
+        }
+        allowed = {
+            (overlap.route, overlap.observation_fingerprint)
+            for overlap in desired.allowed_route_overlaps
+        }
         conflict = next(
             (
-                network
-                for network in networks
-                if network.prefixlen != 0
-                and any(address in network for address in requested_addresses)
+                item
+                for item in conflicts
+                if ipaddress.ip_network(item[0]).prefixlen == 32 or item not in allowed
             ),
             None,
         )
-        if conflict is not None:
+        if conflict is not None or allowed != {
+            item for item in conflicts if ipaddress.ip_network(item[0]).prefixlen < 32
+        }:
             raise WindowsBackendError(
                 NetworkErrorCode.ROUTE_NOT_ALLOWED,
                 "候选地址或 host route 命中现有 Windows 非默认路由",
@@ -335,11 +427,13 @@ class OfficialWindowsManagedBackend:
             )
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.STOP_INTERFACE:
-            result = await self._commands.stop_tunnel(desired.interface_name)
+            result = await self._commands.stop_tunnel(self._active_runtime_interface_name(plan))
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.REMOVE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(desired.interface_name)
-            return self._require_success(result.returncode, step)
+            return await self._uninstall_and_confirm(
+                self._active_runtime_interface_name(plan),
+                step,
+            )
         if step.kind is PlanStepKind.DELETE_CONFIG:
             return await self._materials.delete_config(
                 desired.interface_name,
@@ -364,15 +458,32 @@ class OfficialWindowsManagedBackend:
         creation_nonce: str,
         idempotency_key: str,
     ) -> str:
-        del creation_nonce, idempotency_key
+        del idempotency_key
         desired = plan.desired
         if step.kind is PlanStepKind.CREATE_INTERFACE:
-            result = await self._commands.uninstall_tunnel(desired.interface_name)
-            return self._require_success(result.returncode, step)
+            return await self._uninstall_and_confirm(
+                self._runtime_interface_name(desired.interface_name, desired.revision),
+                step,
+            )
         if step.kind is PlanStepKind.WRITE_CONFIG:
-            return await self._materials.delete_config(
+            config_receipt = await self._materials.delete_config(
                 desired.interface_name,
                 desired.revision,
+            )
+            if desired.parent_revision < 1:
+                self._materials.delete_marker(desired.interface_name)
+            else:
+                await self._materials.restore_marker(
+                    desired.interface_name,
+                    desired.parent_revision,
+                    creation_nonce,
+                )
+            return canonical_sha256(
+                {
+                    "kind": "restore_config_marker",
+                    "config_receipt": config_receipt,
+                    "revision": desired.parent_revision,
+                }
             )
         if step.kind in {PlanStepKind.STOP_INTERFACE, PlanStepKind.REMOVE_INTERFACE}:
             parent = desired.parent_revision
@@ -398,6 +509,51 @@ class OfficialWindowsManagedBackend:
         )
 
     @staticmethod
+    def _runtime_interface_name(interface_name: str, revision: int) -> str:
+        if revision < 1:
+            raise ValueError("Windows 运行时接口 revision 必须为正数")
+        return f"{interface_name}.r{revision}"
+
+    @classmethod
+    def _active_runtime_interface_name(cls, plan: NetworkPlan) -> str:
+        desired = plan.desired
+        revision = (
+            desired.parent_revision if plan.action is NetworkAction.UPDATE else desired.revision
+        )
+        return cls._runtime_interface_name(desired.interface_name, revision)
+
+    async def _uninstall_and_confirm(
+        self,
+        runtime_name: str,
+        step: NetworkPlanStep,
+    ) -> str:
+        attempts = 0
+        result = await self._commands.uninstall_tunnel(runtime_name)
+        self._require_success(result.returncode, step)
+        for _attempt in range(self._settle_attempts):
+            await self._sleeper(self._settle_delay_seconds)
+            snapshot = await self._observer.observe(runtime_name)
+            if not snapshot.interface_present and not snapshot.service_present:
+                continue
+            attempts += 1
+            result = await self._commands.uninstall_tunnel(runtime_name)
+            self._require_success(result.returncode, step)
+        final = await self._observer.observe(runtime_name)
+        if final.interface_present or final.service_present:
+            raise WindowsBackendError(
+                NetworkErrorCode.ROLLBACK_FAILED,
+                "Windows tunnel service 在卸载收敛窗口后仍然存在",
+            )
+        return canonical_sha256(
+            {
+                "kind": step.kind.value,
+                "target": step.target,
+                "returncode": result.returncode,
+                "retry_count": attempts,
+            }
+        )
+
+    @staticmethod
     def _require_success(returncode: int, step: NetworkPlanStep) -> str:
         if returncode != 0:
             raise WindowsBackendError(
@@ -410,9 +566,11 @@ class OfficialWindowsManagedBackend:
         )
 
 
-def _parse_ipv4_route_networks(stdout: str) -> tuple[ipaddress.IPv4Network, ...]:
-    """解析 route.exe 数字行，忽略接口名称、网关正文和本地化标题。"""
-    values: list[ipaddress.IPv4Network] = []
+def _parse_ipv4_route_records(
+    stdout: str,
+) -> tuple[tuple[ipaddress.IPv4Network, str], ...]:
+    """解析 route.exe 数字行，并绑定路由与平台接口定位符。"""
+    values: list[tuple[ipaddress.IPv4Network, str]] = []
     for line in stdout.splitlines():
         parts = line.split()
         if len(parts) < 5:
@@ -423,5 +581,15 @@ def _parse_ipv4_route_networks(stdout: str) -> tuple[ipaddress.IPv4Network, ...]
             network = ipaddress.IPv4Network(f"{destination}/{mask}", strict=False)
         except (ipaddress.AddressValueError, ipaddress.NetmaskValueError):
             continue
-        values.append(network)
+        values.append(
+            (
+                network,
+                canonical_sha256(
+                    {
+                        "route": str(network),
+                        "interface_locator": parts[3],
+                    }
+                ),
+            )
+        )
     return tuple(dict.fromkeys(values))

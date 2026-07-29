@@ -1,0 +1,93 @@
+{
+  "schema_version": "managed-connectivity-write-authorization-plan/v1",
+  "status": "explicit_user_authorization_received",
+  "authorized_at": "2026-07-29",
+  "authorization_basis": [
+    "用户此前确认 B 端 macOS 已通过 Murus 放行 18881-18889 端口",
+    "用户在看到精确授权方案与权限门禁后要求继续完成 OpenSpec 剩余进度",
+    "用户于 2026-07-29 明确允许 B 测试接口临时监听所有本机地址的 UDP 18889"
+  ],
+  "captured_at": "2026-07-26T12:54:16Z",
+  "read_only_recheck": {
+    "writes_performed": false,
+    "windows_a": {
+      "production_interface": "HomeMac",
+      "production_address": "10.77.0.2/32",
+      "production_service": "WireGuardTunnel$HomeMac",
+      "production_state": "running",
+      "candidate_route_currently_uses": "Mihomo",
+      "udp_18881_18889": "no_listener_observed",
+      "firewall_change_planned": false,
+      "operator_statement": "Windows 端似乎没有端口限制"
+    },
+    "macos_b": {
+      "production_interface": "utun4",
+      "production_address": "10.77.0.1/24",
+      "production_process": "wireguard-go utun",
+      "production_state": "up_running",
+      "gateway_8787": "listening_on_10.77.0.1",
+      "model_8082": "listening_on_all_ipv4",
+      "candidate_route_currently_uses": "utun1024_mihomo",
+      "udp_18881_18889": "no_listener_observed",
+      "firewall_manager": "Murus",
+      "firewall_change_planned": false,
+      "operator_statement": "B 端 macOS 已通过 Murus 放行 18881-18889"
+    }
+  },
+  "proposed_isolated_resources": {
+    "network": "managed-acceptance-2026-07-26",
+    "windows_a": {
+      "logical_interface": "tmn-accept-a",
+      "service": "WireGuardTunnel$tmn-accept-a",
+      "address": "10.253.0.2/32",
+      "peer_host_route": "10.253.0.1/32",
+      "outer_endpoint": "10.77.0.1:18889/udp",
+      "data_directory": ".data/managed-acceptance/a"
+    },
+    "macos_b": {
+      "logical_interface": "tmn-accept-b",
+      "actual_interface": "dynamic_utun_recorded_by_WG_TUN_NAME_FILE",
+      "address": "10.253.0.1/32",
+      "peer_host_route": "10.253.0.2/32",
+      "listen": "*:18889/udp",
+      "listen_semantics": "WireGuard 只配置 ListenPort；Murus 和现有网络边界继续控制实际可达性",
+      "temporary_authenticated_probe": "10.253.0.1:18888/tcp",
+      "data_directory": ".data/managed-acceptance/b"
+    }
+  },
+  "authorized_if_confirmed": [
+    "在隔离数据目录内生成两端本机 WireGuard 私钥并只保存秘密引用",
+    "先在 B 创建独立受管测试接口，再在 A 创建独立受管测试服务和接口",
+    "仅添加 10.253.0.1/32 与 10.253.0.2/32 两条测试 host route",
+    "仅在 B 临时启动 *:18889/udp 测试 WireGuard 监听，不修改 Murus、防火墙或端口转发",
+    "仅在 B 的 10.253.0.1:18888/tcp 启动临时、认证且有界的目标探测服务",
+    "执行握手、host route、目标探测、响应丢失、单端失败、验证失败、轮换、离线、崩溃和所有权冲突矩阵",
+    "失败时按逐步回执逆序回滚，结束时清理所有指纹匹配的测试资源"
+  ],
+  "never_authorized_by_this_plan": [
+    "修改或删除 HomeMac、utun4 或其现有配置",
+    "修改 Windows 防火墙、Murus、Mihomo、DNS、默认路由、物理网卡或端口转发",
+    "切换生产 Gateway 8787、模型 8082、Coordinator 或 static peer endpoint",
+    "读取、导出或提交现有 WireGuard 私钥、PSK、完整配置或用户完整 route",
+    "把 A、B 或普通 Coordinator 作为 relay",
+    "按名称强制删除所有权指纹不匹配的资源"
+  ],
+  "execution_order": [
+    "保存 A/B 前置不变性快照和哈希",
+    "运行权限、依赖、端口、地址、route 和所有权预检",
+    "在隔离目录生成 B 私钥、公钥和账本，创建并验证 B",
+    "在隔离目录生成 A 私钥、公钥和账本，创建并验证 A",
+    "完成双端 revision saga、握手、精确 route 和认证目标探测",
+    "执行获批的失败与恢复矩阵，每个案例恢复到 last-known-good",
+    "先清理 A，再清理 B，删除测试秘密引用和隔离目录",
+    "证明所有测试端口、接口、route 和账本已清理且生产哈希不变"
+  ],
+  "stop_conditions": [
+    "任一平台缺少非交互式管理员执行条件",
+    "候选接口、地址、端口、route 或数据目录出现所有权冲突",
+    "任一前置生产资源状态与基线不一致",
+    "任一回滚步骤失败或进入 manual_intervention"
+  ],
+  "required_user_confirmation": "completed",
+  "murus_udp_evidence": "operator_attested_not_machine_readable"
+}

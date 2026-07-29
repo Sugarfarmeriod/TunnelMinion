@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from tests.network.factories import desired, observation, ownership
+from tests.network.factories import NETWORK_ID, NODE_A, desired, observation, ownership
 
 from tunnelminion.network.contracts import (
     NetworkAction,
@@ -32,6 +32,9 @@ async def _create_plan(provider: InMemoryNetworkProvider):
 @pytest.mark.anyio
 async def test_fake_provider_plans_and_applies_idempotent_create() -> None:
     provider = InMemoryNetworkProvider(observation())
+    identity = provider.ensure_local_identity(NETWORK_ID, NODE_A)
+    assert identity.public_key == "A" * 43 + "="
+    assert identity.secret_reference.startswith("fake:")
     plan = await _create_plan(provider)
     token = ToolCancellationToken()
 

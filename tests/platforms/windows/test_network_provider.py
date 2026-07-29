@@ -12,8 +12,10 @@ from typing import Any, TypeVar
 import pytest
 from tests.network.factories import NETWORK_ID, NODE_A, NOW, desired
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     NetworkAction,
     NetworkError,
     NetworkErrorCode,
@@ -90,10 +92,23 @@ class FakeWindowsBackend:
         assert interface_name == self.snapshot.interface_name
         return self.snapshot
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         del desired
         self.ensure_calls += 1
-        return "keyring:tmn/test", canonical_sha256({"public": "own"})
+        return self.ensure_identity(NETWORK_ID, NODE_A)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        assert network_id == NETWORK_ID
+        assert node_id == NODE_A
+        return LocalNetworkKeyMaterial(
+            secret_reference="keyring:tmn/test",
+            public_key="A" * 43 + "=",
+            public_key_hash=canonical_sha256({"public": "own"}),
+        )
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         del desired
@@ -250,6 +265,9 @@ async def create_plan(
 def test_observe_classifies_absent_user_unknown_managed_and_conflict(tmp_path: Path) -> None:
     backend = FakeWindowsBackend()
     value, ledger, _ = provider(tmp_path, backend)
+    identity = value.ensure_local_identity(NETWORK_ID, NODE_A)
+    assert identity.public_key == "A" * 43 + "="
+    assert identity.secret_reference == "keyring:tmn/test"
     assert run(value.observe("tmn-test-a")).ownership is OwnershipState.ABSENT
 
     backend.snapshot = WindowsTunnelSnapshot(
@@ -577,14 +595,16 @@ def test_resume_crash_missing_ownership_successful_rollback_and_verified_not_rec
     incomplete.omit_ownership_after_create = True
     incomplete_value, _, _ = provider(tmp_path / "incomplete", incomplete)
     incomplete_plan = run(create_plan(incomplete_value))
-    with pytest.raises(WindowsBackendError, match="双重所有权"):
-        run(
-            incomplete_value.apply(
-                incomplete_plan,
-                idempotency_key=KEY,
-                cancellation=ToolCancellationToken(),
-            )
+    failed = run(
+        incomplete_value.apply(
+            incomplete_plan,
+            idempotency_key=KEY,
+            cancellation=ToolCancellationToken(),
         )
+    )
+    assert failed.status is ReceiptStatus.FAILED
+    assert failed.error is not None
+    assert failed.error.code is NetworkErrorCode.OWNERSHIP_CONFLICT
 
 
 def test_update_stop_remove_and_naive_clock(tmp_path: Path) -> None:

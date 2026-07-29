@@ -251,6 +251,34 @@ class NetworkIdentity(BaseModel):
         return self
 
 
+class LocalNetworkKeyMaterial(BaseModel):
+    """本机生成的公共身份与不透明秘密引用；私钥正文永不离开秘密存储。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    secret_reference: str = Field(min_length=3, max_length=224, repr=False)
+    public_key: str = Field(pattern=_PUBLIC_KEY.pattern)
+    public_key_hash: str = Field(pattern=_HASH.pattern)
+
+
+class ApprovedRouteOverlap(BaseModel):
+    """签名配置允许覆盖的一条既有 IPv4 宽路由及其观察指纹。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    route: str
+    observation_fingerprint: str = Field(pattern=_HASH.pattern)
+
+    @model_validator(mode="after")
+    def validate_route(self) -> Self:
+        network = ipaddress.ip_network(self.route, strict=True)
+        if not isinstance(network, ipaddress.IPv4Network) or not 1 <= network.prefixlen < 32:
+            raise ValueError("允许覆盖的既有路由必须是非默认 IPv4 宽路由")
+        if str(network) != self.route:
+            raise ValueError("允许覆盖的既有路由必须使用规范形式")
+        return self
+
+
 class PeerConfiguration(BaseModel):
     """desired config 中单个 peer 的公共配置。"""
 
@@ -286,7 +314,12 @@ class DesiredNetworkConfig(BaseModel):
     parent_revision: int = Field(ge=0)
     interface_name: str = Field(pattern=r"^tmn-[a-z0-9-]{1,48}$")
     address: str
+    listen_port: int | None = Field(default=None, ge=1, le=65535)
     peers: tuple[PeerConfiguration, ...] = Field(min_length=1, max_length=MAX_NETWORK_PEERS)
+    allowed_route_overlaps: tuple[ApprovedRouteOverlap, ...] = Field(
+        default=(),
+        max_length=32,
+    )
     relay_policy: RelayRole = RelayRole.NONE
 
     @model_validator(mode="after")
@@ -299,6 +332,25 @@ class DesiredNetworkConfig(BaseModel):
         peer_ids = [str(peer.node_id) for peer in self.peers]
         if str(self.target_node_id) in peer_ids or len(set(peer_ids)) != len(peer_ids):
             raise ValueError("peer 节点必须唯一且不能等于目标节点")
+        requested = {
+            ipaddress.ip_interface(self.address).ip,
+            *(
+                ipaddress.ip_network(route, strict=True).network_address
+                for peer in self.peers
+                for route in peer.allowed_host_routes
+            ),
+        }
+        overlap_keys = {
+            (overlap.route, overlap.observation_fingerprint)
+            for overlap in self.allowed_route_overlaps
+        }
+        if len(overlap_keys) != len(self.allowed_route_overlaps):
+            raise ValueError("允许覆盖的既有路由不得重复")
+        if any(
+            not any(address in ipaddress.ip_network(overlap.route) for address in requested)
+            for overlap in self.allowed_route_overlaps
+        ):
+            raise ValueError("允许覆盖的既有路由必须与目标地址直接相关")
         if len(self.model_dump_json().encode()) > MAX_CONFIG_BYTES:
             raise ValueError("desired config 超出字节预算")
         return self

@@ -15,6 +15,7 @@ from tunnelminion.network.contracts import ProviderMode, canonical_sha256
 from tunnelminion.platforms.windows.system import CommandResult, CommandRunner, SystemReader
 
 _MANAGED_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}$")
+_MANAGED_RUNTIME_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}\.r[1-9][0-9]*$")
 _ANY_INTERFACE = re.compile(r"^[A-Za-z0-9_. -]{1,64}$")
 _SERVICE_PREFIX = "WireGuardTunnel$"
 _MAX_PEERS = 32
@@ -230,8 +231,13 @@ class FixedWindowsWireGuardCommands:
 
     @staticmethod
     def _validate_interface(interface_name: str, *, managed_only: bool) -> None:
-        pattern = _MANAGED_INTERFACE if managed_only else _ANY_INTERFACE
-        if pattern.fullmatch(interface_name) is None:
+        valid = (
+            _MANAGED_INTERFACE.fullmatch(interface_name) is not None
+            or _MANAGED_RUNTIME_INTERFACE.fullmatch(interface_name) is not None
+            if managed_only
+            else _ANY_INTERFACE.fullmatch(interface_name) is not None
+        )
+        if not valid:
             raise ValueError("接口名称不符合固定格式")
 
     @staticmethod
@@ -278,7 +284,7 @@ class WindowsWireGuardObserver:
                 interface_name=interface_name,
                 interface_present=True,
                 interface_up=interface.is_up,
-                addresses=interface.addresses,
+                addresses=_canonical_host_addresses(interface.addresses),
                 service_present=service_present,
                 service_running=service_running,
                 observed_error_code="wireguard_query_failed",
@@ -316,7 +322,7 @@ class WindowsWireGuardObserver:
             interface_name=interface_name,
             interface_present=True,
             interface_up=interface.is_up,
-            addresses=interface.addresses,
+            addresses=_canonical_host_addresses(interface.addresses),
             service_present=service_present,
             service_running=service_running,
             peers=peers,
@@ -333,6 +339,17 @@ def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
         if len(parts) >= 2 and parts[0]:
             values[parts[0]] = parts[1:]
     return values
+
+
+def _canonical_host_addresses(values: tuple[str, ...]) -> tuple[str, ...]:
+    addresses: list[str] = []
+    for value in values:
+        try:
+            address = ipaddress.ip_address(value.split("%", maxsplit=1)[0])
+        except ValueError:
+            continue
+        addresses.append(f"{address}/{address.max_prefixlen}")
+    return tuple(sorted(set(addresses)))
 
 
 def _nonnegative_integer(value: str) -> int | None:

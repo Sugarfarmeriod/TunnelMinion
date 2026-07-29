@@ -13,8 +13,10 @@ from typing import Protocol, cast
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     NetworkErrorCode,
     NetworkPlan,
     NetworkPlanStep,
@@ -57,8 +59,15 @@ class RestrictedMacOSConfigStore:
         self.root = root
         self._secrets = secrets_store
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
-        name = self._secret_name(desired)
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
+        return self.ensure_identity(desired.network_id, desired.target_node_id)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        name = self._secret_name(network_id, node_id)
         private_text = self._secrets.get(name)
         if private_text is None:
             private = X25519PrivateKey.generate()
@@ -78,7 +87,11 @@ class RestrictedMacOSConfigStore:
                 serialization.PublicFormat.Raw,
             )
         ).decode()
-        return f"keyring:{name}", canonical_sha256({"public_key": public})
+        return LocalNetworkKeyMaterial(
+            secret_reference=f"keyring:{name}",
+            public_key=public,
+            public_key_hash=canonical_sha256({"public_key": public}),
+        )
 
     def write(
         self,
@@ -206,12 +219,14 @@ class RestrictedMacOSConfigStore:
         return reference.removeprefix("keyring:")
 
     @staticmethod
-    def _secret_name(desired: DesiredNetworkConfig) -> str:
-        return f"wireguard/{desired.network_id}/{desired.target_node_id}"
+    def _secret_name(network_id: NetworkId, node_id: NodeId) -> str:
+        return f"wireguard/{network_id}/{node_id}"
 
     @staticmethod
     def _render_config(desired: DesiredNetworkConfig, private_text: str) -> str:
         lines = ["[Interface]", f"PrivateKey = {private_text}", f"Address = {desired.address}"]
+        if desired.listen_port is not None:
+            lines.append(f"ListenPort = {desired.listen_port}")
         for peer in desired.peers:
             lines.extend(("", "[Peer]", f"PublicKey = {peer.public_key}"))
             lines.append(f"AllowedIPs = {', '.join(peer.allowed_host_routes)}")
@@ -262,8 +277,15 @@ class OfficialMacOSManagedBackend:
             }
         )
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        return self._materials.ensure_identity(network_id, node_id)
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         result = await self._commands.route_table()
@@ -280,15 +302,26 @@ class OfficialMacOSManagedBackend:
                 for route in peer.allowed_host_routes
             ),
         }
+        conflicts = {
+            (str(network), fingerprint)
+            for network, fingerprint in _parse_macos_ipv4_route_records(result.stdout)
+            if network.prefixlen != 0 and any(address in network for address in requested)
+        }
+        allowed = {
+            (overlap.route, overlap.observation_fingerprint)
+            for overlap in desired.allowed_route_overlaps
+        }
         conflict = next(
             (
-                network
-                for network in _parse_macos_ipv4_routes(result.stdout)
-                if network.prefixlen != 0 and any(address in network for address in requested)
+                item
+                for item in conflicts
+                if ipaddress.ip_network(item[0]).prefixlen == 32 or item not in allowed
             ),
             None,
         )
-        if conflict is not None:
+        if conflict is not None or allowed != {
+            item for item in conflicts if ipaddress.ip_network(item[0]).prefixlen < 32
+        }:
             raise MacOSBackendError(
                 NetworkErrorCode.ROUTE_NOT_ALLOWED,
                 "候选地址或 host route 命中现有 macOS 非默认路由",
@@ -401,20 +434,39 @@ class OfficialMacOSManagedBackend:
         )
 
 
-def _parse_macos_ipv4_routes(stdout: str) -> tuple[ipaddress.IPv4Network, ...]:
-    values: list[ipaddress.IPv4Network] = []
+def _parse_macos_ipv4_route_records(
+    stdout: str,
+) -> tuple[tuple[ipaddress.IPv4Network, str], ...]:
+    values: list[tuple[ipaddress.IPv4Network, str]] = []
     for line in stdout.splitlines():
         parts = line.split()
         if len(parts) < 4:
             continue
         token = parts[0]
         if token == "default":
-            values.append(ipaddress.IPv4Network("0.0.0.0/0"))
+            network = ipaddress.IPv4Network("0.0.0.0/0")
+            values.append(
+                (
+                    network,
+                    canonical_sha256({"route": str(network), "interface_locator": parts[3]}),
+                )
+            )
             continue
         try:
-            values.append(_macos_route_token(token))
+            network = _macos_route_token(token)
         except ValueError:
             continue
+        values.append(
+            (
+                network,
+                canonical_sha256(
+                    {
+                        "route": str(network),
+                        "interface_locator": parts[3],
+                    }
+                ),
+            )
+        )
     return tuple(dict.fromkeys(values))
 
 

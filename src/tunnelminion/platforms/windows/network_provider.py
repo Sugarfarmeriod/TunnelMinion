@@ -14,9 +14,10 @@ from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tunnelminion.domain.identifiers import ResourceId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ResourceId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     ManagedResourceOwnership,
     NetworkAction,
     NetworkError,
@@ -80,8 +81,16 @@ class WindowsManagedBackend(Protocol):
     def ensure_secret(
         self,
         desired: DesiredNetworkConfig,
-    ) -> tuple[str, str]:
-        """返回秘密引用和公钥哈希，不返回私钥正文。"""
+    ) -> LocalNetworkKeyMaterial:
+        """返回公共身份和不透明秘密引用，不返回私钥正文。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """在 desired config 形成前生成可注册的本机公钥。"""
         ...  # pragma: no cover - Protocol 无运行时实现
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
@@ -254,6 +263,14 @@ class WindowsNetworkProvider:
         self._protected_interfaces = protected_interfaces
         self._platform_label = platform_label
 
+    def ensure_local_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """生成或复用本机密钥并返回 Coordinator 可注册的公钥。"""
+        return self._backend.ensure_identity(network_id, node_id)
+
     async def observe(self, interface_name: str) -> NetworkObservation:
         snapshot = await self._backend.observe(interface_name)
         entry = self._ledger_entry_for_interface(interface_name)
@@ -371,7 +388,7 @@ class WindowsNetworkProvider:
                 secret_reference = (
                     ledger_entry.secret_reference
                     if ledger_entry is not None
-                    else self._backend.ensure_secret(plan.desired)[0]
+                    else self._backend.ensure_secret(plan.desired).secret_reference
                 )
                 journal = WindowsOperationJournal(
                     plan=plan,
@@ -430,7 +447,20 @@ class WindowsNetworkProvider:
                     }
                 )
                 self._journals.put(journal)
-            await self._commit_ledger(plan, journal)
+            try:
+                await self._commit_ledger(plan, journal)
+            except WindowsBackendError as exc:
+                failed = journal.model_copy(
+                    update={"status": ReceiptStatus.FAILED, "updated_at": self._now()}
+                )
+                self._journals.put(failed)
+                return self._receipt(
+                    failed,
+                    ReceiptStatus.FAILED,
+                    exc.code,
+                    str(exc),
+                    retryable=exc.retryable,
+                )
             applied = journal.model_copy(
                 update={"status": ReceiptStatus.APPLIED, "updated_at": self._now()}
             )

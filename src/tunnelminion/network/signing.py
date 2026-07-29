@@ -53,11 +53,60 @@ def verify_signed_desired_config(
     now: datetime | None = None,
 ) -> DesiredNetworkConfig:
     """使用固定指纹、目标和父修订绑定离线验签。"""
+    return _verify_signed_desired_config(
+        envelope,
+        verification_keys,
+        pinned_fingerprints,
+        network_id=network_id,
+        target_node_id=target_node_id,
+        parent_revision=parent_revision,
+        now=now,
+        allow_expired=False,
+    )
+
+
+def verify_signed_desired_config_for_removal(
+    envelope: SignedDesiredConfig,
+    verification_keys: Collection[VerificationKeyView],
+    pinned_fingerprints: Collection[str],
+    *,
+    network_id: NetworkId,
+    target_node_id: NodeId,
+    parent_revision: int,
+    now: datetime | None = None,
+) -> DesiredNetworkConfig:
+    """为受本机所有权门禁保护的删除验证历史 envelope，允许配置本身已过期。"""
+    return _verify_signed_desired_config(
+        envelope,
+        verification_keys,
+        pinned_fingerprints,
+        network_id=network_id,
+        target_node_id=target_node_id,
+        parent_revision=parent_revision,
+        now=now,
+        allow_expired=True,
+    )
+
+
+def _verify_signed_desired_config(
+    envelope: SignedDesiredConfig,
+    verification_keys: Collection[VerificationKeyView],
+    pinned_fingerprints: Collection[str],
+    *,
+    network_id: NetworkId,
+    target_node_id: NodeId,
+    parent_revision: int,
+    now: datetime | None,
+    allow_expired: bool,
+) -> DesiredNetworkConfig:
+    """共享验签实现；只有显式删除入口可忽略 envelope 过期。"""
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
         current = current.replace(tzinfo=UTC)
     config = envelope.config
-    if envelope.expires_at <= current or envelope.issued_at > current + timedelta(seconds=5):
+    if (
+        not allow_expired and envelope.expires_at <= current
+    ) or envelope.issued_at > current + timedelta(seconds=5):
         raise DesiredConfigVerificationError("签名配置不在有效时间窗口")
     if (
         config.network_id != network_id

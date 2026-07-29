@@ -26,6 +26,7 @@ from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.network.contracts import (
     AcknowledgementStage,
     AddressLease,
+    ApprovedRouteOverlap,
     DesiredNetworkConfig,
     LeaseStatus,
     ManagedResourceOwnership,
@@ -86,6 +87,8 @@ def test_desired_config_rejects_routes_revisions_peers_and_versions(
         peer(allowed_host_routes=("10.203.0.2/32", "10.203.0.2/32"))
     with pytest.raises(ValidationError, match="host 前缀"):
         desired(address="10.203.0.1/24")
+    with pytest.raises(ValidationError):
+        desired(listen_port=65536)
     with pytest.raises(ValidationError, match="父 revision"):
         desired(parent_revision=1)
     with pytest.raises(ValidationError, match="主版本不兼容"):
@@ -94,6 +97,33 @@ def test_desired_config_rejects_routes_revisions_peers_and_versions(
         desired(peers=(peer(node_id=NODE_A),))
     with pytest.raises(ValidationError, match="peer 节点"):
         desired(peers=(peer(), peer()))
+    with pytest.raises(ValidationError, match="非默认 IPv4 宽路由"):
+        ApprovedRouteOverlap(
+            route="0.0.0.0/0",
+            observation_fingerprint="sha256:" + "a" * 64,
+        )
+    with pytest.raises(ValidationError, match="规范形式"):
+        ApprovedRouteOverlap(
+            route="10.128.0.0/255.128.0.0",
+            observation_fingerprint="sha256:" + "a" * 64,
+        )
+    with pytest.raises(ValidationError, match="直接相关"):
+        desired(
+            allowed_route_overlaps=(
+                ApprovedRouteOverlap(
+                    route="192.168.0.0/16",
+                    observation_fingerprint="sha256:" + "a" * 64,
+                ),
+            )
+        )
+    overlap = ApprovedRouteOverlap(
+        route="10.128.0.0/9",
+        observation_fingerprint="sha256:" + "a" * 64,
+    )
+    with pytest.raises(ValidationError, match="不得重复"):
+        desired(allowed_route_overlaps=(overlap, overlap))
+    assert desired(allowed_route_overlaps=(overlap,)).allowed_route_overlaps == (overlap,)
+    assert desired(listen_port=18889).listen_port == 18889
 
     monkeypatch.setattr(contracts, "MAX_CONFIG_BYTES", 1)
     with pytest.raises(ValidationError, match="字节预算"):

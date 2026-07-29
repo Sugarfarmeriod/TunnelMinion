@@ -14,16 +14,33 @@
 
 ### Requirement: Provider 计划必须确定、有界且可预览
 Provider SHALL 根据结构化 desired config 和实时 observed state 生成不含秘密的差异计划；计划
-MUST 固定 network/node、接口、地址、host routes、peer 公钥、endpoint、步骤上限、父配置修订和
-计划哈希，并 MUST 拒绝默认路由、未批准子网、未知字段和动态命令。
+MUST 固定 network/node、接口、地址、host routes、peer 公钥、endpoint、允许覆盖的既有宽路由
+摘要、可选 UDP listen port、步骤上限、父配置修订、观察指纹和计划哈希，并 MUST 拒绝默认
+路由、未批准子网、未批准端口、未知字段和动态命令。
 
 #### Scenario: 计划创建独立测试接口
-- **WHEN** desired config 使用不冲突 host address、明确 peer 和允许的独立接口名称
+- **WHEN** desired config 使用不冲突 host address、明确 peer、允许的独立接口名称，且任何既有宽路由重叠都由签名配置精确列出
 - **THEN** Provider SHALL 返回可供本机批准的逐步 diff，且生成计划期间不改变系统
 
 #### Scenario: 配置请求默认路由
 - **WHEN** desired config 包含 `0.0.0.0/0`、`::/0` 或批准范围外的子网
 - **THEN** Provider SHALL 在调用平台写接口前返回 `route_not_allowed`
+
+#### Scenario: 精确测试 host route 命中 Mihomo 宽路由
+- **WHEN** 签名 desired config 与本机 L3 授权同时绑定目标 IPv4 `/32`、原命中非默认宽路由和观察指纹
+- **THEN** Provider MAY 只添加该 `/32` 指向自有测试接口，不得修改、删除或降权原 Mihomo 路由
+
+#### Scenario: 宽路由摘要缺失或观察结果变化
+- **WHEN** `/32` 命中的现有宽路由未被双重批准，或接口、CIDR、观察指纹与计划不一致
+- **THEN** Provider SHALL 在任何平台写入前返回 `route_not_allowed`
+
+#### Scenario: B 创建具有明确监听端口的测试接口
+- **WHEN** 签名 desired config 与 B 本机 L3 授权同时绑定 `listen_port=18889`
+- **THEN** Provider MAY 让独立测试接口监听 `*:18889/udp`，但不得修改 Murus、防火墙或端口转发
+
+#### Scenario: 配置请求未批准监听端口
+- **WHEN** desired config 的 listen port 与本机授权不同或超出端口预算
+- **THEN** Provider SHALL 在写配置前拒绝，且不得自动选择其他端口
 
 ### Requirement: WireGuard 私钥必须只属于生成节点
 Provider MUST 在所属节点生成 WireGuard 私钥，并只写入操作系统秘密存储或平台运行所必需的
@@ -62,6 +79,10 @@ Provider MUST 按配置 revision 和幂等键串行应用固定步骤，记录�
 - **WHEN** 平台命令返回成功但重新读取未发现期望 host route
 - **THEN** Provider SHALL 把应用标记为验证失败并进入回滚
 
+#### Scenario: 原 Mihomo 宽路由被改变
+- **WHEN** 应用、验证或回滚后相关原宽路由的 CIDR、接口或观察指纹不再匹配
+- **THEN** Provider SHALL 停止后续步骤并进入 `manual_intervention`，不得尝试修复第三方路由
+
 ### Requirement: 部分失败必须回滚到父配置
 每个写步骤 MUST 具有已验证前置条件和可关联的反向步骤；任一步骤或执行后验证失败时 Provider
 SHALL 按回执逆序恢复父 revision，回滚同样 MUST 重新读取验证。
@@ -97,4 +118,4 @@ Agent 重启或崩溃后 SHALL 对未完成回执执行恢复检查；卸载 SHA
 
 #### Scenario: 卸载时存在 HomeMac 和受管测试接口
 - **WHEN** 用户执行完整卸载
-- **THEN** 系统 SHALL 只删除指纹匹配的受管测试接口，`HomeMac`、B 手写配置和用户路由保持不变
+- **THEN** 系统 SHALL 只删除指纹匹配的受管测试接口并验证其 UDP 监听消失，`HomeMac`、B 手写配置和用户路由保持不变

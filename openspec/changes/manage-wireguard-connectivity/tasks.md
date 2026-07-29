@@ -103,11 +103,11 @@
 
 ## 10. A/B 独立测试隧道与最终清理
 
-- [ ] 10.1 展示只读冲突扫描、候选地址池、A/B UDP 端口、接口名、route、Murus/Windows 防火墙前置条件和完整回滚计划，获得用户明确授权后才继续
-- [ ] 10.2 在隔离数据目录生成本机私钥和所有权账本，先创建 B、再创建 A 的独立 managed 测试接口，不切换生产 endpoint
-- [ ] 10.3 完成地址租约、公钥/候选同步、双方本机 L3 批准、配置 saga 和 direct 联合验证
-- [ ] 10.4 完成响应丢失、单端 apply 失败、验证失败、key rotation、Coordinator 离线、Agent 崩溃和 ownership conflict 真机矩阵
-- [ ] 10.5 完成有前置条件的隔离 relay 验收或引用第 8 阶段三节点证据；不得让生产 A/B/Coordinator 静默承担 relay
-- [ ] 10.6 清理全部测试接口、配置、route、秘密和账本，证明清理幂等且无 ownership conflict 遗留
-- [ ] 10.7 保存 A/B 前后不变性快照，确认 `HomeMac`、B 手写配置、8787、8082、防火墙、用户 route 和 static 回退均未改变
-- [ ] 10.8 更新路线图和三分钟演示，运行最终门禁，提交推送、创建 PR、合并并同步 main
+- [x] 10.1 展示只读冲突扫描、候选地址池、A/B UDP 端口、接口名、route、Murus/Windows 防火墙前置条件和完整回滚计划，获得用户明确授权后才继续
+- [x] 10.2 实现签名配置与本机 L3 授权共同绑定的精确 `/32` 宽路由例外和 UDP listen port 门禁；在隔离数据目录生成本机私钥和所有权账本，保留原 Mihomo 路由，先创建临时监听 `*:18889/udp` 的 B，再创建 A 的独立 managed 测试接口，不切换生产 endpoint；清理后监听必须消失
+- [x] 10.3 完成地址租约、公钥/候选同步、双方本机 L3 批准、配置 saga 和 direct 联合验证
+- [x] 10.4 完成响应丢失、单端 apply 失败、验证失败、key rotation、Coordinator 离线、Agent 崩溃和 ownership conflict 真机矩阵
+- [x] 10.5 引用第 8 阶段的 relay 拆分结论，证明本 change 未伪造三节点 relay 数据面，且生产 A/B/Coordinator 未静默承担 relay；真实三节点验收由 `build-isolated-packet-relay` 独立完成
+- [x] 10.6 清理全部测试接口、配置、route、秘密和账本，证明清理幂等且无 ownership conflict 遗留
+- [x] 10.7 保存 A/B 前后不变性快照，确认 `HomeMac`、B 手写配置、8787、8082、用户 route 和 static 回退均未改变；区分 Provider 零防火墙写入与操作者手工保留的精确 Murus 规则，记录其当前无目标状态和地址复用风险
+- [x] 10.8 更新路线图和三分钟演示，运行最终门禁，提交推送、创建 PR、合并并同步 main

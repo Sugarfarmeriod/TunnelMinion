@@ -6,8 +6,10 @@ import ipaddress
 from datetime import UTC, datetime
 from enum import StrEnum
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     ManagedResourceOwnership,
     NetworkAction,
     NetworkError,
@@ -57,6 +59,20 @@ class InMemoryNetworkProvider:
         self._receipts: dict[str, ProviderReceipt] = {}
         self._plans: dict[str, NetworkPlan] = {}
         self._response_lost_keys: set[str] = set()
+
+    def ensure_local_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """返回稳定假公钥，不产生真实秘密材料。"""
+        return LocalNetworkKeyMaterial(
+            secret_reference=f"fake:{network_id}/{node_id}",
+            public_key="A" * 43 + "=",
+            public_key_hash=canonical_sha256(
+                {"network_id": str(network_id), "node_id": str(node_id)}
+            ),
+        )
 
     async def observe(self, interface_name: str) -> NetworkObservation:
         """返回指定接口的当前假状态。"""
