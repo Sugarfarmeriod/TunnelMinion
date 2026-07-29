@@ -29,7 +29,10 @@ from tunnelminion.network.governance import (
     SQLiteNetworkGovernanceStore,
 )
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
-from tunnelminion.network.signing import verify_signed_desired_config
+from tunnelminion.network.signing import (
+    verify_signed_desired_config,
+    verify_signed_desired_config_for_removal,
+)
 from tunnelminion.platforms.macos.managed_system import (
     FixedMacOSWireGuardCommands,
     MacOSProviderPaths,
@@ -148,7 +151,11 @@ async def execute(
         raise ValueError("preview/apply/remove 必须提供签名配置和验证公钥")
     envelope = SignedDesiredConfig.model_validate_json(envelope_path.read_text(encoding="utf-8"))
     key = VerificationKeyView.model_validate_json(verification_key_path.read_text(encoding="utf-8"))
-    desired = verify_signed_desired_config(
+    removing = command in {"remove-preview", "remove"}
+    verifier = (
+        verify_signed_desired_config_for_removal if removing else verify_signed_desired_config
+    )
+    desired = verifier(
         envelope,
         (key,),
         (f"sha256:{key.fingerprint}",),
@@ -157,7 +164,6 @@ async def execute(
         parent_revision=0,
     )
     observed = await provider.observe(desired.interface_name)
-    removing = command in {"remove-preview", "remove"}
     ownership_entry = ledger.get(desired.network_id, desired.target_node_id) if removing else None
     if removing and ownership_entry is None:
         if observed.ownership is not OwnershipState.ABSENT:

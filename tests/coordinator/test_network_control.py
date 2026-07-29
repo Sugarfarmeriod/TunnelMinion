@@ -50,6 +50,7 @@ from tunnelminion.network.contracts import (
 from tunnelminion.network.signing import (
     DesiredConfigVerificationError,
     verify_signed_desired_config,
+    verify_signed_desired_config_for_removal,
 )
 
 NOW = datetime(2026, 7, 26, 10, 0, tzinfo=UTC)
@@ -512,6 +513,18 @@ def test_domain_separated_config_signing_and_offline_verification(tmp_path: Path
             parent_revision=0,
             now=clock.value,
         )
+    assert (
+        verify_signed_desired_config_for_removal(
+            envelopes[0],
+            verification_keys,
+            pins,
+            network_id=NETWORK_ID,
+            target_node_id=NODE_A,
+            parent_revision=0,
+            now=clock.value,
+        )
+        == configs[0]
+    )
     naive_now = NOW.replace(tzinfo=None)
     assert (
         verify_signed_desired_config(
