@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 from tests.network.factories import NETWORK_ID, NODE_A, desired
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     NetworkAction,
     NetworkPlan,
     NetworkPlanStep,
@@ -74,9 +76,22 @@ class FakeMacOSBackend:
     async def observe(self, interface_name: str) -> MacOSTunnelSnapshot:
         return self.snapshot.model_copy(update={"interface_name": interface_name})
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         del desired
-        return "keyring:macos/test", canonical_sha256({"public": "macos"})
+        return self.ensure_identity(NETWORK_ID, NODE_A)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        assert network_id == NETWORK_ID
+        assert node_id == NODE_A
+        return LocalNetworkKeyMaterial(
+            secret_reference="keyring:macos/test",
+            public_key="B" * 43 + "=",
+            public_key_hash=canonical_sha256({"public": "macos"}),
+        )
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         del desired
@@ -142,6 +157,9 @@ def provider(
 def test_observe_protect_plan_apply_verify_and_journal(tmp_path: Path) -> None:
     backend = FakeMacOSBackend()
     value, ledger, journals = provider(tmp_path, backend)
+    identity = value.ensure_local_identity(NETWORK_ID, NODE_A)
+    assert identity.public_key == "B" * 43 + "="
+    assert identity.secret_reference == "keyring:macos/test"
     observed = asyncio.run(value.observe("tmn-test-b"))
     assert observed.provider is ProviderKind.MACOS
     assert observed.ownership is OwnershipState.ABSENT

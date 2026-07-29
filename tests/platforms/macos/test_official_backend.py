@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.network.factories import desired, observation
+from tests.network.factories import NETWORK_ID, NODE_A, desired, observation
 
 from tunnelminion.network.contracts import (
     NetworkAction,
@@ -130,9 +130,10 @@ def test_material_store_secret_config_marker_and_cleanup(tmp_path: Path) -> None
     secrets = MemorySecrets()
     materials = store(tmp_path, secrets)
     wanted = config()
-    reference, public_hash = materials.ensure_secret(wanted)
-    assert materials.ensure_secret(wanted) == (reference, public_hash)
-    receipt = materials.write(wanted, reference, "a" * 32)
+    material = materials.ensure_secret(wanted)
+    assert materials.ensure_secret(wanted) == material
+    assert material.public_key.endswith("=")
+    receipt = materials.write(wanted, material.secret_reference, "a" * 32)
     config_path = materials.config_path("tmn-test-b", 1)
     marker = materials.read_marker("tmn-test-b")
     assert receipt.startswith("sha256:")
@@ -151,8 +152,8 @@ def test_material_store_secret_config_marker_and_cleanup(tmp_path: Path) -> None
     assert materials.read_marker("tmn-test-b")["runtime_interface"] == "utun9"  # type: ignore[index]
     assert materials.delete_config("tmn-test-b", 1).startswith("sha256:")
     materials.delete_config("tmn-test-b", 1)
-    materials.delete_secret(wanted, reference)
-    materials.delete_secret(wanted, reference)
+    materials.delete_secret(wanted, material.secret_reference)
+    materials.delete_secret(wanted, material.secret_reference)
     assert secrets.values == {}
 
 
@@ -189,11 +190,12 @@ def test_backend_observe_conflicts_and_unavailable(tmp_path: Path) -> None:
     materials = store(tmp_path, secrets)
     backend = OfficialMacOSManagedBackend(fixed(tmp_path, runner), FakeObserver(), materials)
     assert backend.preflight().administrator
-    assert backend.ensure_secret(config())[0].startswith("keyring:")
+    assert backend.ensure_identity(NETWORK_ID, NODE_A).public_key.endswith("=")
+    assert backend.ensure_secret(config()).secret_reference.startswith("keyring:")
     assert asyncio.run(backend.observe("utun4")).interface_name == "utun4"
     assert not asyncio.run(backend.observe("tmn-test-b")).interface_present
 
-    reference, _ = materials.ensure_secret(config())
+    reference = materials.ensure_secret(config()).secret_reference
     materials.write(config(), reference, "a" * 32)
     materials.record_runtime_interface(
         "tmn-test-b",
@@ -230,7 +232,7 @@ def test_backend_execute_and_rollback_fixed_steps(tmp_path: Path) -> None:
     materials = store(tmp_path, secrets)
     backend = OfficialMacOSManagedBackend(commands, FakeObserver(), materials)
     wanted = config()
-    reference, _ = materials.ensure_secret(wanted)
+    reference = materials.ensure_secret(wanted).secret_reference
     value = plan()
     interfaces = (str(commands.paths.wg), "show", "interfaces")
     runner.queues[interfaces] = [
@@ -294,7 +296,7 @@ def test_backend_failures_parent_restore_delete_secret_and_interface_ambiguity(
     materials = store(tmp_path, secrets)
     backend = OfficialMacOSManagedBackend(commands, FakeObserver(), materials)
     wanted = config(revision=2, parent_revision=1)
-    reference, _ = materials.ensure_secret(wanted)
+    reference = materials.ensure_secret(wanted).secret_reference
     materials.write(wanted, reference, "b" * 32)
     value = plan().model_copy(update={"desired": wanted})
     stop = NetworkPlanStep(
@@ -364,7 +366,7 @@ def test_material_optional_peer_fields_replace_cleanup_and_restricted_success(
     secrets = MemorySecrets()
     materials = store(tmp_path, secrets)
     wanted = config()
-    reference, _ = materials.ensure_secret(wanted)
+    reference = materials.ensure_secret(wanted).secret_reference
     without_optional = wanted.model_copy(
         update={
             "revision": 2,

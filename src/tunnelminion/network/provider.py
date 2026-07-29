@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     ManagedResourceOwnership,
     NetworkAction,
     NetworkObservation,
@@ -18,6 +20,14 @@ from tunnelminion.tools.contracts import ToolCancellationToken
 
 class NetworkProvider(Protocol):
     """固定 observe/plan/apply/verify/rollback/recover 边界。"""
+
+    def ensure_local_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """在本机生成或复用网络密钥，仅返回公钥和不透明秘密引用。"""
+        ...  # pragma: no cover - 结构化 Protocol 没有运行时实现
 
     async def observe(self, interface_name: str) -> NetworkObservation:
         """读取实时系统状态，不产生写入。"""

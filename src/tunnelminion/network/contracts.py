@@ -251,6 +251,16 @@ class NetworkIdentity(BaseModel):
         return self
 
 
+class LocalNetworkKeyMaterial(BaseModel):
+    """本机生成的公共身份与不透明秘密引用；私钥正文永不离开秘密存储。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    secret_reference: str = Field(min_length=3, max_length=224, repr=False)
+    public_key: str = Field(pattern=_PUBLIC_KEY.pattern)
+    public_key_hash: str = Field(pattern=_HASH.pattern)
+
+
 class PeerConfiguration(BaseModel):
     """desired config 中单个 peer 的公共配置。"""
 

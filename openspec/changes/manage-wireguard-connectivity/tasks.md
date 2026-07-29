@@ -103,7 +103,7 @@
 
 ## 10. A/B 独立测试隧道与最终清理
 
-- [ ] 10.1 展示只读冲突扫描、候选地址池、A/B UDP 端口、接口名、route、Murus/Windows 防火墙前置条件和完整回滚计划，获得用户明确授权后才继续
+- [x] 10.1 展示只读冲突扫描、候选地址池、A/B UDP 端口、接口名、route、Murus/Windows 防火墙前置条件和完整回滚计划，获得用户明确授权后才继续
 - [ ] 10.2 在隔离数据目录生成本机私钥和所有权账本，先创建 B、再创建 A 的独立 managed 测试接口，不切换生产 endpoint
 - [ ] 10.3 完成地址租约、公钥/候选同步、双方本机 L3 批准、配置 saga 和 direct 联合验证
 - [ ] 10.4 完成响应丢失、单端 apply 失败、验证失败、key rotation、Coordinator 离线、Agent 崩溃和 ownership conflict 真机矩阵

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from tests.network.factories import desired, observation
+from tests.network.factories import NETWORK_ID, NODE_A, desired, observation
 
 from tunnelminion.network.contracts import (
     NetworkAction,
@@ -110,13 +110,13 @@ def test_material_store_generates_reuses_writes_and_deletes_secret(tmp_path: Pat
     runner = FakeRunner()
     store = materials(tmp_path, secrets_store, runner)
     config = desired()
-    reference, public_hash = store.ensure_secret(config)
-    repeated, repeated_hash = store.ensure_secret(config)
-    assert reference == repeated
-    assert public_hash == repeated_hash
+    material = store.ensure_secret(config)
+    repeated = store.ensure_secret(config)
+    assert material == repeated
+    assert material.public_key.endswith("=")
     assert len(secrets_store.values) == 1
 
-    receipt_hash = asyncio.run(store.write(config, reference, "a" * 32))
+    receipt_hash = asyncio.run(store.write(config, material.secret_reference, "a" * 32))
     config_path = store.config_path("tmn-test-a", 1)
     text = config_path.read_text(encoding="utf-8")
     assert receipt_hash.startswith("sha256:")
@@ -131,8 +131,8 @@ def test_material_store_generates_reuses_writes_and_deletes_secret(tmp_path: Pat
     assert deleted.startswith("sha256:")
     assert not config_path.exists()
     asyncio.run(store.delete_config("tmn-test-a", 1))
-    asyncio.run(store.delete_secret(config, reference))
-    asyncio.run(store.delete_secret(config, reference))
+    asyncio.run(store.delete_secret(config, material.secret_reference))
+    asyncio.run(store.delete_secret(config, material.secret_reference))
     assert secrets_store.values == {}
     assert store.read_creation_nonce("tmn-test-a") is None
 
@@ -167,7 +167,7 @@ def test_material_store_rejects_paths_accounts_refs_acl_and_corrupt_marker(
     with pytest.raises(ValueError, match="keyring"):
         asyncio.run(store.write(desired(), "file:wrong", "a" * 32))
 
-    reference, _ = store.ensure_secret(desired())
+    reference = store.ensure_secret(desired()).secret_reference
     runner.returncode = 5
     with pytest.raises(WindowsBackendError) as denied:
         asyncio.run(store.write(desired(), reference, "a" * 32))
@@ -198,7 +198,8 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
     observer = FakeObserver()
     backend = OfficialWindowsManagedBackend(command_boundary, observer, store)
     assert backend.preflight().administrator
-    reference, _ = backend.ensure_secret(desired())
+    assert backend.ensure_identity(NETWORK_ID, NODE_A).public_key.endswith("=")
+    reference = backend.ensure_secret(desired()).secret_reference
     asyncio.run(backend.validate_no_conflicts(desired()))
     plan = asyncio.run(
         InMemoryNetworkProvider(observation()).plan(
@@ -269,7 +270,7 @@ def test_official_backend_stop_remove_delete_failure_and_parent_restore(
     command_boundary = fixed(tmp_path, runner)
     store = materials(tmp_path, secrets_store, runner)
     backend = OfficialWindowsManagedBackend(command_boundary, FakeObserver(), store)
-    reference, _ = backend.ensure_secret(desired())
+    reference = backend.ensure_secret(desired()).secret_reference
     base_plan = asyncio.run(
         InMemoryNetworkProvider(observation()).plan(
             action=NetworkAction.CREATE,
@@ -375,7 +376,7 @@ def test_rendered_marker_contains_only_nonce_and_revision(tmp_path: Path) -> Non
     secrets_store = MemorySecrets()
     runner = FakeRunner()
     store = materials(tmp_path, secrets_store, runner)
-    reference, _ = store.ensure_secret(desired())
+    reference = store.ensure_secret(desired()).secret_reference
     asyncio.run(store.write(desired(), reference, "d" * 32))
     marker = json.loads(store.marker_path("tmn-test-a").read_text(encoding="utf-8"))
     assert marker == {"creation_nonce": "d" * 32, "revision": 1}
@@ -403,7 +404,7 @@ def test_marker_temporary_is_cleaned_when_atomic_replace_fails(
     secrets_store = MemorySecrets()
     runner = FakeRunner()
     store = materials(tmp_path, secrets_store, runner)
-    reference, _ = store.ensure_secret(desired())
+    reference = store.ensure_secret(desired()).secret_reference
     real_replace = module.os.replace
     calls = 0
 

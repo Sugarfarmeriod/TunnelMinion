@@ -13,8 +13,10 @@ from typing import Protocol, cast
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
+    LocalNetworkKeyMaterial,
     NetworkErrorCode,
     NetworkPlan,
     NetworkPlanStep,
@@ -57,8 +59,15 @@ class RestrictedMacOSConfigStore:
         self.root = root
         self._secrets = secrets_store
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
-        name = self._secret_name(desired)
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
+        return self.ensure_identity(desired.network_id, desired.target_node_id)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        name = self._secret_name(network_id, node_id)
         private_text = self._secrets.get(name)
         if private_text is None:
             private = X25519PrivateKey.generate()
@@ -78,7 +87,11 @@ class RestrictedMacOSConfigStore:
                 serialization.PublicFormat.Raw,
             )
         ).decode()
-        return f"keyring:{name}", canonical_sha256({"public_key": public})
+        return LocalNetworkKeyMaterial(
+            secret_reference=f"keyring:{name}",
+            public_key=public,
+            public_key_hash=canonical_sha256({"public_key": public}),
+        )
 
     def write(
         self,
@@ -206,8 +219,8 @@ class RestrictedMacOSConfigStore:
         return reference.removeprefix("keyring:")
 
     @staticmethod
-    def _secret_name(desired: DesiredNetworkConfig) -> str:
-        return f"wireguard/{desired.network_id}/{desired.target_node_id}"
+    def _secret_name(network_id: NetworkId, node_id: NodeId) -> str:
+        return f"wireguard/{network_id}/{node_id}"
 
     @staticmethod
     def _render_config(desired: DesiredNetworkConfig, private_text: str) -> str:
@@ -262,8 +275,15 @@ class OfficialMacOSManagedBackend:
             }
         )
 
-    def ensure_secret(self, desired: DesiredNetworkConfig) -> tuple[str, str]:
+    def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)
+
+    def ensure_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        return self._materials.ensure_identity(network_id, node_id)
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         result = await self._commands.route_table()
