@@ -113,7 +113,7 @@ def store(tmp_path: Path, secrets: MemorySecrets) -> RestrictedMacOSConfigStore:
 
 
 def plan(action: NetworkAction = NetworkAction.CREATE):
-    wanted = config()
+    wanted = config().model_copy(update={"listen_port": 18889})
     observed = observation(
         provider=ProviderKind.MACOS,
         interface_name="tmn-test-b",
@@ -131,7 +131,7 @@ def plan(action: NetworkAction = NetworkAction.CREATE):
 def test_material_store_secret_config_marker_and_cleanup(tmp_path: Path) -> None:
     secrets = MemorySecrets()
     materials = store(tmp_path, secrets)
-    wanted = config()
+    wanted = config().model_copy(update={"listen_port": 18889})
     material = materials.ensure_secret(wanted)
     assert materials.ensure_secret(wanted) == material
     assert material.public_key.endswith("=")
@@ -140,7 +140,9 @@ def test_material_store_secret_config_marker_and_cleanup(tmp_path: Path) -> None
     marker = materials.read_marker("tmn-test-b")
     assert receipt.startswith("sha256:")
     assert marker is not None and marker["runtime_interface"] is None
-    assert "PrivateKey =" in config_path.read_text(encoding="utf-8")
+    rendered = config_path.read_text(encoding="utf-8")
+    assert "PrivateKey =" in rendered
+    assert "ListenPort = 18889" in rendered
     if os.name != "nt":
         materials.assert_restricted(config_path)
         materials.assert_restricted(materials.marker_path("tmn-test-b"))

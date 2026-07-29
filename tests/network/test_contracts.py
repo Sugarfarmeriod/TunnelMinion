@@ -87,6 +87,8 @@ def test_desired_config_rejects_routes_revisions_peers_and_versions(
         peer(allowed_host_routes=("10.203.0.2/32", "10.203.0.2/32"))
     with pytest.raises(ValidationError, match="host 前缀"):
         desired(address="10.203.0.1/24")
+    with pytest.raises(ValidationError):
+        desired(listen_port=65536)
     with pytest.raises(ValidationError, match="父 revision"):
         desired(parent_revision=1)
     with pytest.raises(ValidationError, match="主版本不兼容"):
@@ -121,6 +123,7 @@ def test_desired_config_rejects_routes_revisions_peers_and_versions(
     with pytest.raises(ValidationError, match="不得重复"):
         desired(allowed_route_overlaps=(overlap, overlap))
     assert desired(allowed_route_overlaps=(overlap,)).allowed_route_overlaps == (overlap,)
+    assert desired(listen_port=18889).listen_port == 18889
 
     monkeypatch.setattr(contracts, "MAX_CONFIG_BYTES", 1)
     with pytest.raises(ValidationError, match="字节预算"):

@@ -111,7 +111,7 @@ def test_material_store_generates_reuses_writes_and_deletes_secret(tmp_path: Pat
     secrets_store = MemorySecrets()
     runner = FakeRunner()
     store = materials(tmp_path, secrets_store, runner)
-    config = desired()
+    config = desired(listen_port=18889)
     material = store.ensure_secret(config)
     repeated = store.ensure_secret(config)
     assert material == repeated
@@ -126,6 +126,7 @@ def test_material_store_generates_reuses_writes_and_deletes_secret(tmp_path: Pat
     assert "Address = 10.203.0.1/32" in text
     assert "AllowedIPs = 10.203.0.2/32" in text
     assert "PrivateKey =" in text
+    assert "ListenPort = 18889" in text
     assert store.read_creation_nonce("tmn-test-a") == "a" * 32
     assert all(isinstance(command, tuple) for command in runner.commands)
 

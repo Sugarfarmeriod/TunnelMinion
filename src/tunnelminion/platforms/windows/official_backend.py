@@ -255,8 +255,9 @@ class AclRestrictedWindowsConfigStore:
 
     @staticmethod
     def _render_config(desired: DesiredNetworkConfig, private_key: str) -> str:
-        lines = ("[Interface]", f"PrivateKey = {private_key}", f"Address = {desired.address}")
-        peer_lines: list[str] = list(lines)
+        peer_lines = ["[Interface]", f"PrivateKey = {private_key}", f"Address = {desired.address}"]
+        if desired.listen_port is not None:
+            peer_lines.append(f"ListenPort = {desired.listen_port}")
         for peer in desired.peers:
             peer_lines.extend(("", "[Peer]", f"PublicKey = {peer.public_key}"))
             peer_lines.append(f"AllowedIPs = {','.join(peer.allowed_host_routes)}")

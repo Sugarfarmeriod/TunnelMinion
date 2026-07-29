@@ -314,6 +314,7 @@ class DesiredNetworkConfig(BaseModel):
     parent_revision: int = Field(ge=0)
     interface_name: str = Field(pattern=r"^tmn-[a-z0-9-]{1,48}$")
     address: str
+    listen_port: int | None = Field(default=None, ge=1, le=65535)
     peers: tuple[PeerConfiguration, ...] = Field(min_length=1, max_length=MAX_NETWORK_PEERS)
     allowed_route_overlaps: tuple[ApprovedRouteOverlap, ...] = Field(
         default=(),

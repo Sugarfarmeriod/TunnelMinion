@@ -225,6 +225,8 @@ class RestrictedMacOSConfigStore:
     @staticmethod
     def _render_config(desired: DesiredNetworkConfig, private_text: str) -> str:
         lines = ["[Interface]", f"PrivateKey = {private_text}", f"Address = {desired.address}"]
+        if desired.listen_port is not None:
+            lines.append(f"ListenPort = {desired.listen_port}")
         for peer in desired.peers:
             lines.extend(("", "[Peer]", f"PublicKey = {peer.public_key}"))
             lines.append(f"AllowedIPs = {', '.join(peer.allowed_host_routes)}")
