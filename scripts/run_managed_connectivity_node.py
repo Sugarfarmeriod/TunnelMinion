@@ -57,6 +57,7 @@ from tunnelminion.platforms.windows.system import (
     PsutilSystemReader,
     SubprocessCommandRunner,
 )
+from tunnelminion.tools.contracts import ToolCancellationToken
 
 
 class Acknowledgements:
@@ -122,11 +123,20 @@ async def execute(
     command: str,
     platform: str,
     data_directory: Path,
-    envelope_path: Path,
-    verification_key_path: Path,
+    envelope_path: Path | None,
+    verification_key_path: Path | None,
     approve_plan_hash: str | None,
 ) -> dict[str, object]:
     root = data_directory.resolve()
+    provider = _provider(platform, root)
+    if command == "recover":
+        receipts = await provider.recover(cancellation=ToolCancellationToken())
+        return {
+            "platform": platform,
+            "recovered": [receipt.model_dump(mode="json") for receipt in receipts],
+        }
+    if envelope_path is None or verification_key_path is None:
+        raise ValueError("preview/apply 必须提供签名配置和验证公钥")
     envelope = SignedDesiredConfig.model_validate_json(envelope_path.read_text(encoding="utf-8"))
     key = VerificationKeyView.model_validate_json(verification_key_path.read_text(encoding="utf-8"))
     desired = verify_signed_desired_config(
@@ -137,7 +147,6 @@ async def execute(
         target_node_id=envelope.config.target_node_id,
         parent_revision=0,
     )
-    provider = _provider(platform, root)
     observed = await provider.observe(desired.interface_name)
     plan = await provider.plan(
         action=NetworkAction.CREATE,
@@ -193,11 +202,11 @@ async def execute(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preview", "apply"))
+    parser.add_argument("command", choices=("preview", "apply", "recover"))
     parser.add_argument("--platform", choices=("windows", "macos"), required=True)
     parser.add_argument("--data-directory", type=Path, required=True)
-    parser.add_argument("--envelope", type=Path, required=True)
-    parser.add_argument("--verification-key", type=Path, required=True)
+    parser.add_argument("--envelope", type=Path)
+    parser.add_argument("--verification-key", type=Path)
     parser.add_argument("--approve-plan-hash")
     args = parser.parse_args(argv)
     result = asyncio.run(

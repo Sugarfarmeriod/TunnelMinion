@@ -150,6 +150,19 @@ class AclRestrictedWindowsConfigStore:
             path.unlink()
         return canonical_sha256({"kind": "delete_config", "path": path.name, "revision": revision})
 
+    def delete_marker(self, interface_name: str) -> None:
+        marker = self.marker_path(interface_name)
+        if marker.exists():
+            marker.unlink()
+
+    async def restore_marker(
+        self,
+        interface_name: str,
+        revision: int,
+        creation_nonce: str,
+    ) -> None:
+        await self._write_marker(interface_name, revision, creation_nonce)
+
     async def delete_secret(
         self,
         desired: DesiredNetworkConfig,
@@ -416,7 +429,7 @@ class OfficialWindowsManagedBackend:
         creation_nonce: str,
         idempotency_key: str,
     ) -> str:
-        del creation_nonce, idempotency_key
+        del idempotency_key
         desired = plan.desired
         if step.kind is PlanStepKind.CREATE_INTERFACE:
             result = await self._commands.uninstall_tunnel(
@@ -424,9 +437,24 @@ class OfficialWindowsManagedBackend:
             )
             return self._require_success(result.returncode, step)
         if step.kind is PlanStepKind.WRITE_CONFIG:
-            return await self._materials.delete_config(
+            config_receipt = await self._materials.delete_config(
                 desired.interface_name,
                 desired.revision,
+            )
+            if desired.parent_revision < 1:
+                self._materials.delete_marker(desired.interface_name)
+            else:
+                await self._materials.restore_marker(
+                    desired.interface_name,
+                    desired.parent_revision,
+                    creation_nonce,
+                )
+            return canonical_sha256(
+                {
+                    "kind": "restore_config_marker",
+                    "config_receipt": config_receipt,
+                    "revision": desired.parent_revision,
+                }
             )
         if step.kind in {PlanStepKind.STOP_INTERFACE, PlanStepKind.REMOVE_INTERFACE}:
             parent = desired.parent_revision

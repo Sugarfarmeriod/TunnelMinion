@@ -136,6 +136,7 @@ def test_material_store_generates_reuses_writes_and_deletes_secret(tmp_path: Pat
     asyncio.run(store.delete_config("tmn-test-a", 1))
     asyncio.run(store.delete_secret(config, material.secret_reference))
     asyncio.run(store.delete_secret(config, material.secret_reference))
+    store.delete_marker("tmn-test-a")
     assert secrets_store.values == {}
     assert store.read_creation_nonce("tmn-test-a") is None
 
@@ -246,6 +247,8 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
             )
         )
         assert result.startswith("sha256:")
+    assert store.read_creation_nonce("tmn-test-a") is None
+    assert store.read_revision("tmn-test-a") is None
 
 
 def test_official_backend_route_table_conflict_and_unavailable(tmp_path: Path) -> None:
@@ -341,6 +344,24 @@ def test_official_backend_stop_remove_delete_failure_and_parent_restore(
             expected_effect="delete secret",
         ),
     )
+    write_step = NetworkPlanStep(
+        index=4,
+        kind=PlanStepKind.WRITE_CONFIG,
+        target="tmn-test-a",
+        expected_effect="write",
+        rollback_kind=PlanStepKind.DELETE_CONFIG,
+    )
+    update_plan = base_plan.model_copy(update={"action": NetworkAction.UPDATE})
+    asyncio.run(
+        backend.rollback_step(
+            update_plan,
+            write_step,
+            secret_reference=reference,
+            creation_nonce="c" * 32,
+            idempotency_key=f"netop_{'b' * 64}",
+        )
+    )
+    assert store.read_revision("tmn-test-a") == 1
     invalid_update = base_plan.model_copy(
         update={
             "action": NetworkAction.UPDATE,
