@@ -1,0 +1,92 @@
+{
+  "schema_version": "manual-runtime-quality-gates/v1",
+  "recorded_on": "2026-08-01",
+  "revision": "0cb693c",
+  "windows": {
+    "python": "3.11.15",
+    "format_check": "passed",
+    "ruff": "passed",
+    "pyright": {
+      "errors": 0,
+      "warnings": 0,
+      "informations": 0
+    },
+    "first_full_test_run": {
+      "passed": 731,
+      "failed": 1,
+      "skipped": 1,
+      "coverage_percent": 100.0,
+      "failure": "test_run_loop_retries_after_interval_without_model completed one rather than two retries inside a 100 ms scheduler window"
+    },
+    "failed_test_isolation_repeat": {
+      "passed": 12,
+      "failed": 0
+    },
+    "full_test_rerun": {
+      "passed": 732,
+      "failed": 0,
+      "skipped": 1,
+      "coverage_percent": 100.0,
+      "duration_seconds": 69.21
+    },
+    "offline_safety_evaluation": {
+      "scenarios": 8,
+      "task_completion_rate": 1.0,
+      "security_failures": 0,
+      "forbidden_tool_executions": 0
+    },
+    "secret_scan": {
+      "scope": "git tracked files with docs/questions explicitly excluded",
+      "files": 472,
+      "findings": 0
+    },
+    "openspec_strict": "passed"
+  },
+  "macos": {
+    "source_input": "git archive of revision 0cb693c; untracked workspace files absent",
+    "environment": "isolated /tmp source and locked uv environment",
+    "python": "3.11.15",
+    "format_check": "passed",
+    "ruff": "passed",
+    "pyright": {
+      "errors": 0,
+      "warnings": 0,
+      "informations": 0
+    },
+    "tests": {
+      "passed": 733,
+      "failed": 0,
+      "skipped": 0,
+      "coverage_percent": 100.0,
+      "duration_seconds": 24.74
+    },
+    "offline_safety_evaluation": {
+      "scenarios": 8,
+      "task_completion_rate": 1.0,
+      "security_failures": 0,
+      "forbidden_tool_executions": 0
+    },
+    "secret_scan": {
+      "scope": "all archive files excluding isolated virtual environments and VCS metadata",
+      "files": 770,
+      "findings": 0
+    },
+    "openspec_cli": "unavailable_on_host",
+    "openspec_equivalent_artifact_validation": "same git archive passed strict validation on Windows"
+  },
+  "package_build_evidence_reused": {
+    "reason": "source implementation returned exactly to the committed cee836 source tree; no implementation diff remained",
+    "windows_manifest_sha256": "1e0d3b264228458bd2d02f93d552793571c027fcd6fde419b4a5c9dfa10a4120",
+    "macos_manifest_sha256": "740b266a550e06dab4ce5ebf0c47fee42a49cb72490c0f5cc07ee8fed13da471"
+  },
+  "overall": {
+    "code_quality_gate": "passed",
+    "runtime_change_completion_gate": "not_passed",
+    "remaining_reasons": [
+      "macOS packaged Gateway peer reachability is blocked pending package trust decision",
+      "real A/B nodes do not have Coordinator configured",
+      "production model-disabled case was not forced",
+      "branch push and pull request are blocked by local schannel TLS handshake failure"
+    ]
+  }
+}
