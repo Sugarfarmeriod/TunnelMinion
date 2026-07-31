@@ -8,14 +8,23 @@ from pathlib import Path
 
 import pytest
 
+from tunnelminion.agent.managed_node import (
+    FileManagedNodeConfigRepository,
+    ManagedNodeConfig,
+    ManagedNodeSecretStoreKind,
+)
+from tunnelminion.coordinator.client_credentials import coordinator_refresh_name
+from tunnelminion.coordinator.contracts import GatewayEndpoint
 from tunnelminion.domain.identifiers import (
     ArtifactId,
     MemoryId,
+    NetworkId,
     NodeId,
     RunId,
     ThreadId,
     ToolRunId,
 )
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfiguration,
@@ -61,6 +70,20 @@ class MemorySecretStore:
         self.values.pop(name, None)
 
 
+def managed_config(node_id: NodeId) -> ManagedNodeConfig:
+    """生成可安全导出的 managed node 非秘密配置。"""
+    return ManagedNodeConfig(
+        coordinator_endpoint="http://10.77.0.1:8790",
+        network_id=NetworkId.new(),
+        node_id=node_id,
+        display_name="Windows A",
+        platform=Platform.WINDOWS,
+        gateway_endpoint=GatewayEndpoint(host="10.77.0.2", port=8787),
+        pinned_fingerprints=frozenset({"a" * 64}),
+        secret_store=ManagedNodeSecretStoreKind.RESTRICTED_FILE,
+    )
+
+
 def test_safe_export_uses_allowlist_and_excludes_secret_artifacts(tmp_path: Path) -> None:
     root = tmp_path / "data"
     node = NodeId.new()
@@ -69,6 +92,8 @@ def test_safe_export_uses_allowlist_and_excludes_secret_artifacts(tmp_path: Path
     FileModelConfigurationRepository(root / "model.json").save(
         OpenAICompatibleConfig(endpoint="http://10.77.0.1:8082/v1", model="qwen")
     )
+    expected_managed = managed_config(node)
+    FileManagedNodeConfigRepository(root / "managed-node.json").save(expected_managed)
     peer = NodeId.new()
     FileGatewayConfigurationRepository(root / "gateway.json").save(
         GatewayConfiguration(
@@ -121,8 +146,13 @@ def test_safe_export_uses_allowlist_and_excludes_secret_artifacts(tmp_path: Path
     assert exported["checkpoints"] == [checkpoint.model_dump(mode="json")]
     assert exported["long_term_memories"] == [memory.model_dump(mode="json")]
     assert exported["operations"] == []
+    assert exported["managed_node"] == expected_managed.model_dump(mode="json")
     assert secret_artifact not in serialized
     assert '"api_key"' not in serialized
+    assert '"refresh_credential":' not in serialized
+    excluded = exported["excluded_categories"]
+    assert isinstance(excluded, list)
+    assert "coordinator_refresh_credentials" in excluded
 
 
 def test_write_export_handles_empty_data_and_posix_permissions(
@@ -137,6 +167,7 @@ def test_write_export_handles_empty_data_and_posix_permissions(
     assert value["node_id"] is None
     assert value["model"] is None
     assert value["gateway"] is None
+    assert value["managed_node"] is None
     assert value["checkpoints"] == []
     assert value["operations"] == []
     monkeypatch.setattr(operations.os, "name", "nt")
@@ -170,14 +201,32 @@ def test_uninstall_deletes_credentials_and_owned_files_but_preserves_unrelated(
     unrelated.write_text("keep", encoding="utf-8")
     model = MemorySecretStore({MODEL_API_KEY_NAME: "secret"})
     gateway = MemorySecretStore({gateway_token_name(peer): "tmn_secret"})
+    managed = managed_config(peer)
+    FileManagedNodeConfigRepository(root / "managed-node.json").save(managed)
+    coordinator = MemorySecretStore(
+        {coordinator_refresh_name(managed.network_id, managed.node_id): "refresh-secret"}
+    )
+    coordinator_dir = root / "coordinator-secrets"
+    coordinator_dir.mkdir()
+    (coordinator_dir / "orphan.secret").write_text("secret", encoding="utf-8")
+    (root / "coordinator-checkpoint.json").write_text("{}", encoding="utf-8")
 
-    removed = uninstall_owned_data(root, model_secrets=model, gateway_secrets=gateway)
+    removed = uninstall_owned_data(
+        root,
+        model_secrets=model,
+        gateway_secrets=gateway,
+        coordinator_secrets=coordinator,
+    )
 
     assert removed
     assert model.values == {}
     assert gateway.values == {}
+    assert coordinator.values == {}
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert not secret_dir.exists()
+    assert not coordinator_dir.exists()
+    assert not (root / "managed-node.json").exists()
+    assert not (root / "coordinator-checkpoint.json").exists()
     assert root.exists()
 
 
@@ -204,6 +253,15 @@ def test_uninstall_removes_empty_root_and_rejects_unsafe_layout(tmp_path: Path) 
     with pytest.raises(ValueError, match="根目录"):
         uninstall_owned_data(
             Path(Path.cwd().anchor),
+            model_secrets=MemorySecretStore(),
+            gateway_secrets=MemorySecretStore(),
+        )
+
+    unexpected_coordinator = tmp_path / "unexpected-coordinator"
+    (unexpected_coordinator / "coordinator-secrets" / "nested").mkdir(parents=True)
+    with pytest.raises(ValueError, match="非预期目录"):
+        uninstall_owned_data(
+            unexpected_coordinator,
             model_secrets=MemorySecretStore(),
             gateway_secrets=MemorySecretStore(),
         )

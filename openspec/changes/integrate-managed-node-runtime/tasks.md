@@ -1,10 +1,10 @@
 ## 1. 配置、秘密与 enrollment 纵向切片
 
-- [ ] 1.1 定义版本化 `ManagedNodeConfig`、状态/错误模型和原子文件仓储，拒绝未知字段与任何 token、refresh、assertion 或私钥字段
-- [ ] 1.2 扩展安全导出与卸载允许列表，证明 managed 配置可导出而 refresh/checkpoint 中的认证材料不泄露
-- [ ] 1.3 实现 `coordinator-enroll` CLI，从标准输入读取 token、确认固定指纹、幂等注册并写入可选 keyring/受限文件秘密存储
-- [ ] 1.4 覆盖有效/过期/重放 token、指纹不匹配、凭据存储失败、重复 enrollment、日志与命令行零泄漏测试
-- [ ] 1.5 运行配置、CLI、秘密扫描、格式、类型和分支覆盖门禁，提交并推送 enrollment 阶段
+- [x] 1.1 定义版本化 `ManagedNodeConfig`、状态/错误模型和原子文件仓储，拒绝未知字段与任何 token、refresh、assertion 或私钥字段
+- [x] 1.2 扩展安全导出与卸载允许列表，证明 managed 配置可导出而 refresh/checkpoint 中的认证材料不泄露
+- [x] 1.3 实现 `coordinator-enroll` CLI，从标准输入读取 token、确认固定指纹、幂等注册并写入可选 keyring/受限文件秘密存储
+- [x] 1.4 覆盖有效/过期/重放 token、指纹不匹配、凭据存储失败、重复 enrollment、日志与命令行零泄漏测试
+- [x] 1.5 运行配置、CLI、秘密扫描、格式、类型和分支覆盖门禁，提交并推送 enrollment 阶段
 
 ## 2. 运行时监督与恢复内核
 

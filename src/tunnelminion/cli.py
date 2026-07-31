@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from collections.abc import Sequence
@@ -21,6 +22,61 @@ _MACOS_READ_ONLY_TOOLS = (
 )
 _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
+
+
+def _enroll_with_coordinator(values: list[str]) -> int:
+    """从标准输入接收一次性 token，并只输出不含秘密的注册摘要。"""
+    parser = argparse.ArgumentParser(description="向已固定指纹的 Coordinator 注册节点")
+    parser.add_argument("coordinator-enroll")
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+
+    from tunnelminion.agent.coordinator import HttpCoordinatorTransport
+    from tunnelminion.agent.managed_node import (
+        MANAGED_NODE_CONFIG_FILE,
+        FileManagedNodeConfigRepository,
+        enroll_managed_node,
+        managed_node_secret_store,
+    )
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
+
+    root = args.data_dir or default_data_dir()
+    config = FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE).load()
+    if config is None:
+        parser.error("缺少 managed-node.json，无法执行 enrollment")
+    if not config.enabled:
+        parser.error("managed node 已禁用，无法执行 enrollment")
+    token = sys.stdin.read().strip()
+    if not token:
+        parser.error("必须通过标准输入提供一次性 enrollment token")
+    try:
+        credentials = AgentRefreshCredentialStore(
+            managed_node_secret_store(root, config.secret_store)
+        )
+        response = asyncio.run(
+            enroll_managed_node(
+                config,
+                token,
+                HttpCoordinatorTransport(config.coordinator_client_config()),
+                credentials,
+            )
+        )
+    finally:
+        token = ""
+    print(
+        json.dumps(
+            {
+                "status": "enrolled",
+                "network_id": str(response.identity.network_id),
+                "node_id": str(response.identity.node_id),
+                "credential_id": str(response.credential_id),
+                "server_revision": response.server_revision,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
 
 
 def _export_data(values: list[str]) -> int:
@@ -215,6 +271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _uninstall_data(values)
     if values and values[0] == "gateway-configure":
         return _configure_gateway(values)
+    if values and values[0] == "coordinator-enroll":
+        return _enroll_with_coordinator(values)
     if values and values[0] == "operation-approve":
         return _approve_operation(values)
     if values and values[0] == "operation-preauthorize":

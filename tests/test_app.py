@@ -495,6 +495,118 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
     assert token not in output
 
 
+def test_coordinator_enroll_cli_uses_stdin_and_outputs_only_public_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """enrollment token 不进入 argv、输出或日志，refresh 只进入秘密存储。"""
+    from datetime import UTC, datetime
+
+    from tunnelminion.agent import managed_node
+    from tunnelminion.agent.managed_node import (
+        FileManagedNodeConfigRepository,
+        ManagedNodeConfig,
+        ManagedNodeSecretStoreKind,
+        managed_node_secret_store,
+    )
+    from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
+    from tunnelminion.coordinator.contracts import GatewayEndpoint, NodeRegistrationResponse
+    from tunnelminion.domain.identifiers import NetworkId, NodeId, RefreshCredentialId
+    from tunnelminion.domain.tools import Platform
+
+    root = tmp_path / "managed"
+    config = ManagedNodeConfig(
+        coordinator_endpoint="http://10.77.0.1:8790",
+        network_id=NetworkId.new(),
+        node_id=NodeId.new(),
+        display_name="Windows A",
+        platform=Platform.WINDOWS,
+        gateway_endpoint=GatewayEndpoint(host="10.77.0.2", port=8787),
+        pinned_fingerprints=frozenset({"a" * 64}),
+        secret_store=ManagedNodeSecretStoreKind.RESTRICTED_FILE,
+    )
+    FileManagedNodeConfigRepository(root / "managed-node.json").save(config)
+    token = f"tmne_{'e' * 43}"
+    refresh = f"tmnr_{'r' * 43}"
+    captured: dict[str, str] = {}
+
+    async def fake_enroll(
+        managed_config: ManagedNodeConfig,
+        enrollment_token: str,
+        transport: object,
+        credentials: AgentRefreshCredentialStore,
+    ) -> NodeRegistrationResponse:
+        del transport
+        captured["token"] = enrollment_token
+        response = NodeRegistrationResponse(
+            identity=managed_config.identity(),
+            credential_id=RefreshCredentialId.new(),
+            refresh_credential=refresh,
+            server_revision=7,
+            issued_at=datetime(2026, 7, 31, tzinfo=UTC),
+        )
+        credentials.save(response)
+        return response
+
+    monkeypatch.setattr(managed_node, "enroll_managed_node", fake_enroll)
+    monkeypatch.setattr("sys.stdin", io.StringIO(token))
+    argv = ["coordinator-enroll", "--data-dir", str(root)]
+
+    assert cli.main(argv) == 0
+
+    output = capsys.readouterr().out
+    body = json.loads(output)
+    assert body == {
+        "status": "enrolled",
+        "network_id": str(config.network_id),
+        "node_id": str(config.node_id),
+        "credential_id": body["credential_id"],
+        "server_revision": 7,
+    }
+    assert captured == {"token": token}
+    assert token not in argv
+    assert token not in output
+    assert refresh not in output
+    credentials = AgentRefreshCredentialStore(managed_node_secret_store(root, config.secret_store))
+    assert credentials.load(config.network_id, config.node_id) == refresh
+
+
+def test_coordinator_enroll_cli_rejects_missing_disabled_or_empty_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """配置缺失、显式禁用或 stdin 为空时均 fail-closed。"""
+    from tunnelminion.agent.managed_node import (
+        FileManagedNodeConfigRepository,
+        ManagedNodeConfig,
+    )
+    from tunnelminion.coordinator.contracts import GatewayEndpoint
+    from tunnelminion.domain.identifiers import NetworkId, NodeId
+    from tunnelminion.domain.tools import Platform
+
+    with pytest.raises(SystemExit):
+        cli.main(["coordinator-enroll", "--data-dir", str(tmp_path / "missing")])
+
+    root = tmp_path / "managed"
+    config = ManagedNodeConfig(
+        enabled=False,
+        coordinator_endpoint="http://10.77.0.1:8790",
+        network_id=NetworkId.new(),
+        node_id=NodeId.new(),
+        display_name="Windows A",
+        platform=Platform.WINDOWS,
+        gateway_endpoint=GatewayEndpoint(host="10.77.0.2", port=8787),
+        pinned_fingerprints=frozenset({"a" * 64}),
+    )
+    repository = FileManagedNodeConfigRepository(root / "managed-node.json")
+    repository.save(config)
+    with pytest.raises(SystemExit):
+        cli.main(["coordinator-enroll", "--data-dir", str(root)])
+
+    repository.save(config.model_copy(update={"enabled": True}))
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    with pytest.raises(SystemExit):
+        cli.main(["coordinator-enroll", "--data-dir", str(root)])
+
+
 def test_module_entrypoint_propagates_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("tunnelminion.cli.main", lambda: 7)
     with pytest.raises(SystemExit) as caught:
