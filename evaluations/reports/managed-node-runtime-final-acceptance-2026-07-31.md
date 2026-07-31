@@ -43,6 +43,10 @@ Provider plan hash 和清理范围。
 | static peer、操作到期与恢复不受控制面影响 | gateway/operation/evaluation 回归 | 通过 |
 | 真实 A/B 常规入口与生产资源前后不变 | 只有历史 Provider/Coordinator 基线，缺本次新授权 | 待核对 |
 
+真实验收脚本为 `scripts/run_managed_node_runtime_ab_acceptance.py`。默认模式只打印精确授权清单；
+只有显式 `--execute-approved` 才会连接 A/B。Murus 仍需操作者提供前后摘要哈希，不能由历史授权或
+其他防火墙摘要替代。
+
 ## 可重复命令
 
 ```shell
