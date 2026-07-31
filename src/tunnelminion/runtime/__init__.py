@@ -5,12 +5,31 @@ from tunnelminion.runtime.health import (
     ModelHealthStatus,
     probe_external_model,
 )
+from tunnelminion.runtime.lifecycle import (
+    ComponentRuntimeState,
+    LifecycleReport,
+    ManualLifecycleManager,
+    OverallRuntimeState,
+)
 from tunnelminion.runtime.preflight import (
     PreflightCheck,
     PreflightReport,
     PreflightStatus,
     RuntimePreflight,
     verify_runtime_package,
+)
+from tunnelminion.runtime.process import (
+    PROCESS_RECORD_VERSION,
+    ComponentLifecycle,
+    DetachedProcessAdapter,
+    ProcessRecordRepository,
+    ProcessSnapshot,
+    RuntimeOperationBusy,
+    RuntimeOperationLock,
+    RuntimeProcessRecord,
+    current_runtime_executable,
+    detached_process_options,
+    runtime_identity_arguments,
 )
 from tunnelminion.runtime.profile import (
     RUNTIME_PROFILE_VERSION,
@@ -25,21 +44,36 @@ from tunnelminion.runtime.profile import (
 )
 
 __all__ = [
+    "PROCESS_RECORD_VERSION",
     "RUNTIME_PROFILE_VERSION",
+    "ComponentLifecycle",
+    "ComponentRuntimeState",
+    "DetachedProcessAdapter",
     "FileRuntimeProfileRepository",
+    "LifecycleReport",
+    "ManualLifecycleManager",
     "ModelHealthResult",
     "ModelHealthStatus",
+    "OverallRuntimeState",
     "PreflightCheck",
     "PreflightReport",
     "PreflightStatus",
+    "ProcessRecordRepository",
+    "ProcessSnapshot",
     "RuntimeBudgets",
     "RuntimeComponent",
+    "RuntimeOperationBusy",
+    "RuntimeOperationLock",
     "RuntimePaths",
     "RuntimePreflight",
+    "RuntimeProcessRecord",
     "RuntimeProfile",
+    "current_runtime_executable",
     "default_runtime_data_dir",
     "default_runtime_profile_path",
+    "detached_process_options",
     "probe_external_model",
     "resolve_runtime_paths",
+    "runtime_identity_arguments",
     "verify_runtime_package",
 ]

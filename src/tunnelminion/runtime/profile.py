@@ -137,6 +137,11 @@ def _prepare_private_directory(path: Path) -> None:
     _restrict_permissions(path, 0o700)
 
 
+def prepare_private_directory(path: Path) -> None:
+    """创建只供当前账户使用的运行时目录。"""
+    _prepare_private_directory(path)
+
+
 def _atomic_write_private(path: Path, content: str) -> None:
     """在同一目录写私有临时文件并原子替换目标。"""
     _prepare_private_directory(path.parent)
@@ -155,6 +160,11 @@ def _atomic_write_private(path: Path, content: str) -> None:
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def atomic_write_private(path: Path, content: str) -> None:
+    """向同目录临时文件写入后原子替换，并收紧当前账户权限。"""
+    _atomic_write_private(path, content)
 
 
 class RuntimeProfileRepository(Protocol):
