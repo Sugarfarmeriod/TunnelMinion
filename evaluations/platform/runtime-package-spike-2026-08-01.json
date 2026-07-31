@@ -1,0 +1,119 @@
+{
+  "schema_version": "runtime-package-spike/v1",
+  "recorded_on": "2026-08-01",
+  "source_revision": "0a44885b933bb64bf491e8ae0be7af36c08161de",
+  "source_tree_sha256": "36fcdd59271e109a1a015e52a3244594dbe42f1357f4b50e4b041c3e7db5dc2f",
+  "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+  "selected_layout": "onedir-freeze",
+  "selected_builder": "PyInstaller 6.21.0 onedir",
+  "selection_reason": "两种布局均通过双平台隔离验收；onedir 在两个平台都更小、文件更少，并避免复制完整 CPython 前缀及其 EXTERNALLY-MANAGED 处理。",
+  "shared_gates": {
+    "locked_inputs": true,
+    "offline_rebuild_after_locked_prefetch": true,
+    "relocated_package": true,
+    "source_checkout_forbidden": true,
+    "development_venv_forbidden": true,
+    "builder_base_python_forbidden": true,
+    "pythonpath_absent": true,
+    "user_site_disabled": true,
+    "program_data_in_package": false,
+    "stable_startup_error_codes": [
+      "process-exited-before-ready",
+      "startup-timeout"
+    ]
+  },
+  "platforms": {
+    "windows-amd64": {
+      "python_version": "3.11.15",
+      "candidates": {
+        "onedir-freeze": {
+          "build_duration_ms": 42625.0,
+          "file_count": 206,
+          "size_bytes": 63898071,
+          "manifest_sha256": "195921de8dc16493be7268d1d88a477854d8487306f27d3bf24e6640644416d4",
+          "local_startup_ms": 2828.0,
+          "gateway_startup_ms": 1593.0,
+          "gateway_unauthenticated_http_status": 401,
+          "keyring_backend": "keyring.backends.Windows.WinVaultKeyring",
+          "native_extension_count": 5,
+          "license_count": 68,
+          "unknown_license_count": 0,
+          "passed": true
+        },
+        "standalone-cpython-wheel": {
+          "build_duration_ms": 56813.0,
+          "file_count": 6166,
+          "size_bytes": 101328078,
+          "manifest_sha256": "0f6cf79a7a4c5f4da2b3a119d34620eec4865c79044fdb74adaeba49ca7d526a",
+          "local_startup_ms": 15390.0,
+          "gateway_startup_ms": 2125.0,
+          "gateway_unauthenticated_http_status": 401,
+          "keyring_backend": "keyring.backends.Windows.WinVaultKeyring",
+          "native_extension_count": 5,
+          "license_count": 68,
+          "unknown_license_count": 0,
+          "passed": true
+        }
+      }
+    },
+    "macos-arm64": {
+      "python_version": "3.12.11",
+      "candidates": {
+        "onedir-freeze": {
+          "build_duration_ms": 16405.214,
+          "file_count": 136,
+          "size_bytes": 62607984,
+          "manifest_sha256": "3ec461bcc417607a70601c6b961d67b3b1fdd1ea20e56e21e6053a787ba2c4c4",
+          "local_startup_ms": 7765.077,
+          "gateway_startup_ms": 641.875,
+          "gateway_unauthenticated_http_status": 401,
+          "keyring_backend": "keyring.backends.macOS.Keyring",
+          "native_extension_count": 5,
+          "license_count": 63,
+          "unknown_license_count": 0,
+          "detached_parent_pid": 1,
+          "detached_http_status": 200,
+          "ownership_verified_stop": true,
+          "passed": true
+        },
+        "standalone-cpython-wheel": {
+          "build_duration_ms": 5465.461,
+          "file_count": 5132,
+          "size_bytes": 94956347,
+          "manifest_sha256": "62aa11b8f29d51f80dcc50448f2e6daef55096553a9ba1667940ed096b1e142c",
+          "local_startup_ms": 8546.044,
+          "gateway_startup_ms": 581.357,
+          "gateway_unauthenticated_http_status": 401,
+          "keyring_backend": "keyring.backends.macOS.Keyring",
+          "native_extension_count": 5,
+          "license_count": 63,
+          "unknown_license_count": 0,
+          "detached_parent_pid": 1,
+          "detached_http_status": 200,
+          "ownership_verified_stop": true,
+          "passed": true
+        }
+      },
+      "cold_cache_observation": {
+        "standalone_first_offline_build": "dependency-cache-miss",
+        "locked_prefetch_then_offline_build": "passed"
+      }
+    }
+  },
+  "production_invariance": {
+    "gateway_pid_before": 64397,
+    "gateway_pid_after": 64397,
+    "gateway_listener": "10.77.0.1:8787",
+    "gateway_unauthenticated_http_status_after": 401,
+    "model_listener": "*:8082",
+    "model_listener_pid_after": 61981,
+    "temporary_test_processes_stopped": true,
+    "network_configuration_mutated": false,
+    "production_configuration_or_secrets_read": false
+  },
+  "known_non_blocking_build_warnings": [
+    "PyInstaller 分析会看到未安装的可选 tzdata 与 pycparser 表生成模块；双平台运行门禁未使用这些模块。",
+    "macOS 分析 keyring 跨平台后端时会报告 Windows ole32/shell32 不存在；实际选择并验证的是 macOS Keychain 后端。",
+    "当前依赖图会触发 pytest hook，后续可在不改变后端的前提下缩减运行包。"
+  ]
+}

@@ -31,18 +31,29 @@ Windows/macOS 常规应用，但进程外层仍是开发者工作流：本地应
 
 ### 1. 运行包是可替换程序，不是数据容器
 
-每个平台构建版本化运行目录，包含固定版本的 TunnelMinion、Python 运行时和锁定依赖。构建必须
-从 `uv.lock` 或等价的已提交锁定输入生成清单，并在干净机器离线启动验收中证明不读取源码目录、
-开发 `.venv`、`PYTHONPATH` 或全局 site-packages。具体冻结后端先以 Windows/macOS 最小 spike
-比较单目录冻结与独立 CPython+wheel 目录；选择必须记录启动、keyring、原生扩展、体积和可诊断性
-证据，不能未经验证直接固化工具。
+每个平台使用锁定的 PyInstaller 6.21.0 生成版本化 one-folder 运行目录，包含固定版本的
+TunnelMinion、Python 运行时和锁定依赖。构建环境先执行 `uv sync --frozen --group package`，后端
+版本进入 `uv.lock`；联网预取完成后，候选必须能在禁网模式重新构建。清单固定为
+`runtime-package-manifest/v1`，记录源提交、源输入摘要、`uv.lock` 摘要、构建器、入口、逐文件
+SHA-256/大小和当前平台实际依赖的许可清单。这里的“可重复”指锁定输入与可复核输出，不承诺不同
+机器构建出的 Mach-O/PE 字节完全相同。
+
+Windows 与 macOS arm64 spike 均证明 one-folder 在搬离源码、开发 `.venv` 和构建用基础 Python 后，
+仍可启动真实本地应用与 Gateway，加载系统原生 keyring 和 5 个代表性原生扩展。Windows 包约
+63.9 MB/206 个文件，macOS 包约 62.6 MB/136 个文件；独立 CPython+wheel 候选分别约
+101.3 MB/6166 个文件和 95.0 MB/5132 个文件，且本地应用冷启动更慢。首版因此固定 one-folder，
+独立 CPython+wheel 仅保留为已否决的 spike 候选。
 
 程序目录不得保存 `model.json`、`gateway.json`、`managed-node.json`、SQLite、PID、日志或秘密。
 默认数据目录继续使用平台标准用户数据目录；自定义目录通过平台标准用户配置位置中的非秘密
 runtime profile 记录绝对路径。profile 只允许数据目录、启用组件和本地端口等非秘密字段。
 
-否决方案：继续把 `.venv` 和 `data/` 一起放在源码 checkout 中。它把可替换依赖、用户数据和版本
-控制混为一体，无法安全升级或判断依赖是否完整。
+否决方案一：继续把 `.venv` 和 `data/` 一起放在源码 checkout 中。它把可替换依赖、用户数据和
+版本控制混为一体，无法安全升级或判断依赖是否完整。
+
+否决方案二：复制完整 CPython 前缀后按 `uv.lock` 安装 wheel。它也通过了双平台隔离、keyring、
+原生扩展和终端脱离验收，但文件数、体积和 Windows 冷启动成本都显著更高；复制 uv 管理的 Python
+还需要只针对候选目录显式处理 `EXTERNALLY-MANAGED` 标记，首版没有足够收益承担这层复杂度。
 
 ### 2. 秘密继续由现有 SecretStore 管理
 
@@ -134,6 +145,5 @@ Coordinator 同步和 Gateway 可以正常启动；运行入口不尝试寻找�
 
 ## Open Questions
 
-- Windows/macOS 首版冻结后端必须由任务 1 的干净环境证据定案；目前不假设 PyInstaller、独立
-  CPython+wheel 或其他方案已经满足 keyring、原生扩展和离线要求。
-- 首版运行包是仅供当前用户安装的本地 artifact；公共代码签名、公证和图形安装器另建 change。
+- 首版运行包确定为仅供当前用户使用的本地 artifact；公共代码签名、公证和图形安装器是否需要，
+  留到有分发需求时另建 change，不阻塞本 change。
