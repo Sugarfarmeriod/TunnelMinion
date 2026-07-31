@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelminion.local/schemas/runtime-profile-v1.schema.json",
+  "title": "TunnelMinion Runtime Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "data_dir",
+    "enabled_components",
+    "local_port",
+    "budgets"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "runtime-profile/v1"
+    },
+    "data_dir": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "enabled_components": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "local",
+          "gateway"
+        ]
+      }
+    },
+    "local_port": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startup_timeout_seconds",
+        "stable_window_seconds",
+        "shutdown_timeout_seconds",
+        "model_health_timeout_seconds"
+      ],
+      "properties": {
+        "startup_timeout_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "stable_window_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 30
+        },
+        "shutdown_timeout_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "model_health_timeout_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10
+        }
+      }
+    }
+  }
+}
