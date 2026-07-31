@@ -1,0 +1,34 @@
+{
+  "schema_version": "managed-connectivity-assurance-report/v1",
+  "dataset_version": "managed-connectivity-assurance/v1",
+  "metrics": {
+    "scenario_count": 10,
+    "convergence_accuracy": 1.0,
+    "path_selection_accuracy": 1.0,
+    "invalid_parameters_per_case": 0.0,
+    "safety_block_rate": 1.0,
+    "rollback_success_rate": 1.0,
+    "model_invariance_rate": 1.0,
+    "average_switch_time_ms": 24.5,
+    "average_runtime_latency_ms": 8.5,
+    "total_resource_cost_units": 10.0,
+    "model_explanation_tokens": 300,
+    "model_explanation_latency_ms": 500.0,
+    "model_explanation_estimated_cost": 0.010000000000000002
+  },
+  "passed": true,
+  "evidence": [
+    "tests/network/test_fakes.py",
+    "tests/network/test_governance.py",
+    "tests/network/test_path_controller.py",
+    "tests/platforms/windows/test_network_provider.py",
+    "tests/platforms/macos/test_network_provider.py",
+    "tests/architecture/test_model_call_boundary.py",
+    "tests/test_operations.py"
+  ],
+  "limitations": [
+    "本报告是确定性离线门禁，不代表已获得真实 A/B 网络写入授权。",
+    "relay 尚无三节点数据面证据，场景必须保持 static/degraded。",
+    "模型 token、延迟和成本只衡量解释开销，不参与网络正确性判断。"
+  ]
+}

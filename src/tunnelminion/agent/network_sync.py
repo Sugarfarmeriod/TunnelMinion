@@ -7,6 +7,7 @@ import json
 import secrets
 import sqlite3
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -316,7 +317,7 @@ class SQLiteManagedNetworkSyncStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS managed_network_sync (
                     network_id TEXT NOT NULL,
@@ -331,7 +332,7 @@ class SQLiteManagedNetworkSyncStore:
     def load(
         self, network_id: NetworkId, node_id: NodeId, *, now: datetime
     ) -> ManagedNetworkSyncCheckpoint:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """SELECT payload FROM managed_network_sync
                 WHERE network_id=? AND node_id=?""",
@@ -346,7 +347,7 @@ class SQLiteManagedNetworkSyncStore:
         return ManagedNetworkSyncCheckpoint.model_validate_json(cast(str, row["payload"]))
 
     def save(self, checkpoint: ManagedNetworkSyncCheckpoint) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """INSERT INTO managed_network_sync(
                     network_id, node_id, phase, applied_revision, payload
@@ -365,7 +366,7 @@ class SQLiteManagedNetworkSyncStore:
             )
 
     def assert_no_secret_material(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             rows = connection.execute("SELECT payload FROM managed_network_sync").fetchall()
         forbidden = ("private_key", "preshared", "refresh_credential", "authorization")
         if any(
