@@ -199,6 +199,22 @@ def test_runtime_configure_rejects_program_data_overlap(
     assert json.loads(capsys.readouterr().out)["error_code"] == "runtime_profile_invalid"
 
 
+def test_runtime_port_validation_keeps_help_compact(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as help_exit:
+        cli.main(["runtime", "--help"])
+    assert help_exit.value.code == 0
+    help_text = capsys.readouterr().out
+    assert len(help_text) < 2_000
+    assert "65534" not in help_text
+
+    with pytest.raises(SystemExit) as invalid_exit:
+        cli.main(["runtime", "configure", "--local-port", "1023"])
+    assert invalid_exit.value.code == 2
+    assert "1024 到 65535" in capsys.readouterr().err
+
+
 def test_runtime_child_builds_local_and_gateway_without_access_logs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

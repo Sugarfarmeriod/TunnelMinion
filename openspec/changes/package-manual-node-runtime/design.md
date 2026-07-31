@@ -38,6 +38,12 @@ TunnelMinion、Python 运行时和锁定依赖。构建环境先执行 `uv sync 
 SHA-256/大小和当前平台实际依赖的许可清单。这里的“可重复”指锁定输入与可复核输出，不承诺不同
 机器构建出的 Mach-O/PE 字节完全相同。
 
+正式构建器会把 PyInstaller `base_library.zip` 的成员顺序、时间和权限元数据规范化；同一平台两次
+独立构建因此可得到相同逐文件清单。2026-08-01 验收中，Windows amd64 两次 manifest SHA-256
+均为 `1e0d3b264228458bd2d02f93d552793571c027fcd6fde419b4a5c9dfa10a4120`，macOS arm64
+两次均为 `740b266a550e06dab4ce5ebf0c47fee42a49cb72490c0f5cc07ee8fed13da471`；两平台的
+源输入摘要共同为 `cee836fea82b64ad90ad89700165a4f8babc524aca13dd64f903ad38cc13c0c6`。
+
 Windows 与 macOS arm64 spike 均证明 one-folder 在搬离源码、开发 `.venv` 和构建用基础 Python 后，
 仍可启动真实本地应用与 Gateway，加载系统原生 keyring 和 5 个代表性原生扩展。Windows 包约
 63.9 MB/206 个文件，macOS 包约 62.6 MB/136 个文件；独立 CPython+wheel 候选分别约
@@ -118,14 +124,25 @@ Coordinator 同步和 Gateway 可以正常启动；运行入口不尝试寻找�
 
 运行包替换采用新版本并行落地、清单验证、手动停止、切换当前版本、手动启动和健康验证顺序。
 失败时切回上一运行包并以同一数据目录启动；不得回滚或覆盖运行数据库和秘密。移除运行包默认只
-删除可证明属于该版本的程序文件和非秘密 profile，生产数据与 keyring 保留。现有
+删除可证明属于该版本的程序文件和非秘密安装元数据；runtime profile 作为普通配置与生产数据、
+keyring 一并保留，方便重新安装后恢复。现有
 `tunnelminion uninstall` 仍是需要显式确认的数据删除入口。
+
+公开安装入口固定为 `runtime-package stage/activate/status/remove`。安装状态保存完整 package ID、
+当前/上一版本指针和数据目录摘要，不保存数据路径或秘密；磁盘版本目录使用 package ID 的固定长度
+SHA-256 前缀，避免 Windows 深层依赖超过传统路径长度。切换和移除前只要任一进程记录不可读或
+对应 PID 仍存在就 fail closed。Windows 的程序移除从安装目录外的已验证运行包执行，避免运行中
+`.exe` 自删除。
 
 ### 8. 不注册任何自启动机制
 
 构建、安装和 runtime 命令不得创建或修改系统服务、计划任务、LaunchAgent/Daemon、登录项或
 第三方守护配置。验收必须保存相应系统状态的前后摘要，证明人工启动只创建本次自有进程、PID 和
 日志。机器重启后状态应为 `stopped`，由用户再次手动执行 `start`。
+
+用户已明确不需要开机自启动。生产节点不为该验收执行重启；验收以 Windows 服务/计划任务/启动
+目录和 macOS launchctl/LaunchAgent 均无 TunnelMinion 注册、人工停止后后续独立会话保持
+`stopped` 作为安全等价证据。真实重启后的预期仍是 `stopped`，且没有任何恢复入口会自动运行。
 
 ## Risks / Trade-offs
 

@@ -271,6 +271,13 @@ def _files(root: Path) -> list[dict[str, JsonValue]]:
     ]
 
 
+# 正式构建器复用经过双平台 spike 验证的确定性清单函数。
+git_revision = _git_revision
+source_tree_sha256 = _tree_sha256
+license_inventory = _license_inventory
+package_files = _files
+
+
 def build_candidate(
     layout: str,
     output_root: Path,

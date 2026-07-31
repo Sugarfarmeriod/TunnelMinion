@@ -1,0 +1,77 @@
+{
+  "schema_version": "manual-node-runtime-package-acceptance/v1",
+  "recorded_on": "2026-08-01",
+  "source": {
+    "revision": "20dc9c967ab953087eeafefb9f19317fbeb8aa0f",
+    "source_tree_sha256": "cee836fea82b64ad90ad89700165a4f8babc524aca13dd64f903ad38cc13c0c6",
+    "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574"
+  },
+  "builds": {
+    "windows_amd64": {
+      "package_id": "tunnelminion-0-1-0-win32-amd64-cee836fea82b",
+      "manifest_sha256": "1e0d3b264228458bd2d02f93d552793571c027fcd6fde419b4a5c9dfa10a4120",
+      "repeat_manifest_match": true,
+      "file_count": 209,
+      "size_bytes": 63143083,
+      "license_count": 68,
+      "unknown_license_count": 0
+    },
+    "macos_arm64": {
+      "package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+      "manifest_sha256": "740b266a550e06dab4ce5ebf0c47fee42a49cb72490c0f5cc07ee8fed13da471",
+      "repeat_manifest_match": true,
+      "file_count": 139,
+      "size_bytes": 60644893,
+      "license_count": 66,
+      "unknown_license_count": 0
+    }
+  },
+  "clean_install_acceptance": {
+    "windows_amd64": {
+      "py_path_absent": true,
+      "deep_install_path_supported": true,
+      "stage": "staged",
+      "activate": "activated",
+      "start": "running",
+      "status": "running",
+      "local_http_status": 200,
+      "stop": "stopped",
+      "remove": "removed",
+      "program_removed": true,
+      "profile_preserved": true,
+      "data_sentinel_sha256": "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a"
+    },
+    "macos_arm64": {
+      "py_path_absent": true,
+      "separate_control_sessions": true,
+      "stage": "staged",
+      "activate": "activated",
+      "start": "running",
+      "next_session_status": "running",
+      "local_http_status": 200,
+      "stop": "stopped",
+      "remove": "removed",
+      "program_removed": true,
+      "profile_preserved": true,
+      "data_sentinel_sha256": "1daf82f62247f3a1d148c2d88b1828c9efa2d5f087d7059e98650aafe7afdea3"
+    }
+  },
+  "autostart": {
+    "machine_reboot_performed": false,
+    "reason": "未获授权重启生产节点；以零自启动注册、人工停止和新会话状态作为安全等价证据",
+    "windows_scheduled_task_matches": 0,
+    "windows_service_matches": 0,
+    "windows_startup_entries": 0,
+    "macos_launchctl_matches": 0,
+    "macos_launch_agent_files": 0
+  },
+  "production_invariance": {
+    "production_gateway_pid": 64397,
+    "production_gateway_command_unchanged": true,
+    "production_gateway_unauthenticated_http_status": 401,
+    "production_gateway_endpoint": "10.77.0.1:8787",
+    "temporary_macos_pid_stopped": true,
+    "production_data_or_secret_content_read": false,
+    "production_network_configuration_modified": false
+  }
+}

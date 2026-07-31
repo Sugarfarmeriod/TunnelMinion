@@ -24,6 +24,14 @@ _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
+def _runtime_port(value: str) -> int:
+    """解析 runtime 本地端口，同时保持帮助文本简短。"""
+    port = int(value)
+    if not 1024 <= port <= 65535:
+        raise argparse.ArgumentTypeError("端口必须在 1024 到 65535 之间")
+    return port
+
+
 def _runtime_command(values: list[str]) -> int:
     """配置或执行不注册系统自启动项的手工 runtime 操作。"""
     parser = argparse.ArgumentParser(description="手工管理 TunnelMinion 常驻组件")
@@ -31,7 +39,7 @@ def _runtime_command(values: list[str]) -> int:
     parser.add_argument("action", choices=("configure", "start", "status", "stop"))
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--local-port", type=int, default=8000, choices=range(1024, 65536))
+    parser.add_argument("--local-port", type=_runtime_port, default=8000)
     parser.add_argument("--enable-gateway", action="store_true")
     args = parser.parse_args(values)
 
@@ -102,6 +110,112 @@ def _runtime_command(values: list[str]) -> int:
     view = runtime_control_view(report, profile, paths)
     print(view.model_dump_json())
     return report.exit_code
+
+
+def _runtime_package_command(values: list[str]) -> int:
+    """管理与生产数据分离的版本化程序目录。"""
+    parser = argparse.ArgumentParser(description="安装、切换或移除 TunnelMinion 运行包")
+    parser.add_argument("runtime-package")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    def add_common(target: argparse.ArgumentParser) -> None:
+        target.add_argument("--profile", type=Path)
+        target.add_argument("--install-root", type=Path)
+
+    stage_parser = subparsers.add_parser("stage", help="校验并并行放置新版本")
+    add_common(stage_parser)
+    stage_parser.add_argument("--package-root", type=Path, required=True)
+    stage_parser.add_argument("--manifest", type=Path, required=True)
+    activate_parser = subparsers.add_parser("activate", help="在组件停止后切换版本")
+    add_common(activate_parser)
+    activate_parser.add_argument("--package-id", required=True)
+    status_parser = subparsers.add_parser("status", help="查看当前和上一程序版本")
+    add_common(status_parser)
+    remove_parser = subparsers.add_parser("remove", help="只移除程序并保留数据和秘密")
+    add_common(remove_parser)
+    args = parser.parse_args(values)
+
+    from tunnelminion.runtime.install import (
+        RuntimePackageInstaller,
+        default_runtime_install_root,
+    )
+    from tunnelminion.runtime.process import DetachedProcessAdapter, ProcessRecordRepository
+    from tunnelminion.runtime.profile import (
+        FileRuntimeProfileRepository,
+        current_program_dir,
+        default_runtime_profile_path,
+        resolve_runtime_paths,
+    )
+
+    profile_path = (args.profile or default_runtime_profile_path()).expanduser().resolve()
+    try:
+        profile = FileRuntimeProfileRepository(profile_path, current_program_dir()).load()
+        if profile is None:
+            raise ValueError("runtime profile missing")
+        paths = resolve_runtime_paths(profile.data_dir, profile_path)
+        installer = RuntimePackageInstaller(
+            args.install_root or default_runtime_install_root(),
+            profile.data_dir,
+        )
+    except (OSError, ValueError):
+        print(json.dumps({"status": "failed", "error_code": "runtime_profile_invalid"}))
+        return 2
+
+    records = ProcessRecordRepository(paths.state_dir)
+    processes = DetachedProcessAdapter()
+
+    def stopped() -> bool:
+        try:
+            return all(
+                (record := records.load(component)) is None or processes.inspect(record.pid) is None
+                for component in profile.enabled_components
+            )
+        except (OSError, ValueError):
+            return False
+
+    try:
+        if args.action == "stage":
+            package = installer.stage(args.package_root, args.manifest)
+            output: dict[str, object] = {
+                "status": "staged",
+                "package_id": package.package_id,
+                "application_version": package.application_version,
+                "manifest_sha256": package.manifest_sha256,
+            }
+        elif args.action == "activate":
+            state = installer.activate(args.package_id, stopped)
+            output = {
+                "status": "activated",
+                "current_package_id": state.current_package_id,
+                "previous_package_id": state.previous_package_id,
+            }
+        elif args.action == "status":
+            state = installer.load()
+            program = installer.current_program_dir()
+            output = {
+                "status": "ready",
+                "current_package_id": state.current_package_id,
+                "previous_package_id": state.previous_package_id,
+                "installed_package_ids": [item.package_id for item in state.packages],
+                "current_program_directory": str(program) if program is not None else None,
+                "data_dir_sha256": state.data_dir_sha256,
+            }
+        else:
+            removed = installer.remove_program(stopped)
+            output = {
+                "status": "removed",
+                "removed_package_ids": list(removed),
+                "data_preserved": True,
+                "secret_store_preserved": True,
+            }
+    except RuntimeError:
+        print(json.dumps({"status": "failed", "error_code": "runtime_components_running"}))
+        return 2
+    except (KeyError, OSError, ValueError):
+        print(json.dumps({"status": "failed", "error_code": "runtime_package_invalid"}))
+        return 2
+    print(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    return 0
 
 
 def _runtime_child(values: list[str]) -> int:
@@ -445,6 +559,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     if values and values[0] == "runtime":
         return _runtime_command(values)
+    if values and values[0] == "runtime-package":
+        return _runtime_package_command(values)
     if values and values[0] == "runtime-child":
         return _runtime_child(values)
     if values and values[0] == "export":
