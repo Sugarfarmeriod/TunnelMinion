@@ -6,14 +6,16 @@ import asyncio
 import json
 import secrets
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, cast
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tunnelminion.agent.coordinator import CoordinatorClientConfig, CoordinatorClientError
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.coordinator.contracts import RefreshAuthentication, VerificationKeyView
 from tunnelminion.domain.identifiers import NetworkId, NodeId
@@ -161,6 +163,111 @@ class ManagedNetworkSyncTransport(Protocol):
     ) -> None:
         """发送固定字段的脱敏路径摘要。"""
         ...  # pragma: no cover - Protocol 无运行时实现
+
+
+class HttpManagedNetworkSyncTransport:
+    """使用 Coordinator Agent API 传输签名配置、确认和路径摘要。"""
+
+    def __init__(
+        self,
+        config: CoordinatorClientConfig,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._config = config
+        self._transport = transport
+
+    async def verification_keys(self) -> tuple[VerificationKeyView, ...]:
+        from tunnelminion.coordinator.contracts import VerificationKeySet
+
+        return VerificationKeySet.model_validate(
+            await self._request("GET", "/api/v1/agent/verification-keys")
+        ).keys
+
+    async def pull_desired_configs(
+        self,
+        authentication: RefreshAuthentication,
+        *,
+        after_revision: int,
+        full_sync: bool,
+    ) -> tuple[SignedDesiredConfig, ...]:
+        value = await self._request(
+            "POST",
+            "/api/v1/agent/network/desired-configs/query",
+            {
+                "authentication": authentication.model_dump(mode="json"),
+                "after_revision": after_revision,
+                "full_sync": full_sync,
+            },
+        )
+        if not isinstance(value, list):
+            raise CoordinatorClientError("invalid_response", "Coordinator 响应格式无效")
+        values = cast(list[object], value)
+        return tuple(SignedDesiredConfig.model_validate(item) for item in values)
+
+    async def acknowledge(
+        self,
+        authentication: RefreshAuthentication,
+        acknowledgement: NetworkAcknowledgement,
+    ) -> None:
+        await self._request(
+            "POST",
+            "/api/v1/agent/network/acknowledgements",
+            {
+                "authentication": authentication.model_dump(mode="json"),
+                "acknowledgement": acknowledgement.model_dump(mode="json"),
+            },
+        )
+
+    async def report_path_status(
+        self,
+        authentication: RefreshAuthentication,
+        payload: dict[str, object],
+    ) -> None:
+        await self._request(
+            "POST",
+            "/api/v1/agent/network/path-status",
+            {
+                "authentication": authentication.model_dump(mode="json"),
+                "status": payload,
+            },
+        )
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, object] | None = None,
+    ) -> object:
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._config.endpoint,
+                timeout=self._config.request_timeout_seconds,
+                transport=self._transport,
+            ) as client:
+                response = await client.request(method, path, json=payload)
+        except httpx.TimeoutException as exc:
+            raise CoordinatorClientError("timeout", "Coordinator 请求超时") from exc
+        except httpx.RequestError as exc:
+            raise CoordinatorClientError("offline", "Coordinator 不可达") from exc
+        if not response.is_success:
+            try:
+                detail = cast(dict[str, object], response.json()).get("detail")
+                code = (
+                    cast(dict[str, object], detail).get("code")
+                    if isinstance(detail, dict)
+                    else None
+                )
+            except (ValueError, TypeError):
+                code = None
+            raise CoordinatorClientError(
+                code if isinstance(code, str) else f"http_{response.status_code}",
+                "Coordinator 拒绝请求",
+            )
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise CoordinatorClientError("invalid_response", "Coordinator 响应格式无效") from exc
 
 
 class CredentialedNetworkAcknowledgementSink:

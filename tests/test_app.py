@@ -109,6 +109,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     paths = set(bundle.app.openapi()["paths"])
     assert "/api/model-config" in paths
     assert "/api/resources/node-summary" in paths
+    assert "/api/resources/managed-node" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
     assert "/api/operations" in paths
@@ -119,6 +120,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.audit_sink.records == []
     assert bundle.tool_runtime
     assert bundle.tool_registry
+    assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
 
     def create_provider(_self: ModelConfigurationService) -> AppProvider:
@@ -605,6 +607,64 @@ def test_coordinator_enroll_cli_rejects_missing_disabled_or_empty_input(
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
     with pytest.raises(SystemExit):
         cli.main(["coordinator-enroll", "--data-dir", str(root)])
+
+
+def test_managed_status_cli_reports_stable_redacted_states(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tunnelminion.agent.managed_node import (
+        FileManagedNodeConfigRepository,
+        ManagedNodeConfig,
+        ManagedNodeSecretStoreKind,
+    )
+    from tunnelminion.coordinator.contracts import GatewayEndpoint
+    from tunnelminion.domain.identifiers import NetworkId, NodeId
+    from tunnelminion.domain.tools import Platform
+
+    missing = tmp_path / "missing"
+    assert cli.main(["managed-status", "--data-dir", str(missing)]) == 0
+    assert json.loads(capsys.readouterr().out)["state"] == "unconfigured"
+
+    root = tmp_path / "managed-status"
+    config = ManagedNodeConfig(
+        coordinator_endpoint="http://10.77.0.1:8790",
+        network_id=NetworkId.new(),
+        node_id=NodeId.new(),
+        display_name="Windows A",
+        platform=Platform.WINDOWS,
+        gateway_endpoint=GatewayEndpoint(host="10.77.0.2", port=8787),
+        pinned_fingerprints=frozenset({"a" * 64}),
+        secret_store=ManagedNodeSecretStoreKind.RESTRICTED_FILE,
+    )
+    FileManagedNodeConfigRepository(root / "managed-node.json").save(config)
+    assert cli.main(["managed-status", "--data-dir", str(root)]) == 0
+    output = capsys.readouterr().out
+    assert json.loads(output)["state"] == "enrollment-required"
+    assert "10.77" not in output
+    assert "fingerprint" not in output.lower()
+
+    (root / "managed-node.json").write_text("{}", encoding="utf-8")
+    assert cli.main(["managed-status", "--data-dir", str(root)]) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "unavailable",
+        "error_code": "managed_config_invalid",
+    }
+
+    FileManagedNodeConfigRepository(root / "managed-node.json").save(config)
+
+    def unavailable_store(_root: Path, _kind: object) -> object:
+        raise RuntimeError("secret backend unavailable")
+
+    monkeypatch.setattr(
+        "tunnelminion.agent.managed_node.managed_node_secret_store",
+        unavailable_store,
+    )
+    assert cli.main(["managed-status", "--data-dir", str(root)]) == 0
+    unavailable = json.loads(capsys.readouterr().out)
+    assert unavailable["state"] == "unavailable"
+    assert unavailable["last_error_code"] == "secret_store_unavailable"
 
 
 def test_module_entrypoint_propagates_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:

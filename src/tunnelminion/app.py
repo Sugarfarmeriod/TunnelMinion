@@ -10,6 +10,11 @@ from platformdirs import user_data_path
 
 from tunnelminion.agent.conversation import InMemoryConversationService
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
+from tunnelminion.agent.managed_application import (
+    ManagedNodeApplication,
+    build_managed_node_application,
+    managed_application_lifespan,
+)
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
@@ -64,6 +69,7 @@ class WindowsApplication:
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
     operation_control_service: OperationControlService
+    managed_node: ManagedNodeApplication
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
@@ -111,13 +117,16 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         return model_service.view().status
 
     node_summary = NodeSummaryAdapter(node_id, registry, wireguard, model_status)
+    listeners = NetworkListenersAdapter(reader)
+    processes = ProcessSummaryAdapter(reader)
+    docker = DockerServicesAdapter(runner, default_docker_path())
     register_windows_tools(
         registry,
         WindowsToolAdapters(
             wireguard=wireguard,
-            listeners=NetworkListenersAdapter(reader),
-            processes=ProcessSummaryAdapter(reader),
-            docker=DockerServicesAdapter(runner, default_docker_path()),
+            listeners=listeners,
+            processes=processes,
+            docker=docker,
             reachability=ServiceReachabilityAdapter(),
             node_summary=node_summary,
         ),
@@ -153,9 +162,24 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         preauthorizations=stores.preauthorizations,
         authorization=authorization,
     )
-    app = FastAPI(title="TunnelMinion", docs_url="/api/docs")
+    managed = build_managed_node_application(
+        root,
+        node_id,
+        Platform.WINDOWS,
+        registry,
+        listeners,
+        processes,
+        docker,
+    )
+    app = FastAPI(
+        title="TunnelMinion",
+        docs_url="/api/docs",
+        lifespan=managed_application_lifespan(managed),
+    )
     app.include_router(create_model_router(model_service))
-    app.include_router(create_resource_router(runtime, node_id))
+    app.include_router(
+        create_resource_router(runtime, node_id, managed_status=managed.resource_payload)
+    )
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
@@ -169,6 +193,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         conversations,
         memories,
         operation_control,
+        managed,
     )
 
 

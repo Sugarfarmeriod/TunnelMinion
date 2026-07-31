@@ -24,6 +24,49 @@ _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
+def _managed_status(values: list[str]) -> int:
+    """输出常规节点的脱敏 managed 状态，并用稳定代码表示本地读取失败。"""
+    parser = argparse.ArgumentParser(description="查看 managed node 脱敏状态")
+    parser.add_argument("managed-status")
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+
+    from pydantic import ValidationError
+
+    from tunnelminion.agent.managed_node import (
+        MANAGED_NODE_CONFIG_FILE,
+        FileManagedNodeConfigRepository,
+        managed_node_secret_store,
+        managed_node_status,
+    )
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
+
+    root = args.data_dir or default_data_dir()
+    try:
+        config = FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE).load()
+    except (OSError, ValidationError, ValueError):
+        print(
+            json.dumps(
+                {"status": "unavailable", "error_code": "managed_config_invalid"},
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    if config is None or not config.enabled:
+        status = managed_node_status(config)
+    else:
+        try:
+            credentials = AgentRefreshCredentialStore(
+                managed_node_secret_store(root, config.secret_store)
+            )
+            status = managed_node_status(config, credentials)
+        except (OSError, RuntimeError, ValueError):
+            status = managed_node_status(config, error_code="secret_store_unavailable")
+    print(status.model_dump_json())
+    return 0
+
+
 def _enroll_with_coordinator(values: list[str]) -> int:
     """从标准输入接收一次性 token，并只输出不含秘密的注册摘要。"""
     parser = argparse.ArgumentParser(description="向已固定指纹的 Coordinator 注册节点")
@@ -273,6 +316,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _configure_gateway(values)
     if values and values[0] == "coordinator-enroll":
         return _enroll_with_coordinator(values)
+    if values and values[0] == "managed-status":
+        return _managed_status(values)
     if values and values[0] == "operation-approve":
         return _approve_operation(values)
     if values and values[0] == "operation-preauthorize":

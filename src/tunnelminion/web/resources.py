@@ -40,7 +40,7 @@ pre{overflow:auto}</style>
 <button onclick="refreshAll()">刷新</button><div id="content"></div>
 <script>
 const paths=['node-summary','wireguard','listeners','processes','docker',
-'coordinator','network-path'];
+'managed-node','coordinator','network-path'];
 async function refreshAll(){const root=document.getElementById('content');root.innerHTML='';
 for(const name of paths){let data;
 try{const r=await fetch('/api/resources/'+name);data=await r.json();}
@@ -105,6 +105,7 @@ def create_resource_router(
     path_selection: Callable[[], PathSelection | None] | None = None,
     path_evidence: Callable[[], DirectPathEvidence | None] | None = None,
     path_authorization: Callable[[], str] | None = None,
+    managed_status: Callable[[], dict[str, JsonValue]] | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> APIRouter:
     """创建不依赖模型 Provider 的本机资源路由。"""
@@ -141,6 +142,15 @@ def create_resource_router(
 
     async def node_summary() -> dict[str, object]:
         return await call_tool("get_node_summary")
+
+    async def managed_node() -> dict[str, JsonValue]:
+        if managed_status is None:
+            return {
+                "configured": False,
+                "enrollment": "unconfigured",
+                "runtime": "stopped",
+            }
+        return managed_status()
 
     async def coordinator() -> CoordinatorResourceView:
         return coordinator_resource_view(
@@ -200,6 +210,7 @@ def create_resource_router(
     router.add_api_route("/api/resources/processes", processes, methods=["GET"])
     router.add_api_route("/api/resources/docker", docker, methods=["GET"])
     router.add_api_route("/api/resources/node-summary", node_summary, methods=["GET"])
+    router.add_api_route("/api/resources/managed-node", managed_node, methods=["GET"])
     router.add_api_route(
         "/api/resources/coordinator",
         coordinator,

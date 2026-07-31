@@ -11,14 +11,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 from tests.network.factories import NETWORK_ID, NODE_A, NODE_B, desired, peer
 
+from tunnelminion.agent.coordinator import CoordinatorClientConfig, CoordinatorClientError
 from tunnelminion.agent.network_sync import (
     CredentialedNetworkAcknowledgementSink,
+    HttpManagedNetworkSyncTransport,
     ManagedNetworkSyncCheckpoint,
     ManagedNetworkSyncConfig,
     ManagedNetworkSyncError,
@@ -32,6 +35,7 @@ from tunnelminion.coordinator.client_credentials import (
 )
 from tunnelminion.coordinator.contracts import (
     RefreshAuthentication,
+    VerificationKeySet,
     VerificationKeyView,
 )
 from tunnelminion.network.contracts import (
@@ -49,6 +53,16 @@ NOW = datetime(2026, 7, 26, 12, 0, tzinfo=UTC)
 
 def run(coroutine: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(coroutine)
+
+
+def http_config() -> CoordinatorClientConfig:
+    return CoordinatorClientConfig(
+        endpoint="http://10.77.0.1:8790",
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        pinned_fingerprints=frozenset({"a" * 64}),
+        request_timeout_seconds=1,
+    )
 
 
 class MemorySecrets:
@@ -481,3 +495,131 @@ def test_sync_contracts_reject_invalid_scope_clock_and_secret_checkpoint(
         )
     with pytest.raises(ValueError, match="秘密字段"):
         store.assert_no_secret_material()
+
+
+def test_http_managed_network_transport_uses_agent_api_without_echoing_secrets() -> None:
+    envelope, key = signed()
+    authentication = RefreshAuthentication(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        refresh_credential="r" * 43,
+    )
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("verification-keys"):
+            return httpx.Response(
+                200,
+                json=VerificationKeySet(generated_at=NOW, keys=(key,)).model_dump(mode="json"),
+            )
+        if request.url.path.endswith("desired-configs/query"):
+            return httpx.Response(200, json=[envelope.model_dump(mode="json")])
+        return httpx.Response(200, json={"status": "accepted"})
+
+    transport = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(handler)
+    )
+    assert run(transport.verification_keys()) == (key,)
+    assert run(
+        transport.pull_desired_configs(
+            authentication,
+            after_revision=0,
+            full_sync=False,
+        )
+    ) == (envelope,)
+    acknowledgement = NetworkAcknowledgement(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        revision=1,
+        stage=AcknowledgementStage.PENDING,
+        acknowledged_at=NOW,
+    )
+    run(transport.acknowledge(authentication, acknowledgement))
+    path = NetworkPathStatus(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        revision=1,
+        path_type="pending",
+        candidate_count=0,
+    )
+    run(transport.report_path_status(authentication, path.model_dump(mode="python")))
+    assert [request.url.path for request in requests] == [
+        "/api/v1/agent/verification-keys",
+        "/api/v1/agent/network/desired-configs/query",
+        "/api/v1/agent/network/acknowledgements",
+        "/api/v1/agent/network/path-status",
+    ]
+    assert authentication.refresh_credential not in repr(requests)
+
+
+def test_http_managed_network_transport_maps_invalid_offline_and_timeout_responses() -> None:
+    authentication = RefreshAuthentication(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        refresh_credential="r" * 43,
+    )
+
+    def invalid_list(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json={})
+
+    invalid = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(invalid_list)
+    )
+    with pytest.raises(CoordinatorClientError) as invalid_error:
+        run(invalid.pull_desired_configs(authentication, after_revision=0, full_sync=False))
+    assert invalid_error.value.code == "invalid_response"
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(403, json={"detail": {"code": "forbidden"}})
+
+    forbidden = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(rejected)
+    )
+    with pytest.raises(CoordinatorClientError) as rejected_error:
+        run(forbidden.verification_keys())
+    assert rejected_error.value.code == "forbidden"
+
+    def rejected_without_json(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(502, content=b"not-json")
+
+    bad_gateway = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(rejected_without_json)
+    )
+    with pytest.raises(CoordinatorClientError) as bad_gateway_error:
+        run(bad_gateway.verification_keys())
+    assert bad_gateway_error.value.code == "http_502"
+
+    def invalid_json(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, content=b"not-json")
+
+    malformed = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(invalid_json)
+    )
+    with pytest.raises(CoordinatorClientError) as malformed_error:
+        run(malformed.verification_keys())
+    assert malformed_error.value.code == "invalid_response"
+
+    def timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timeout", request=request)
+
+    timed_out = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(timeout)
+    )
+    with pytest.raises(CoordinatorClientError) as timeout_error:
+        run(timed_out.verification_keys())
+    assert timeout_error.value.code == "timeout"
+
+    def offline(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    unavailable = HttpManagedNetworkSyncTransport(
+        http_config(), transport=httpx.MockTransport(offline)
+    )
+    with pytest.raises(CoordinatorClientError) as offline_error:
+        run(unavailable.verification_keys())
+    assert offline_error.value.code == "offline"

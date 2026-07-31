@@ -40,11 +40,11 @@
 
 ## 6. Windows/macOS 常规应用与资源体验
 
-- [ ] 6.1 在 Windows 与 macOS 本地应用工厂中按显式配置创建 `ManagedNodeRuntime` 并组合 FastAPI lifespan，不改变环回绑定
-- [ ] 6.2 扩展 CLI 常规启动配置选择、状态与稳定错误输出，保持私网 Gateway 独立监听和现有命令兼容
-- [ ] 6.3 扩展资源 API/页面，分域显示 enrollment、目录、服务观察、managed config、授权、路径与 last-known-good 的脱敏状态
-- [ ] 6.4 覆盖未配置、enrollment-required、ready、backoff、awaiting-authorization、observation-degraded、重启恢复和零秘密页面测试
-- [ ] 6.5 运行 Windows/macOS 应用、CLI、Web 安全、键盘操作、无模型和全量质量门禁，提交并推送平台接线阶段
+- [x] 6.1 在 Windows 与 macOS 本地应用工厂中按显式配置创建 `ManagedNodeRuntime` 并组合 FastAPI lifespan，不改变环回绑定
+- [x] 6.2 扩展 CLI 常规启动配置选择、状态与稳定错误输出，保持私网 Gateway 独立监听和现有命令兼容
+- [x] 6.3 扩展资源 API/页面，分域显示 enrollment、目录、服务观察、managed config、授权、路径与 last-known-good 的脱敏状态
+- [x] 6.4 覆盖未配置、enrollment-required、ready、backoff、awaiting-authorization、observation-degraded、重启恢复和零秘密页面测试
+- [x] 6.5 运行 Windows/macOS 应用、CLI、Web 安全、键盘操作、无模型和全量质量门禁，提交并推送平台接线阶段
 
 ## 7. 综合评估、A/B 验收与收尾
 

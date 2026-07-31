@@ -15,6 +15,11 @@ from starlette.types import Lifespan
 
 from tunnelminion.agent.conversation import InMemoryConversationService
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
+from tunnelminion.agent.managed_application import (
+    ManagedNodeApplication,
+    build_managed_node_application,
+    managed_application_lifespan,
+)
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.app import default_data_dir, load_or_create_node_id
 from tunnelminion.domain.identifiers import NodeId
@@ -84,6 +89,9 @@ class MacOSNode:
     audit_sink: InMemoryAuditSink
     tool_registry: ToolRegistry
     system_reader: SystemReader
+    listeners: NetworkListenersAdapter
+    processes: ProcessSummaryAdapter
+    docker: DockerServicesAdapter
 
 
 @dataclass(frozen=True)
@@ -95,6 +103,7 @@ class MacOSLocalApplication:
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
     operation_control_service: OperationControlService
+    managed_node: ManagedNodeApplication
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前 macOS 模型配置创建一次本地 Agent。"""
@@ -213,13 +222,16 @@ def _build_macos_node(
         return model_service.view().status
 
     node_summary = MacOSNodeSummaryAdapter(node_id, registry, wireguard, model_status)
+    listeners = NetworkListenersAdapter(reader)
+    processes = ProcessSummaryAdapter(reader)
+    docker = DockerServicesAdapter(runner, default_docker_path())
     register_macos_tools(
         registry,
         MacOSToolAdapters(
             wireguard=wireguard,
-            listeners=NetworkListenersAdapter(reader),
-            processes=ProcessSummaryAdapter(reader),
-            docker=DockerServicesAdapter(runner, default_docker_path()),
+            listeners=listeners,
+            processes=processes,
+            docker=docker,
             reachability=ServiceReachabilityAdapter(),
             node_summary=node_summary,
         ),
@@ -232,7 +244,18 @@ def _build_macos_node(
         audit,
         artifact_manager=ArtifactContextManager(stores.artifacts),
     )
-    return MacOSNode(root, node_id, model_service, runtime, audit, registry, reader)
+    return MacOSNode(
+        root,
+        node_id,
+        model_service,
+        runtime,
+        audit,
+        registry,
+        reader,
+        listeners,
+        processes,
+        docker,
+    )
 
 
 def build_macos_local_application(
@@ -262,13 +285,39 @@ def build_macos_local_application(
         preauthorizations=stores.preauthorizations,
         authorization=authorization,
     )
-    app = FastAPI(title="TunnelMinion", docs_url="/api/docs")
+    managed = build_managed_node_application(
+        node.root,
+        node.node_id,
+        Platform.MACOS,
+        node.tool_registry,
+        node.listeners,
+        node.processes,
+        node.docker,
+    )
+    app = FastAPI(
+        title="TunnelMinion",
+        docs_url="/api/docs",
+        lifespan=managed_application_lifespan(managed),
+    )
     app.include_router(create_model_router(node.model_service))
-    app.include_router(create_resource_router(node.tool_runtime, node.node_id))
+    app.include_router(
+        create_resource_router(
+            node.tool_runtime,
+            node.node_id,
+            managed_status=managed.resource_payload,
+        )
+    )
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
-    return MacOSLocalApplication(app, node, conversations, memories, operation_control)
+    return MacOSLocalApplication(
+        app,
+        node,
+        conversations,
+        memories,
+        operation_control,
+        managed,
+    )
 
 
 def create_macos_app() -> FastAPI:
