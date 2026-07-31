@@ -65,6 +65,7 @@ class ServiceProtocol(StrEnum):
     """服务目录首版支持的协议摘要。"""
 
     TCP = "tcp"
+    UDP = "udp"
     HTTP = "http"
     HTTPS = "https"
 
