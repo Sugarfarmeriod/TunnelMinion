@@ -483,10 +483,15 @@ class ManagedNetworkSynchronizer:
                         ),
                     )
                     self._status = self._status_from_checkpoint(last_success_at=now)
-            except (ManagedNetworkSyncError, DesiredConfigVerificationError, TimeoutError) as exc:
+            except (
+                CoordinatorClientError,
+                ManagedNetworkSyncError,
+                DesiredConfigVerificationError,
+                TimeoutError,
+            ) as exc:
                 code = (
                     exc.code
-                    if isinstance(exc, ManagedNetworkSyncError)
+                    if isinstance(exc, (CoordinatorClientError, ManagedNetworkSyncError))
                     else "invalid_signed_config"
                     if isinstance(exc, DesiredConfigVerificationError)
                     else "timeout"

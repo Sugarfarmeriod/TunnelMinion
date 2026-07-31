@@ -96,7 +96,7 @@ class FakeNetworkSyncTransport:
         self.acknowledgements: list[NetworkAcknowledgement] = []
         self.path_statuses: list[dict[str, object]] = []
         self.pull_calls: list[tuple[int, bool]] = []
-        self.error: ManagedNetworkSyncError | None = None
+        self.error: CoordinatorClientError | ManagedNetworkSyncError | None = None
         self.block: asyncio.Event | None = None
         self.delay = 0.0
 
@@ -342,7 +342,7 @@ def test_coordinator_failure_keeps_last_known_good_and_marks_stale(tmp_path: Pat
     synchronizer, _, _ = build(tmp_path, transport)
     run(synchronizer.sync_once())
     synchronizer.mark_verified(envelope)
-    transport.error = ManagedNetworkSyncError("offline", "Coordinator 离线")
+    transport.error = CoordinatorClientError("offline", "Coordinator 离线")
 
     status = run(synchronizer.sync_once())
     assert status.phase is ManagedNetworkSyncPhase.STALE
