@@ -1,0 +1,56 @@
+{
+  "schema_version": "managed-node-runtime-acceptance/v1",
+  "passed": true,
+  "platforms": [
+    {
+      "platform": "windows",
+      "states": [
+        "unconfigured",
+        "enrollment-required",
+        "ready",
+        "ready"
+      ],
+      "stable_identity": true,
+      "runtime_domains": [
+        "services",
+        "directory",
+        "managed-config"
+      ],
+      "model_configured": false,
+      "gateway_configuration_created": false,
+      "redacted_resource": true
+    },
+    {
+      "platform": "macos",
+      "states": [
+        "unconfigured",
+        "enrollment-required",
+        "ready",
+        "ready"
+      ],
+      "stable_identity": true,
+      "runtime_domains": [
+        "services",
+        "directory",
+        "managed-config"
+      ],
+      "model_configured": false,
+      "gateway_configuration_created": false,
+      "redacted_resource": true
+    }
+  ],
+  "metrics": {
+    "identity_duplicate_count": 0,
+    "invalid_parameter_count": 0,
+    "security_block_rate": 1.0,
+    "recovery_success_rate": 1.0,
+    "model_invariance_rate": 1.0,
+    "assembly_duration_ms": 1767.465,
+    "peak_memory_bytes": 3443758
+  },
+  "limitations": [
+    "本门禁不启动监听器，也不访问真实 Coordinator。",
+    "真实 A/B 网络写入需要新的本机逐项授权，不能从历史授权继承。",
+    "同步、退避、Provider 与恢复故障矩阵由对应单元、集成和 assurance 门禁覆盖。"
+  ]
+}

@@ -82,6 +82,15 @@ WireGuard 私钥不会进入 Coordinator。
 5. B 使用固定公钥指纹和未过期授权缓存离线验签，再返回实时能力供 A 复核。
 6. Coordinator 离线时 managed 新调用失败关闭；现有 static peer、本地资源页和操作恢复继续工作。
 
+Windows/macOS 常规本地应用现在会读取同一份版本化 `ManagedNodeConfig`。只有配置启用、稳定
+`node-id`/平台一致且 refresh 凭据存在时，FastAPI lifespan 才启动三个彼此隔离的后台域：完整
+服务观察、Coordinator 目录同步和签名 desired config 同步。未配置、禁用、待 enrollment 或
+身份不匹配时不创建后台任务，因此升级本身不会改变现有本地/static 行为。
+
+后台同步使用 Agent API 的认证传输；desired config 仍只进入既有治理、Provider、验证、回滚
+和本机授权边界。资源页只读取聚合状态，不返回 Coordinator/Gateway 完整 endpoint、refresh、
+签名正文、私钥或配置正文。Gateway 仍是独立私网进程，不共享环回应用的 lifespan 或监听器。
+
 真实 A/B 验收只临时使用 Windows `10.77.0.2:8790`、环回 `127.0.0.1:8791` 和 B
 `10.77.0.1:18888`。生产 B Gateway `8787`、模型 `8082`、WireGuard 和防火墙配置前后不变。
 
@@ -187,5 +196,6 @@ flowchart LR
 - [标准概念映射](guide/Prompt-Context-Harness概念映射.md)
 - [Context、Prompt 与 Runtime 评估指南](guide/上下文与Prompt评估指南.md)
 - [受管连接恢复、人工干预与卸载](guide/受管连接恢复与卸载.md)
+- [常规 managed node 最终验收](../evaluations/reports/managed-node-runtime-final-acceptance-2026-07-31.md)
 - [威胁模型](security/threat-model.md)
 - [数据分类与保留](security/data-classification.md)

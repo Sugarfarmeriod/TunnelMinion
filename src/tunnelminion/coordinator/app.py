@@ -41,6 +41,8 @@ from tunnelminion.coordinator.network_control import (
 )
 from tunnelminion.coordinator.registry import CoordinatorRegistryService, RegistryError
 from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.network.contracts import NetworkAcknowledgement, SignedDesiredConfig
+from tunnelminion.network.governance import NetworkPathStatus
 
 _ADMIN_PAGE = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>TunnelMinion Coordinator</title>
@@ -140,6 +142,34 @@ class CoordinatorApplicationConfig(BaseModel):
     data_path: Path
     agent_bind: CoordinatorAgentBindConfig
     admin_bind: CoordinatorAdminBindConfig = Field(default_factory=CoordinatorAdminBindConfig)
+
+
+class AuthenticatedDesiredConfigQuery(BaseModel):
+    """Agent 拉取属于自身签名配置的严格请求。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    after_revision: int = Field(ge=0)
+    full_sync: bool = False
+
+
+class AuthenticatedNetworkAcknowledgement(BaseModel):
+    """Agent 提交受管配置阶段的认证包装。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    acknowledgement: NetworkAcknowledgement
+
+
+class AuthenticatedNetworkPathStatus(BaseModel):
+    """Agent 上报脱敏路径状态的认证包装。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authentication: RefreshAuthentication
+    status: NetworkPathStatus
 
 
 @dataclass(frozen=True)
@@ -391,6 +421,42 @@ def build_coordinator_applications(
 
     if network_control is not None:
 
+        async def pull_desired_configs(
+            payload: AuthenticatedDesiredConfigQuery,
+        ) -> tuple[SignedDesiredConfig, ...]:
+            try:
+                return network_control.pull_desired_configs(
+                    payload.authentication,
+                    after_revision=payload.after_revision,
+                    full_sync=payload.full_sync,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+
+        async def acknowledge_network_config(
+            payload: AuthenticatedNetworkAcknowledgement,
+        ) -> dict[str, str]:
+            try:
+                network_control.acknowledge_authenticated(
+                    payload.authentication,
+                    payload.acknowledgement,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+            return {"status": "accepted"}
+
+        async def report_network_path(
+            payload: AuthenticatedNetworkPathStatus,
+        ) -> dict[str, str]:
+            try:
+                network_control.report_path_status(
+                    payload.authentication,
+                    payload.status,
+                )
+            except RegistryError as exc:
+                raise _http_error(exc) from exc
+            return {"status": "accepted"}
+
         async def create_managed_network(
             payload: ManagedNetworkRequest,
         ) -> ManagedNetworkRequest:
@@ -452,6 +518,22 @@ def build_coordinator_applications(
             set_relay_role,
             methods=["PUT"],
             response_model=RelayRoleView,
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/network/desired-configs/query",
+            pull_desired_configs,
+            methods=["POST"],
+            response_model=tuple[SignedDesiredConfig, ...],
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/network/acknowledgements",
+            acknowledge_network_config,
+            methods=["POST"],
+        )
+        agent_app.add_api_route(
+            "/api/v1/agent/network/path-status",
+            report_network_path,
+            methods=["POST"],
         )
     return CoordinatorApplications(agent_app, admin_app, config)
 

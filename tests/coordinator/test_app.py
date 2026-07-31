@@ -19,6 +19,7 @@ from tests.coordinator.test_registry import (
     identity,
     registration,
 )
+from tests.network.factories import desired
 
 from tunnelminion.coordinator.app import (
     CoordinatorAdminBindConfig,
@@ -49,7 +50,8 @@ from tunnelminion.coordinator.registry import (
     SQLiteCoordinatorStore,
 )
 from tunnelminion.domain.identifiers import NodeId
-from tunnelminion.network.contracts import RelayRole
+from tunnelminion.network.contracts import AcknowledgementStage, NetworkAcknowledgement, RelayRole
+from tunnelminion.network.governance import NetworkPathStatus
 
 
 class ApiClient(Protocol):
@@ -340,6 +342,145 @@ def test_coordinator_agent_identity_and_admin_node_apis(tmp_path: Path) -> None:
         ).model_dump(mode="json"),
     )
     assert forbidden_directory.status_code == 403
+
+    desired_config = desired(
+        network_id=NETWORK,
+        target_node_id=auth.node_id,
+        revision=network_control.next_revision(NETWORK),
+        parent_revision=0,
+    )
+    envelope = network_control.publish_desired_configs((desired_config,))[0]
+    pull_path = "/api/v1/agent/network/desired-configs/query"
+    pulled = agent.post(
+        pull_path,
+        json={
+            "authentication": auth.model_dump(mode="json"),
+            "after_revision": 0,
+            "full_sync": False,
+        },
+    )
+    assert pulled.status_code == 200
+    assert pulled.json()[0]["config"]["target_node_id"] == str(auth.node_id)
+    assert (
+        agent.post(
+            pull_path,
+            json={
+                "authentication": auth.model_dump(mode="json"),
+                "after_revision": envelope.config.revision,
+                "full_sync": True,
+            },
+        ).json()[0]["config"]["revision"]
+        == envelope.config.revision
+    )
+    with pytest.raises(ValueError, match="after_revision"):
+        network_control.pull_desired_configs(auth, after_revision=-1, full_sync=False)
+    assert (
+        agent.post(
+            pull_path,
+            json={
+                "authentication": auth.model_dump(mode="json"),
+                "after_revision": envelope.config.revision,
+                "full_sync": False,
+            },
+        ).json()
+        == []
+    )
+    acknowledgement = NetworkAcknowledgement(
+        network_id=NETWORK,
+        node_id=auth.node_id,
+        revision=envelope.config.revision,
+        stage=AcknowledgementStage.PENDING,
+        acknowledged_at=clock.utcnow(),
+    )
+    acknowledged = agent.post(
+        "/api/v1/agent/network/acknowledgements",
+        json={
+            "authentication": auth.model_dump(mode="json"),
+            "acknowledgement": acknowledgement.model_dump(mode="json"),
+        },
+    )
+    assert acknowledged.json() == {"status": "accepted"}
+    path_status = NetworkPathStatus(
+        network_id=NETWORK,
+        node_id=auth.node_id,
+        revision=envelope.config.revision,
+        path_type="pending",
+        candidate_count=0,
+    )
+    reported = agent.post(
+        "/api/v1/agent/network/path-status",
+        json={
+            "authentication": auth.model_dump(mode="json"),
+            "status": path_status.model_dump(mode="json"),
+        },
+    )
+    assert reported.json() == {"status": "accepted"}
+    assert (
+        agent.post(
+            "/api/v1/agent/network/path-status",
+            json={
+                "authentication": auth.model_dump(mode="json"),
+                "status": path_status.model_copy(update={"node_id": NodeId.new()}).model_dump(
+                    mode="json"
+                ),
+            },
+        ).status_code
+        == 403
+    )
+    assert (
+        agent.post(
+            "/api/v1/agent/network/path-status",
+            json={
+                "authentication": auth.model_dump(mode="json"),
+                "status": path_status.model_copy(update={"revision": 999}).model_dump(mode="json"),
+            },
+        ).status_code
+        == 400
+    )
+    invalid_auth = auth.model_copy(update={"refresh_credential": "x" * 43})
+    assert (
+        agent.post(
+            pull_path,
+            json={
+                "authentication": invalid_auth.model_dump(mode="json"),
+                "after_revision": 0,
+                "full_sync": False,
+            },
+        ).status_code
+        == 401
+    )
+    assert (
+        agent.post(
+            "/api/v1/agent/network/acknowledgements",
+            json={
+                "authentication": invalid_auth.model_dump(mode="json"),
+                "acknowledgement": acknowledgement.model_dump(mode="json"),
+            },
+        ).status_code
+        == 401
+    )
+    assert (
+        agent.post(
+            "/api/v1/agent/network/path-status",
+            json={
+                "authentication": invalid_auth.model_dump(mode="json"),
+                "status": path_status.model_dump(mode="json"),
+            },
+        ).status_code
+        == 401
+    )
+    assert (
+        agent.post(
+            "/api/v1/agent/network/acknowledgements",
+            json={
+                "authentication": auth.model_dump(mode="json"),
+                "acknowledgement": acknowledgement.model_copy(
+                    update={"node_id": NodeId.new()}
+                ).model_dump(mode="json"),
+            },
+        ).status_code
+        == 403
+    )
 
     prefix = f"/api/v1/admin/networks/{NETWORK}/nodes/{auth.node_id}"
     assert admin.get(f"/api/v1/admin/networks/{NETWORK}/nodes").status_code == 200

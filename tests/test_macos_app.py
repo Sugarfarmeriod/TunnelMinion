@@ -280,6 +280,11 @@ def test_macos_local_resources_degrade_without_model(
     summary = client.get("/api/resources/node-summary", headers={})
     assert summary.status_code == 200
     assert cast(dict[str, object], summary.json())["status"] == "success"
+    managed = client.get("/api/resources/managed-node", headers={})
+    managed_body = cast(dict[str, object], managed.json())
+    enrollment = cast(dict[str, object], managed_body["enrollment"])
+    assert enrollment["state"] == "unconfigured"
+    assert bundle.managed_node.runtime is None
     model = client.get("/api/model-config", headers={})
     assert cast(dict[str, object], model.json())["status"] == "unconfigured"
     unavailable = client.post("/api/ai/runs/availability")

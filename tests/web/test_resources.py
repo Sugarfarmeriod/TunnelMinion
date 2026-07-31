@@ -106,6 +106,36 @@ def test_resource_routes_work_without_model_provider() -> None:
         "last_probe_at": None,
         "stable_error_code": None,
     }
+    assert client.get("/api/resources/managed-node").json() == {
+        "configured": False,
+        "enrollment": "unconfigured",
+        "runtime": "stopped",
+    }
+    assert "managed-node" in page.text
+
+
+def test_managed_node_resource_uses_only_supplied_redacted_status() -> None:
+    runtime = ToolRuntime(ToolRegistry(), Platform.WINDOWS, InMemoryAuditSink())
+    app = FastAPI()
+    app.include_router(
+        create_resource_router(
+            runtime,
+            NodeId.new(),
+            managed_status=lambda: {
+                "enrollment": {"state": "ready"},
+                "runtime": {"phase": "backoff"},
+                "directory": {"phase": "observation-degraded"},
+                "managed_config": {"phase": "awaiting-authorization"},
+                "last_known_good_revision": 4,
+            },
+        )
+    )
+    response = cast(ApiClient, TestClient(app)).get("/api/resources/managed-node")
+    assert response.status_code == 200
+    assert response.json()["last_known_good_revision"] == 4
+    serialized = response.text.lower()
+    for forbidden in ("refresh", "credential", "private_key", "endpoint", "signature"):
+        assert forbidden not in serialized
 
 
 def test_network_path_resource_is_redacted_and_explicit() -> None:

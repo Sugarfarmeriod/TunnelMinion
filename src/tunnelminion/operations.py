@@ -9,6 +9,13 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
+from tunnelminion.agent.managed_node import (
+    MANAGED_NODE_CONFIG_FILE,
+    FileManagedNodeConfigRepository,
+    managed_node_secret_store,
+)
+from tunnelminion.agent.managed_runtime import MANAGED_RUNTIME_CHECKPOINT_FILE
+from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfigurationService,
@@ -30,6 +37,21 @@ _OWNED_FILES = (
     "runtime.sqlite3-shm",
     "gateway.json",
     "gateway-secret-store",
+    MANAGED_NODE_CONFIG_FILE,
+    "coordinator-checkpoint.json",
+    MANAGED_RUNTIME_CHECKPOINT_FILE,
+    "network-sync.sqlite3",
+    "network-sync.sqlite3-wal",
+    "network-sync.sqlite3-shm",
+    "managed-network.sqlite3",
+    "managed-network.sqlite3-wal",
+    "managed-network.sqlite3-shm",
+    "governance.sqlite3",
+    "governance.sqlite3-wal",
+    "governance.sqlite3-shm",
+    "network-operations.sqlite3",
+    "network-operations.sqlite3-wal",
+    "network-operations.sqlite3-shm",
 )
 
 
@@ -42,6 +64,7 @@ def build_safe_export(
     node_path = data_dir / "node-id"
     model = FileModelConfigurationRepository(data_dir / "model.json").load()
     gateway = FileGatewayConfigurationRepository(data_dir / "gateway.json").load()
+    managed_node = FileManagedNodeConfigRepository(data_dir / MANAGED_NODE_CONFIG_FILE).load()
     checkpoints: list[JsonValue] = []
     memories: list[JsonValue] = []
     operations: list[JsonValue] = []
@@ -58,6 +81,9 @@ def build_safe_export(
         "node_id": node_path.read_text(encoding="utf-8").strip() if node_path.exists() else None,
         "model": model.model_dump(mode="json") if model is not None else None,
         "gateway": gateway.model_dump(mode="json") if gateway is not None else None,
+        "managed_node": (
+            managed_node.model_dump(mode="json") if managed_node is not None else None
+        ),
         "checkpoints": checkpoints,
         "long_term_memories": memories,
         "operations": operations,
@@ -67,6 +93,12 @@ def build_safe_export(
             "wireguard_secrets",
             "tool_artifact_contents",
             "temporary_access_credentials",
+            "coordinator_enrollment_tokens",
+            "coordinator_refresh_credentials",
+            "coordinator_access_assertions",
+            "coordinator_checkpoints",
+            "managed_runtime_checkpoints",
+            "managed_config_envelopes",
             "authorization_headers",
             "remote_untrusted_bodies",
         ],
@@ -92,6 +124,7 @@ def uninstall_owned_data(
     *,
     model_secrets: SecretStore | None = None,
     gateway_secrets: SecretStore | None = None,
+    coordinator_secrets: SecretStore | None = None,
 ) -> tuple[Path, ...]:
     """删除应用凭据与已知自有文件，但保留 WireGuard 和无关用户文件。"""
     root = data_dir.resolve()
@@ -100,6 +133,16 @@ def uninstall_owned_data(
 
     model_store = model_secrets or KeyringSecretStore()
     model_store.delete(MODEL_API_KEY_NAME)
+    managed_repository = FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE)
+    managed_config = managed_repository.load()
+    if managed_config is not None:
+        coordinator_store = coordinator_secrets or managed_node_secret_store(
+            root, managed_config.secret_store
+        )
+        AgentRefreshCredentialStore(coordinator_store).delete(
+            managed_config.network_id,
+            managed_config.node_id,
+        )
     gateway_service = GatewayConfigurationService(
         FileGatewayConfigurationRepository(root / "gateway.json"),
         gateway_secrets or gateway_secret_store(root),
@@ -122,6 +165,16 @@ def uninstall_owned_data(
             removed.append(path)
         secret_dir.rmdir()
         removed.append(secret_dir)
+
+    coordinator_secret_dir = root / "coordinator-secrets"
+    if coordinator_secret_dir.exists():
+        for path in coordinator_secret_dir.iterdir():
+            if not path.is_file():
+                raise ValueError("coordinator-secrets 中存在非预期目录，已停止清理")
+            path.unlink()
+            removed.append(path)
+        coordinator_secret_dir.rmdir()
+        removed.append(coordinator_secret_dir)
 
     if root.exists() and not any(root.iterdir()):
         root.rmdir()

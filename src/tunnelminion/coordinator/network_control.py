@@ -21,11 +21,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tunnelminion.coordinator.contracts import (
     CoordinatorAuditAction,
     CoordinatorErrorCode,
+    RefreshAuthentication,
 )
 from tunnelminion.coordinator.identity import SigningKeyService
 from tunnelminion.coordinator.registry import (
     RegistryError,
     SQLiteCoordinatorStore,
+    authenticated_node_for_transaction,
     insert_audit_for_transaction,
     next_revision_for_transaction,
 )
@@ -43,6 +45,7 @@ from tunnelminion.network.contracts import (
     RelayRole,
     SignedDesiredConfig,
 )
+from tunnelminion.network.governance import NetworkPathStatus
 from tunnelminion.network.signing import (
     desired_config_payload,
 )
@@ -845,6 +848,88 @@ class ManagedNetworkControlService:
             )
             connection.commit()
         return envelopes
+
+    def pull_desired_configs(
+        self,
+        authentication: RefreshAuthentication,
+        *,
+        after_revision: int,
+        full_sync: bool,
+    ) -> tuple[SignedDesiredConfig, ...]:
+        """认证节点只能拉取属于自己的有界签名配置。"""
+        if after_revision < 0:
+            raise ValueError("after_revision 不得为负数")
+        threshold = 0 if full_sync else after_revision
+        with self.store.connect() as connection:
+            row = authenticated_node_for_transaction(connection, authentication)
+            if row is None:
+                raise RegistryError(CoordinatorErrorCode.UNAUTHENTICATED, "节点凭据无效")
+            values = connection.execute(
+                """SELECT envelope_json FROM network_desired_configs
+                WHERE network_id=? AND node_id=? AND revision>?
+                ORDER BY revision LIMIT 128""",
+                (
+                    str(row["network_id"]),
+                    str(row["node_id"]),
+                    threshold,
+                ),
+            ).fetchall()
+        return tuple(
+            SignedDesiredConfig.model_validate_json(cast(str, item["envelope_json"]))
+            for item in values
+        )
+
+    def acknowledge_authenticated(
+        self,
+        authentication: RefreshAuthentication,
+        acknowledgement: NetworkAcknowledgement,
+    ) -> SagaView:
+        """认证身份必须与 acknowledgement network/node 完全一致。"""
+        with self.store.connect() as connection:
+            row = authenticated_node_for_transaction(connection, authentication)
+            if row is None:
+                raise RegistryError(CoordinatorErrorCode.UNAUTHENTICATED, "节点凭据无效")
+        if str(row["network_id"]) != str(acknowledgement.network_id) or str(row["node_id"]) != str(
+            acknowledgement.node_id
+        ):
+            raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "确认不属于认证节点")
+        return self.acknowledge(acknowledgement)
+
+    def report_path_status(
+        self,
+        authentication: RefreshAuthentication,
+        status: NetworkPathStatus,
+    ) -> None:
+        """验证并审计脱敏路径摘要，不接收 endpoint 或 route 正文。"""
+        with self.store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = authenticated_node_for_transaction(connection, authentication)
+            if row is None:
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.UNAUTHENTICATED, "节点凭据无效")
+            if str(row["network_id"]) != str(status.network_id) or str(row["node_id"]) != str(
+                status.node_id
+            ):
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.FORBIDDEN, "路径状态不属于认证节点")
+            desired = connection.execute(
+                """SELECT 1 FROM network_desired_configs
+                WHERE network_id=? AND node_id=? AND revision=?""",
+                (str(status.network_id), str(status.node_id), status.revision),
+            ).fetchone()
+            if desired is None:
+                connection.rollback()
+                raise RegistryError(CoordinatorErrorCode.OUT_OF_ORDER, "路径状态 revision 未发布")
+            insert_audit_for_transaction(
+                connection,
+                status.network_id,
+                status.node_id,
+                status.revision,
+                CoordinatorAuditAction.NODE_STATUS_CHANGED,
+                self._now(),
+                item_count=status.candidate_count,
+            )
+            connection.commit()
 
     def acknowledge(self, acknowledgement: NetworkAcknowledgement) -> SagaView:
         """幂等收敛逐节点阶段；失败触发回滚，全部 verified 后才 active。"""
