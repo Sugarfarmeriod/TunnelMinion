@@ -46,8 +46,8 @@ Provider plan hash 和清理范围。
 真实验收脚本为 `scripts/run_managed_node_runtime_ab_acceptance.py`。默认模式只打印精确授权清单；
 只有显式 `--execute-approved` 才会连接 A/B。Murus GUI 不提供可复制的 SHA-256，验收不要求
 操作者手工导出；脚本自动比较 PF 与 macOS Application Firewall 的可观察状态，并记录非交互权限
-限制和零防火墙写入边界。生产 `8082`、`8787` 或 `HomeMac` 基线不满足时会在创建远端临时状态前
-快速失败。
+限制和零防火墙写入边界。`HomeMac` 基线不满足时会在创建远端临时状态前快速失败；生产
+`8082`、`8787` 只保存并比较前后状态，不要求为了验收临时启动。
 
 ## 可重复命令
 

@@ -194,17 +194,13 @@ def _production_ports(host: str) -> dict[str, bool]:
 
 def preflight_failure_reasons(
     windows: dict[str, object],
-    production_ports: dict[str, bool],
+    _production_ports: dict[str, bool],
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if windows.get("service") != "Running":
         reasons.append("windows_home_mac_service_not_running")
     if windows.get("adapter") != "Up":
         reasons.append("windows_home_mac_adapter_not_up")
-    if production_ports.get("model_8082") is not True:
-        reasons.append("macos_model_8082_not_reachable")
-    if production_ports.get("gateway_8787") is not True:
-        reasons.append("macos_gateway_8787_not_reachable")
     return tuple(reasons)
 
 
@@ -634,15 +630,12 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         evidence["after"] = after
         before_windows = cast(dict[str, object], before["windows"])
         before_macos = cast(dict[str, object], before["macos"])
-        before_ports = cast(dict[str, object], before["production_ports"])
         interface_count = before_macos.get("interface_count")
         production_baseline_valid = (
             before_windows.get("service") == "Running"
             and before_windows.get("adapter") == "Up"
             and isinstance(interface_count, int)
             and interface_count > 0
-            and before_ports.get("model_8082") is True
-            and before_ports.get("gateway_8787") is True
         )
         automated_passed = (
             before == after

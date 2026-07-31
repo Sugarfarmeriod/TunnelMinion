@@ -29,18 +29,18 @@ def test_execute_mode_requires_output(tmp_path: Path) -> None:
         main(["--ssh-target", "10.77.0.1", "--execute-approved"])
 
 
-def test_preflight_rejects_missing_production_baseline() -> None:
+def test_preflight_rejects_missing_home_mac_baseline() -> None:
     assert preflight_failure_reasons(
-        {"service": "Running", "adapter": "Up"},
+        {"service": "Stopped", "adapter": "Down"},
         {"model_8082": False, "gateway_8787": False},
     ) == (
-        "macos_model_8082_not_reachable",
-        "macos_gateway_8787_not_reachable",
+        "windows_home_mac_service_not_running",
+        "windows_home_mac_adapter_not_up",
     )
 
 
 def test_preflight_accepts_ready_production_baseline() -> None:
     assert not preflight_failure_reasons(
         {"service": "Running", "adapter": "Up"},
-        {"model_8082": True, "gateway_8787": True},
+        {"model_8082": False, "gateway_8787": False},
     )
