@@ -1,3 +1,9 @@
+> **审计状态：基础页面/API 已实现，产品级目录体验仍缺失。** Windows/macOS 常规入口均只绑定
+> 环回地址，资源页能够显示本机工具、Coordinator 和受管路径的脱敏状态。当前页面仍以开发者
+> JSON 聚合为主，尚未完整实现按节点组织的服务目录、打开/复制操作和统一故障说明。默认运行时
+> 数据接线归 `integrate-managed-node-runtime`；成品化交互归 `improve-local-product-experience`。
+> 本文件只保留历史需求以便审计，不应再次 apply 或归档到主规格。
+
 ## ADDED Requirements
 
 ### Requirement: 每个 Agent 提供仅本机可访问的面板

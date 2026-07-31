@@ -1,3 +1,9 @@
+> **审计状态：已实现并被更精确的主规格取代。** token、幂等注册、逐节点 refresh 凭据、短期
+> assertion、心跳、撤销、network 隔离和版本行为由 `coordinator-node-registry` 与
+> `coordinator-client-sync` 规定。旧文中的“设备密钥直接换取虚拟地址和网络配置”不再是当前
+> 身份边界：WireGuard 公钥、地址租约和签名 desired config 具有独立生命周期。本文件只保留
+> 历史需求以便审计，不应再次 apply 或归档到主规格。
+
 ## ADDED Requirements
 
 ### Requirement: 节点可以加入协调网络

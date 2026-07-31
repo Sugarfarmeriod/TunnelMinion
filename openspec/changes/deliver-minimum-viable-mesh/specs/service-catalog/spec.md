@@ -1,3 +1,8 @@
+> **审计状态：核心能力已实现，默认运行时接线仍缺失。** Windows/macOS 监听、进程、Docker 与
+> 可达性只读工具、确定性服务摘要、Coordinator 完整快照/修订/新鲜度和无模型降级均已有代码、
+> 测试和主规格。常规 `tunnelminion` 启动尚未自动把这些观察持续渲染并提交给同步器；该缺口应
+> 归 `integrate-managed-node-runtime`，而不是继续实施本旧 change。本文件不应再次归档到主规格。
+
 ## ADDED Requirements
 
 ### Requirement: Agent 自动枚举本机监听服务

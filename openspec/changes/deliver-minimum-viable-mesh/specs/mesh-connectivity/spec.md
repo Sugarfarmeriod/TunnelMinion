@@ -1,3 +1,9 @@
+> **审计状态：部分已实现、部分被替代、部分已拆分。** 受管 Provider、所有权、签名配置、
+> direct 联合验证和 last-known-good 已由 `managed-network-provider`、
+> `managed-mesh-connectivity` 及归档的 `manage-wireguard-connectivity` 交付。普通 Coordinator
+> 兼任 relay 的方案已被替代；专用 relay 由 `build-isolated-packet-relay` 独立承担。Linux
+> Provider 也应独立建 change。本文件只保留历史需求以便审计，不应再次 apply 或归档到主规格。
+
 ## ADDED Requirements
 
 ### Requirement: Agent 自动配置 WireGuard 网络
@@ -24,6 +30,9 @@ Agent SHALL 根据协调服务下发的配置，通过 WireGuard Provider 创建
 - **THEN** 两节点之间的活动路径被标记为 `direct`，且业务流量不经过协调节点转发
 
 ### Requirement: 直连失败时提供回退路径
+
+> **已被替代并拆分：** 当前主规格要求 relay 是管理员显式启用、独立验证的专用角色，普通
+> Coordinator API 不能静默转发。实际 packet 数据面尚未实现，归 `build-isolated-packet-relay`。
 
 协调节点 SHALL 为无法在规定时间内建立直接路径的在线节点提供受管回退路由。Agent MUST 将回退路径状态明确报告为 `relayed`，不得伪装成直接连接。
 
