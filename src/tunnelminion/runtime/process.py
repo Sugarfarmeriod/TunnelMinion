@@ -20,6 +20,7 @@ from tunnelminion.runtime.profile import (
     RuntimeComponent,
     atomic_write_private,
     prepare_private_directory,
+    restrict_file_permissions,
 )
 
 PROCESS_RECORD_VERSION = "runtime-process/v1"
@@ -128,10 +129,19 @@ class ProcessAdapter(Protocol):
 class DetachedProcessAdapter:
     """创建脱离控制终端且不注册任何系统自启动项的子进程。"""
 
+    def __init__(self, max_log_bytes: int = 5_000_000, log_backups: int = 3) -> None:
+        if max_log_bytes < 1 or not 1 <= log_backups <= 10:
+            raise ValueError("日志轮转参数无效")
+        self._max_log_bytes = max_log_bytes
+        self._log_backups = log_backups
+
     def spawn(self, command: tuple[str, ...], log_path: Path) -> ProcessSnapshot:
         prepare_private_directory(log_path.parent)
+        self._rotate_log(log_path)
+        log_path.touch(exist_ok=True)
+        restrict_file_permissions(log_path)
         creationflags, start_new_session = detached_process_options()
-        with log_path.open("ab", buffering=0) as output:
+        with Path(os.devnull).open("wb") as output:
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.DEVNULL,
@@ -145,6 +155,18 @@ class DetachedProcessAdapter:
         if snapshot is None:
             raise RuntimeError("子进程启动后立即退出")
         return snapshot
+
+    def _rotate_log(self, path: Path) -> None:
+        """在启动前执行固定数量的本地日志轮转。"""
+        if not path.exists() or path.stat().st_size < self._max_log_bytes:
+            return
+        oldest = path.with_name(f"{path.name}.{self._log_backups}")
+        oldest.unlink(missing_ok=True)
+        for index in range(self._log_backups - 1, 0, -1):
+            source = path.with_name(f"{path.name}.{index}")
+            if source.exists():
+                source.replace(path.with_name(f"{path.name}.{index + 1}"))
+        path.replace(path.with_name(f"{path.name}.1"))
 
     def inspect(self, pid: int) -> ProcessSnapshot | None:
         try:

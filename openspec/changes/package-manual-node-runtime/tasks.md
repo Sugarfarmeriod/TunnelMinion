@@ -25,12 +25,12 @@
 
 ## 4. 本地应用、Gateway、状态与日志接线
 
-- [ ] 4.1 把现有常规 `tunnelminion` 本地应用接入 runtime 控制，验证只监听环回、managed lifespan 安全启停和未配置 managed node 的兼容行为
-- [ ] 4.2 把独立 `gateway` 接入 runtime 控制，仅在 profile 启用且 `gateway.json` 有效时启动，保持私网绑定和现有 SecretStore 不变
-- [ ] 4.3 实现本地应用、Gateway 无 token 鉴权拒绝、外部模型和进程稳定窗口的分层健康检查，禁止为探测读取秘密正文
-- [ ] 4.4 实现逐组件有界轮转日志、受限状态和脱敏 `status` 输出，覆盖异常、远端不可信正文和完整 endpoint 清洗
-- [ ] 4.5 覆盖模型离线、Coordinator 离线、Gateway 未配置/端口占用/secret-store 不可用、本地应用健康和两个组件独立恢复矩阵
-- [ ] 4.6 运行 CLI、应用、Gateway、Web、secret-store、无模型和全量回归门禁，提交并推送组件接线阶段
+- [x] 4.1 把现有常规 `tunnelminion` 本地应用接入 runtime 控制，验证只监听环回、managed lifespan 安全启停和未配置 managed node 的兼容行为
+- [x] 4.2 把独立 `gateway` 接入 runtime 控制，仅在 profile 启用且 `gateway.json` 有效时启动，保持私网绑定和现有 SecretStore 不变
+- [x] 4.3 实现本地应用、Gateway 无 token 鉴权拒绝、外部模型和进程稳定窗口的分层健康检查，禁止为探测读取秘密正文
+- [x] 4.4 实现逐组件有界轮转日志、受限状态和脱敏 `status` 输出，覆盖异常、远端不可信正文和完整 endpoint 清洗
+- [x] 4.5 覆盖模型离线、Coordinator 离线、Gateway 未配置/端口占用/secret-store 不可用、本地应用健康和两个组件独立恢复矩阵
+- [x] 4.6 运行 CLI、应用、Gateway、Web、secret-store、无模型和全量回归门禁，提交并推送组件接线阶段
 
 ## 5. 构建、版本切换与保留数据移除
 

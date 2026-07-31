@@ -132,6 +132,11 @@ def _restrict_permissions(path: Path, mode: int) -> None:
         os.chmod(path, mode)
 
 
+def restrict_file_permissions(path: Path) -> None:
+    """把现有运行时文件权限收紧到当前账户。"""
+    _restrict_permissions(path, 0o600)
+
+
 def _prepare_private_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     _restrict_permissions(path, 0o700)

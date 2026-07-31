@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -89,6 +90,14 @@ CommandFactory = Callable[[RuntimeComponent, UUID], tuple[str, ...]]
 CheckpointProbe = Callable[[RuntimeComponent, RuntimeProcessRecord], bool]
 
 
+class ComponentLaunchError(RuntimeError):
+    """命令生成前发现的稳定逐组件启动错误。"""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 def _checkpoint_always_ready(component: RuntimeComponent, record: RuntimeProcessRecord) -> bool:
     del component, record
     return True
@@ -148,8 +157,8 @@ class ManualLifecycleManager:
             return current
 
         instance_id = uuid4()
-        command = self._command_factory(component, instance_id)
         try:
+            command = self._command_factory(component, instance_id)
             snapshot = self._adapter.spawn(
                 command,
                 self._paths.log_dir / f"{component.value}.log",
@@ -162,6 +171,12 @@ class ManualLifecycleManager:
                 instance_id,
             )
             self._records.save(record)
+        except ComponentLaunchError as exc:
+            return ComponentRuntimeStatus(
+                component=component,
+                state=ComponentRuntimeState.FAILED,
+                error_code=exc.code,
+            )
         except (OSError, RuntimeError, ValueError):
             return ComponentRuntimeStatus(
                 component=component,
@@ -182,14 +197,21 @@ class ManualLifecycleManager:
         return self._view(running, ComponentRuntimeState.RUNNING, True)
 
     def _stable(self, record: RuntimeProcessRecord) -> bool:
-        if not self._is_owned(record, self._adapter.inspect(record.pid)):
-            return False
-        if not self._health.healthy(record.component, record.pid):
-            return False
-        self._sleep(self._profile.budgets.stable_window_seconds)
-        return self._is_owned(record, self._adapter.inspect(record.pid)) and self._health.healthy(
-            record.component, record.pid
+        interval = 0.1
+        attempts = max(
+            1,
+            math.ceil(self._profile.budgets.startup_timeout_seconds / interval),
         )
+        for _attempt in range(attempts):
+            if not self._is_owned(record, self._adapter.inspect(record.pid)):
+                return False
+            if self._health.healthy(record.component, record.pid):
+                self._sleep(self._profile.budgets.stable_window_seconds)
+                return self._is_owned(
+                    record, self._adapter.inspect(record.pid)
+                ) and self._health.healthy(record.component, record.pid)
+            self._sleep(interval)
+        return False
 
     def _status_component(self, component: RuntimeComponent) -> ComponentRuntimeStatus:
         try:

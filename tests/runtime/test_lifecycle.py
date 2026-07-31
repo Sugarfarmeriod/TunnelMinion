@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from tunnelminion.runtime.lifecycle import (
+    ComponentLaunchError,
     ComponentRuntimeState,
     ManualLifecycleManager,
     OverallRuntimeState,
@@ -88,6 +89,19 @@ class FakeHealth:
     def healthy(self, component: RuntimeComponent, pid: int) -> bool:
         del pid
         return component not in self.unhealthy
+
+
+class DelayedHealth(FakeHealth):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+
+    def healthy(self, component: RuntimeComponent, pid: int) -> bool:
+        del component, pid
+        if self.failures:
+            self.failures -= 1
+            return False
+        return True
 
 
 def _profile(tmp_path: Path, *components: RuntimeComponent) -> tuple[RuntimeProfile, RuntimePaths]:
@@ -200,6 +214,30 @@ def test_status_reports_health_loss_after_successful_start(tmp_path: Path) -> No
     assert status.components[0].state is ComponentRuntimeState.FAILED
     assert status.components[0].error_code == "health_failed"
     assert status.exit_code == 1
+
+
+def test_start_waits_for_delayed_health_and_preserves_launch_error(tmp_path: Path) -> None:
+    adapter = FakeProcessAdapter()
+    delayed = DelayedHealth(2)
+    manager = _manager(tmp_path / "delayed", adapter, health=delayed)
+    assert manager.start().state is OverallRuntimeState.RUNNING
+
+    profile, paths = _profile(tmp_path / "launch", RuntimeComponent.LOCAL)
+
+    def rejected(component: RuntimeComponent, instance_id: UUID) -> tuple[str, ...]:
+        del component, instance_id
+        raise ComponentLaunchError("component_disabled")
+
+    rejected_manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        FakeProcessAdapter(),
+        rejected,
+        sleep=lambda seconds: None,
+    )
+    failed = rejected_manager.start()
+    assert failed.components[0].error_code == "component_disabled"
 
 
 def test_status_distinguishes_stale_failed_and_invalid_record(tmp_path: Path) -> None:

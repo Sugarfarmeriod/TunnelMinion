@@ -78,6 +78,11 @@ macOS Keychain。只有用户已显式选择 `restricted-file` 时才继续使�
 否决方案：把 Gateway 合并进 FastAPI lifespan。它会重新混合环回管理面与私网远端调用攻击面，
 违背已归档运行时 change 的边界。
 
+公开 CLI 固定为 `runtime configure/start/status/stop`：`configure` 只写版本化非秘密 profile，
+其余操作只读取 profile 并输出结构化脱敏状态。组件由隐藏的 `runtime-child` 入口启动；其命令行只
+包含组件、随机实例 ID、数据/日志路径和本地端口，不包含 token、refresh、API key 或模型 endpoint。
+内部入口捕获启动异常时只记录稳定错误码，不把异常正文写入父进程输出或运行日志。
+
 ### 4. PID 不是所有权证据
 
 每个进程记录包含 schema/version、组件、PID、启动时间、运行包版本、数据目录摘要和随机实例 ID。
@@ -104,6 +109,10 @@ Coordinator 同步和 Gateway 可以正常启动；运行入口不尝试寻找�
 启动、退出、稳定错误、版本和健康状态，不记录标准输入、认证 header、token/refresh、私钥、
 完整远端响应或配置正文。`status` 可以返回日志路径与最后错误摘要，但不回显日志正文中的不可信
 远端内容。
+
+首版每个组件使用 5 MB、3 个备份的 `RotatingFileHandler` 持续轮转；stdout/stderr 不直接追加到
+无界文件，Uvicorn access log 关闭。启动前仍轮转旧格式日志，组件启动失败只追加
+`component_start_failed` 等稳定允许字段。
 
 ### 7. 替换与移除默认保留数据
 

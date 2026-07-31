@@ -31,6 +31,24 @@ def test_detached_options_cover_windows_and_posix_without_autostart_registration
     assert posix_session
 
 
+def test_detached_adapter_validates_and_rotates_bounded_logs(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="日志轮转参数无效"):
+        DetachedProcessAdapter(max_log_bytes=0)
+    adapter = DetachedProcessAdapter(max_log_bytes=3, log_backups=2)
+    path = tmp_path / "component.log"
+    path.write_text("current", encoding="utf-8")
+    path.with_name("component.log.1").write_text("previous", encoding="utf-8")
+    path.with_name("component.log.2").write_text("oldest", encoding="utf-8")
+    adapter._rotate_log(path)  # pyright: ignore[reportPrivateUsage]
+    assert path.with_name("component.log.1").read_text(encoding="utf-8") == "current"
+    assert path.with_name("component.log.2").read_text(encoding="utf-8") == "previous"
+    adapter._rotate_log(tmp_path / "missing.log")  # pyright: ignore[reportPrivateUsage]
+    path.write_text("again", encoding="utf-8")
+    path.with_name("component.log.1").unlink()
+    adapter._rotate_log(path)  # pyright: ignore[reportPrivateUsage]
+    assert path.with_name("component.log.1").read_text(encoding="utf-8") == "again"
+
+
 def test_identity_arguments_and_current_executable_are_stable() -> None:
     instance_id = UUID(int=1)
     assert runtime_identity_arguments(RuntimeComponent.GATEWAY, instance_id) == (
