@@ -24,11 +24,11 @@
 
 ## 4. Coordinator 目录同步常规接线
 
-- [ ] 4.1 将现有 enrollment 凭据、能力渲染、服务快照、checkpoint、目录缓存和 `AgentCoordinatorSynchronizer` 注入运行时
-- [ ] 4.2 实现首次心跳/能力/服务顺序、周期刷新、full-sync 恢复、stale/offline/incompatible 和有界退避状态聚合
-- [ ] 4.3 证明 Coordinator 离线、认证失败、快照超限或无模型时本地页面、只读工具、static peer、操作到期与恢复继续工作
-- [ ] 4.4 覆盖 Windows/macOS 相同身份重启、重复/乱序修订、服务停止收敛、撤销和固定 key 轮换测试
-- [ ] 4.5 运行 Coordinator 客户端、目录、降级、Web 零泄漏和全量回归门禁，提交并推送目录接线阶段
+- [x] 4.1 将现有 enrollment 凭据、能力渲染、服务快照、checkpoint、目录缓存和 `AgentCoordinatorSynchronizer` 注入运行时
+- [x] 4.2 实现首次心跳/能力/服务顺序、周期刷新、full-sync 恢复、stale/offline/incompatible 和有界退避状态聚合
+- [x] 4.3 证明 Coordinator 离线、认证失败、快照超限或无模型时本地页面、只读工具、static peer、操作到期与恢复继续工作
+- [x] 4.4 覆盖 Windows/macOS 相同身份重启、重复/乱序修订、服务停止收敛、撤销和固定 key 轮换测试
+- [x] 4.5 运行 Coordinator 客户端、目录、降级、Web 零泄漏和全量回归门禁，提交并推送目录接线阶段
 
 ## 5. managed config、治理与路径状态接线
 

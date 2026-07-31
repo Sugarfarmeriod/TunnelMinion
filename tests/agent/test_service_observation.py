@@ -125,6 +125,7 @@ def test_observation_merges_listener_process_docker_udp_and_dual_stack() -> None
         )
     )
     value = observer(listeners, processes, docker)
+    assert value.interval_seconds == 5
 
     snapshot = asyncio.run(value.observe())
 

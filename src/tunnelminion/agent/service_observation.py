@@ -105,6 +105,10 @@ class DeterministicServiceObserver:
     def last_snapshot(self) -> ServiceObservationSnapshot | None:
         return self._last_snapshot
 
+    @property
+    def interval_seconds(self) -> float:
+        return self._config.interval_seconds
+
     async def observe(self) -> ServiceObservationSnapshot:
         if self._lock.locked():
             raise ServiceObservationError("concurrency_limited", "服务观察已在运行")
