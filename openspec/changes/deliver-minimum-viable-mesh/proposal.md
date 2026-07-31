@@ -1,38 +1,43 @@
 ## Why
 
-> **实施顺序说明**：本 change 不再是第一优先级 MVP。项目先通过 `deliver-ai-agent-over-existing-mesh` 在现有 A/B WireGuard 网络上验证 AI Agent、工具调用和跨节点诊断；本 change 保留为后续自动组网与 Coordinator 基础设施工作，并在实施前再次拆分复核。
+`deliver-minimum-viable-mesh` 最初把工程基线、Coordinator、节点身份、服务目录、受管
+WireGuard、relay、Linux Provider、本地面板和发布交付放在同一个 change 中。当前仓库已经通过
+多个更小的 change 交付了其中大部分基础能力，继续按旧 proposal 实施会重复主规格、绕过已经
+收紧的安全边界，并把仍需验证的产品接线、Linux、relay 和打包工作重新混在一起。
 
-现有 Windows 节点 A 与 macOS 节点 B 已通过由 B 承担服务器角色的 WireGuard 隧道连通，因此无需先自动创建新网络即可验证 AI Agent 核心价值。在 AI-native MVP 得到真实评估后，再交付由协调节点、跨平台 Agent Runtime、受管 WireGuard 数据面和服务目录组成的纵向切片，以验证自动组网、点对点优先与必要中继等基础设施假设。
+本次只对旧 change 做规划对账：记录已经实现、仍然缺失、已被替代以及应拆为独立 change 的
+内容。它不授权实现新功能，也不再作为 `/opsx:apply` 的输入。
 
 ## What Changes
 
-- 建立支持 Windows、macOS、Linux 的节点 Agent 基础运行形态。
-- 提供协调服务，使节点能够注册、获得虚拟地址并接收网络配置。
-- 使用 WireGuard 建立私有网络，优先使用可用的点对点路径，并在必要时经协调节点转发。
-- 自动采集本机基础服务元数据，并同步形成网络内可浏览的服务目录。
-- 在每个节点提供仅监听本机的 Web 面板，展示设备、连接状态和服务入口。
-- 建立协议版本、错误状态和最小诊断信息，为后续演进保留兼容边界。
-- 本次不包含细粒度访问控制、n2n、大模型增强、完整游戏识别、通用本地端口发布、一键安装或自动升级。
+- 将节点注册、心跳、撤销、能力/服务目录和 Coordinator 客户端同步归类为已经由
+  `coordinate-agent-network` 交付并同步到主规格的能力。
+- 将受管 WireGuard Provider、地址租约、签名配置、所有权、直连验证、回滚和
+  last-known-good 归类为已经由 `manage-wireguard-connectivity` 交付并同步到主规格的能力。
+- 将旧设计中的“普通 Coordinator 兼任受信 relay”标记为已被替代；relay 必须是独立、显式、
+  可验证的数据面，后续由 `build-isolated-packet-relay` 承担。
+- 将 Linux Provider、默认节点运行时接线、成品化本地目录体验和安装分发分别保留为独立
+  change，不在本 change 中实现。
+- 用审计台账替换 50 个全部未勾选但与现有实现严重不符的旧任务。
 
 ## Capabilities
 
+以下名称只保留为本 change 的历史审计索引，不表示仍由本 change 新增规范。
+
 ### New Capabilities
 
-- `node-enrollment`: 节点与协调服务之间的注册、身份持久化、虚拟地址分配和重新连接行为。
-- `mesh-connectivity`: 基于 WireGuard 的节点连通、点对点优先策略、必要中继和连接状态报告。
-- `service-catalog`: Agent 自动采集基础本机服务元数据，并在可信网络内同步和查询服务目录。
-- `local-dashboard`: 每个节点通过仅监听本机的 Web 面板浏览节点、连接状态与服务入口。
+- `node-enrollment`: 已由 `coordinator-node-registry`、`coordinator-client-sync` 等主规格取代。
+- `mesh-connectivity`: 已拆为受管 Provider/direct、独立 packet relay 和 Linux Provider。
+- `service-catalog`: 服务观察、Coordinator 目录与同步协议已实现；默认运行时接线另建 change。
+- `local-dashboard`: 环回资源页与状态 API 已实现；成品化目录体验另建 change。
 
 ### Modified Capabilities
 
-无。
+无。本次不修改主规格，只记录旧 delta 与当前主规格的对应关系。
 
 ## Impact
 
-- 新增协调服务、跨平台 Agent、共享协议模型和本地 Web UI 四个主要工程边界。
-- Agent 与协调服务优先使用 Python 3.11+ 实现；Web UI 保持独立边界并优先选择低复杂度方案。
-- 需要操作系统级 WireGuard 能力、受保护的节点凭据存储、网络配置权限和系统服务运行机制。
-- 首轮集成测试复用现有 A/B 隧道，但自动化测试和 Agent 管理的接口必须使用独立名称与配置，不得覆盖现有 `HomeMac` 等用户配置。
-- 协调服务将新增节点注册、心跳、配置分发和服务目录 API；Agent 将新增本地只读管理 API。
-- 构建与测试需要覆盖 Windows、macOS、Linux，并增加至少两个节点的端到端组网环境。
-- 该 change 建立后续 n2n Provider、访问策略、智能识别和临时转发所依赖的基础数据模型，但不实现这些后续能力。
+- 只修改本 change 已存在的 proposal、design、specs 和 tasks；不修改实现代码。
+- 不修改已经归档的 change 或当前主规格。
+- 不触碰 `docs/questions/`。
+- 本 change 完成审计后保持为历史拆分记录，不应直接 apply 或把旧 delta 归档进主规格。
