@@ -43,6 +43,7 @@ from tunnelminion.agent.service_observation import CollectionAdapter
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.model.secrets import SecretStoreError
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -98,7 +99,13 @@ def build_managed_node_application(
     network_transport: ManagedNetworkSyncTransport | None = None,
 ) -> ManagedNodeApplication:
     """仅在显式配置且已 enrollment 时创建三个真实后台循环。"""
-    config = FileManagedNodeConfigRepository(data_dir / MANAGED_NODE_CONFIG_FILE).load()
+    try:
+        config = FileManagedNodeConfigRepository(data_dir / MANAGED_NODE_CONFIG_FILE).load()
+    except (OSError, ValueError):
+        return ManagedNodeApplication(
+            config=None,
+            enrollment=managed_node_status(None, error_code="managed_config_invalid"),
+        )
     if config is None:
         return ManagedNodeApplication(config=None, enrollment=managed_node_status(None))
     if config.node_id != node_id or config.platform is not platform:
@@ -114,7 +121,16 @@ def build_managed_node_application(
     credentials = AgentRefreshCredentialStore(
         managed_node_secret_store(data_dir, config.secret_store)
     )
-    enrollment = managed_node_status(config, credentials)
+    try:
+        enrollment = managed_node_status(config, credentials)
+    except (OSError, SecretStoreError):
+        return ManagedNodeApplication(
+            config=config,
+            enrollment=managed_node_status(
+                config,
+                error_code="secret_store_unavailable",
+            ),
+        )
     if not enrollment.credential_configured:
         return ManagedNodeApplication(config=config, enrollment=enrollment)
     coordinator_config = config.coordinator_client_config()

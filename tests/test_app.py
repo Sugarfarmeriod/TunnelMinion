@@ -150,6 +150,29 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
 
 
+def test_regular_windows_and_macos_apps_survive_invalid_managed_config(
+    tmp_path: Path,
+) -> None:
+    """损坏或夹带秘密字段的 managed 配置只降级 managed 域。"""
+    from tunnelminion.agent.managed_node import ManagedNodeState
+    from tunnelminion.macos_app import build_macos_local_application
+
+    roots = (tmp_path / "windows-invalid", tmp_path / "macos-invalid")
+    for root in roots:
+        root.mkdir()
+        (root / "managed-node.json").write_text(
+            '{"refresh_credential":"forbidden"}',
+            encoding="utf-8",
+        )
+    windows = build_windows_application(roots[0])
+    macos = build_macos_local_application(roots[1])
+    for managed in (windows.managed_node, macos.managed_node):
+        assert managed.enrollment.state is ManagedNodeState.UNAVAILABLE
+        assert managed.enrollment.last_error_code == "managed_config_invalid"
+        assert managed.runtime is None
+        assert "forbidden" not in str(managed.resource_payload())
+
+
 def test_default_app_factory_and_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("tunnelminion.app.default_data_dir", lambda: tmp_path)
     app = create_app()

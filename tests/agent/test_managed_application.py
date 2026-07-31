@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+import pytest
 from fastapi import FastAPI
 
 from tunnelminion.agent.coordinator import CoordinatorTransport
@@ -31,6 +32,7 @@ from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialSt
 from tunnelminion.coordinator.contracts import GatewayEndpoint, NodeRegistrationResponse
 from tunnelminion.domain.identifiers import NetworkId, NodeId, RefreshCredentialId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.model.secrets import SecretStore, SecretStoreError
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -86,6 +88,54 @@ def test_factory_keeps_unconfigured_disabled_and_mismatched_nodes_inert(
     assert mismatch.enrollment.state is ManagedNodeState.UNAVAILABLE
     assert mismatch.enrollment.last_error_code == "identity_mismatch"
     assert mismatch.runtime is None
+
+
+def test_factory_isolates_invalid_config_and_unavailable_secret_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node_id = NodeId.new()
+    invalid_root = tmp_path / "invalid"
+    invalid_root.mkdir()
+    (invalid_root / MANAGED_NODE_CONFIG_FILE).write_text(
+        '{"refresh_credential":"forbidden"}',
+        encoding="utf-8",
+    )
+    invalid = build(invalid_root, node_id)
+    assert invalid.enrollment.state is ManagedNodeState.UNAVAILABLE
+    assert invalid.enrollment.last_error_code == "managed_config_invalid"
+    assert invalid.runtime is None
+
+    class UnavailableSecrets:
+        def get(self, name: str) -> str | None:
+            del name
+            raise SecretStoreError("secret backend unavailable")
+
+        def set(self, name: str, value: str) -> None:
+            del name, value
+
+        def delete(self, name: str) -> None:
+            del name
+
+    root = tmp_path / "unavailable"
+    FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE).save(
+        config(node_id, secret_store=ManagedNodeSecretStoreKind.KEYRING)
+    )
+
+    def unavailable_store(
+        _root: Path,
+        _kind: ManagedNodeSecretStoreKind,
+    ) -> SecretStore:
+        return UnavailableSecrets()
+
+    monkeypatch.setattr(
+        "tunnelminion.agent.managed_application.managed_node_secret_store",
+        unavailable_store,
+    )
+    unavailable = build(root, node_id)
+    assert unavailable.enrollment.state is ManagedNodeState.UNAVAILABLE
+    assert unavailable.enrollment.last_error_code == "secret_store_unavailable"
+    assert unavailable.runtime is None
 
 
 def test_factory_requires_enrollment_then_builds_all_three_runtime_domains(

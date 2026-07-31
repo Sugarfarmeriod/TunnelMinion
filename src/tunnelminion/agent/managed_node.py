@@ -197,7 +197,11 @@ def managed_node_status(
     if config is None:
         return ManagedNodeStatus(
             configured=False,
-            state=ManagedNodeState.UNCONFIGURED,
+            state=(
+                ManagedNodeState.UNAVAILABLE
+                if error_code is not None
+                else ManagedNodeState.UNCONFIGURED
+            ),
             last_error_code=error_code,
         )
     if not config.enabled:

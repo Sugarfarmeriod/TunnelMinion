@@ -160,6 +160,9 @@ def test_config_reuses_coordinator_and_gateway_validation() -> None:
 
 def test_status_distinguishes_unconfigured_disabled_enrollment_and_ready() -> None:
     assert managed_node_status(None).state is ManagedNodeState.UNCONFIGURED
+    invalid = managed_node_status(None, error_code="managed_config_invalid")
+    assert invalid.state is ManagedNodeState.UNAVAILABLE
+    assert invalid.last_error_code == "managed_config_invalid"
     disabled = managed_node_status(config(enabled=False))
     assert disabled.state is ManagedNodeState.DISABLED
     assert not disabled.credential_configured
