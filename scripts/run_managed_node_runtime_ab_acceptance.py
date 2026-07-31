@@ -6,11 +6,13 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -192,6 +194,46 @@ def _production_ports(host: str) -> dict[str, bool]:
     }
 
 
+def _remove_runtime(path: Path) -> bool:
+    """重试清理 Windows 可能短暂占用的隔离 SQLite 目录。"""
+    for _ in range(10):
+        try:
+            shutil.rmtree(path)
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            time.sleep(0.5)
+        else:
+            return True
+    return False
+
+
+def _schedule_runtime_cleanup(path: Path) -> None:
+    """让独立进程在当前 Python 释放 Windows SQLite 句柄后完成清理。"""
+    cleanup = (
+        "import shutil,sys,time\n"
+        "from pathlib import Path\n"
+        "path=Path(sys.argv[1])\n"
+        "time.sleep(2)\n"
+        "for _ in range(30):\n"
+        " try:\n"
+        "  shutil.rmtree(path)\n"
+        "  break\n"
+        " except FileNotFoundError:\n"
+        "  break\n"
+        " except PermissionError:\n"
+        "  time.sleep(1)\n"
+    )
+    subprocess.Popen(
+        [sys.executable, "-c", cleanup, str(path)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=0x08000000 if os.name == "nt" else 0,
+    )
+
+
 def preflight_failure_reasons(
     windows: dict[str, object],
     _production_ports: dict[str, bool],
@@ -329,7 +371,7 @@ def _managed_config(
         base_backoff_seconds=0.2,
         max_backoff_seconds=2,
         cache_ttl_seconds=8,
-        services=ServiceObservationConfig(interval_seconds=5, timeout_seconds=3),
+        services=ServiceObservationConfig(interval_seconds=5, timeout_seconds=15),
     )
 
 
@@ -673,7 +715,12 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             ) + f"rm -rf -- {remote_root}"
             await asyncio.to_thread(_ssh, args.ssh_target, cleanup, cwd=repo)
         if runtime.name.startswith(_LOCAL_PREFIX):
-            shutil.rmtree(runtime, ignore_errors=True)
+            runtime_removed = _remove_runtime(runtime)
+            if not runtime_removed:
+                _schedule_runtime_cleanup(runtime)
+            evidence["local_runtime_cleanup"] = (
+                "removed" if runtime_removed else "scheduled_after_exit"
+            )
         evidence["finished_at"] = datetime.now(UTC).isoformat()
         serialized = json.dumps(evidence, ensure_ascii=False, indent=2) + "\n"
         lowered = serialized.lower()
