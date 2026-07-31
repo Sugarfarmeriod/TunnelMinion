@@ -1,0 +1,100 @@
+{
+  "schema_version": "manual-runtime-ab-first-switch/v1",
+  "recorded_on": "2026-08-01",
+  "committed_candidate_source_tree_sha256": "cee836fea82b64ad90ad89700165a4f8babc524aca13dd64f903ad38cc13c0c6",
+  "scope": "真实 A/B 首次替换、失败诊断与安全回退；未修改网络、防火墙、Murus、配置或秘密",
+  "node_a_windows": {
+    "package_id": "tunnelminion-0-1-0-win32-amd64-cee836fea82b",
+    "manifest_sha256": "1e0d3b264228458bd2d02f93d552793571c027fcd6fde419b4a5c9dfa10a4120",
+    "local_application": {
+      "start": "running",
+      "status": "running",
+      "pid_after_candidate_restore": 55132,
+      "http_status": 200,
+      "terminal_detached": true
+    },
+    "model": {
+      "ownership": "external-existing-process",
+      "status": "reachable",
+      "http_status": 200,
+      "observed_latency_ms_range": [40, 49]
+    },
+    "post_invariance": {
+      "model_json_sha256": "c2db4d7ac74bdce44381e0ac6e1d0180a2cdca74a21bc9f4d91da08172e24704",
+      "node_id_sha256": "3e452d0db4ce28d21b4310f30480ff9f67f441c23811cb5c7f0cee93552958b3",
+      "runtime_sqlite3_sha256": "da575718acc08e235ce961dc09c3bcd1313b363c1b002854be6c2ed14a9c78b7",
+      "home_mac_interface_index": 57,
+      "home_mac_status": "Up",
+      "home_mac_ipv4": "10.77.0.2/32",
+      "home_mac_route_count": 3,
+      "tunnelminion_firewall_rule_count": 0
+    }
+  },
+  "node_b_macos": {
+    "package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+    "manifest_sha256": "740b266a550e06dab4ce5ebf0c47fee42a49cb72490c0f5cc07ee8fed13da471",
+    "first_switch": {
+      "diagnostic_package_id": "tunnelminion-0-1-0-darwin-arm64-69b48173ee81",
+      "diagnostic_manifest_sha256": "633db0030874e6bca348632eb86028b72398ef599ba1655d583d41a744da4e40",
+      "diagnostic_source_tree_sha256": "69b48173ee819e7fb9e06896766aafe99da8826804ddc8f4adcb891b5ab72747",
+      "packaged_local_application": "running_before_controlled_stop",
+      "packaged_gateway_pid": 75766,
+      "direct_package_gateway_pids": [79396, 79889],
+      "packaged_gateway_listener": "10.77.0.1:8787",
+      "peer_tcp_connected": true,
+      "peer_http_status": 0,
+      "peer_http_timeout_seconds": 8,
+      "bytes_received": 0,
+      "application_firewall_log": "Enqueuing flow without processing queue",
+      "package_signature": "adhoc",
+      "result": "failed_end_to_end_gateway_health"
+    },
+    "rollback": {
+      "packaged_components_stopped": true,
+      "existing_gateway_restored": true,
+      "restored_gateway_pid": 80136,
+      "restored_gateway_command_kind": "python-module-from-existing-working-environment",
+      "listener": "10.77.0.1:8787",
+      "peer_unauthenticated_http_status": 401,
+      "current_package_pointer": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b"
+    },
+    "post_invariance": {
+      "model_json_sha256": "699b553cbcd5e46cdc199778057e5925e5a0436782535efdff562e1622397590",
+      "gateway_json_sha256": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90",
+      "node_id_sha256": "24673487de6c06cf03154f6baf6432bd1298f65b9527ff5698f12b08cfbb3900",
+      "gateway_secret_store_marker_sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+      "gateway_secret_inventory_sha256": "3ce0dcc79b27c147c9181c208f823e512ba7943737c9bff2a7fb7ab3be97e8a8",
+      "secret_plaintext_emitted": false,
+      "wireguard_ifconfig_sha256": "761f7f388564ceabfccdaa02a1a594d6d8cb084132f392d70303916a47ab6ea2",
+      "wireguard_routes": [
+        "10.77.0.1 via utun4",
+        "10.77.0.2/32 via utun4",
+        "10.77.0.3/32 via utun4",
+        "10.77.0.4/32 via utun4",
+        "10.77.0.5/32 via utun4",
+        "10.77.0.6/32 via utun4",
+        "10.77.0.7/32 via utun4"
+      ],
+      "raw_ipv4_route_sha256": "950722b92c1a480f789b2e07347a6dcde8b3cb4c4f6ce9acdd6a4bdb7e1173c4",
+      "raw_ipv4_route_hash_changed_because_snapshot_contains_volatile_cache_and_expiry_fields": true,
+      "murus_configuration_size_bytes": 55063,
+      "murus_configuration_sha256": "b8dff82146464a7db0c79368dcd769741080dca5e13c5078c842820d3de52774",
+      "application_firewall_configuration_modified": false,
+      "model_pid": 61981,
+      "model_listener": "*:8082",
+      "gateway_listener": "10.77.0.1:8787"
+    },
+    "runtime_database": {
+      "before_size_bytes": 45056,
+      "after_size_bytes": 143360,
+      "after_sha256": "c9c4e8b72e04d1366b422fb99eb529d7efeff9cbb5443a7e7273d21396f4b54e",
+      "classification": "expected_mutable_runtime_state_not_an_invariance_target"
+    }
+  },
+  "decision": {
+    "production_gateway_left_available": true,
+    "packaged_gateway_left_running": false,
+    "weak_listener_only_health_accepted": false,
+    "blocking_prerequisite": "independent_macos_package_trust_and_peer_health_design_change"
+  }
+}

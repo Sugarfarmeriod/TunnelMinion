@@ -1,0 +1,101 @@
+{
+  "schema_version": "manual-runtime-ab-baseline/v1",
+  "recorded_on": "2026-08-01",
+  "scope": "执行前只读基线；不修改网络、进程、配置或秘密",
+  "node_a_windows": {
+    "runtime_listener_present": false,
+    "data_directory_kind": "platform-default-user-data",
+    "configuration": {
+      "model.json": {
+        "size_bytes": 233,
+        "sha256": "c2db4d7ac74bdce44381e0ac6e1d0180a2cdca74a21bc9f4d91da08172e24704"
+      },
+      "node-id": {
+        "size_bytes": 37,
+        "sha256": "3e452d0db4ce28d21b4310f30480ff9f67f441c23811cb5c7f0cee93552958b3"
+      },
+      "runtime.sqlite3": {
+        "size_bytes": 176128,
+        "sha256": "da575718acc08e235ce961dc09c3bcd1313b363c1b002854be6c2ed14a9c78b7"
+      }
+    },
+    "secret_store": {
+      "kind": "windows-credential-manager",
+      "metadata_present": true,
+      "metadata_sha256": "af47b5458f7df4a6184f0ee04a23eb413adcbefb83ef49080cbe2e75628c88e7",
+      "secret_value_read": false
+    },
+    "home_mac": {
+      "interface_index": 57,
+      "status": "Up",
+      "ipv4": "10.77.0.2/32",
+      "route_count": 3,
+      "network_sha256": "0b092a75ddf2ebb5d2602bb26ce808efebbbcfcde56d1b6ff9d71c7cdf18988c"
+    },
+    "firewall": {
+      "tunnelminion_rule_count": 0,
+      "matching_rules_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "remote_reachability": {
+      "10.77.0.1:8082": true,
+      "10.77.0.1:8787": true,
+      "gateway_unauthenticated_http_status": 401
+    }
+  },
+  "node_b_macos": {
+    "production_root_kind": "existing-working-environment",
+    "configuration": {
+      "model.json": {
+        "size_bytes": 229,
+        "sha256": "699b553cbcd5e46cdc199778057e5925e5a0436782535efdff562e1622397590"
+      },
+      "gateway.json": {
+        "size_bytes": 539,
+        "sha256": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90"
+      },
+      "node-id": {
+        "size_bytes": 37,
+        "sha256": "24673487de6c06cf03154f6baf6432bd1298f65b9527ff5698f12b08cfbb3900"
+      },
+      "runtime.sqlite3": {
+        "size_bytes": 45056,
+        "sha256": "6682de3dee7126932d6f65f9f6662476762710e223996c7c2a5d6c5ec67dfacc"
+      },
+      "gateway-secret-store": {
+        "size_bytes": 15,
+        "sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f"
+      }
+    },
+    "secret_store": {
+      "kind": "restricted-file",
+      "file_count": 1,
+      "inventory_sha256": "3ce0dcc79b27c147c9181c208f823e512ba7943737c9bff2a7fb7ab3be97e8a8",
+      "secret_plaintext_emitted": false
+    },
+    "network": {
+      "wireguard_address": "10.77.0.1",
+      "ifconfig_sha256": "761f7f388564ceabfccdaa02a1a594d6d8cb084132f392d70303916a47ab6ea2",
+      "ipv4_routes_sha256": "5bf16bf2542a82aead6bea4496ff8f0fd2a905dd257175d5d87dc22fe25bdb23",
+      "ownership": "existing-user-managed-home-mac-and-routes"
+    },
+    "murus": {
+      "configuration_file": "/Library/Application Support/Murus/Configuration/murus.conf",
+      "size_bytes": 55063,
+      "sha256": "b8dff82146464a7db0c79368dcd769741080dca5e13c5078c842820d3de52774"
+    },
+    "listeners": {
+      "model_8082": {
+        "process": "llama-server",
+        "pid": 61981,
+        "listening": true
+      },
+      "gateway_8787": {
+        "process": "python3.12",
+        "pid": 64397,
+        "listening_address": "10.77.0.1:8787",
+        "unauthenticated_http_status": 401
+      }
+    },
+    "gateway_command_kind": "python-module-from-existing-working-environment"
+  }
+}
