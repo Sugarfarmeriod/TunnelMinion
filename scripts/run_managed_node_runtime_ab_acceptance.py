@@ -73,8 +73,10 @@ def approval_manifest(args: argparse.Namespace) -> dict[str, object]:
             "macOS Application Firewall/pf 只读输出哈希",
             "B 生产模型 8082 与 Gateway 8787 端口可达性",
         ),
-        "manual_evidence_required": (
-            "Murus 规则无法由仓库内只读适配器可靠读取；执行时需提供操作者采集的前后 SHA-256",
+        "evidence_limitations": (
+            "Murus 规则正文无法由非交互仓库适配器可靠读取；报告只保存 PF 与 macOS "
+            "Application Firewall 的可观察状态哈希和读取返回码",
+            "验收流程不调用 Murus、pfctl 写入、socketfilterfw 写入或任何防火墙配置命令",
         ),
         "does_not_modify": (
             "HomeMac 或 B 手写 WireGuard 配置",
@@ -181,6 +183,29 @@ def _port_open(host: str, port: int) -> bool:
         return False
     connection.close()
     return True
+
+
+def _production_ports(host: str) -> dict[str, bool]:
+    return {
+        "model_8082": _port_open(host, 8082),
+        "gateway_8787": _port_open(host, 8787),
+    }
+
+
+def preflight_failure_reasons(
+    windows: dict[str, object],
+    production_ports: dict[str, bool],
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if windows.get("service") != "Running":
+        reasons.append("windows_home_mac_service_not_running")
+    if windows.get("adapter") != "Up":
+        reasons.append("windows_home_mac_adapter_not_up")
+    if production_ports.get("model_8082") is not True:
+        reasons.append("macos_model_8082_not_reachable")
+    if production_ports.get("gateway_8787") is not True:
+        reasons.append("macos_gateway_8787_not_reachable")
+    return tuple(reasons)
 
 
 def _windows_snapshot() -> dict[str, object]:
@@ -351,6 +376,20 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         "approval_manifest": approval_manifest(args),
     }
     try:
+        preflight_windows = _windows_snapshot()
+        preflight_ports = _production_ports(args.b_host)
+        preflight_reasons = preflight_failure_reasons(preflight_windows, preflight_ports)
+        evidence["preflight"] = {
+            "windows": preflight_windows,
+            "production_ports": preflight_ports,
+            "passed": not preflight_reasons,
+            "failure_reasons": preflight_reasons,
+        }
+        if preflight_reasons:
+            evidence["automated_passed"] = False
+            evidence["passed"] = False
+            return evidence
+
         store = SQLiteCoordinatorStore(runtime / "coordinator.sqlite3")
         registry = CoordinatorRegistryService(store)
         network_id = NetworkId.new()
@@ -423,10 +462,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         before = {
             "windows": _windows_snapshot(),
             "macos": await asyncio.to_thread(_macos_snapshot, args.ssh_target, remote_root, repo),
-            "production_ports": {
-                "model_8082": _port_open(args.b_host, 8082),
-                "gateway_8787": _port_open(args.b_host, 8787),
-            },
+            "production_ports": _production_ports(args.b_host),
         }
         evidence["before"] = before
 
@@ -593,10 +629,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         after = {
             "windows": _windows_snapshot(),
             "macos": await asyncio.to_thread(_macos_snapshot, args.ssh_target, remote_root, repo),
-            "production_ports": {
-                "model_8082": _port_open(args.b_host, 8082),
-                "gateway_8787": _port_open(args.b_host, 8787),
-            },
+            "production_ports": _production_ports(args.b_host),
         }
         evidence["after"] = after
         before_windows = cast(dict[str, object], before["windows"])
@@ -617,23 +650,24 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             and a_model.get("status") == "unconfigured"
             and b_model.get("status") == "unconfigured"
         )
-        murus_hashes_valid = all(
-            isinstance(value, str)
-            and len(value) == 64
-            and all(character in "0123456789abcdef" for character in value)
-            for value in (args.murus_before_sha256, args.murus_after_sha256)
-        )
-        murus_unchanged = murus_hashes_valid and args.murus_before_sha256 == args.murus_after_sha256
+        after_macos = cast(dict[str, object], after["macos"])
         evidence["production_unchanged"] = before == after
         evidence["production_baseline_valid"] = production_baseline_valid
-        evidence["murus_evidence"] = {
-            "provided": murus_hashes_valid,
-            "unchanged": murus_unchanged,
-            "before_sha256": args.murus_before_sha256,
-            "after_sha256": args.murus_after_sha256,
+        evidence["murus_firewall_evidence"] = {
+            "configuration_body_read": False,
+            "writes_performed": False,
+            "direct_pf_rules_readable": before_macos.get("pf_returncode") == 0
+            and after_macos.get("pf_returncode") == 0,
+            "pf_observation_unchanged": before_macos.get("pf_sha256")
+            == after_macos.get("pf_sha256")
+            and before_macos.get("pf_returncode") == after_macos.get("pf_returncode"),
+            "application_firewall_observation_unchanged": before_macos.get("firewall_sha256")
+            == after_macos.get("firewall_sha256")
+            and before_macos.get("firewall_returncode") == after_macos.get("firewall_returncode"),
+            "limitation": "Murus 规则正文没有非交互读取权限，不声称读取或导出了 GUI 配置",
         }
         evidence["automated_passed"] = automated_passed
-        evidence["passed"] = automated_passed and murus_unchanged
+        evidence["passed"] = automated_passed
     finally:
         await _stop_server(local_server, local_task)
         await _stop_server(agent_server, agent_task)
@@ -670,56 +704,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--b-host", default="10.77.0.1")
     parser.add_argument("--b-local-port", type=int, default=18_765)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--murus-before-sha256")
-    parser.add_argument("--murus-after-sha256")
-    parser.add_argument("--finalize-report", type=Path)
     parser.add_argument("--execute-approved", action="store_true")
     return parser
 
 
-def _valid_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
-
-
-def finalize_report(
-    path: Path,
-    before_sha256: str | None,
-    after_sha256: str | None,
-) -> dict[str, object]:
-    """在自动验收后写入操作者采集的 Murus 前后哈希并完成最终门禁。"""
-    report = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
-    if report.get("schema_version") != "managed-node-runtime-real-ab/v1":
-        raise ValueError("真实 A/B 报告版本无效")
-    if report.get("automated_passed") is not True:
-        raise ValueError("自动 A/B 门禁未通过，不得完成手工证据确认")
-    provided = _valid_sha256(before_sha256) and _valid_sha256(after_sha256)
-    unchanged = provided and before_sha256 == after_sha256
-    report["murus_evidence"] = {
-        "provided": provided,
-        "unchanged": unchanged,
-        "before_sha256": before_sha256,
-        "after_sha256": after_sha256,
-    }
-    report["passed"] = unchanged
-    serialized = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
-    path.write_text(serialized, encoding="utf-8")
-    return report
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.finalize_report is not None:
-        report = finalize_report(
-            args.finalize_report,
-            args.murus_before_sha256,
-            args.murus_after_sha256,
-        )
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0 if report.get("passed") is True else 1
     if not args.execute_approved:
         print(json.dumps(approval_manifest(args), ensure_ascii=False, indent=2))
         return 0

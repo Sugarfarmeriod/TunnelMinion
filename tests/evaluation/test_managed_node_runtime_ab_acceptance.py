@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
-from scripts.run_managed_node_runtime_ab_acceptance import finalize_report, main
+from scripts.run_managed_node_runtime_ab_acceptance import (
+    main,
+    preflight_failure_reasons,
+)
 
 
 def test_default_mode_only_prints_explicit_approval_manifest(
@@ -17,6 +20,7 @@ def test_default_mode_only_prints_explicit_approval_manifest(
     assert report["requires_explicit_execute_flag"] is True
     assert report["temporary_bindings"]["coordinator_agent"] == "10.77.0.2:8790"
     assert "HomeMac 或 B 手写 WireGuard 配置" in report["does_not_modify"]
+    assert "manual_evidence_required" not in report
 
 
 def test_execute_mode_requires_output(tmp_path: Path) -> None:
@@ -25,32 +29,18 @@ def test_execute_mode_requires_output(tmp_path: Path) -> None:
         main(["--ssh-target", "10.77.0.1", "--execute-approved"])
 
 
-def test_manual_murus_hash_finalizes_only_a_passing_automated_report(
-    tmp_path: Path,
-) -> None:
-    report_path = tmp_path / "real-ab.json"
-    report_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "managed-node-runtime-real-ab/v1",
-                "automated_passed": True,
-                "passed": False,
-            }
-        ),
-        encoding="utf-8",
+def test_preflight_rejects_missing_production_baseline() -> None:
+    assert preflight_failure_reasons(
+        {"service": "Running", "adapter": "Up"},
+        {"model_8082": False, "gateway_8787": False},
+    ) == (
+        "macos_model_8082_not_reachable",
+        "macos_gateway_8787_not_reachable",
     )
-    digest = "a" * 64
-    assert finalize_report(report_path, digest, digest)["passed"] is True
-    assert finalize_report(report_path, digest, "b" * 64)["passed"] is False
 
-    report_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "managed-node-runtime-real-ab/v1",
-                "automated_passed": False,
-            }
-        ),
-        encoding="utf-8",
+
+def test_preflight_accepts_ready_production_baseline() -> None:
+    assert not preflight_failure_reasons(
+        {"service": "Running", "adapter": "Up"},
+        {"model_8082": True, "gateway_8787": True},
     )
-    with pytest.raises(ValueError, match="自动 A/B"):
-        finalize_report(report_path, digest, digest)

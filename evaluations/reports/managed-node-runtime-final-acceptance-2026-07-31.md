@@ -44,8 +44,10 @@ Provider plan hash 和清理范围。
 | 真实 A/B 常规入口与生产资源前后不变 | 只有历史 Provider/Coordinator 基线，缺本次新授权 | 待核对 |
 
 真实验收脚本为 `scripts/run_managed_node_runtime_ab_acceptance.py`。默认模式只打印精确授权清单；
-只有显式 `--execute-approved` 才会连接 A/B。Murus 仍需操作者提供前后摘要哈希，不能由历史授权或
-其他防火墙摘要替代。
+只有显式 `--execute-approved` 才会连接 A/B。Murus GUI 不提供可复制的 SHA-256，验收不要求
+操作者手工导出；脚本自动比较 PF 与 macOS Application Firewall 的可观察状态，并记录非交互权限
+限制和零防火墙写入边界。生产 `8082`、`8787` 或 `HomeMac` 基线不满足时会在创建远端临时状态前
+快速失败。
 
 ## 可重复命令
 
