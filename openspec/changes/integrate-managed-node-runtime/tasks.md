@@ -32,11 +32,11 @@
 
 ## 5. managed config、治理与路径状态接线
 
-- [ ] 5.1 将 `ManagedNetworkSynchronizer`、签名 key、凭据、SQLite checkpoint 和 acknowledgement/path sink 注入运行时
-- [ ] 5.2 将合法 desired config 收敛到 pending/awaiting-authorization，并只通过既有 L3 governance 与 Provider 执行
-- [ ] 5.3 接入 applied/verified/rolled-back/manual-intervention、last-known-good、控制面 stale 和恢复状态，禁止模型/对话/记忆提供配置或授权
-- [ ] 5.4 用 fake Provider 覆盖无授权、幂等成功、verify 失败、部分失败、回滚失败、崩溃恢复、Coordinator 离线和 static 降级矩阵
-- [ ] 5.5 运行网络同步、治理、所有权、架构边界、格式、类型和分支覆盖门禁，提交并推送受管配置阶段
+- [x] 5.1 将 `ManagedNetworkSynchronizer`、签名 key、凭据、SQLite checkpoint 和 acknowledgement/path sink 注入运行时
+- [x] 5.2 将合法 desired config 收敛到 pending/awaiting-authorization，并只通过既有 L3 governance 与 Provider 执行
+- [x] 5.3 接入 applied/verified/rolled-back/manual-intervention、last-known-good、控制面 stale 和恢复状态，禁止模型/对话/记忆提供配置或授权
+- [x] 5.4 用 fake Provider 覆盖无授权、幂等成功、verify 失败、部分失败、回滚失败、崩溃恢复、Coordinator 离线和 static 降级矩阵
+- [x] 5.5 运行网络同步、治理、所有权、架构边界、格式、类型和分支覆盖门禁，提交并推送受管配置阶段
 
 ## 6. Windows/macOS 常规应用与资源体验
 
