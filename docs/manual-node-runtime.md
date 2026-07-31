@@ -52,6 +52,25 @@ tunnelminion runtime status
 它只声明“手工 start 时也启动已经配置好的 Gateway”。如果 `gateway.json` 不存在，状态会明确显示
 `gateway_unconfigured`，本地应用仍可独立运行。
 
+## 模型由谁启动
+
+模型是 TunnelMinion 之外的外部服务。`runtime start` 只启动本地应用和按 profile 启用的 Gateway，
+不会寻找、启动、停止、安装或更新 `llama-server` 等模型进程。`runtime status` 会对已配置 endpoint
+做有界只读检查；模型不可达时应显示 `unavailable`，确定性资源工具和 Gateway 生命周期仍独立工作。
+
+如果模型由用户稍后手工开启，再执行一次 `runtime status` 或本地应用的模型验证即可刷新可达状态，
+不需要重启 TunnelMinion。删除或改写生产模型配置不是运行状态检查的一部分。
+
+## 状态和日志
+
+逐组件 PID 记录、生命周期状态与日志位于 profile 指向的数据目录下的 `runtime` 子目录。日志使用
+有界轮转，不记录认证 header、token、refresh、私钥、标准输入或完整远端响应。`status` 只输出
+稳定错误码、摘要和日志位置；它不会读取秘密正文。
+
+排查顺序是：先看 `runtime-package status` 的当前程序版本，再看 `runtime status` 的组件所有权和
+模型依赖，最后查看对应的 `runtime/logs/local.log` 或 `runtime/logs/gateway.log`。不要直接删除 PID
+记录；身份不匹配时保留现场，由 `ownership-conflict` 防止误杀其他进程。
+
 ## 安装和切换版本
 
 先从发布位置校验并并行放置新包，不改变当前版本：

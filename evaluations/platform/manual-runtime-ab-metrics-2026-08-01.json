@@ -1,0 +1,116 @@
+{
+  "schema_version": "manual-runtime-ab-metrics/v1",
+  "recorded_on": "2026-08-01",
+  "scope": "真实 A/B 首次替换、回退和当前可用状态的观测指标",
+  "rates": {
+    "requested_component_end_to_end_start_success": {
+      "passed": 2,
+      "total": 3,
+      "rate": 0.6667,
+      "members": {
+        "node_a_packaged_local": "passed",
+        "node_b_packaged_local": "passed",
+        "node_b_packaged_gateway": "failed_macos_inbound_trust"
+      }
+    },
+    "node_a_idempotent_start": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0,
+      "same_pid": true
+    },
+    "gateway_unauthenticated_security_interception": {
+      "passed": 1,
+      "total": 1,
+      "rate": 1.0,
+      "http_status": 401
+    },
+    "observed_valid_command_argument_errors": {
+      "errors": 0,
+      "total": 8,
+      "rate": 0.0
+    },
+    "node_a_status_matches_process_and_http": {
+      "passed": 1,
+      "total": 1,
+      "rate": 1.0
+    },
+    "controlled_recovery": {
+      "passed": 2,
+      "total": 2,
+      "rate": 1.0,
+      "members": {
+        "node_a_packaged_local_stop_and_restore": "passed",
+        "node_b_existing_gateway_safe_rollback": "passed"
+      },
+      "does_not_count_as_packaged_gateway_acceptance": true
+    }
+  },
+  "node_a_windows": {
+    "idempotent_start_duration_ms": [1293, 1375, 1295],
+    "controlled_stop_duration_ms": 1346,
+    "controlled_restore_duration_ms": 4612,
+    "restored_pid": 56260,
+    "next_session_state": "running",
+    "model_probe": {
+      "status": "reachable",
+      "latency_ms": 42,
+      "configuration_validation": "available",
+      "api_key_configured": false,
+      "ai_run_available": true
+    },
+    "deterministic_resources": {
+      "health_http_status": 200,
+      "node_summary_status": "success",
+      "coordinator_state": "unconfigured"
+    },
+    "process": {
+      "working_set_bytes": 112762880,
+      "private_memory_bytes": 94502912,
+      "cpu_seconds_at_sample": 1.265625
+    },
+    "local_runtime_log_size_bytes": 1336,
+    "autostart": {
+      "services": 0,
+      "scheduled_tasks": 0,
+      "startup_files": 0
+    }
+  },
+  "node_b_macos": {
+    "restored_gateway": {
+      "pid": 80136,
+      "cpu_percent_at_sample": 0.1,
+      "memory_percent_at_sample": 0.3,
+      "resident_memory_kib": 88768,
+      "gateway_log_size_bytes": 1938,
+      "peer_connect_seconds": 0.013904,
+      "peer_total_seconds": 0.083864,
+      "peer_http_status": 401
+    },
+    "external_model": {
+      "pid": 61981,
+      "listener": "*:8082",
+      "owned_by_runtime": false
+    },
+    "packaged_runtime_logs": {
+      "gateway_bytes": 613,
+      "local_bytes": 613
+    },
+    "autostart": {
+      "launchctl_entries": 0,
+      "launch_agent_or_daemon_files": 0
+    }
+  },
+  "package_footprint": {
+    "windows_amd64_bytes": 63143083,
+    "windows_file_count": 209,
+    "macos_arm64_bytes": 60644893,
+    "macos_file_count": 139
+  },
+  "coverage_limits": {
+    "model_disabled_on_production_node": "not_performed_because_it_would_mutate_or_stop_user_managed_model_state",
+    "real_coordinator_sync": "not_verifiable_because_current_A_and_B_are_unconfigured",
+    "packaged_gateway_lifecycle": "pending_independent_macos_package_trust_change_or_explicit_firewall_authorization",
+    "machine_reboot": "not_performed_by_user_decision_no_autostart_required"
+  }
+}
