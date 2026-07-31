@@ -14,6 +14,7 @@ from tunnelminion.agent.managed_node import (
     FileManagedNodeConfigRepository,
     managed_node_secret_store,
 )
+from tunnelminion.agent.managed_runtime import MANAGED_RUNTIME_CHECKPOINT_FILE
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
@@ -38,6 +39,7 @@ _OWNED_FILES = (
     "gateway-secret-store",
     MANAGED_NODE_CONFIG_FILE,
     "coordinator-checkpoint.json",
+    MANAGED_RUNTIME_CHECKPOINT_FILE,
     "network-sync.sqlite3",
     "network-sync.sqlite3-wal",
     "network-sync.sqlite3-shm",
@@ -95,6 +97,7 @@ def build_safe_export(
             "coordinator_refresh_credentials",
             "coordinator_access_assertions",
             "coordinator_checkpoints",
+            "managed_runtime_checkpoints",
             "managed_config_envelopes",
             "authorization_headers",
             "remote_untrusted_bodies",

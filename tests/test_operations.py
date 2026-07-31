@@ -210,6 +210,7 @@ def test_uninstall_deletes_credentials_and_owned_files_but_preserves_unrelated(
     coordinator_dir.mkdir()
     (coordinator_dir / "orphan.secret").write_text("secret", encoding="utf-8")
     (root / "coordinator-checkpoint.json").write_text("{}", encoding="utf-8")
+    (root / "managed-runtime.json").write_text("{}", encoding="utf-8")
 
     removed = uninstall_owned_data(
         root,
@@ -227,6 +228,7 @@ def test_uninstall_deletes_credentials_and_owned_files_but_preserves_unrelated(
     assert not coordinator_dir.exists()
     assert not (root / "managed-node.json").exists()
     assert not (root / "coordinator-checkpoint.json").exists()
+    assert not (root / "managed-runtime.json").exists()
     assert root.exists()
 
 
