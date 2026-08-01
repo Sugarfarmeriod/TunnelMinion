@@ -1,0 +1,98 @@
+{
+  "schema_version": "manual-runtime-macos-firewall-authorization/v1",
+  "recorded_on": "2026-08-01",
+  "scope": "用户显式允许当前机器的 macOS Application Firewall 入站后，复验正式 macOS 运行包 Gateway；未修改 Murus、WireGuard、route、生产配置或秘密",
+  "authorization": {
+    "kind": "current-machine-application-firewall-allow",
+    "operator_confirmed_allow": true,
+    "developer_id_or_notarization_used": false,
+    "formal_executable": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+    "formal_package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+    "formal_manifest_sha256": "740b266a550e06dab4ce5ebf0c47fee42a49cb72490c0f5cc07ee8fed13da471",
+    "formal_firewall_state": "allow_incoming_connections"
+  },
+  "before_switch": {
+    "gateway_pid": 80136,
+    "gateway_command_kind": "python-module-with-inherited-development-environment",
+    "peer_unauthenticated_http_status": 401,
+    "peer_total_seconds": 0.094811,
+    "formal_firewall_entry_present": false,
+    "diagnostic_package_firewall_entry_present": true
+  },
+  "formal_runtime_attempt": {
+    "old_gateway_stopped_normally": true,
+    "gateway_pid": 51759,
+    "local_application_pid": 52734,
+    "terminal_detached": true,
+    "formal_firewall_entry_present": true,
+    "peer_first_unauthenticated_http_status": 401,
+    "peer_first_total_seconds": 17.081818,
+    "peer_steady_unauthenticated_http_status": 401,
+    "peer_steady_total_seconds": 0.084787,
+    "macos_self_probe": {
+      "target": "10.77.0.1:8787",
+      "http_status": 0,
+      "connect_timeout_seconds": 1.00493
+    },
+    "runtime_start_elapsed_seconds_approx": 185,
+    "runtime_report": {
+      "state": "degraded",
+      "exit_code": 1,
+      "gateway_state": "failed",
+      "gateway_error_code": "startup_unstable",
+      "gateway_process_present": true,
+      "local_state": "running"
+    },
+    "classification": "peer 端到端健康已经通过，但当前 macOS Gateway 本机自探针无法访问本机 WireGuard 地址，导致 runtime start/status 误判；不得降级为仅凭监听器判定健康"
+  },
+  "controlled_stop": {
+    "runtime_stop_exit_code": 0,
+    "gateway_stopped": true,
+    "local_application_stopped": true
+  },
+  "legacy_restore_attempt": {
+    "result": "failed_existing_environment_no_longer_reproducible",
+    "without_pythonpath_error": "module_not_found_tunnelminion",
+    "with_source_pythonpath_error": "module_not_found_uvicorn",
+    "production_configuration_or_secret_changed": false
+  },
+  "safe_available_state": {
+    "gateway_executable_kind": "formal_package_direct_gateway_command",
+    "gateway_pid": 53620,
+    "gateway_parent_pid": 1,
+    "listener": "10.77.0.1:8787",
+    "peer_unauthenticated_http_status": 401,
+    "peer_total_seconds": 0.1005,
+    "runtime_managed": false,
+    "reason": "旧开发环境已无法重启；使用已获明确防火墙许可的正式候选直接恢复生产 Gateway 可用性，同时保留 runtime 健康探针缺口的真实失败结论"
+  },
+  "post_invariance": {
+    "model_json_sha256": "699b553cbcd5e46cdc199778057e5925e5a0436782535efdff562e1622397590",
+    "gateway_json_sha256": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90",
+    "node_id_sha256": "24673487de6c06cf03154f6baf6432bd1298f65b9527ff5698f12b08cfbb3900",
+    "gateway_secret_store_marker_sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+    "secret_plaintext_emitted": false,
+    "murus_configuration_size_bytes": 55063,
+    "murus_configuration_sha256": "b8dff82146464a7db0c79368dcd769741080dca5e13c5078c842820d3de52774",
+    "wireguard_routes": [
+      "10.77.0.1 via utun4",
+      "10.77.0.2/32 via utun4",
+      "10.77.0.3/32 via utun4",
+      "10.77.0.4/32 via utun4",
+      "10.77.0.5/32 via utun4",
+      "10.77.0.6/32 via utun4",
+      "10.77.0.7/32 via utun4"
+    ],
+    "model_pid": 61981,
+    "model_listener": "*:8082",
+    "autostart_entries": 0,
+    "application_firewall_change": "explicitly_authorized_formal_executable_allow_entry"
+  },
+  "decision": {
+    "macos_application_firewall_prerequisite": "passed_for_current_machine",
+    "packaged_gateway_peer_health": "passed",
+    "manual_runtime_gateway_lifecycle": "failed_self_probe_semantics",
+    "task_6_3_complete": false,
+    "next_independent_change": "make macos gateway health distinguish local process ownership from authorized peer reachability without accepting listener-only health"
+  }
+}
