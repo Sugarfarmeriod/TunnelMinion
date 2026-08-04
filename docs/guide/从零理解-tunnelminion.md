@@ -3,7 +3,7 @@
 这是一份面向项目所有者的“活文档”。它不假设读者熟悉 Agent、LangChain、LangGraph
 或后端框架。每完成一个阶段，都应更新“当前进度”和文末的“增量认知记录”。
 
-配套图：[TunnelMinion 双节点只读 Agent 架构（FigJam）](https://www.figma.com/board/8KODvoNqXZsLCHKO0J4nbU)
+配套图：[TunnelMinion 全景架构与框架分工（FigJam）](https://www.figma.com/board/A8vpOsb7jTIx8TozXVmMCY)
 
 ## 先用一句话理解产品
 
