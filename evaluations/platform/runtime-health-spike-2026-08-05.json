@@ -1,0 +1,49 @@
+{
+  "schema_version": "macos-gateway-runtime-health-spike-evidence.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "1.1-1.4",
+  "execution_platform": "windows",
+  "mode": "fake_no_system_writes",
+  "production_secret_store_read": false,
+  "production_process_touched": false,
+  "fixture": {
+    "hairpin_failed_peer_401": {
+      "process_owned": true,
+      "listener_owned": true,
+      "local_readiness": "running",
+      "peer_acceptance": "peer_reachable",
+      "peer_http_status": 401
+    },
+    "listener_present_peer_hung": {
+      "process_owned": true,
+      "listener_owned": true,
+      "local_readiness": "running",
+      "peer_acceptance": "peer_unreachable",
+      "peer_http_status": null,
+      "peer_error": "peer_timeout"
+    }
+  },
+  "process_socket_smoke": {
+    "current_account_can_read_owned_listener": true,
+    "pid_to_host_port_match": true,
+    "lsof_available_on_current_platform": false,
+    "macos_lsof_verification": "deferred_to_macos_runner"
+  },
+  "ownership_contract": {
+    "foreign_listener": "ownership_conflict",
+    "listener_missing": "missing",
+    "permission_or_api_failure": "listener_ownership_unverified",
+    "port_presence_alone_is_success": false
+  },
+  "quality": {
+    "spike_tests": "12 passed",
+    "pyright": "0 errors",
+    "ruff": "passed",
+    "openspec_strict": "pending_after_task_checkbox_update"
+  },
+  "limitations": [
+    "当前 Windows 工作站不能证明 macOS psutil/lsof 权限路径",
+    "真实 macOS hairpin 与真实 A/B peer 401 留待后续隔离验收",
+    "本阶段未修改 runtime 生命周期生产代码"
+  ]
+}

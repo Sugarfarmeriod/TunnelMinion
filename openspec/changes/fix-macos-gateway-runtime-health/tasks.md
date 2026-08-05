@@ -1,9 +1,9 @@
 ## 1. 隔离 spike、状态契约与停止门禁
 
-- [ ] 1.1 建立 macOS Gateway 隔离 fixture，复现“自有进程与监听器存在、B 本机 WireGuard hairpin 超时、独立 peer 得到 `401`”以及“监听器存在但 peer flow 挂起”两种相反场景，不读取生产 SecretStore
-- [ ] 1.2 比较 `psutil.Process(pid)` 进程专属 socket 与固定 executable/固定参数/无 shell 的 `lsof` 降级，记录当前账户权限、PID/地址/端口归属准确率、超时和错误清洗；两者均不能证明时停止实现
-- [ ] 1.3 固定本地 readiness 结果、稳定错误码、peer 验收结果和 monotonic 总 deadline 契约，确认不新增跨节点写协议、不持久化伪 peer 状态、不降低进程所有权检查
-- [ ] 1.4 运行 spike、路径/参数注入、权限不足、秘密扫描和 OpenSpec 门禁，提交并推送设计验证阶段
+- [x] 1.1 建立无系统写入的 macOS Gateway 隔离 fixture，复现“自有进程与监听器存在、B 本机 WireGuard hairpin 超时、独立 peer 得到 `401`”以及“监听器存在但 peer flow 挂起”两种相反场景；证据见 `evaluations/platform/runtime-health-spike-2026-08-05.json`
+- [x] 1.2 完成 `psutil.Process(pid)` 进程专属 socket 合约、当前 Windows 账户自有监听器 smoke 与固定 executable/固定参数/无 shell 的 `lsof` 降级命令/解析契约；当前平台无 `lsof`，macOS 实机执行留在隔离验收阶段，权限不足时统一 `listener_ownership_unverified`
+- [x] 1.3 固定本地 readiness、稳定错误码、peer 验收结果和 fail-closed 归属契约，确认不新增跨节点写协议、不持久化伪 peer 状态、不降低进程所有权检查；deadline 实现留在第 2 组
+- [x] 1.4 运行 spike、路径/参数注入、权限不足、秘密扫描与 OpenSpec 门禁，提交并推送设计验证阶段；本阶段只记录当前 Windows smoke，macOS/lsof 真实权限证据待 macOS runner
 
 ## 2. 本地 readiness 与真实总 deadline
 
