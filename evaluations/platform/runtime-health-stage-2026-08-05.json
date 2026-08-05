@@ -1,0 +1,30 @@
+{
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "local-readiness-deadline",
+  "date": "2026-08-05",
+  "platform": "Windows",
+  "result": "passed",
+  "checks": {
+    "full_pytest": {
+      "command": "uv run pytest -q",
+      "passed": 773,
+      "skipped": 1,
+      "coverage": "100%"
+    },
+    "runtime_targeted_pytest": {
+      "command": "uv run pytest tests/runtime tests/platforms/macos tests/spikes/test_runtime_health_spike.py -q --no-cov",
+      "passed": 153
+    },
+    "gateway_listener_probe": "process-owned listener readiness; no Gateway HTTP hairpin",
+    "deadline": "single monotonic startup budget with bounded probe and stable-window sleeps",
+    "windows_uv_shim": "same managed process tree and exact runtime component command line only",
+    "secret_scan": "12 scoped files scanned; 0 findings",
+    "macos_lsof_permission": "deferred to macOS runner",
+    "production_configuration_or_secret_store_touched": false,
+    "docs_questions_read": false
+  },
+  "limitations": [
+    "当前执行环境是 Windows，尚未取得 macOS lsof 权限与真实 WireGuard hairpin 证据。",
+    "本阶段只验证本地生命周期与 listener ownership，不执行真实 A/B 切换。"
+  ]
+}

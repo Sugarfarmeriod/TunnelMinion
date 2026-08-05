@@ -10,6 +10,7 @@ from tunnelminion.runtime.lifecycle import (
     LifecycleReport,
     ManualLifecycleManager,
     OverallRuntimeState,
+    ReadinessResult,
 )
 from tunnelminion.runtime.preflight import (
     PreflightCheck,
@@ -60,6 +61,7 @@ __all__ = [
     "PreflightStatus",
     "ProcessRecordRepository",
     "ProcessSnapshot",
+    "ReadinessResult",
     "RuntimeBudgets",
     "RuntimeComponent",
     "RuntimeOperationBusy",

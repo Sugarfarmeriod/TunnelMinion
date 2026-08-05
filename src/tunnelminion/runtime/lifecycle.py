@@ -6,10 +6,11 @@ import hashlib
 import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
@@ -72,10 +73,29 @@ class LifecycleReport(BaseModel):
     exit_code: int
 
 
+@dataclass(frozen=True)
+class ReadinessResult:
+    """单次本机就绪探针的脱敏结果。"""
+
+    ready: bool
+    error_code: str | None = None
+
+
 class ComponentHealthProbe(Protocol):
     """逐组件有界健康探针。"""
 
     def healthy(self, component: RuntimeComponent, pid: int) -> bool: ...
+
+
+class ComponentReadinessProbe(Protocol):
+    """可接收剩余 deadline 的结构化就绪探针。"""
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult: ...
 
 
 class AlwaysHealthyProbe:
@@ -84,6 +104,15 @@ class AlwaysHealthyProbe:
     def healthy(self, component: RuntimeComponent, pid: int) -> bool:
         del component, pid
         return True
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        del component, pid, timeout_seconds
+        return ReadinessResult(True)
 
 
 CommandFactory = Callable[[RuntimeComponent, UUID], tuple[str, ...]]
@@ -117,6 +146,7 @@ class ManualLifecycleManager:
         health: ComponentHealthProbe | None = None,
         checkpoint_ready: CheckpointProbe | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._profile = profile
         self._paths = paths
@@ -126,6 +156,7 @@ class ManualLifecycleManager:
         self._health = health or AlwaysHealthyProbe()
         self._checkpoint_ready = checkpoint_ready or _checkpoint_always_ready
         self._sleep = sleep
+        self._monotonic = monotonic
         self._records = ProcessRecordRepository(paths.state_dir)
 
     def start(self) -> LifecycleReport:
@@ -184,9 +215,13 @@ class ManualLifecycleManager:
                 error_code="spawn_failed",
             )
 
-        if not self._stable(record):
+        readiness = self._stable(record)
+        if not readiness.ready:
             failed = record.model_copy(
-                update={"lifecycle": ComponentLifecycle.FAILED, "error_code": "startup_unstable"}
+                update={
+                    "lifecycle": ComponentLifecycle.FAILED,
+                    "error_code": readiness.error_code or "startup_unstable",
+                }
             )
             self._records.save(failed)
             snapshot = self._adapter.inspect(record.pid)
@@ -196,22 +231,55 @@ class ManualLifecycleManager:
         self._records.save(running)
         return self._view(running, ComponentRuntimeState.RUNNING, True)
 
-    def _stable(self, record: RuntimeProcessRecord) -> bool:
+    def _stable(self, record: RuntimeProcessRecord) -> ReadinessResult:
         interval = 0.1
-        attempts = max(
-            1,
-            math.ceil(self._profile.budgets.startup_timeout_seconds / interval),
-        )
+        deadline = self._monotonic() + self._profile.budgets.startup_timeout_seconds
+        attempts = max(1, math.ceil(self._profile.budgets.startup_timeout_seconds / interval) + 1)
+        last = ReadinessResult(False, "startup_unstable")
         for _attempt in range(attempts):
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return ReadinessResult(False, "startup_timeout")
             if not self._is_owned(record, self._adapter.inspect(record.pid)):
-                return False
-            if self._health.healthy(record.component, record.pid):
-                self._sleep(self._profile.budgets.stable_window_seconds)
-                return self._is_owned(
-                    record, self._adapter.inspect(record.pid)
-                ) and self._health.healthy(record.component, record.pid)
-            self._sleep(interval)
-        return False
+                return ReadinessResult(False, "startup_unstable")
+            last = self._readiness(record.component, record.pid, remaining)
+            if last.ready:
+                remaining = deadline - self._monotonic()
+                stable_window = self._profile.budgets.stable_window_seconds
+                if remaining <= stable_window:
+                    return ReadinessResult(False, "startup_timeout")
+                self._sleep(min(stable_window, remaining))
+                if self._monotonic() >= deadline:
+                    return ReadinessResult(False, "startup_timeout")
+                if not self._is_owned(record, self._adapter.inspect(record.pid)):
+                    return ReadinessResult(False, "startup_unstable")
+                last = self._readiness(
+                    record.component,
+                    record.pid,
+                    max(0.0, deadline - self._monotonic()),
+                )
+                if last.ready:
+                    return last
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return ReadinessResult(False, last.error_code or "startup_timeout")
+            self._sleep(min(interval, remaining))
+        return ReadinessResult(False, "startup_timeout")
+
+    def _readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        readiness = getattr(self._health, "readiness", None)
+        if callable(readiness):
+            probe = cast(
+                Callable[[RuntimeComponent, int, float], ReadinessResult],
+                readiness,
+            )
+            return probe(component, pid, timeout_seconds)
+        return ReadinessResult(self._health.healthy(component, pid))
 
     def _status_component(self, component: RuntimeComponent) -> ComponentRuntimeStatus:
         try:
@@ -239,8 +307,14 @@ class ManualLifecycleManager:
             return self._view(record, ComponentRuntimeState.OWNERSHIP_CONFLICT, True)
         if record.lifecycle is ComponentLifecycle.FAILED:
             return self._view(record, ComponentRuntimeState.FAILED, True)
-        if not self._health.healthy(component, record.pid):
-            return self._view(record, ComponentRuntimeState.FAILED, True, "health_failed")
+        readiness = self._readiness(component, record.pid, 0.5)
+        if not readiness.ready:
+            return self._view(
+                record,
+                ComponentRuntimeState.FAILED,
+                True,
+                readiness.error_code or "health_failed",
+            )
         return self._view(record, ComponentRuntimeState.RUNNING, True)
 
     def _stop_component(self, component: RuntimeComponent) -> ComponentRuntimeStatus:

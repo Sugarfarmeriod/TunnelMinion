@@ -50,7 +50,9 @@ peer 临时离线时错误回滚健康自有进程。
 
 本地应用继续使用环回 HTTP。Gateway 使用新的有界 `GatewayListenerOwnershipProbe`：验证配置地址/
 端口存在、监听 socket 属于记录中的 PID，并在稳定窗口后复核所有权。macOS 适配器优先使用当前
-账户可读的进程专属 socket 信息；若 Python API 权限不足，使用固定 executable、固定参数、无 shell
+账户可读的进程专属 socket 信息；若平台启动 shim 让监听器落在同一 runtime-child 子进程，只有在
+该子进程仍处于记录 PID 的受管进程树内且命令行明确绑定同一组件时才把端点归并回记录身份。若 Python
+API 权限不足，使用固定 executable、固定参数、无 shell
 的 `lsof -nP -a -p <pid> -iTCP@<host>:<port> -sTCP:LISTEN` 降级。实现前必须用隔离进程验证两条路径；
 均不可用时返回稳定的 `listener_ownership_unverified`，不得退化为端口级成功。
 

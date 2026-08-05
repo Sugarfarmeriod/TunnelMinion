@@ -12,10 +12,12 @@ import pytest
 from pydantic import ValidationError
 
 from tunnelminion.runtime.lifecycle import (
+    ComponentHealthProbe,
     ComponentLaunchError,
     ComponentRuntimeState,
     ManualLifecycleManager,
     OverallRuntimeState,
+    ReadinessResult,
 )
 from tunnelminion.runtime.process import (
     ProcessRecordRepository,
@@ -104,6 +106,86 @@ class DelayedHealth(FakeHealth):
         return True
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        assert seconds >= 0
+        self.now += seconds
+
+
+class TimeoutReadiness:
+    def __init__(self, clock: FakeClock, *, ready_after: int | None = None) -> None:
+        self.clock = clock
+        self.ready_after = ready_after
+        self.calls: list[float] = []
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        del component, pid
+        self.calls.append(timeout_seconds)
+        if self.ready_after is not None and len(self.calls) > self.ready_after:
+            return ReadinessResult(True)
+        return ReadinessResult(False, "probe_timeout")
+
+    def healthy(self, component: RuntimeComponent, pid: int) -> bool:
+        del component, pid
+        return False
+
+
+class ReadyAtDeadlineReadiness(TimeoutReadiness):
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        result = super().readiness(component, pid, timeout_seconds)
+        if len(self.calls) == 1:
+            self.clock.now = 0.9
+            return ReadinessResult(True)
+        return result
+
+
+class AdvancingTimeoutReadiness(TimeoutReadiness):
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        result = super().readiness(component, pid, timeout_seconds)
+        self.clock.now += 2.0
+        return result
+
+
+class FlakyReadiness:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        del component, pid, timeout_seconds
+        self.calls += 1
+        return ReadinessResult(self.calls != 2, "probe_timeout")
+
+    def healthy(self, component: RuntimeComponent, pid: int) -> bool:
+        del component, pid
+        return True
+
+
 def _profile(tmp_path: Path, *components: RuntimeComponent) -> tuple[RuntimeProfile, RuntimePaths]:
     data_dir = (tmp_path / "data").resolve()
     profile = RuntimeProfile(
@@ -127,7 +209,7 @@ def _manager(
     tmp_path: Path,
     adapter: FakeProcessAdapter,
     *components: RuntimeComponent,
-    health: FakeHealth | None = None,
+    health: ComponentHealthProbe | None = None,
     checkpoint: bool = True,
 ) -> ManualLifecycleManager:
     profile, paths = _profile(tmp_path, *components)
@@ -408,3 +490,192 @@ def test_concurrent_start_and_stop_are_serialized(tmp_path: Path) -> None:
     thread.join(5)
     assert not thread.is_alive()
     assert manager.status().state is OverallRuntimeState.RUNNING
+
+
+def test_start_uses_one_monotonic_budget_for_repeated_probe_timeouts(tmp_path: Path) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+    profile = profile.model_copy(
+        update={
+            "budgets": RuntimeBudgets(
+                startup_timeout_seconds=1,
+                stable_window_seconds=0.2,
+                shutdown_timeout_seconds=1,
+            )
+        }
+    )
+    readiness = TimeoutReadiness(clock)
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=readiness,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+    )
+
+    report = manager.start()
+
+    assert report.components[0].error_code == "startup_timeout"
+    assert clock.now <= 1.0
+    assert readiness.calls
+    assert max(readiness.calls) <= 1.0
+
+
+def test_start_rejects_ready_result_without_remaining_stable_window(tmp_path: Path) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+    profile = profile.model_copy(
+        update={
+            "budgets": RuntimeBudgets(
+                startup_timeout_seconds=1,
+                stable_window_seconds=0.2,
+                shutdown_timeout_seconds=1,
+            )
+        }
+    )
+    readiness = ReadyAtDeadlineReadiness(clock)
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=readiness,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+    )
+
+    report = manager.start()
+
+    assert report.components[0].error_code == "startup_timeout"
+    assert clock.now == 0.9
+
+
+def test_start_reports_probe_failure_when_probe_consumes_remaining_budget(tmp_path: Path) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+    profile = profile.model_copy(
+        update={
+            "budgets": RuntimeBudgets(
+                startup_timeout_seconds=1,
+                stable_window_seconds=0.2,
+                shutdown_timeout_seconds=1,
+            )
+        }
+    )
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=AdvancingTimeoutReadiness(clock),
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+    )
+
+    assert manager.start().components[0].error_code == "probe_timeout"
+
+
+def test_start_reports_timeout_when_stability_sleep_overshoots_deadline(tmp_path: Path) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+    profile = profile.model_copy(
+        update={
+            "budgets": RuntimeBudgets(
+                startup_timeout_seconds=1,
+                stable_window_seconds=0.2,
+                shutdown_timeout_seconds=1,
+            )
+        }
+    )
+
+    def oversleep(seconds: float) -> None:
+        del seconds
+        clock.now = 2.0
+
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=TimeoutReadiness(clock, ready_after=0),
+        sleep=oversleep,
+        monotonic=clock.monotonic,
+    )
+
+    assert manager.start().components[0].error_code == "startup_timeout"
+
+
+def test_start_fails_if_listener_or_process_disappears_during_stability_window(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+
+    def drop_process(seconds: float) -> None:
+        del seconds
+        adapter.snapshots.clear()
+
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=TimeoutReadiness(clock, ready_after=0),
+        sleep=drop_process,
+        monotonic=clock.monotonic,
+    )
+
+    assert manager.start().components[0].error_code == "startup_unstable"
+
+
+def test_start_retries_after_a_failed_stability_recheck(tmp_path: Path) -> None:
+    adapter = FakeProcessAdapter()
+    manager = _manager(tmp_path, adapter, health=FlakyReadiness())
+    assert manager.start().state is OverallRuntimeState.RUNNING
+
+
+def test_always_healthy_probe_keeps_legacy_boolean_contract() -> None:
+    from tunnelminion.runtime.lifecycle import AlwaysHealthyProbe
+
+    probe = AlwaysHealthyProbe()
+    assert probe.healthy(RuntimeComponent.LOCAL, 1)
+    assert probe.readiness(RuntimeComponent.LOCAL, 1, 0.5) == ReadinessResult(True)
+
+
+def test_start_checks_deadline_before_each_probe_attempt(tmp_path: Path) -> None:
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+    profile = profile.model_copy(
+        update={
+            "budgets": RuntimeBudgets(
+                startup_timeout_seconds=1,
+                stable_window_seconds=0.2,
+                shutdown_timeout_seconds=1,
+            )
+        }
+    )
+    clock_values = iter((0.0, 0.0, 0.5, 1.0))
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=TimeoutReadiness(FakeClock()),
+        sleep=lambda seconds: None,
+        monotonic=lambda: next(clock_values),
+    )
+
+    assert manager.start().components[0].error_code == "startup_timeout"

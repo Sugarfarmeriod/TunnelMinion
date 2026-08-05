@@ -17,9 +17,12 @@ from tunnelminion.gateway.configuration import FileGatewayConfigurationRepositor
 from tunnelminion.runtime.health import ModelHealthResult, probe_external_model
 from tunnelminion.runtime.lifecycle import (
     ComponentLaunchError,
+    ComponentReadinessProbe,
     LifecycleReport,
     ManualLifecycleManager,
+    ReadinessResult,
 )
+from tunnelminion.runtime.listener import GatewayListenerOwnershipProbe
 from tunnelminion.runtime.process import DetachedProcessAdapter
 from tunnelminion.runtime.profile import RuntimeComponent, RuntimePaths, RuntimeProfile
 
@@ -34,44 +37,47 @@ class RuntimeComponentHealthProbe:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout_seconds: float = 0.5,
+        listener_probe: ComponentReadinessProbe | None = None,
     ) -> None:
         self._profile = profile
         self._data_dir = data_dir
         self._transport = transport
         self._timeout_seconds = timeout_seconds
+        self._listener_probe = listener_probe or GatewayListenerOwnershipProbe(data_dir)
 
     def healthy(self, component: RuntimeComponent, pid: int) -> bool:
-        del pid
+        return self.readiness(component, pid, self._timeout_seconds).ready
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        if component is RuntimeComponent.GATEWAY:
+            return self._listener_probe.readiness(component, pid, timeout_seconds)
         target = self._target(component)
-        if target is None:
-            return False
         url, expected_status = target
         try:
             with httpx.Client(
                 transport=self._transport,
                 trust_env=False,
                 follow_redirects=False,
-                timeout=self._timeout_seconds,
+                timeout=max(0.01, timeout_seconds),
             ) as client:
                 response = client.get(url)
         except httpx.HTTPError:
-            return False
-        return (
+            return ReadinessResult(False, "startup_unstable")
+        ready = (
             response.status_code == expected_status
             if expected_status is not None
             else response.status_code < 500
         )
+        return ReadinessResult(ready, None if ready else "startup_unstable")
 
-    def _target(self, component: RuntimeComponent) -> tuple[str, int | None] | None:
-        if component is RuntimeComponent.LOCAL:
-            return f"http://127.0.0.1:{self._profile.local_port}/", None
-        try:
-            config = FileGatewayConfigurationRepository(self._data_dir / "gateway.json").load()
-        except (OSError, ValueError):
-            return None
-        if config is None:
-            return None
-        return f"http://{config.bind.host}:{config.bind.port}/v1/capabilities", 401
+    def _target(self, component: RuntimeComponent) -> tuple[str, int | None]:
+        del component
+        return f"http://127.0.0.1:{self._profile.local_port}/", None
 
 
 class RuntimeCommandFactory:
@@ -139,7 +145,11 @@ def build_lifecycle_manager(
         application_version(),
         DetachedProcessAdapter(),
         RuntimeCommandFactory(profile, paths),
-        health=RuntimeComponentHealthProbe(profile, paths.data_dir),
+        health=RuntimeComponentHealthProbe(
+            profile,
+            paths.data_dir,
+            listener_probe=GatewayListenerOwnershipProbe(paths.data_dir),
+        ),
     )
 
 

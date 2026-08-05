@@ -31,6 +31,7 @@ from tunnelminion.runtime.lifecycle import (
     ComponentRuntimeStatus,
     LifecycleReport,
     OverallRuntimeState,
+    ReadinessResult,
 )
 from tunnelminion.runtime.profile import (
     RuntimeComponent,
@@ -54,6 +55,21 @@ def _profile(tmp_path: Path, *components: RuntimeComponent) -> tuple[RuntimeProf
     )
 
 
+class FakeListenerProbe:
+    def __init__(self, result: ReadinessResult) -> None:
+        self.result = result
+        self.calls: list[tuple[RuntimeComponent, int, float]] = []
+
+    def readiness(
+        self,
+        component: RuntimeComponent,
+        pid: int,
+        timeout_seconds: float,
+    ) -> ReadinessResult:
+        self.calls.append((component, pid, timeout_seconds))
+        return self.result
+
+
 def test_local_health_accepts_non_server_error_and_rejects_failure(tmp_path: Path) -> None:
     profile, _paths = _profile(tmp_path)
     statuses = iter((200, 503))
@@ -75,28 +91,33 @@ def test_health_rejects_network_error_and_never_requires_gateway_token(tmp_path:
         GatewayConfiguration(bind=GatewayBindConfig(host="10.77.0.1", port=8787))
     )
 
-    def unauthorized(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/capabilities"
-        assert "authorization" not in request.headers
-        return httpx.Response(401, request=request, text="remote-secret-body")
-
+    listener = FakeListenerProbe(ReadinessResult(True))
     healthy = RuntimeComponentHealthProbe(
-        profile, profile.data_dir, transport=httpx.MockTransport(unauthorized)
+        profile,
+        profile.data_dir,
+        transport=httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(AssertionError(request.url))
+        ),
+        listener_probe=listener,
     )
     assert healthy.healthy(RuntimeComponent.GATEWAY, 2)
+    assert listener.calls == [(RuntimeComponent.GATEWAY, 2, 0.5)]
 
+    wrong_listener = FakeListenerProbe(ReadinessResult(False, "ownership_conflict"))
     wrong_status = RuntimeComponentHealthProbe(
         profile,
         profile.data_dir,
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, request=request)),
+        listener_probe=wrong_listener,
     )
     assert not wrong_status.healthy(RuntimeComponent.GATEWAY, 2)
 
-    def offline(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("offline-secret", request=request)
-
+    unavailable_listener = FakeListenerProbe(
+        ReadinessResult(False, "listener_ownership_unverified")
+    )
     unavailable = RuntimeComponentHealthProbe(
-        profile, profile.data_dir, transport=httpx.MockTransport(offline)
+        profile,
+        profile.data_dir,
+        listener_probe=unavailable_listener,
     )
     assert not unavailable.healthy(RuntimeComponent.GATEWAY, 2)
 

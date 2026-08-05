@@ -7,11 +7,11 @@
 
 ## 2. 本地 readiness 与真实总 deadline
 
-- [ ] 2.1 把组件健康协议改为有界结构化 readiness 结果，为每个组件从 monotonic 起点计算总 deadline，并把单次探针、重试 sleep 和 stable window 裁剪到剩余预算
-- [ ] 2.2 保持本地应用环回 HTTP 健康行为；为 Gateway 接入进程专属 listener ownership，macOS 不再用自身 WireGuard HTTP 作为本地就绪硬依赖
-- [ ] 2.3 更新 `start/status` 的本地状态与稳定错误，保证监听器消失会报告失败、任意进程占端口不会成功、hairpin 不通不会误报 `startup_unstable`
-- [ ] 2.4 用 fake clock/probe/sleep 覆盖立即成功、延迟成功、每次探针超时、稳定窗口跨 deadline、进程退出、监听器换主和并发操作，证明墙钟预算不再放大到约 185 秒
-- [ ] 2.5 运行 runtime 单元、分支、类型、格式和覆盖率门禁，提交并推送本地 readiness/deadline 阶段
+- [x] 2.1 将组件健康协议改为有界结构化 readiness 结果，为每个组件从 monotonic 起点计算总 deadline，并把单次探针、重试 sleep 和 stable window 裁剪到剩余预算
+- [x] 2.2 保持本地应用环回 HTTP 健康行为；为 Gateway 接入进程专属 listener ownership，macOS 不再用自身 WireGuard HTTP 作为本地就绪硬依赖；Windows 启动 shim 子进程仅在同一受管进程树且命令行绑定同一组件时归并
+- [x] 2.3 更新 `start/status` 的本地状态与稳定错误，保证监听器消失会报告失败、任意进程占端口不会成功、hairpin 不通不会把自有 Gateway 误报为本地失败
+- [x] 2.4 用 fake clock/probe/sleep 覆盖立即成功、延迟成功、每次探针超时、稳定窗口跨 deadline、进程退出、监听器换主和并发操作，证明墙钟预算不再放大到约 185 秒
+- [x] 2.5 运行 runtime 单元、分支、类型、格式和覆盖率门禁，提交并推送本地 readiness/deadline 阶段
 
 ## 3. status/stop 与 peer 验收分域
 

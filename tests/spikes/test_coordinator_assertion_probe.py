@@ -14,7 +14,6 @@ from spikes.coordinator_assertion_probe import (
     verify_assertion,
 )
 
-NOW = datetime.now(UTC)
 NETWORK = "network_0123456789abcdef0123456789abcdef"
 NODE = "node_0123456789abcdef0123456789abcdef"
 KEY_ID = "coord-signing-2026-07"
@@ -28,7 +27,7 @@ def token_and_keys() -> tuple[str, Ed25519PrivateKey]:
         network_id=NETWORK,
         node_id=NODE,
         audience="tool-gateway",
-        now=NOW,
+        now=datetime.now(UTC),
     )
     return token, private_key
 
@@ -66,23 +65,28 @@ def test_standard_eddsa_assertion_has_fixed_header_claims_and_ttl() -> None:
         ({"pv": 2}, "protocol_mismatch"),
         ({"sub": "invalid"}, "node_malformed"),
         ({"jti": "short"}, "jti_malformed"),
-        ({"exp": NOW + timedelta(seconds=121)}, "ttl_mismatch"),
+        ({"exp_seconds": 121}, "ttl_mismatch"),
     ],
 )
 def test_claim_rejection_rules(change: dict[str, object], expected: str) -> None:
     private_key = Ed25519PrivateKey.generate()
+    now = datetime.now(UTC)
     claims: dict[str, object] = {
         "iss": ISSUER,
         "sub": NODE,
         "net": NETWORK,
         "aud": "tool-gateway",
-        "iat": NOW,
-        "nbf": NOW,
-        "exp": NOW + timedelta(seconds=TTL_SECONDS),
+        "iat": now,
+        "nbf": now,
+        "exp": now + timedelta(seconds=TTL_SECONDS),
         "jti": "a" * 32,
         "pv": 1,
     }
-    claims.update(change)
+    exp_seconds = change.get("exp_seconds")
+    if isinstance(exp_seconds, int):
+        claims["exp"] = now + timedelta(seconds=exp_seconds)
+    else:
+        claims.update(change)
     token = jwt.encode(
         claims,
         private_key,
@@ -102,7 +106,7 @@ def test_expiry_unknown_key_algorithm_tampering_and_malformed_token_fail_closed(
         network_id=NETWORK,
         node_id=NODE,
         audience="tool-gateway",
-        now=NOW - timedelta(minutes=5),
+        now=datetime.now(UTC) - timedelta(minutes=5),
     )
     with pytest.raises(AssertionRejected, match="ExpiredSignatureError"):
         verify(expired, expired_key)
