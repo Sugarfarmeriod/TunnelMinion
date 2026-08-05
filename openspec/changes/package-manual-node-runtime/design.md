@@ -25,7 +25,8 @@ Windows/macOS 常规应用，但进程外层仍是开发者工作流：本地应
 - 不启动、停止、安装或更新模型服务，也不把模型不可达视为节点确定性能力无法启动。
 - 不合并本地应用与 Gateway，不改变监听地址、认证、Coordinator、Provider 或 L3 治理。
 - 不交付 Linux 包、packet relay、自动升级器、公开签名/公证安装器或新 Web 前端。
-- 不迁移、修改或接管 `HomeMac`、B 手写 WireGuard、Murus、防火墙和用户路由。
+- 不迁移、修改或接管 `HomeMac`、B 手写 WireGuard、Murus 和用户路由；本 change 不自动写入
+  Application Firewall，只接受用户通过系统 UI 对精确已验证 executable 完成的当前机器人工授权。
 
 ## Decisions
 
@@ -106,6 +107,13 @@ macOS Keychain。只有用户已显式选择 `restricted-file` 时才继续使�
 得到预期鉴权拒绝；进程在稳定窗口内仍存活。预检和状态只输出稳定错误、端口和摘要，不输出完整
 endpoint、token、命令行秘密或配置正文。
 
+macOS Gateway 的本地生命周期验证与 peer 端到端验收必须分开：B 本机对自身 WireGuard 地址没有
+可用 HTTP hairpin，因此本机探针失败不得把已验证所有权且正在服务 peer 的进程误报为
+`startup_unstable`；反过来，PID 或监听器存在也不得单独映射为生产可用。`runtime start` 必须在
+真实总 deadline 内基于进程/监听器所有权收敛，并把尚无 peer 证据表达为 `peer_unverified`；生产
+accepted 仍由独立 A 端无 token 请求得到 `401` 收口。该语义由独立
+`fix-macos-gateway-runtime-health` change 实现，本 change 不用弱探针临时绕过。
+
 模型 endpoint 只做有界只读健康检查。不可达时模型状态为 `unavailable`，但本地工具、资源页、
 Coordinator 同步和 Gateway 可以正常启动；运行入口不尝试寻找或启动模型程序。
 
@@ -154,9 +162,12 @@ SHA-256 前缀，避免 Windows 深层依赖超过传统路径长度。切换和
 - [日志或状态泄露秘密] → 固定允许字段、受限权限、轮转、秘密扫描和异常正文清洗。
 - [无自启动导致重启后节点离线] → `status` 明确显示 `stopped`，文档提供一个手动入口；这是用户
   已选择的可控性取舍。
-- [macOS 首次运行的冻结程序被应用防火墙挂起入站连接] → 不以“进程存在”或“端口监听”替代
-  Gateway 的远端 `401` 验证，也不在本 change 中静默写入防火墙例外；保留失败证据并恢复既有
-  Gateway，由独立 change 设计稳定代码签名、公证和首次入站信任流程。
+- [macOS 首次运行的冻结程序被应用防火墙挂起入站连接] → 首版已选择当前机器人工授权，用户只对
+  清单中的精确 executable 通过系统 UI 放行，并由 A 端 `401` 复核；Developer ID/公证留给未来
+  对外分发 change。每个新 artifact 仍需重新核对授权，不把路径或监听器当作稳定信任身份。
+- [旧开发 Gateway 无法作为可靠回退] → 切换前先验证并记录当前可用入口，失败时恢复该入口，而不
+  假设源码 checkout、`.venv` 或 `PYTHONPATH` 仍可复现。2026-08-01 复验后的安全入口是正式候选包
+  direct `gateway --data-dir data`，它当前可服务 peer，但尚未由 runtime 管理。
 - [本 change 演变成完整安装器] → 首版只做可重复运行目录与手动 lifecycle；签名、公证、GUI、
   自动更新和系统服务继续留在后续 change。
 
@@ -167,10 +178,11 @@ SHA-256 前缀，避免 Windows 深层依赖超过传统路径长度。切换和
 3. 实现进程记录、`start/status/stop` 与 fake 组件测试，再接入本地应用和独立 Gateway。
 4. 在临时数据目录验证依赖损坏、重复启动、PID 复用、端口占用、部分失败和正常停止。
 5. 构建双平台运行包，在干净用户环境完成安装、手动常驻、重启后手动恢复、替换和保留数据移除。
-6. 最后在现有 A/B 上仅替换启动方式，保存 `HomeMac`、WireGuard、路由、Murus/防火墙、8082、8787、
-   配置和秘密存储摘要的前后不变性；未经另行授权不修改网络状态。
-7. 回滚时停止可证明自有的打包进程，切回上一运行包并复用同一数据目录；身份不明或停止失败时
-   保持现场并进入人工处理。
+6. 最后在现有 A/B 上仅替换启动方式，保存 `HomeMac`、WireGuard、路由、Murus、8082、8787、
+   配置和秘密存储摘要的前后不变性；Application Firewall 只允许用户已明确批准的精确 executable
+   条目发生预期变化，未经另行授权不修改其他网络状态。
+7. 回滚时停止可证明自有的打包进程，恢复切换前已验证可用的程序入口并复用同一数据目录；不得
+   假设旧开发环境可重建，身份不明或停止失败时保持现场并进入人工处理。
 
 ### 2026-08-01 真实 A/B 首次替换结论
 
@@ -186,11 +198,24 @@ SHA-256 前缀，避免 Windows 深层依赖超过传统路径长度。切换和
   包装，而是 macOS Gateway 生产替换的前置独立 change；该 change 完成或用户明确批准防火墙变更
   前，不继续把打包 Gateway 留在生产监听地址上。
 
-## Open Questions
+### 2026-08-01 当前机器人工授权后复验结论
 
-- 独立 macOS 包信任 change 应采用 Developer ID 签名与公证，还是只支持当前机器的显式应用防火墙
-  授权？前者适合稳定升级和分发但需要 Apple 开发者身份，后者成本低但会修改机器策略且新版本
-  可能再次请求许可。
-- Gateway 的本机启动健康与 peer 端到端可达性应如何分层表达？macOS 对自身 WireGuard 地址没有
-  可用的 HTTP hairpin；仅验证进程监听会漏掉应用防火墙阻断，而从 A 探测又不能作为 B 本地
-  `runtime start` 的硬依赖。该问题应随包信任 change 一并确定，不在本 change 中用弱探测掩盖。
+- 用户选择 `local-firewall-authorization` 作为个人 A/B 首发路线，并通过 macOS 系统 UI 允许精确
+  `cee836…` 正式候选 executable；Developer ID/公证不属于当前交付，未来对外分发时另开 change。
+- Windows A 首次等待许可后得到 `401`，后续稳定约 85–100 ms，证明 Application Firewall 与 peer
+  端到端前置条件已通过；Murus、WireGuard、稳定 route、配置、SecretStore、8082 和零自启动边界
+  保持不变，只有获明确授权的防火墙条目发生预期变化。
+- macOS 本机访问自身 `10.77.0.1:8787` 仍超时，导致 `runtime start` 约 185 秒后把实际可服务 peer
+  的 Gateway 误报为 `startup_unstable`。运行包生命周期尚未通过，必须等待独立
+  `fix-macos-gateway-runtime-health` 后重跑，不能把防火墙通过等同于 task 6.3 全部完成。
+- 旧 Python 开发环境已无法重新导入 `tunnelminion`/`uvicorn`。当前安全可用状态改为正式候选包
+  direct Gateway，PID 脱离终端且 A 持续得到 `401`；后续切换必须以该“切换前已验证入口”为回退
+  基线，不能再假设旧 `.venv` 可用。
+
+## Resolved Decisions
+
+- 当前机器人工防火墙授权足以满足个人 A/B；Developer ID/公证延期到未来对外分发 change。
+- 模型关闭只在临时数据目录和临时 profile 中模拟，不停止或改写生产模型。
+- 真实 Coordinator enrollment/sync 因 A/B 当前未配置而明确延期，不阻塞手动运行包收尾；现有
+  fake/集成测试继续覆盖“模型离线不阻止 Coordinator 代码路径”的产品契约。
+- 本地生命周期与 peer 可达性的分层实现属于独立 health fix，不再塞入包信任 change。

@@ -99,8 +99,23 @@ NOT 包含 token、refresh、assertion、私钥、认证 header、标准输入�
 
 #### Scenario: Gateway 正常鉴权
 
-- **WHEN** Gateway 已监听且无 token 的有界健康请求收到预期鉴权拒绝
-- **THEN** `status` 将 Gateway 报告为健康，不需要读取、显示或发送已保存 token
+- **WHEN** Gateway 本地进程与监听器所有权已验证，且批准的 peer 发出的无 token 有界请求收到预期
+  鉴权拒绝
+- **THEN** 端到端状态将 Gateway 报告为可达，不需要读取、显示或发送已保存 token；PID 或监听器
+  单独存在不得等同于该结论
+
+#### Scenario: macOS 本机无法 hairpin 访问自身 WireGuard 地址
+
+- **WHEN** macOS Gateway 进程与私网监听器所有权匹配，但 B 本机对自身 WireGuard 地址的 HTTP
+  请求超时，且尚未取得 peer 证据
+- **THEN** `start` 和 `status` 在真实总 deadline 内把本地生命周期报告为运行、把端到端状态报告为
+  `peer_unverified`，不得误报 `startup_unstable`，也不得把监听器单独标记为生产 accepted
+
+#### Scenario: peer 暂时离线
+
+- **WHEN** 本地进程和监听器所有权仍匹配，但批准的 peer 当前无法完成探测
+- **THEN** 系统保留可安全 `status`/`stop` 的自有进程状态并报告 `peer_unverified` 或
+  `peer_unreachable`，不得因一次外部不可达强杀进程或伪造端到端成功
 
 #### Scenario: 查看失败状态
 

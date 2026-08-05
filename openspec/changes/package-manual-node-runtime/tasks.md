@@ -46,9 +46,12 @@
 
 - [x] 6.1 建立真实 A/B 执行前只读基线，记录生产配置/SecretStore 摘要、HomeMac、B 手写接口、route、Murus/防火墙、8082、8787 和现有进程状态
 - [x] 6.2 在不改网络配置的前提下执行首次 A/B 替换：证明 A 本地应用可由运行包管理；捕获 B 冻结 Gateway 被 macOS Application Firewall 挂起入站 flow 的失败证据；安全停止打包进程、恢复既有 Gateway 并验证 A 重新得到 `401`
-- [ ] 6.3 新建并完成独立 macOS 包信任 change，或取得用户对当前机器应用防火墙例外的明确授权；随后重跑 B Gateway 手动 start/status/stop、终端退出常驻和后续会话手动恢复，禁止用监听器存在替代 peer 端到端 `401`
-- [ ] 6.4 验证模型启用/禁用不改变确定性工具、Coordinator 同步、Gateway 鉴权、进程所有权、停止和恢复决定，并记录健康检查延迟与资源开销
+- [x] 6.3a 记录用户选择当前机器人工防火墙授权，验证精确正式 executable 获准、A peer 无 token `401`、终端脱离常驻，以及 Murus/WireGuard/稳定 route/配置/SecretStore/8082/零自启动不变量；Developer ID/公证延期到未来分发 change
+- [ ] 6.3b 完成独立 `fix-macos-gateway-runtime-health` 后重跑 B Gateway runtime-managed start/status/stop、重复 start、终端退出常驻、新会话 stopped 与手动恢复；本机 hairpin 失败不得误报 `startup_unstable`，监听器存在不得替代 peer `401`
+- [ ] 6.4a 在临时数据目录、临时 profile 和不可达模型 endpoint/fake 模型中验证 `unavailable` 不改变确定性工具、Gateway 鉴权、进程所有权、停止和恢复决定，记录延迟与资源开销；不得停止、改写或读取生产模型秘密
+- [x] 6.4b 明确记录真实 A/B 未配置 Coordinator，真实 enrollment/sync 延期且不作为本 change 收尾门禁；保留既有 fake/集成测试对“模型离线不阻止 Coordinator 代码路径”的契约证据，不伪报真机同步通过
 - [x] 6.5 评估启动成功率、错误参数率、安全拦截率、状态正确率、恢复成功率、启动/停止延迟、CPU/内存、包体积和日志增长；失败率保留真实 B Gateway 未通过结果，不以回退成功冲抵
-- [x] 6.6 保存并对照执行后不变性证据，证明配置、秘密、HomeMac、用户 WireGuard、route、Murus/防火墙、8082 和 8787 未被打包流程改写；对含动态缓存项的 route 全表摘要同时保存稳定的 WireGuard 路由子集
+- [x] 6.6 保存并对照执行后不变性证据，证明配置、秘密、HomeMac、用户 WireGuard、route、Murus、8082 和零自启动未被打包流程改写；Application Firewall 只有用户明确批准的精确正式 executable 许可条目发生预期变化，对含动态缓存项的 route 全表摘要同时保存稳定的 WireGuard 路由子集
 - [x] 6.7 更新安装、数据/秘密边界、手动启动/停止/状态、模型外部依赖、升级回滚、日志和故障诊断文档，明确没有开机自启及 macOS 入站信任前置条件
-- [ ] 6.8 运行全量质量、安全、OpenSpec、双平台构建和 A/B 证据门禁，提交、推送、创建 PR；合并后同步主规格并归档 change
+- [ ] 6.7a 核对并按需更新主 FigJam 的外部模型、当前机器人工防火墙许可、本地生命周期/peer 可达性分层、Coordinator 延期、最后核对日期和当前/历史标记；当前 Figma Starter MCP 调用上限阻止画布读取，解除后补做，仓库文档链接已统一指向主图
+- [ ] 6.8 运行全量质量、安全、OpenSpec、双平台构建、A/B 证据和主架构图门禁，提交、推送、创建 PR；合并后同步主规格并归档 change

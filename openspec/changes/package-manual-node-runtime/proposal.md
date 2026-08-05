@@ -40,4 +40,9 @@ TunnelMinion 的受管节点运行时已经接入常规 Windows/macOS 应用，�
 - 复用现有 `tunnelminion` 本地应用、独立 `gateway` 命令、配置仓储、keyring/受限文件秘密存储和
   graceful shutdown；不新增网络协议或 L3 写入权限。
 - 需要 Windows/macOS 的构建与干净环境验收，证明没有源码 checkout 或开发虚拟环境也能启动，
-  并证明运行包替换前后生产数据、秘密和既有 A/B 网络不变。
+  并证明运行包替换前后生产数据、秘密和既有 A/B 网络不变；只有用户明确批准的精确 macOS
+  executable 防火墙许可条目可以发生预期变化。
+- 真实 macOS B 首发采用用户对精确已验证 executable 的当前机器 Application Firewall 人工授权；
+  Developer ID/公证留给未来对外分发 change。人工授权后的 peer `401` 已通过，但 macOS 本机无法
+  hairpin 访问自身 WireGuard 地址所导致的 runtime 健康误判必须由独立修复 change 收口，不能用
+  “监听器存在”冒充端到端健康。
