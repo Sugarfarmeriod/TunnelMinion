@@ -1,20 +1,21 @@
 ## Why
 
 真实 A/B 替换证明，ad-hoc 签名的 macOS 冻结 Gateway 即使拥有 WireGuard 监听器，入站 HTTP flow
-仍可能被 macOS Application Firewall 挂起，导致运行时把“进程存在”误认为“peer 可用”。在让
-`package-manual-node-runtime` 接管生产 B 前，必须建立明确、可复核且不静默放宽防火墙的包信任与
-端到端健康边界。
+仍可能被 macOS Application Firewall 挂起。用户随后选择当前机器人工授权，并通过系统 UI 允许
+精确 `cee836…` 正式 executable；Windows A 已稳定得到无 token `401`。因此当前 change 不再并行
+设计两套分发路线，而是固化这条个人 A/B 所需的最小信任、证据和升级边界。
 
 ## What Changes
 
-- 为 macOS 运行包建立显式信任决策门：比较“当前机器人工授权”和“Developer ID 签名、公证”两条
-  路线，在用户确认前只做只读预检和证据采集，不修改防火墙或 Keychain。
-- 固定所选路线的构建身份、安装路径、升级行为、失败诊断和回滚契约；任何需要管理员权限、Apple
-  开发者身份或外部凭据的步骤必须由用户明确授权并在日志中保持零秘密。
-- 区分本机进程/监听健康与 WireGuard peer 端到端可达性；Gateway 只有在授权 peer 的无 token
-  请求得到 `401` 后才能通过生产替换验收，禁止用 PID 或监听器存在替代。
-- 在真实 A/B 上重跑首次启动、后续版本替换、终端脱离常驻、停止/恢复和防火墙前后不变量验收；
-  失败时恢复既有 Python Gateway，不覆盖配置、SecretStore、WireGuard、route 或 Murus。
+- 首发 trust mode 固定为 `local-firewall-authorization`：只允许用户通过 macOS 系统 UI 对清单中
+  精确匹配的已验证 executable 人工授权；TunnelMinion 不自动添加、删除或扩大防火墙规则。
+- 把授权证据绑定 package ID、manifest/入口摘要、防火墙可观察状态和 A peer 无 token `401`；不把
+  PID、进程名、目录或监听器单独当作信任证据，也不读取 Gateway token。
+- 每个新 artifact/路径在生产切换前重新核对授权状态和 peer `401`；失败时恢复切换前已验证可用
+  的程序入口，不假设旧 Python checkout、`.venv` 或 `PYTHONPATH` 仍可复现。
+- Developer ID、hardened runtime、公证 ticket 和签名后分发清单延期到未来“对外分发”独立 change。
+- macOS 本机 hairpin 与 runtime 生命周期误判移交 `fix-macos-gateway-runtime-health`，本 change 只
+  保留防火墙信任及 peer 验收证据，不重复设计运行状态机。
 - 非目标：不实现开机自启、系统守护进程、自动关闭防火墙、Murus 管理、WireGuard/route 写入、
   Windows 代码签名、公共安装 GUI 或 Apple 开发者账户采购。
 
@@ -22,18 +23,17 @@
 
 ### New Capabilities
 
-- `macos-runtime-package-trust`: macOS 运行包的显式信任决策、签名/授权证据、首次入站许可、升级身份
-  稳定性、peer 端到端健康验证和安全回退边界。
+- `macos-runtime-package-trust`: 当前机器对精确 macOS 运行包的人工入站许可、artifact/peer 验收
+  证据、新版本重新核对和安全回退边界。
 
 ### Modified Capabilities
 
-无。本 change 为仍在进行的 `manual-node-runtime-operations` 增加 macOS 部署前置能力，不降低其
-Gateway 健康与生产数据保护要求。
+无。本 change 只记录当前机器部署前置和证据，不修改 `manual-node-runtime-operations` 的运行状态
+语义；本地生命周期与 peer 可达性分层由独立 health fix 修改。
 
 ## Impact
 
-- 影响 macOS PyInstaller 构建/签名流水线、运行包清单、安装与预检 CLI、Gateway 健康状态、A/B
-  验收脚本和运维文档。
-- 当前 Mac 没有可用 codesigning identity，`notarytool` 可用但无法在没有 Developer ID 的情况下
-  完成公证；当前机器防火墙授权需要管理员交互。因此实现阶段以用户选择和外部凭据可用性为硬门禁。
+- 影响 macOS 运行包验收证据、升级检查、人工许可与撤销文档；不新增自动防火墙写入或签名 CLI。
+- 当前 Mac 没有可用 codesigning identity；该事实只说明 Developer ID/公证不属于本次个人 A/B
+  交付，不再阻塞当前机器人工授权路线。
 - 不改变 Gateway HTTP 协议、token、SecretStore、Coordinator、模型生命周期或既有网络治理权限。

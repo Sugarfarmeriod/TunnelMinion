@@ -7,12 +7,12 @@ Firewall 日志把该 flow 记录为 `Enqueuing flow without processing queue`�
 Gateway 后，A 立即重新得到预期 `401`。
 
 当前 B 没有可用 codesigning identity，`notarytool` 可用，Gatekeeper 拒绝当前 ad-hoc artifact，
-防火墙管理需要管理员交互。Apple 官方说明，没有处理首次入站提示时连接会继续被拒绝；面向 Mac
-App Store 外分发的软件应使用 Developer ID，并在现代 macOS 上完成公证。当前用户只要求个人 A/B
-节点可用，尚未决定购买/配置 Apple Developer Program 身份还是只授权当前机器。
+防火墙管理需要管理员交互。用户已明确当前只要求个人 A/B 节点可用，并选择
+`local-firewall-authorization`：通过 macOS 系统 UI 允许清单中的精确正式 executable。2026-08-01
+复验中，Windows A 首次等待许可后得到 `401`，后续稳定约 85–100 ms。
 
-本 change 是 `package-manual-node-runtime` 的部署前置项。它不能通过降低 Gateway 健康标准、关闭
-防火墙或改写 Murus/WireGuard 来“通过”验收。
+本 change 固化该当前机器部署前置和证据。它不实现 runtime 健康状态机，不能通过降低 Gateway
+健康标准、关闭防火墙或改写 Murus/WireGuard 来“通过”验收。
 
 参考：
 
@@ -24,35 +24,29 @@ App Store 外分发的软件应使用 Developer ID，并在现代 macOS 上完�
 
 **Goals:**
 
-- 在实现前通过显式决策门选择且只选择一种首发信任路线。
-- 让受信任 macOS Gateway 包从 A 端稳定返回无 token `401`，并在版本替换后保持可诊断。
-- 区分进程所有权、监听器所有权、系统信任和 peer 可达性，禁止弱证据冒充端到端健康。
-- 对所有管理员/Keychain/Apple 凭据操作提供明确授权、确认、审计、执行后验证和安全回退。
+- 固定当前机器人工授权为个人 A/B 首发 trust mode，不再并行实现 Developer ID 路线。
+- 让获准的精确 macOS Gateway artifact 从 A 端稳定返回无 token `401`，并在版本替换后重新核对。
+- 对人工防火墙许可提供明确授权、artifact 摘要、执行后验证、撤销说明和安全回退。
 - 保持生产配置、SecretStore、数据库、WireGuard、route、Murus 和模型进程不变。
 
 **Non-Goals:**
 
 - 不关闭 macOS Application Firewall，不自动创建通配例外，不管理 Murus。
-- 不采购 Apple Developer Program、不导出签名私钥、不把公证凭据写入仓库、日志或运行包。
+- 不实现 Developer ID、hardened runtime、公证 ticket 或签名后分发清单；这些属于未来对外分发 change。
 - 不实现 Windows 签名、图形安装器、自动升级、LaunchAgent/Daemon 或开机自启。
-- 不以本机自身 WireGuard 地址的 HTTP hairpin 作为硬依赖，也不要求 B 本地启动时 A 永久在线。
+- 不设计本机生命周期、hairpin 或 peer 状态机；这些属于 `fix-macos-gateway-runtime-health`。
 - 不改变 Gateway token、HTTP 协议、Coordinator 或模型生命周期。
 
 ## Decisions
 
-### 1. 首个任务是硬决策门，不并行交付两套生产路线
+### 1. 首发路线固定为当前机器人工授权
 
-实现前输出两份最小 spike 证据：
+用户已选择 `local-firewall-authorization`。当前用户通过系统提示或 Firewall Options 明确允许清单中
+精确匹配的已验证 executable；TunnelMinion 只展示 package/摘要、触发有界 peer 请求并在操作后
+只读复核，不自动执行防火墙写入，也不请求或缓存管理员密码。
 
-- `local-firewall-authorization`：当前用户通过系统提示或 Firewall Options 明确允许清单中精确匹配的
-  已验证 executable；记录管理员交互、版本升级后的身份行为和可撤销步骤。
-- `developer-id-notarized`：验证 Developer ID Application identity、hardened runtime、签名顺序、
-  ZIP/PKG 公证与 ticket 校验；私钥和公证认证只存在于批准的 Keychain/CI secret store。
-
-用户必须选择一条首发路线。当前没有签名 identity 时，Developer ID 路线只能形成可执行准备清单，
-不能声称已通过。决策未完成则后续实现和生产切换均停止。
-
-否决方案：同时实现两条路线。它扩大安全表面和验收矩阵，也会掩盖当前个人节点真正需要的最小边界。
+Developer ID、公证和签名后 distribution manifest 不属于本 change。未来需要向其他 Mac 用户分发
+时另开 change，再评估 Apple Developer 身份、CI 凭据、hardened runtime 和 ticket。
 
 ### 2. 信任针对已验证 artifact 身份，不针对任意路径或进程名
 
@@ -61,49 +55,41 @@ App Store 外分发的软件应使用 Developer ID，并在现代 macOS 上完�
 本机路径。安装器先验证运行包清单，再进行信任预检。
 
 本机授权路线只允许把清单中的当前 executable 交给系统 UI/受批准的管理员动作，不接受目录、glob、
-进程名或未验证副本。Developer ID 路线同时验证签名链、hardened runtime、notarization ticket 和
-Gatekeeper assessment；签名后的分发摘要与未签名可重复 payload 摘要分层记录。
+进程名或未验证副本。
 
 否决方案：对 `python`、整个版本目录或所有未来 `tunnelminion` 二进制建立宽泛允许规则。它无法
 证明获准的正是已审计 artifact。
 
 ### 3. 系统信任变更必须由人明确授权，默认命令只读
 
-新增的 trust preflight/status 默认只调用只读的 `codesign`、`spctl` 和防火墙状态查询并输出稳定
-错误码。任何添加/移除应用防火墙条目、导入证书、签名或提交公证的动作必须：
+所有自动检查默认只调用只读的运行包清单、防火墙状态和进程查询并输出稳定结果。任何添加/移除
+应用防火墙条目的动作必须：
 
 1. 展示操作对象的 package ID 与摘要，不展示秘密；
 2. 获得用户对具体动作的明确确认；
-3. 通过系统 UI、管理员终端或批准的 CI 身份执行；
+3. 通过系统 UI 或用户明确批准的管理员步骤执行；
 4. 再次读取系统状态并生成审计证据；
 5. 失败时不启动生产 Gateway，保留原服务并提供撤销步骤。
 
-运行时不得请求、缓存或传递管理员密码。公证凭据不得出现在命令行、进程记录或构建日志中。
+运行时不得请求、缓存或传递管理员密码。
 
-### 4. Gateway 健康拆成四层，生产验收以 peer 证据收口
+### 4. 信任验收由 artifact 身份与 peer `401` 共同收口
 
-状态模型区分：
+当前机器许可只证明系统 UI 已允许精确 executable；生产信任验收还必须由批准的 A/B 验收器从 peer
+建连，并让无 token 请求得到 `401`。peer 探针不读取 Gateway SecretStore；证据绑定 package ID、
+manifest/入口摘要、响应状态、延迟和时间预算，不保存完整响应正文。
 
-1. `process_owned`：PID、启动时间、executable 和实例身份匹配；
-2. `listener_owned`：同一进程拥有配置的 WireGuard 监听地址；
-3. `system_trust`：所选信任路线对当前 artifact 已验证；
-4. `peer_reachable`：批准的 A/B 验收器从 peer 建连，无 token 请求得到 `401`。
-
-B 本地 `runtime start` 可以在前三层通过后报告进程已运行，但 peer 证据缺失时必须显示
-`peer_unverified`，不得把 Gateway 宣称为生产可用。peer 探针只发送无 token 请求，不读取 Gateway
-SecretStore；证据绑定 package ID、peer 节点 ID、响应状态、延迟和时间预算，不保存完整响应正文。
-
-macOS 对自身 WireGuard 地址缺少可用 hairpin，因此本地 HTTP 失败不能退化为笼统 `healthy=true`。
-反过来，A 暂时离线也不能导致 B 杀死已验证的自有进程；这两种状态必须分开表达。
+PID 或监听器存在不能替代该结论。B 本机 hairpin 失败、`peer_unverified`/`peer_reachable` 状态和
+`runtime start/status/stop` 的本地生命周期语义由 `fix-macos-gateway-runtime-health` 负责，本 change
+不再重复定义或实现。
 
 ### 5. 每次版本替换重新评估信任，不继承未经证明的结论
 
-新 package 先并行落地并验证清单。Developer ID 路线可以在 designated requirement 与 ticket 均
-有效时复用发布者信任，但仍必须生成新 artifact 证据和 peer 验收。本机授权路线必须通过 spike
-证明 macOS 对新路径/新 CDHash 的行为；若不能稳定继承，就把每版人工许可列为显式升级步骤。
+新 package 先并行落地并验证清单。当前机器授权不得自动继承到未经证明的新路径或入口摘要；每个
+新 artifact 都先只读核对系统状态，必要时把人工许可列为显式升级步骤，再生成新的 peer 验收证据。
 
-新包未通过 system trust 或 peer `401` 时，安装状态不得把它标为 accepted。控制器停止新包并切回
-上一程序指针，但不回滚 SQLite、节点身份或秘密；随后确认旧 Gateway 恢复 `401`。
+新包未通过精确许可或 peer `401` 时不得标记 accepted。停止可证明属于候选的进程并恢复切换前已
+验证可用的入口，但不回滚 SQLite、节点身份或秘密；不得假设旧 Python 开发环境仍可启动。
 
 ### 6. A/B 证据必须同时证明可用性与不变性
 
@@ -113,30 +99,26 @@ macOS 对自身 WireGuard 地址缺少可用 hairpin，因此本地 HTTP 失败�
 
 ## Risks / Trade-offs
 
-- [本机授权每个版本都重新提示] → spike 必须验证升级身份；若无法稳定继承，在文档和状态中明确
+- [本机授权每个版本都重新提示] → 每版先只读核对；若无法稳定继承，在文档和状态中明确
   `authorization_required`，不静默卡住请求。
-- [Developer ID 需要付费账户和外部凭据] → 把身份可用性设为硬门禁，凭据仅由用户批准的 Keychain/
-  CI secret store 提供，仓库永不生成或保存。
-- [签名破坏逐文件可重复摘要] → 分离未签名 payload 清单与签名后 distribution 清单，两者分别验证。
+- [未来分发需要 Developer ID] → 独立 change 处理账户、签名、公证、CI 凭据和分发清单，不把外部
+  凭据前置条件混入当前个人 A/B。
 - [监听器存在但系统仍阻断] → 状态分层，生产 accepted 必须有 peer `401`。
 - [peer 暂时离线造成误回滚] → peer 未验证与本地进程失败分开；只有明确替换事务才按预算回滚。
 - [为验收误改生产网络] → 前后摘要与精确写入授权；禁止更改 Murus、WireGuard、route 或关闭防火墙。
 
 ## Migration Plan
 
-1. 在非生产端口和临时数据目录复现当前 ad-hoc 入站行为，保存只读信任基线。
-2. 分别验证两条路线的前置条件、用户交互、版本替换和撤销方式，提交决策证据。
-3. 用户选择首发路线后，更新本 design 的确定决策并提交；未选择则停止。
-4. 实现 trust manifest、只读 preflight/status、所选授权/签名适配器和分层健康证据。
-5. 在隔离包上完成首次许可、后续版本、拒绝/过期/篡改、peer 离线与安全回退矩阵。
-6. 固定真实 A/B 前置摘要；停止旧 Gateway，切换候选，完成 A 端 `401` 和常驻验收。
-7. 任一关键项失败，停止可证明自有的新进程，恢复旧 Python Gateway 并复核 `401`；不改生产数据。
-8. 通过双平台回归、秘密扫描、签名/许可证据和 OpenSpec 门禁后，再解除
-   `package-manual-node-runtime` 的 B 节点阻断。
+1. 保存 ad-hoc 包、Application Firewall、Murus/WireGuard、生产配置/SecretStore 和现有入口基线。
+2. 用户确认 `local-firewall-authorization`，通过系统 UI 允许精确正式 executable。
+3. 从 Windows A 发出无 token 请求，保存首次与稳定 `401`、artifact 摘要和不变性证据。
+4. 对每个新 artifact 重复清单验证、只读许可核对、必要的人工授权和 peer `401`。
+5. 任一关键项失败，停止可证明自有的候选并恢复切换前已验证入口；不改生产数据或网络治理。
+6. 更新许可、撤销、升级和故障诊断文档；严格验证、提交并在主架构图中核对授权边界。
 
-## Open Questions
+## Resolved Decisions
 
-- 用户选择 `local-firewall-authorization` 还是 `developer-id-notarized` 作为首发路线？
-- 若选择 Developer ID，哪个 Apple Developer team/CI 环境有权持有证书和公证凭据？
-- peer 验收由人工 A CLI、独立 acceptance runner，还是未来 Coordinator 触发？首版推荐独立 A CLI，
-  避免把尚未配置的 Coordinator 变成运行前置依赖。
+- 当前个人 A/B 首发采用 `local-firewall-authorization`；Developer ID/公证延期到未来分发 change。
+- peer 验收使用独立 A 端请求，不依赖尚未配置的 Coordinator。
+- runtime 本地生命周期与 peer 状态分层属于独立 health fix。
+- 回退目标是切换前已验证入口；旧 Python Gateway 不再被视为可靠恢复前提。

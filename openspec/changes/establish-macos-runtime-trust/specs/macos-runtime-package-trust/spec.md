@@ -1,41 +1,40 @@
 ## ADDED Requirements
 
-### Requirement: macOS 运行包信任路线必须显式选择
+### Requirement: 当前机器信任必须使用显式人工授权
 
-系统 SHALL 在生产 Gateway 替换前要求选择一个版本化 trust mode，并 MUST 验证该模式的全部前置
-条件。未选择、前置条件缺失或同时选择多个模式时，系统 MUST fail closed，且不得修改防火墙、
-Keychain 或生产进程。
+个人 A/B 的 macOS Gateway trust mode SHALL 为 `local-firewall-authorization`。系统 MUST 在生产
+替换前展示已验证 package 的身份摘要并等待用户通过 macOS 系统 UI 对精确 executable 人工授权；
+不得自动添加、删除或扩大防火墙许可。
 
-#### Scenario: 尚未选择信任路线
+#### Scenario: 尚未取得当前机器授权
 
-- **WHEN** 用户对只有 ad-hoc 签名且没有已确认 trust mode 的 macOS 包执行生产信任预检
-- **THEN** 系统返回稳定的 `trust_mode_required`，不添加许可、不导入证书且不停止既有 Gateway
+- **WHEN** 已验证 ad-hoc package 尚未获得当前机器精确 executable 的人工许可
+- **THEN** 验收报告 `authorization_required`，不自动添加许可且不停止切换前已验证可用的 Gateway
 
-#### Scenario: Developer ID 前置身份缺失
+#### Scenario: 请求未来分发信任
 
-- **WHEN** 选择的模式要求 Developer ID，但构建环境没有有效签名身份或公证认证
-- **THEN** 系统返回脱敏的前置条件错误，不生成伪签名 artifact，也不回退为隐式本机防火墙例外
+- **WHEN** 用户要求 Developer ID、hardened runtime 或公证分发能力
+- **THEN** 当前 change 不生成伪签名或索取外部凭据，并要求进入独立的分发信任 change
 
 ### Requirement: 信任必须绑定已验证 artifact
 
-系统 MUST 先验证运行包清单，再把信任证据绑定到 package ID、入口 SHA-256 和所选模式对应的
-代码签名身份摘要。系统 MUST NOT 通过目录、glob、进程名或未验证副本向任意未来二进制授予信任。
+系统 MUST 先验证运行包清单，再把信任证据绑定到 package ID、manifest SHA-256 和入口 SHA-256。
+系统 MUST NOT 通过目录、glob、进程名或未验证副本向任意未来二进制授予信任。
 
 #### Scenario: artifact 在信任后被替换
 
-- **WHEN** 当前入口文件摘要或代码签名身份与已记录信任证据不匹配
+- **WHEN** 当前 package、manifest 或入口文件摘要与已记录信任证据不匹配
 - **THEN** 系统把信任状态报告为 `artifact_mismatch`，不启动生产 Gateway，也不沿用旧版本结论
 
-#### Scenario: 新版本使用同一发布者
+#### Scenario: 新版本落在新路径
 
-- **WHEN** 新 package 通过清单验证且所选模式允许复用稳定发布者身份
-- **THEN** 系统仍为新 artifact 生成独立信任证据，并要求新的 peer 端到端验收后才能标记 accepted
+- **WHEN** 新 package 通过清单验证但路径或入口摘要发生变化
+- **THEN** 系统不自动继承旧许可结论，先只读核对并在必要时要求新的人工许可和 peer `401`
 
 ### Requirement: 系统信任写入必须获得明确授权
 
-添加或移除 macOS 应用防火墙条目、导入签名身份、执行代码签名或提交公证均 MUST 由用户对精确
-动作明确授权。系统 SHALL 默认只执行只读预检，MUST NOT 获取、缓存、回显或记录管理员密码、
-签名私钥和公证凭据。
+添加或移除 macOS 应用防火墙条目 MUST 由用户对精确动作明确授权。自动流程 SHALL 默认只执行
+只读预检，MUST NOT 获取、缓存、回显或记录管理员密码。
 
 #### Scenario: 本机防火墙许可需要管理员操作
 
@@ -45,24 +44,20 @@ Keychain 或生产进程。
 
 #### Scenario: 用户拒绝授权
 
-- **WHEN** 用户拒绝或取消防火墙、Keychain、签名或公证动作
+- **WHEN** 用户拒绝或取消精确 executable 的防火墙许可动作
 - **THEN** 系统保持原策略和既有 Gateway 不变，记录 `trust_authorization_declined` 且不尝试绕过
 
-### Requirement: Gateway 健康必须分层且由 peer 证明端到端可达
+### Requirement: 当前机器信任验收必须由 peer 证明入站许可有效
 
-系统 SHALL 分别报告进程所有权、监听器所有权、系统信任和 peer 可达性。生产候选 MUST 由已批准
-peer 在预算内完成无 token 请求并得到 `401`，才能标记为端到端 accepted；PID 或监听器存在 MUST
-NOT 单独等同于 Gateway 可用。
+生产候选的当前机器信任验收 MUST 由已批准 peer 在预算内完成无 token 请求并得到 `401`；PID、
+进程名、许可条目或监听器存在 MUST NOT 单独证明入站许可有效。本 requirement 不定义 runtime 本地
+生命周期或 peer 状态机。
 
 #### Scenario: 监听器存在但应用防火墙挂起请求
 
 - **WHEN** Gateway 进程拥有 WireGuard 监听器，但 peer TCP 连接后没有在预算内收到 HTTP 响应
-- **THEN** 系统报告 `peer_unreachable` 或 `trust_pending`，不把候选标记 accepted，并保留安全回退入口
-
-#### Scenario: peer 暂时离线
-
-- **WHEN** 本地进程、监听器和系统信任均通过，但指定 peer 当前不可达
-- **THEN** 系统报告 `peer_unverified` 而非伪造成功，且不因单次外部不可达强杀已验证的自有进程
+- **THEN** 信任验收报告 `peer_unreachable` 或 `authorization_pending`，不把许可标记为已验证，并
+  保留切换前已验证入口
 
 #### Scenario: peer 完成无秘密探测
 
@@ -71,14 +66,14 @@ NOT 单独等同于 Gateway 可用。
 
 ### Requirement: 版本替换失败必须恢复服务且保留数据
 
-新 macOS package 未通过清单、系统信任或 peer 验收时，系统 SHALL 停止可证明属于候选的进程并
-允许恢复上一入口。回退 MUST 复用原数据目录与 SecretStore，MUST NOT 回滚数据库、节点身份、
-Gateway token、WireGuard、route、Murus 或模型进程。
+新 macOS package 未通过清单、精确许可或 peer 验收时，系统 SHALL 停止可证明属于候选的进程并
+允许恢复切换前已验证入口。回退 MUST 复用原数据目录与 SecretStore，MUST NOT 回滚数据库、节点
+身份、Gateway token、WireGuard、route、Murus 或模型进程，也不得假设旧开发环境仍可启动。
 
 #### Scenario: 新包首次入站许可失败
 
-- **WHEN** 候选 Gateway 启动后未通过系统信任或 peer `401` 门禁
-- **THEN** 系统停止候选、恢复既有已验证 Gateway，并要求 peer 再次得到 `401` 后才报告回退成功
+- **WHEN** 候选 Gateway 启动后未通过精确许可或 peer `401` 门禁
+- **THEN** 系统停止候选、恢复切换前已验证 Gateway，并要求 peer 再次得到 `401` 后才报告回退成功
 
 #### Scenario: 无法证明候选进程所有权
 
@@ -87,9 +82,9 @@ Gateway token、WireGuard、route、Murus 或模型进程。
 
 ### Requirement: 信任与验收证据不得泄露秘密
 
-信任 manifest、状态、审计和 A/B 证据 MUST NOT 包含管理员密码、签名私钥、公证认证、Gateway
-token、Coordinator refresh、模型 API key、Authorization header 或完整远端响应。证据 SHALL 使用
-摘要、稳定错误码、计数和受限路径标识。
+信任状态、审计和 A/B 证据 MUST NOT 包含管理员密码、Gateway token、Coordinator refresh、模型
+API key、Authorization header 或完整远端响应。证据 SHALL 使用摘要、稳定错误码、计数和受限
+路径标识。
 
 #### Scenario: 生成支持证据包
 
