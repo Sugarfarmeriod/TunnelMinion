@@ -1,0 +1,282 @@
+{
+  "schema_version": "macos-gateway-runtime-health-pending-candidate-evidence.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.1-5.4",
+  "recorded_on": "2026-08-06",
+  "scope": {
+    "production_stop_or_switch_attempted": false,
+    "production_gateway_stopped": false,
+    "production_model_stopped": false,
+    "candidate_started": false,
+    "accepted_pointer_overwritten": false,
+    "firewall_murus_wireguard_route_modified": false,
+    "self_start_changed": false,
+    "docs_questions_read_or_transferred": false,
+    "tasks_modified": false
+  },
+  "source": {
+    "revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "archive_sha256": "9cea59ca69a2f3c130527fba0449b904ac985d7cef72039539c507092f8fe507",
+    "archive_bytes": 4526080,
+    "archive_entries": 633,
+    "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+    "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+    "docs_questions_transferred": false
+  },
+  "retained_candidate": {
+    "confirmation_status": "pending_user_reconfirmation",
+    "old_expected_manifest_used_as_gate": false,
+    "run_id": "20260806-000241-f74ef82a7c7a4611",
+    "logical_run_path": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "resolved_run_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "run_mode": "0700",
+    "run_created_at": "2026-08-06T16:03:01.907433+00:00",
+    "candidate_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "package_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "package_mode": "0700",
+    "package_created_at": "2026-08-06T16:17:33.548613+00:00",
+    "manifest_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/manifest-a.json",
+    "manifest_repeat_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/manifest-b.json",
+    "summary_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/summary-a.json",
+    "summary_repeat_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/summary-b.json",
+    "provenance_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/build-provenance.json",
+    "provenance_sha256": "af4a0b22b4cc0fe2c693fee719cfdf204cac4c72a50a4f85a171337f47b233b4",
+    "provenance_created_at": "2026-08-06T16:17:44.618381+00:00",
+    "retained_top_level": [
+      "build-provenance.json",
+      "governance",
+      "manifest-a.json",
+      "manifest-b.json",
+      "package-a",
+      "source-2b71a39.tar",
+      "summary-a.json",
+      "summary-b.json",
+      "toolchain"
+    ],
+    "cleaned_only": [
+      "venv",
+      "cache",
+      "python-install",
+      "source",
+      "package-b",
+      "build directories",
+      "build logs",
+      "temporary helper scripts"
+    ],
+    "artifact_hashes": {
+      "manifest_a_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+      "manifest_b_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+      "summary_a_sha256": "cb3b2214881916bbe135351069d1cccb95a4c9d96c9b1264ac7a4c97626985a1",
+      "summary_b_sha256": "cb3b2214881916bbe135351069d1cccb95a4c9d96c9b1264ac7a4c97626985a1",
+      "governance_snapshot_sha256": "c0294f8b29e4979dbdbb3cb3ecc506b460b8fa1ec60f95349c5f4cfb32101fa0",
+      "murus_manifest_file_sha256": "01b03de27e4d97e2bbee4eb702013fefd936f710db545d3cd82d4a3979aa4abe",
+      "murus_manifest_canonical_sha256": "85f6ef6af8c403d91004980cd549a44d78b7aad64b97e72647dc199486253a70"
+    },
+    "build": {
+      "layout": "onedir-freeze",
+      "builder": "PyInstaller 6.21.0 onedir",
+      "file_count": 139,
+      "size_bytes": 57909703,
+      "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+      "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+      "manifest_json_equal": true,
+      "summary_json_equal": true,
+      "package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894",
+      "repeat_package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894",
+      "package_tree_equal": true,
+      "manifest_file_hashes_match_package": true,
+      "package_file_count_checked": 139,
+      "package_permission_leak_count": 0,
+      "candidate_process_match_count": 0,
+      "candidate_ports_listened": []
+    },
+    "licenses_and_secrets": {
+      "license_count": 66,
+      "unknown_license_count": 0,
+      "package_secret_scan_findings": 0,
+      "forbidden_program_data_entries": 0
+    },
+    "toolchain": {
+      "uv_version": "0.11.28",
+      "uv_download_url": "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz",
+      "official_checksum_url": "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz.sha256",
+      "uv_archive_sha256": "33540eb7c883ab857eff79bd5ac2aa31fe27b595abecb4a9c003a2c998447232",
+      "uv_checksum_file_sha256": "791cd8289bf3f72b15d8fe1743326754db39cb1c7160f5bda134fe7bcc0335ae",
+      "uv_binary_sha256": "0e71bad1f36bc9762cdecef1932f68ea3db541e45495c60dd474e1c860e21edf",
+      "official_checksum_validated": true,
+      "official_signature_urls_checked": [
+        "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz.asc",
+        "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz.sig",
+        "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz.minisig"
+      ],
+      "official_signature_available": false,
+      "python_path": "/Users/mac/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/bin/python3.11",
+      "python_version": "3.11.15",
+      "machine": "arm64",
+      "system_install_modified": false,
+      "path_modified_persistently": false
+    }
+  },
+  "governance_snapshot": {
+    "snapshot_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/governance/governance-snapshot.json",
+    "snapshot_sha256": "c0294f8b29e4979dbdbb3cb3ecc506b460b8fa1ec60f95349c5f4cfb32101fa0",
+    "snapshot_created_at": "2026-08-06T16:10:53.619406+00:00",
+    "murus": {
+      "manifest_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/governance/murus-file-manifest.json",
+      "entry_count": 12,
+      "all_entries_readable": true,
+      "user_preferences_plists_included": false,
+      "roots": [
+        "/etc/murus",
+        "/Library/Application Support/Murus/Configuration/murus.conf"
+      ],
+      "canonical_manifest_sha256": "85f6ef6af8c403d91004980cd549a44d78b7aad64b97e72647dc199486253a70",
+      "file_sha256": "01b03de27e4d97e2bbee4eb702013fefd936f710db545d3cd82d4a3979aa4abe",
+      "murus_app_version": "2.7",
+      "murus_app_build": "501",
+      "murus_binary_sha256": "0c3f3ebd78f9d26eac24fa6f0aff6110486badc328d1624ba6d6c32625c98cec"
+    },
+    "application_firewall": {
+      "global": {
+        "status": "enabled",
+        "exit_code": 0,
+        "combined_sha256": "9bd6de659c4e91c60b2c6e36e3de9c0bbfb1a4112a2387a96dc201a874704337"
+      },
+      "block_all": {
+        "status": "disabled",
+        "exit_code": 0,
+        "combined_sha256": "66226ea1c71c1ad7d2f118ade4d568a4dc5cb230160ecf8e5c94040dda5d40a5"
+      },
+      "stealth": {
+        "status": "off",
+        "exit_code": 0,
+        "combined_sha256": "b46ad16390cc53e7b9a48658173148223d0f68894ff29ddd7824edd480cabe9b"
+      },
+      "apps_view": {
+        "exit_code": 0,
+        "line_count": 73,
+        "combined_sha256": "ec42f3797ebd630b32b2c5ca23b9755cd7729a81688c434b4cecb05021f9202b"
+      },
+      "logging": {
+        "socketfilterfw_getloggingmode_exit_code": 255,
+        "socketfilterfw_logging_query": "unsupported_by_host_tool",
+        "defaults_loggingenabled_exit_code": 1,
+        "defaults_loggingenabled_query": "domain_or_key_absent"
+      }
+    },
+    "network": {
+      "route_destination": "10.77.0.1",
+      "route_interface": "utun4",
+      "route_command_sha256": "779dd81066f2c6745459ff2a6d8d2c27c2daeb0624368eb03b14e4cffb327e1d",
+      "interface_flags": "UP,POINTOPOINT,RUNNING,MULTICAST",
+      "interface_address_line_count": 5,
+      "interface_command_sha256": "429bd2d25d65d309a061054fea96a0d4b360bed0092ba40f08fd7cb9be7bba85",
+      "scutil_nc_list_sha256": "021164803c05394a29461a23acfa79bebd5cad0b0475b66107e3bf40722ee983",
+      "scutil_services": [
+        {
+          "name": "SFM",
+          "state": "Disconnected",
+          "active": false
+        },
+        {
+          "name": "Shadowrocket",
+          "state": "Disconnected",
+          "active": false
+        }
+      ],
+      "network_extension_list_sha256": "f2ee3aac17cd8757acd9389d8c76b942ba5a844fdd5bda4fd9bb4e0465cac6bf",
+      "network_extension_list_exit_code": 0,
+      "wireguard_cli_available": false
+    },
+    "assessment": {
+      "snapshot_sufficient_for_production_stop": false,
+      "remaining_manual_items": [
+        "No wg CLI or equivalent read-only peer-policy export was available; utun4 and route are observed but peer governance is not fully proven.",
+        "Application Firewall logging state is not exposed by socketfilterfw on this host and the loggingenabled defaults key is absent."
+      ]
+    }
+  },
+  "production_invariance_recheck": {
+    "direct_gateway": {
+      "pid": 53620,
+      "started_at": "Sat Aug 1 13:00:33 2026",
+      "listener": "10.77.0.1:8787",
+      "args_sha256": "afe00a6f44e249660772ccabd2e3dc48a36865cc98090d13e6fbd8ece8ba35c0",
+      "executable": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+      "executable_sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+      "listener_probe_stdout_sha256": "32a4c26c05ffde61375d16ebb369a9d259f1f1c00a63d7d59401eff7216cca53",
+      "unchanged": true
+    },
+    "model": {
+      "pid": 61981,
+      "started_at": "Sat Aug 1 00:20:20 2026",
+      "listener": "*:8082",
+      "args_sha256": "bdbc05ba2ba86a17c9d8b28d5cc859e97ec0eb89d854ae4703b2d1631a90df04",
+      "listener_probe_stdout_sha256": "1b069a9f4c544569fb54c0bb2bbe0ab85a3883bf98c13c324817c86c5ddcd375",
+      "health_status": 200,
+      "unchanged": true
+    },
+    "windows_a_no_authorization": {
+      "endpoint": "http://10.77.0.1:8787/v1/capabilities",
+      "authorization_header_sent": false,
+      "http_status": 401,
+      "elapsed_ms": 187.726
+    },
+    "accepted_pointers": {
+      "install_state": "/Users/mac/Library/Application Support/TunnelMinionRuntime/runtime-install.json",
+      "install_state_sha256": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+      "current_package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+      "previous_package_id": "tunnelminion-0-1-0-darwin-arm64-69b48173ee81",
+      "changed": false
+    },
+    "program_data_secret_separation": {
+      "package_data_secret_separated": true,
+      "secret_values_read_or_output": false
+    },
+    "autostart": {
+      "launchctl_tunnelminion_gateway_matching_lines": 0,
+      "launch_agents_and_daemons_matching_paths": 0
+    },
+    "candidate_ports": {
+      "18880": "no_listener",
+      "18881": "no_listener",
+      "18882": "no_listener",
+      "18883": "no_listener"
+    }
+  },
+  "production_actions": {
+    "direct_gateway_stopped": false,
+    "candidate_started": false,
+    "model_stopped": false,
+    "local_app_stopped": false,
+    "production_data_or_secret_used_for_candidate": false,
+    "production_configuration_changed": false,
+    "network_configuration_changed": false,
+    "accepted_pointer_changed": false
+  },
+  "task_decision": {
+    "5.1": {
+      "status": "blocked",
+      "basis": "Governance snapshot is retained but not sufficient for the production stop gate, and this actual candidate still requires explicit user reconfirmation before any switch."
+    },
+    "5.2": {
+      "status": "not_attempted",
+      "basis": "No production Gateway stop and no candidate start were authorized or executed in this turn."
+    },
+    "5.3": {
+      "status": "not_attempted",
+      "basis": "No candidate lifecycle was started; no duplicate-start, new-session stop, manual recovery, or peer-offline execution metrics were fabricated."
+    },
+    "5.4": {
+      "status": "not_attempted",
+      "basis": "No A/B execution window occurred, so deadline, peer latency, CPU/memory, log growth, state accuracy, and recovery metrics do not exist."
+    }
+  },
+  "quality_gates": {
+    "source_code_changed": false,
+    "full_test_and_static_gate_reference": "evaluations/platform/runtime-health-isolated-stage-2026-08-06.json",
+    "new_candidate_json_and_targeted_scans": "passed",
+    "openspec_strict": "passed",
+    "git_diff_check": "passed"
+  }
+}
