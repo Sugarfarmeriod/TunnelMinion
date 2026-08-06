@@ -1,0 +1,157 @@
+{
+  "schema_version": "macos-gateway-runtime-health-production-stage-evidence.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.1-5.4",
+  "recorded_on": "2026-08-06",
+  "source": {
+    "candidate_source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "remote_branch_checked": "f83897b4211cf991fc3e7635849d0ae8139f998a",
+    "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+    "archive_entries": 633,
+    "archive_bytes": 4526080,
+    "docs_questions_transferred": false
+  },
+  "candidate_preflight": {
+    "run_id": "20260806-5-03788c7cbeae4f16",
+    "user_approval_for_short_switch": true,
+    "uv_version": "0.11.28",
+    "uv_sha256": "33540eb7c883ab857eff79bd5ac2aa31fe27b595abecb4a9c003a2c998447232",
+    "system_python_modified": false,
+    "candidate_id_expected": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "candidate_id_actual": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "manifest_sha256_expected": "3d81361774828ed8a559ea36bc58bb803c43235b388bf266119c77b247bb7f8c",
+    "manifest_sha256_actual": "29278d912b66063e5d56107b74af01a8f530f51ac52f641e52e91d9cd523c42a",
+    "manifest_sha256_repeat": "29278d912b66063e5d56107b74af01a8f530f51ac52f641e52e91d9cd523c42a",
+    "manifest_bytes_equal_within_run": true,
+    "summary_equal_within_run": true,
+    "source_revision_actual": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "source_tree_sha256_actual": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+    "lock_sha256_actual": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+    "file_count": 139,
+    "size_bytes_expected": 60663891,
+    "size_bytes": 60663890,
+    "license_count": 66,
+    "unknown_license_count": 0,
+    "package_secret_scan_findings": 0,
+    "forbidden_program_data_entries": 0,
+    "exact_expected_manifest_match": false,
+    "switch_preflight_passed": false
+  },
+  "production_baseline": {
+    "host": {
+      "ssh_batch_mode": true,
+      "architecture": "arm64",
+      "macos_version": "26.5"
+    },
+    "direct_gateway": {
+      "pid": 53620,
+      "ppid": 1,
+      "started_at": "Sat Aug 1 13:00:33 2026",
+      "listener": "10.77.0.1:8787",
+      "listener_ownership": "verified_by_usr_sbin_lsof",
+      "listener_lsof_sha256": "e42b9205604c7750b212d0199914e9f12120719dde05de777c4bec57da44ce9f",
+      "args_contract": "gateway --data-dir data",
+      "args_sha256": "afe00a6f44e249660772ccabd2e3dc48a36865cc98090d13e6fbd8ece8ba35c0",
+      "working_directory": "/Users/mac/Working-Env/tunnelminion-mvp",
+      "package_root": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637",
+      "executable": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+      "executable_sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+      "executable_stat": "-rwxr-xr-x 16827104 1785527688"
+    },
+    "model": {
+      "pid": 61981,
+      "ppid": 1086,
+      "started_at": "Sat Aug 1 00:20:20 2026",
+      "listener": "*:8082",
+      "args_contract": "llama-server host=0.0.0.0 port=8082",
+      "args_sha256": "bdbc05ba2ba86a17c9d8b28d5cc859e97ec0eb89d854ae4703b2d1631a90df04",
+      "health_status": 200,
+      "health_time_seconds": 0.010618
+    },
+    "windows_a_no_authorization": {
+      "endpoint": "http://10.77.0.1:8787/v1/capabilities",
+      "http_status": 401,
+      "time_seconds": 0.364082,
+      "within_budget": true
+    },
+    "package_data_secret": {
+      "data_root": "/Users/mac/Working-Env/tunnelminion-mvp/data",
+      "data_root_stat": "drwxr-xr-x 384 1785560433",
+      "gateway_config": "/Users/mac/Working-Env/tunnelminion-mvp/data/gateway.json",
+      "gateway_config_sha256": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90",
+      "gateway_config_stat": "-rw-r--r-- 539 1784316654",
+      "secret_store_kind": "restricted-file",
+      "secret_store_marker": "/Users/mac/Working-Env/tunnelminion-mvp/data/gateway-secret-store",
+      "secret_store_marker_sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+      "secret_store_marker_stat": "-rw-r--r-- 15 1784316654",
+      "secret_store_directory": "/Users/mac/Working-Env/tunnelminion-mvp/data/gateway-secrets",
+      "secret_store_directory_stat": "drwx------ 96 1784316654",
+      "program_data_secret_separated": true,
+      "secret_values_read_or_output": false
+    },
+    "accepted_pointers": {
+      "install_state": "/Users/mac/Library/Application Support/TunnelMinionRuntime/runtime-install.json",
+      "install_state_sha256": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+      "install_state_stat": "-rw------- 1186 1785529655",
+      "current_package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+      "previous_package_id": "tunnelminion-0-1-0-darwin-arm64-69b48173ee81",
+      "changed": false
+    },
+    "zero_autostart": {
+      "launchctl_tunnelminion_gateway_matches": 0,
+      "user_launch_agents_matches": 0,
+      "system_launch_agents_matches": 0,
+      "system_launch_daemons_matches": 0
+    }
+  },
+  "network_governance_readonly": {
+    "application_firewall_global_view_sha256": "cdd0c45dfa01e29254b54b6e9077b40bfe859d103ec5aca66174a762c2c1dd1e",
+    "application_firewall_apps_view_sha256": "89027c449c7b4eb9b724b1615a102ee572cca05c84f18e6d35efe2c3ced3174f",
+    "pf_rules_read_exit": 1,
+    "pf_rules_view_sha256": "538d9e511640b24930fefc87a89f9b6a8567194c0597ae5c9eeb6cbd0ad5ce5d",
+    "wireguard_cli_available": false,
+    "route_view_sha256": "d739eb11da61a940f1378bba07fee9f15829287763294f4354b8767f39e73cc1",
+    "route_interface": "utun4",
+    "utun4_view_sha256": "4b89165bb56aace6c7e96ade7806e30c4ce5acb901bd0f80d682c50a3a6f51ba",
+    "murus_app_present": true,
+    "murus_fixed_rule_export_available": false,
+    "snapshot_sufficient_for_production_stop": false
+  },
+  "recovery": {
+    "command": "cd \"/Users/mac/Working-Env/tunnelminion-mvp\" && \"/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion\" gateway --data-dir data",
+    "command_sha256": "167fbe170ae2d7f3ef88ed7236102f70c45ed2f19da9a570f75ea23c602af0cc",
+    "contains_secret": false,
+    "executable_readable": true,
+    "data_readable": true,
+    "config_readable": true,
+    "secret_backend_present": true,
+    "recovery_executed": false
+  },
+  "production_actions": {
+    "direct_gateway_stopped": false,
+    "candidate_started": false,
+    "model_stopped": false,
+    "local_app_stopped": false,
+    "firewall_murus_wireguard_route_changed": false,
+    "accepted_pointers_changed": false,
+    "autostart_changed": false
+  },
+  "blockers": [
+    {
+      "id": "candidate-manifest-mismatch",
+      "required": "3d81361774828ed8a559ea36bc58bb803c43235b388bf266119c77b247bb7f8c",
+      "actual": "29278d912b66063e5d56107b74af01a8f530f51ac52f641e52e91d9cd523c42a",
+      "effect": "Cannot prove exact per-file package match; production stop and candidate start were not attempted."
+    },
+    {
+      "id": "network-governance-snapshot-incomplete",
+      "effect": "pfctl read-only rules view returned exit 1, wg CLI was unavailable, and no safe Murus fixed-rule export was available; production stop gate remains closed."
+    }
+  ],
+  "task_decision": {
+    "5.1": "blocked_before_stop; baseline captured but exact candidate and governance snapshot gates failed",
+    "5.2": "not_attempted; production stop gate not satisfied",
+    "5.3": "not_attempted; no candidate process was started",
+    "5.4": "blocked; no candidate execution metrics exist and must not be fabricated"
+  }
+}
