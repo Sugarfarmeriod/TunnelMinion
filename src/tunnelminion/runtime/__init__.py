@@ -1,5 +1,13 @@
 """节点运行包、手动生命周期与预检边界。"""
 
+from tunnelminion.runtime.acceptance import (
+    PackageEntrypointSummary,
+    PeerAcceptanceProbe,
+    PeerAcceptanceResult,
+    PeerAcceptanceState,
+    is_production_candidate_accepted,
+    package_entrypoint_summary,
+)
 from tunnelminion.runtime.health import (
     ModelHealthResult,
     ModelHealthStatus,
@@ -56,6 +64,10 @@ __all__ = [
     "ModelHealthResult",
     "ModelHealthStatus",
     "OverallRuntimeState",
+    "PackageEntrypointSummary",
+    "PeerAcceptanceProbe",
+    "PeerAcceptanceResult",
+    "PeerAcceptanceState",
     "PreflightCheck",
     "PreflightReport",
     "PreflightStatus",
@@ -74,6 +86,8 @@ __all__ = [
     "default_runtime_data_dir",
     "default_runtime_profile_path",
     "detached_process_options",
+    "is_production_candidate_accepted",
+    "package_entrypoint_summary",
     "probe_external_model",
     "resolve_runtime_paths",
     "runtime_identity_arguments",

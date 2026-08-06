@@ -318,22 +318,42 @@ class ManualLifecycleManager:
         return self._view(record, ComponentRuntimeState.RUNNING, True)
 
     def _stop_component(self, component: RuntimeComponent) -> ComponentRuntimeStatus:
-        current = self._status_component(component)
-        if current.state is ComponentRuntimeState.STOPPED:
-            return current
-        if current.state in {
-            ComponentRuntimeState.STALE,
-            ComponentRuntimeState.OWNERSHIP_CONFLICT,
-        }:
-            return current
-        record = self._records.load(component)
-        if record is None or not current.process_present:
-            return current
-        snapshot = self._adapter.inspect(record.pid)
-        if not self._is_owned(record, snapshot):
-            return self._view(
-                record, ComponentRuntimeState.OWNERSHIP_CONFLICT, snapshot is not None
+        """只按实时进程身份停止，不把 listener/peer 健康当成停止前置。"""
+        try:
+            record = self._records.load(component)
+        except (OSError, ValueError):
+            return ComponentRuntimeStatus(
+                component=component,
+                state=ComponentRuntimeState.FAILED,
+                error_code="process_record_invalid",
             )
+        if record is None or record.lifecycle is ComponentLifecycle.STOPPED:
+            return (
+                ComponentRuntimeStatus(component=component, state=ComponentRuntimeState.STOPPED)
+                if record is None
+                else self._view(record, ComponentRuntimeState.STOPPED, False)
+            )
+
+        snapshot = self._adapter.inspect(record.pid)
+        if snapshot is None or not snapshot.running:
+            state = (
+                ComponentRuntimeState.FAILED
+                if record.lifecycle is ComponentLifecycle.FAILED
+                else ComponentRuntimeState.STALE
+            )
+            return self._view(record, state, False)
+        if not self._is_owned(record, snapshot):
+            return self._view(record, ComponentRuntimeState.OWNERSHIP_CONFLICT, True)
+        latest_snapshot = self._adapter.inspect(record.pid)
+        if latest_snapshot is None or not latest_snapshot.running:
+            state = (
+                ComponentRuntimeState.FAILED
+                if record.lifecycle is ComponentLifecycle.FAILED
+                else ComponentRuntimeState.STALE
+            )
+            return self._view(record, state, False)
+        if not self._is_owned(record, latest_snapshot):
+            return self._view(record, ComponentRuntimeState.OWNERSHIP_CONFLICT, True)
         try:
             self._adapter.terminate(record.pid)
         except OSError:

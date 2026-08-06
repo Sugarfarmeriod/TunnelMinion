@@ -679,3 +679,122 @@ def test_start_checks_deadline_before_each_probe_attempt(tmp_path: Path) -> None
     )
 
     assert manager.start().components[0].error_code == "startup_timeout"
+
+
+def test_status_checks_identity_before_listener_and_stop_ignores_listener_failure(
+    tmp_path: Path,
+) -> None:
+    class ListenerHealth:
+        """模拟监听器消失；停止路径不得再次调用该探针。"""
+
+        def __init__(self) -> None:
+            self.available = True
+            self.calls = 0
+
+        def readiness(
+            self,
+            component: RuntimeComponent,
+            pid: int,
+            timeout_seconds: float,
+        ) -> ReadinessResult:
+            del component, pid, timeout_seconds
+            self.calls += 1
+            return ReadinessResult(self.available, "listener_missing")
+
+        def healthy(self, component: RuntimeComponent, pid: int) -> bool:
+            del component, pid
+            return self.available
+
+    adapter = FakeProcessAdapter()
+    health = ListenerHealth()
+    manager = _manager(tmp_path, adapter, health=health)
+    assert manager.start().state is OverallRuntimeState.RUNNING
+    calls_after_start = health.calls
+
+    health.available = False
+    status = manager.status().components[0]
+    assert status.state is ComponentRuntimeState.FAILED
+    assert status.error_code == "listener_missing"
+    assert health.calls > calls_after_start
+
+    calls_before_stop = health.calls
+    stopped = manager.stop().components[0]
+    assert stopped.state is ComponentRuntimeState.STOPPED
+    assert adapter.terminate_calls == [1001]
+    assert health.calls == calls_before_stop
+
+    identity_adapter = FakeProcessAdapter()
+    identity_health = ListenerHealth()
+    identity_manager = _manager(tmp_path / "identity", identity_adapter, health=identity_health)
+    assert identity_manager.start().state is OverallRuntimeState.RUNNING
+    identity_pid = next(iter(identity_adapter.snapshots))
+    identity_adapter.snapshots[identity_pid] = identity_adapter.snapshots[identity_pid].model_copy(
+        update={"executable": str(tmp_path / "foreign")}
+    )
+    calls_before_conflict = identity_health.calls
+    conflict = identity_manager.status().components[0]
+    assert conflict.state is ComponentRuntimeState.OWNERSHIP_CONFLICT
+    assert identity_health.calls == calls_before_conflict
+
+
+def test_stop_and_status_cover_stopped_invalid_and_exit_race_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty = _manager(tmp_path / "empty", FakeProcessAdapter())
+    assert empty.stop().components[0].state is ComponentRuntimeState.STOPPED
+
+    stopped_adapter = FakeProcessAdapter()
+    stopped = _manager(tmp_path / "stopped", stopped_adapter)
+    assert stopped.start().state is OverallRuntimeState.RUNNING
+    assert stopped.stop().state is OverallRuntimeState.STOPPED
+    assert stopped.status().components[0].state is ComponentRuntimeState.STOPPED
+
+    invalid = _manager(tmp_path / "invalid", FakeProcessAdapter())
+
+    def invalid_record(component: RuntimeComponent) -> None:
+        del component
+        raise OSError("record unreadable")
+
+    monkeypatch.setattr(  # pyright: ignore[reportPrivateUsage]
+        invalid._records,  # pyright: ignore[reportPrivateUsage]
+        "load",
+        invalid_record,
+    )
+    assert invalid.stop().components[0].error_code == "process_record_invalid"
+
+    racing_adapter = FakeProcessAdapter()
+    racing = _manager(tmp_path / "racing", racing_adapter)
+    assert racing.start().state is OverallRuntimeState.RUNNING
+    original_inspect = racing_adapter.inspect
+    inspect_calls = 0
+
+    def disappear_before_terminate(pid: int) -> ProcessSnapshot | None:
+        nonlocal inspect_calls
+        inspect_calls += 1
+        snapshot = original_inspect(pid)
+        return None if inspect_calls == 2 else snapshot
+
+    monkeypatch.setattr(racing_adapter, "inspect", disappear_before_terminate)
+    disappeared = racing.stop().components[0]
+    assert disappeared.state is ComponentRuntimeState.STALE
+    assert racing_adapter.terminate_calls == []
+
+    failed_adapter = FakeProcessAdapter()
+    failed_health = FakeHealth()
+    failed_health.unhealthy.add(RuntimeComponent.LOCAL)
+    failed = _manager(tmp_path / "failed", failed_adapter, health=failed_health)
+    assert failed.start().components[0].state is ComponentRuntimeState.FAILED
+    original_failed_inspect = failed_adapter.inspect
+    failed_calls = 0
+
+    def failed_disappear_before_terminate(pid: int) -> ProcessSnapshot | None:
+        nonlocal failed_calls
+        failed_calls += 1
+        snapshot = original_failed_inspect(pid)
+        return None if failed_calls == 2 else snapshot
+
+    monkeypatch.setattr(failed_adapter, "inspect", failed_disappear_before_terminate)
+    failed_disappeared = failed.stop().components[0]
+    assert failed_disappeared.state is ComponentRuntimeState.FAILED
+    assert failed_disappeared.process_present is False

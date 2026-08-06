@@ -15,10 +15,10 @@
 
 ## 3. status/stop 与 peer 验收分域
 
-- [ ] 3.1 保证 `status` 先验证本地进程/监听器所有权，`stop` 只按 PID、启动时间、executable、组件参数和实例身份安全终止，不访问 peer
-- [ ] 3.2 在独立 A/B acceptance 结果中表达 `peer_unverified`、`peer_reachable`、`peer_unreachable`，绑定 package/入口摘要与无 token `401`，不把结果伪装成 B 本地持久状态
-- [ ] 3.3 覆盖 peer 离线、监听器存在但防火墙挂起、错误 HTTP 状态、响应过大/恶意正文、listener 消失但自有进程仍可 stop、PID 冲突但 peer 可达等矩阵
-- [ ] 3.4 评估本地状态正确率、peer 分类正确率、错误参数率、安全拦截率、start/status/stop 延迟和零秘密输出，提交并推送状态分域阶段
+- [x] 3.1 保证 `status` 先验证本地进程/监听器所有权，`stop` 只按 PID、启动时间、executable、组件参数和实例身份安全终止，不访问 peer
+- [x] 3.2 在独立 A/B acceptance 结果中表达 `peer_unverified`、`peer_reachable`、`peer_unreachable`，绑定 package/入口摘要与无 token `401`，不把结果伪装成 B 本地持久状态
+- [x] 3.3 覆盖 peer 离线、监听器存在但防火墙挂起、错误 HTTP 状态、响应过大/恶意正文、listener 消失但自有进程仍可 stop、PID 冲突但 peer 可达等矩阵
+- [x] 3.4 评估本地状态正确率、peer 分类正确率、错误参数率、安全拦截率、start/status/stop 延迟和零秘密输出，提交并推送状态分域阶段
 
 ## 4. 双平台回归与隔离 package
 
