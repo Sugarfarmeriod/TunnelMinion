@@ -1,5 +1,5 @@
 {
-  "schema_version": "macos-gateway-runtime-health-isolated-stage-evidence.v1",
+  "schema_version": "macos-gateway-runtime-health-isolated-stage-evidence.v2",
   "change": "fix-macos-gateway-runtime-health",
   "stage": "4.1-4.4",
   "recorded_on": "2026-08-06",
@@ -7,8 +7,11 @@
     "host_platform": "windows",
     "host_architecture": "amd64",
     "python_version": "3.11.15",
-    "source_revision": "88a1ecef9963debb0e2a305b8285dd33c0888da4",
-    "docs_questions_read": false
+    "source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+    "docs_questions_read": false,
+    "macos_run_id": "20260806-222447-e8a254c71be6",
+    "windows_run_id": "20260806-win-ab5e8fd68f2b"
   },
   "guardrails": {
     "production_process_touched": false,
@@ -18,7 +21,10 @@
     "network_configuration_changed": false,
     "system_autostart_changed": false,
     "accepted_pointer_overwritten": false,
-    "macos_tool_installed_or_package_uploaded": false
+    "macos_system_toolchain_modified": false,
+    "macos_package_uploaded_to_temporary_run_directory": true,
+    "temporary_profiles_and_data_only": true,
+    "firewall_wireguard_route_modified": false
   },
   "windows_amd64": {
     "package": {
@@ -28,7 +34,7 @@
       "application_version": "0.1.0",
       "file_count": 209,
       "size_bytes": 63161999,
-      "manifest_sha256": "9dae998440aef6acfdb86375cd47b4733a295482684841cc0accd4d67243f63f",
+      "manifest_sha256": "4affef97c47b95f6fc2b581fb2e956993ca757cab85edf29a4a318820f41bbd5",
       "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
       "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
       "license_count": 68,
@@ -38,8 +44,8 @@
       "same_source_revision": true,
       "same_source_tree_sha256": true,
       "same_lock_sha256": true,
-      "repeat_manifest_sha256": "9dae998440aef6acfdb86375cd47b4733a295482684841cc0accd4d67243f63f",
-      "repeat_summary_sha256": "abf3b99109bb2c707e19d093c56492c305dc52e6d10ce8c0c53b9896b84c3b32",
+      "repeat_manifest_sha256": "4affef97c47b95f6fc2b581fb2e956993ca757cab85edf29a4a318820f41bbd5",
+      "repeat_summary_sha256": "5fd7845fc47dbb8ee9b9ba3cda60a28b8d73aa886bcefc200538a40dac603bab",
       "manifest_and_file_hashes_equal": true,
       "summary_equal": true
     },
@@ -48,29 +54,126 @@
       "package_secret_scan_findings": 0,
       "data_directory_is_outside_program": true,
       "secret_store_is_outside_program": true,
-      "staged_without_current_pointer_change": true
+      "staged_without_current_pointer_change": true,
+      "stage_status": "staged",
+      "current_package_id_after_stage": null,
+      "previous_package_id_after_stage": null
     },
     "temporary_runtime": {
       "profile_and_data_are_temporary": true,
-      "gateway_bind": "private-interface:18880",
+      "gateway_bind": "10.77.0.2:18880",
       "local_bind": "127.0.0.1:18881",
       "start": "running",
       "duplicate_start": "running_same_pids",
+      "status_in_new_control_process": "running",
       "local_http_status": 200,
       "gateway_no_authorization_http_status": 401,
-      "survived_control_terminal_exit": true,
+      "control_command_returned_while_components_persisted": true,
       "stop": "stopped",
-      "new_session_status_after_stop": "stopped",
+      "new_control_process_status_after_stop": "stopped",
       "model_status_during_lifecycle": "unconfigured",
       "coordinator_configuration": "absent",
-      "lifecycle_blocked_by_model_or_coordinator": false,
-      "runtime_package_stage": "staged",
-      "runtime_package_current_pointer_after_stage": null,
-      "runtime_package_previous_pointer_after_stage": null
+      "lifecycle_blocked_by_model_or_coordinator": false
+    }
+  },
+  "macos_arm64": {
+    "host": {
+      "ssh_batch_mode": true,
+      "darwin_version": "25.5.0",
+      "architecture": "arm64",
+      "read_only_python": "3.11.15",
+      "system_python_observed": "3.9.6",
+      "lsof_path": "/usr/sbin/lsof"
+    },
+    "temporary_toolchain": {
+      "uv_version": "0.11.28",
+      "uv_download_url": "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz",
+      "official_checksum_url": "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-aarch64-apple-darwin.tar.gz.sha256",
+      "uv_sha256": "33540eb7c883ab857eff79bd5ac2aa31fe27b595abecb4a9c003a2c998447232",
+      "official_checksum_validated": true,
+      "official_signature_used": false,
+      "system_install": false,
+      "path_modified": false,
+      "venv_and_cache_under_run_directory": true,
+      "pyinstaller_version": "6.21.0",
+      "psutil_version": "7.2.2"
+    },
+    "package": {
+      "package_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+      "layout": "onedir-freeze",
+      "builder": "PyInstaller 6.21.0 onedir",
+      "application_version": "0.1.0",
+      "file_count": 139,
+      "size_bytes": 60663891,
+      "manifest_sha256": "3d81361774828ed8a559ea36bc58bb803c43235b388bf266119c77b247bb7f8c",
+      "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+      "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+      "license_count": 66,
+      "unknown_license_count": 0
+    },
+    "reproducible_inputs": {
+      "same_source_revision": true,
+      "same_source_tree_sha256": true,
+      "same_lock_sha256": true,
+      "repeat_manifest_sha256": "3d81361774828ed8a559ea36bc58bb803c43235b388bf266119c77b247bb7f8c",
+      "repeat_summary_sha256": "7a20600e98bc2cbfab2465877ad551133f39f09fe19146ed6b50fc6db540385d",
+      "manifest_and_file_hashes_equal": true,
+      "summary_equal": true
+    },
+    "program_data_secret_separation": {
+      "program_data_entry_hits": 0,
+      "package_secret_scan_findings": 0,
+      "evidence_secret_scan_findings": 0,
+      "data_directory_is_outside_program": true,
+      "secret_store_is_outside_program": true,
+      "staged_without_current_pointer_change": true,
+      "stage_status": "staged",
+      "current_package_id_after_stage": null,
+      "previous_package_id_after_stage": null
+    },
+    "temporary_runtime": {
+      "profile_and_data_are_temporary": true,
+      "gateway_bind": "10.77.0.1:18880",
+      "local_bind": "127.0.0.1:18881",
+      "start": "running",
+      "status_in_new_ssh_session": "running",
+      "duplicate_start": "running_same_pids",
+      "local_http_status": 200,
+      "gateway_listener_ownership": {
+        "command": "/usr/sbin/lsof -nP -a -p <gateway-pid> -iTCP@10.77.0.1:18880 -sTCP:LISTEN",
+        "return_code": 0,
+        "listen_detected": true
+      },
+      "hairpin": {
+        "request": "http://10.77.0.1:18880/v1/capabilities",
+        "curl_exit_code": 28,
+        "http_status": 0,
+        "classification": "hairpin_unavailable"
+      },
+      "stop": "stopped",
+      "new_ssh_session_status_after_stop": "stopped",
+      "post_stop_component_pids_present": false,
+      "model_status_during_lifecycle": "unconfigured",
+      "coordinator_configuration": "absent",
+      "lifecycle_blocked_by_model_or_coordinator": false
+    },
+    "peer_acceptance_observation": {
+      "windows_a_to_macos_b_without_authorization": {
+        "curl_exit_code": 28,
+        "http_status": 0,
+        "classification": "peer_unreachable"
+      },
+      "windows_a_to_macos_b_with_fixture_token": {
+        "curl_exit_code": 28,
+        "http_status": 0,
+        "classification": "peer_unreachable"
+      },
+      "accepted": false,
+      "disposition": "留待第5阶段受控切换；未修改 Application Firewall、Murus、WireGuard 或 route"
     }
   },
   "listener_ownership_and_failure_matrix": {
-    "automated_matrix": {
+    "automated_contract_matrix_on_windows_and_macos": {
       "permission_insufficient": "listener_ownership_unverified",
       "lsof_missing_or_failed": "listener_ownership_unverified",
       "foreign_listener_or_port_conflict": "ownership_conflict_or_not_running",
@@ -79,44 +182,36 @@
       "coordinator_unconfigured": "unconfigured_without_lifecycle_block"
     },
     "automated_matrix_source": "tests/runtime/test_listener.py, tests/runtime/test_lifecycle.py, tests/runtime/test_preflight.py, tests/runtime/test_health.py, tests/runtime/test_control.py, tests/runtime/test_runtime_cli.py",
-    "macos_lsof_read_only_audit": {
-      "darwin_version": "25.5",
-      "architecture": "arm64",
-      "ssh_batch_mode": true,
-      "lsof_path": "/usr/sbin/lsof",
+    "macos_read_only_lsof_audit": {
       "temporary_loopback_port": 18880,
       "fixed_command_return_code": 0,
       "listen_detected": true,
-      "temporary_socket_released": true,
-      "scope": "read-only temporary socket; no project package or production process"
+      "temporary_socket_released": true
     }
   },
-  "macos_arm64": {
-    "status": "blocked",
-    "read_only_audit": {
-      "host_reachable": true,
-      "native_architecture_confirmed": true,
-      "available_system_python": "3.9.6",
-      "available_lsof": true
-    },
-    "missing_required_toolchain": [
-      "Python >= 3.11 runtime matching pyproject",
-      "uv",
-      "psutil",
-      "PyInstaller"
-    ],
-    "package_built": false,
-    "package_lifecycle_executed": false,
-    "reason": "当前提交没有可在该 Darwin arm64 主机上使用的 Python/依赖/打包工具链；按安全边界未安装工具、未上传或执行 package，不能用历史 package 或 lsof 单项替代本次 arm64 package 验收。"
+  "diagnostics": {
+    "legacy_clean_acceptance_helper": {
+      "status": "not_used_as_formal_package_gate",
+      "reason": "旧 helper 仍传入 --component local/gateway；正式冻结 CLI 使用 runtime-child。该参数不匹配退出 2，正式 package lifecycle 已用 runtime configure/start/status/stop 独立复核。"
+    }
   },
   "quality_gates": {
     "windows": {
       "ruff_format": "passed",
       "ruff": "passed",
       "pyright": "0 errors, 0 warnings, 0 informations",
-      "full_tests_collected": 817,
-      "full_tests_passed": 816,
+      "full_tests_collected": 818,
+      "full_tests_passed": 817,
       "full_tests_skipped": 1,
+      "coverage": "100%"
+    },
+    "macos": {
+      "ruff_format": "passed",
+      "ruff": "passed",
+      "pyright": "0 errors, 0 warnings, 0 informations",
+      "full_tests_collected": 818,
+      "full_tests_passed": 818,
+      "full_tests_skipped": 0,
       "coverage": "100%"
     },
     "offline_security_evaluation": {
@@ -124,22 +219,46 @@
       "safety_failures": 0,
       "passed": true
     },
-    "repository_secret_scan": {
-      "findings": 0,
-      "docs_questions_in_scope": false,
+    "secret_scans": {
+      "windows_repository_findings": 0,
+      "windows_package_findings": 0,
+      "macos_source_findings": 0,
+      "macos_package_findings": 0,
+      "evidence_findings": 0,
       "passed": true
     },
     "dependency_license_scan": {
-      "package_license_count": 68,
+      "windows_package_license_count": 68,
+      "macos_package_license_count": 66,
       "unknown_license_count": 0,
       "passed": true
     },
-    "openspec_strict": "passed"
+    "openspec_strict": "passed",
+    "json_parse": "passed",
+    "git_diff_check": "passed",
+    "known_non_gate_warning": "Starlette/httpx deprecation warning"
   },
   "task_decision": {
-    "4.1": "blocked_by_missing_macos_arm64_package",
-    "4.2": "blocked_by_missing_macos_arm64_package",
-    "4.3": "windows_matrix_passed_and_macos_lsof_partial_only",
-    "4.4": "windows_gates_passed_but_dual_platform_gate_blocked"
+    "4.1": {
+      "status": "passed_and_checked",
+      "basis": "双平台新 revision package、manifest/许可/重复输入、程序数据秘密分离及 accepted 指针不变均有证据。"
+    },
+    "4.2": {
+      "status": "passed_and_checked",
+      "basis": "macOS 隔离 package 的 start/status/stop、重复 start、跨 SSH 会话、hairpin 不可用均通过；Windows 当前 package 的 Gateway 401 与本地健康 200 无回归。A peer 401 属于独立 peer 结果及第5阶段，不是本 task 前置。"
+    },
+    "4.3": {
+      "status": "passed_and_checked",
+      "basis": "Windows/macOS 全量测试覆盖权限不足、工具缺失、端口冲突、进程替换、模型不可达和 Coordinator 未配置；真实 macOS lsof 所有权探针也通过，模型/Coordinator 未阻塞本地 lifecycle。"
+    },
+    "4.4": {
+      "status": "passed_and_checked_with_coordinator_push_handoff",
+      "basis": "双平台全量测试、100% coverage、Ruff、format、Pyright、离线安全、许可、构建/仓库/证据秘密扫描和 OpenSpec strict 均通过。"
+    }
+  },
+  "out_of_scope_stage_5_evidence": {
+    "peer_result": "peer_unreachable",
+    "accepted": false,
+    "reason": "当前隔离网络中 Windows A 到临时 macOS B:18880 的无 token 和 fixture token 请求均超时；不改变生产网络治理，不将 timeout 当作 401 或 valid capabilities。"
   }
 }

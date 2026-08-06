@@ -22,10 +22,10 @@
 
 ## 4. 双平台回归与隔离 package
 
-- [ ] 4.1 构建新的 Windows amd64 与 macOS arm64 版本化 package，验证清单、许可、可重复输入和程序/数据/秘密分离，不覆盖当前 accepted 指针
-- [ ] 4.2 在临时 profile、临时数据目录和非生产端口验证 macOS package 的 start/status/stop、重复 start、终端脱离、新会话与 hairpin 不可用；验证 Windows Gateway/本地应用没有回归
-- [ ] 4.3 覆盖 listener ownership 权限不足、工具缺失、端口冲突、进程替换、模型不可达和 Coordinator 未配置，确认模型/Coordinator 不成为本地 lifecycle 前置
-- [ ] 4.4 运行 Windows/macOS 全量测试、100% 覆盖率、Ruff、format、Pyright、离线安全评估、依赖许可、构建/仓库/证据秘密扫描和 OpenSpec strict，提交并推送隔离验收阶段
+- [x] 4.1 构建新的 Windows amd64 与 macOS arm64 版本化 package，验证清单、许可、可重复输入和程序/数据/秘密分离，不覆盖当前 accepted 指针
+- [x] 4.2 在临时 profile、临时数据目录和非生产端口验证 macOS package 的 start/status/stop、重复 start、终端脱离、新会话与 hairpin 不可用；验证 Windows Gateway/本地应用没有回归
+- [x] 4.3 覆盖 listener ownership 权限不足、工具缺失、端口冲突、进程替换、模型不可达和 Coordinator 未配置，确认模型/Coordinator 不成为本地 lifecycle 前置
+- [x] 4.4 运行 Windows/macOS 全量测试、100% 覆盖率、Ruff、format、Pyright、离线安全评估、依赖许可、构建/仓库/证据秘密扫描和 OpenSpec strict，提交并推送隔离验收阶段
 
 ## 5. 真实 A/B 受控切换
 
