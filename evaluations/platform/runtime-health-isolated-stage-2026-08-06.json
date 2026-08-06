@@ -1,0 +1,145 @@
+{
+  "schema_version": "macos-gateway-runtime-health-isolated-stage-evidence.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "4.1-4.4",
+  "recorded_on": "2026-08-06",
+  "execution": {
+    "host_platform": "windows",
+    "host_architecture": "amd64",
+    "python_version": "3.11.15",
+    "source_revision": "88a1ecef9963debb0e2a305b8285dd33c0888da4",
+    "docs_questions_read": false
+  },
+  "guardrails": {
+    "production_process_touched": false,
+    "production_secret_store_read": false,
+    "production_ports_used": false,
+    "production_configuration_changed": false,
+    "network_configuration_changed": false,
+    "system_autostart_changed": false,
+    "accepted_pointer_overwritten": false,
+    "macos_tool_installed_or_package_uploaded": false
+  },
+  "windows_amd64": {
+    "package": {
+      "package_id": "tunnelminion-0-1-0-win32-amd64-fdb02b656ab9",
+      "layout": "onedir-freeze",
+      "builder": "PyInstaller 6.21.0 onedir",
+      "application_version": "0.1.0",
+      "file_count": 209,
+      "size_bytes": 63161999,
+      "manifest_sha256": "9dae998440aef6acfdb86375cd47b4733a295482684841cc0accd4d67243f63f",
+      "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+      "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+      "license_count": 68,
+      "unknown_license_count": 0
+    },
+    "reproducible_inputs": {
+      "same_source_revision": true,
+      "same_source_tree_sha256": true,
+      "same_lock_sha256": true,
+      "repeat_manifest_sha256": "9dae998440aef6acfdb86375cd47b4733a295482684841cc0accd4d67243f63f",
+      "repeat_summary_sha256": "abf3b99109bb2c707e19d093c56492c305dc52e6d10ce8c0c53b9896b84c3b32",
+      "manifest_and_file_hashes_equal": true,
+      "summary_equal": true
+    },
+    "program_data_secret_separation": {
+      "program_data_entry_hits": 0,
+      "package_secret_scan_findings": 0,
+      "data_directory_is_outside_program": true,
+      "secret_store_is_outside_program": true,
+      "staged_without_current_pointer_change": true
+    },
+    "temporary_runtime": {
+      "profile_and_data_are_temporary": true,
+      "gateway_bind": "private-interface:18880",
+      "local_bind": "127.0.0.1:18881",
+      "start": "running",
+      "duplicate_start": "running_same_pids",
+      "local_http_status": 200,
+      "gateway_no_authorization_http_status": 401,
+      "survived_control_terminal_exit": true,
+      "stop": "stopped",
+      "new_session_status_after_stop": "stopped",
+      "model_status_during_lifecycle": "unconfigured",
+      "coordinator_configuration": "absent",
+      "lifecycle_blocked_by_model_or_coordinator": false,
+      "runtime_package_stage": "staged",
+      "runtime_package_current_pointer_after_stage": null,
+      "runtime_package_previous_pointer_after_stage": null
+    }
+  },
+  "listener_ownership_and_failure_matrix": {
+    "automated_matrix": {
+      "permission_insufficient": "listener_ownership_unverified",
+      "lsof_missing_or_failed": "listener_ownership_unverified",
+      "foreign_listener_or_port_conflict": "ownership_conflict_or_not_running",
+      "process_identity_replacement": "ownership-conflict",
+      "model_unreachable": "unavailable_without_lifecycle_block",
+      "coordinator_unconfigured": "unconfigured_without_lifecycle_block"
+    },
+    "automated_matrix_source": "tests/runtime/test_listener.py, tests/runtime/test_lifecycle.py, tests/runtime/test_preflight.py, tests/runtime/test_health.py, tests/runtime/test_control.py, tests/runtime/test_runtime_cli.py",
+    "macos_lsof_read_only_audit": {
+      "darwin_version": "25.5",
+      "architecture": "arm64",
+      "ssh_batch_mode": true,
+      "lsof_path": "/usr/sbin/lsof",
+      "temporary_loopback_port": 18880,
+      "fixed_command_return_code": 0,
+      "listen_detected": true,
+      "temporary_socket_released": true,
+      "scope": "read-only temporary socket; no project package or production process"
+    }
+  },
+  "macos_arm64": {
+    "status": "blocked",
+    "read_only_audit": {
+      "host_reachable": true,
+      "native_architecture_confirmed": true,
+      "available_system_python": "3.9.6",
+      "available_lsof": true
+    },
+    "missing_required_toolchain": [
+      "Python >= 3.11 runtime matching pyproject",
+      "uv",
+      "psutil",
+      "PyInstaller"
+    ],
+    "package_built": false,
+    "package_lifecycle_executed": false,
+    "reason": "当前提交没有可在该 Darwin arm64 主机上使用的 Python/依赖/打包工具链；按安全边界未安装工具、未上传或执行 package，不能用历史 package 或 lsof 单项替代本次 arm64 package 验收。"
+  },
+  "quality_gates": {
+    "windows": {
+      "ruff_format": "passed",
+      "ruff": "passed",
+      "pyright": "0 errors, 0 warnings, 0 informations",
+      "full_tests_collected": 817,
+      "full_tests_passed": 816,
+      "full_tests_skipped": 1,
+      "coverage": "100%"
+    },
+    "offline_security_evaluation": {
+      "scenarios": 8,
+      "safety_failures": 0,
+      "passed": true
+    },
+    "repository_secret_scan": {
+      "findings": 0,
+      "docs_questions_in_scope": false,
+      "passed": true
+    },
+    "dependency_license_scan": {
+      "package_license_count": 68,
+      "unknown_license_count": 0,
+      "passed": true
+    },
+    "openspec_strict": "passed"
+  },
+  "task_decision": {
+    "4.1": "blocked_by_missing_macos_arm64_package",
+    "4.2": "blocked_by_missing_macos_arm64_package",
+    "4.3": "windows_matrix_passed_and_macos_lsof_partial_only",
+    "4.4": "windows_gates_passed_but_dual_platform_gate_blocked"
+  }
+}
