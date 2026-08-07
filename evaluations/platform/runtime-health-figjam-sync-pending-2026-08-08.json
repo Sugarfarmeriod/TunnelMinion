@@ -1,0 +1,83 @@
+{
+  "schema_version": "runtime-health-figjam-sync-pending.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "recorded_on": "2026-08-08",
+  "figjam": {
+    "file_key": "A8vpOsb7jTIx8TozXVmMCY",
+    "board_title": "TunnelMinion 全景架构与框架分工",
+    "inspection_succeeded": true,
+    "write_applied": false,
+    "task_6_2_complete": false,
+    "blocker": "Figma Starter 计划的 MCP tool call limit 拒绝写入"
+  },
+  "required_updates": [
+    {
+      "node_id": "10:211",
+      "purpose": "Gateway 节点角色和当前/目标状态",
+      "target_text": "Gateway（节点可选）\n当前 direct；目标 runtime-managed"
+    },
+    {
+      "node_id": "10:214",
+      "purpose": "Coordinator 当前范围",
+      "target_text": "Coordinator 控制面（延期）"
+    },
+    {
+      "node_id": "10:221",
+      "purpose": "客户管理防火墙边界",
+      "target_text": "私网 Tool / Operation Gateway\n客户负责防火墙放行"
+    },
+    {
+      "node_id": "10:253",
+      "purpose": "peer 数据面与可替换传输",
+      "target_text": "peer 数据面：认证 HTTP over 可路由私网"
+    },
+    {
+      "node_id": "11:296",
+      "purpose": "手工 lifecycle 与零自启动",
+      "target_text": "手工启动本地应用与可选 Gateway\n无开机自启"
+    },
+    {
+      "node_id": "5:145",
+      "purpose": "请求流程中的 Gateway 角色",
+      "target_text": "Gateway：服务节点可选部署\nstatic / managed"
+    },
+    {
+      "node_id": "5:148",
+      "purpose": "请求流程中的可替换网络",
+      "target_text": "可路由私网：当前 WireGuard\n也可 LAN / 企业 VPN"
+    },
+    {
+      "node_id": "5:151",
+      "purpose": "去除 B 专属语义",
+      "target_text": "服务节点：L0 检查与受控 L2 操作"
+    }
+  ],
+  "metadata_updates": [
+    {
+      "node_id": "10:200",
+      "target_name": "TunnelMinion 当前系统架构（2026-08-08）"
+    },
+    {
+      "node_id": "11:299",
+      "target_name": "手工运行控制（无开机自启）"
+    },
+    {
+      "node_id": "12:352",
+      "target_text": "维护约定：架构相关 OpenSpec 阶段关闭前必须核对本图。最后核对：2026-08-08。"
+    },
+    {
+      "node_id": "12:355",
+      "target_text": "主图 A｜当前系统架构（2026-08-08）"
+    },
+    {
+      "node_id": "12:356",
+      "target_text": "主图 B｜手工运行包生命周期（2026-08-08）"
+    }
+  ],
+  "preserved_facts": {
+    "external_model_already_shown": true,
+    "local_lifecycle_and_peer_data_plane_already_shown": true,
+    "historical_overview_marker_already_shown": true
+  },
+  "completion_rule": "额度恢复后原子写入、重新读取同一节点并截图核对；完成前不得勾选 6.2。"
+}
