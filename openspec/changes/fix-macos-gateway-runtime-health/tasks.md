@@ -29,14 +29,14 @@
 
 ## 5. 真实 A/B 受控切换
 
-- [ ] 5.1 取得用户对实际保留的精确 package 与短时 Gateway 切换的确认，固定当前 direct Gateway 恢复命令、配置 endpoint 的 A peer `401`、package/配置/SecretStore、客户管理防火墙规则或只读视图摘要、route/接口、8082/8787、进程与零自启动基线；不把缺少厂商专用 VPN CLI、完整 peer 导出或不影响放行策略的 logging 状态单独当作 blocker
+- [ ] 5.1 取得用户对实际保留的精确 package 与短时 Gateway 切换的确认，固定当前 direct Gateway 恢复命令、配置 endpoint 的 A peer `401`、package/配置/SecretStore、客户管理防火墙规则或只读视图摘要、route/接口、8082/8787、进程与零自启动基线；防火墙日志可安全读取时只保存脱敏摘要，不把没有 Murus、缺少日志权限、厂商专用 VPN CLI、完整 peer 导出或不影响放行策略的 logging 状态单独当作 blocker
 - [ ] 5.2 在不改客户管理的防火墙、VPN、WireGuard 或 route 且不停止生产模型的前提下，停止当前 direct Gateway、启动 runtime-managed 候选并退出控制终端，验证 B 本地 running 与配置 endpoint 上的 A peer `401` 同时成立
 - [ ] 5.3 验证重复 start、status、正常 stop、新会话保持 stopped、手动恢复、listener 消失后的安全 stop 和 peer 暂时离线；任一失败恢复切换前已验证入口并复核 `401`
-- [ ] 5.4 保存相关防火墙规则/只读视图与 route/接口摘要的执行后不变性、deadline/首次与稳定 peer 延迟、CPU/内存、日志增长、状态正确率和恢复成功率证据，不以 direct fallback 成功冲抵 runtime-managed 失败
+- [ ] 5.4 保存相关防火墙规则/只读视图与 route/接口摘要的执行后不变性、deadline/首次与稳定 peer 延迟、CPU/内存、运行日志增长、状态正确率和恢复成功率证据；防火墙日志仅在已有安全接口和授权时作为脱敏的可选诊断，不以其缺失阻塞验收，也不以 direct fallback 成功冲抵 runtime-managed 失败
 
 ## 6. 文档、架构图与交付
 
-- [ ] 6.1 更新本地 lifecycle/peer accepted 区别、真实总 deadline、listener ownership、客户负责防火墙放行、传输方式无关、当前机器人工许可、升级回退和故障诊断文档，明确无开机自启且旧 Python 环境不是可靠退路；局域网自动发现留给独立 change
+- [ ] 6.1 更新本地 lifecycle/peer accepted 区别、真实总 deadline、listener ownership、客户负责防火墙放行、传输方式无关、可选防火墙日志诊断、当前机器人工许可、升级回退和故障诊断文档，明确没有 Murus 或日志权限仍可运行、无开机自启且旧 Python 环境不是可靠退路；局域网自动发现与跨厂商防火墙日志适配分别留给独立 change
 - [ ] 6.2 核对并按需更新主 FigJam 的本地生命周期/peer 数据面、客户管理防火墙、可替换网络传输、外部模型、Coordinator 延期、当前 direct/目标 runtime-managed 状态、最后核对日期和当前/历史标记；若无需改图，在验收证据中说明原因
 - [ ] 6.3 运行最终全量质量、安全、双平台 package、真实 A/B、文档链接、主架构图和 OpenSpec 门禁，提交并推送最终阶段，创建 PR
 - [ ] 6.4 合并后同步 `macos-gateway-runtime-health` 主规格，完成 `package-manual-node-runtime` 6.3b 的真实复验并分别归档 change

@@ -15,11 +15,15 @@ WireGuard 地址，导致 `runtime start` 等待约 185 秒后把实际可服务
   单独存在也不得标记 peer accepted，真实生产验收继续要求 A 无 token请求得到 `401`。
 - peer 地址与底层传输解耦：当前 A/B 环境使用 WireGuard 地址，但同一契约也适用于客户提供的局域网、
   企业 VPN 或其他可路由地址；TunnelMinion 不把 WireGuard 或自动局域网发现作为本 change 的前置。
+- 防火墙日志在可安全取得时作为脱敏的可选诊断，帮助区分规则拦截、路由和监听问题；没有 Murus、
+  没有日志接口或没有读取权限时，继续以真实 peer 请求判定可达性，不阻塞本地运行或 A/B 验收。
 - `status` 与 `stop` 只依赖可证明的本地进程所有权，peer 离线或尚未验收不得阻止状态读取和安全停止。
 - 修复后重跑 fake/集成矩阵与真实 B 的 runtime-managed start/status/stop、重复 start、终端脱离、
   新会话 stopped、手动恢复和 A peer `401`。
 - 非目标：不自动修改客户管理的防火墙、VPN、WireGuard 或 route，也不实现局域网自动发现；不实现
   Developer ID/公证、Coordinator、模型生命周期、开机自启或新的 Gateway HTTP 协议。
+- 非目标：不在本 change 实现 Murus、macOS、Windows 或第三方防火墙的通用日志采集适配器；该能力
+  若产品化应拆成独立 change，并保持权限最小化与日志脱敏。
 
 ## Capabilities
 
