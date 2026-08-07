@@ -1,0 +1,229 @@
+{
+  "schema_version": "macos-gateway-runtime-health-production-final.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.2-5.4",
+  "recorded_on": "2026-08-08",
+  "planning_baseline": {
+    "remote_revision": "c670987664dd7a1adbccd61dc13a210b912f5e5f",
+    "source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "detached_head_used": "c670987664dd7a1adbccd61dc13a210b912f5e5f",
+    "docs_questions_read_or_transferred": false
+  },
+  "scope": {
+    "final_production_switch_attempted": true,
+    "production_direct_gateway_stopped": true,
+    "production_direct_gateway_restored": true,
+    "production_model_stopped": false,
+    "preexisting_local_app_stopped": false,
+    "candidate_started": true,
+    "candidate_accepted_or_installed": false,
+    "accepted_pointer_overwritten": false,
+    "firewall_murus_wireguard_route_modified": false,
+    "production_config_or_secret_store_modified": false,
+    "autostart_modified": false,
+    "raw_secret_token_or_response_body_retained": false,
+    "network_write_performed": false,
+    "final_child_run_removed": true
+  },
+  "retained_candidate": {
+    "candidate_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "logical_parent_run": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "physical_parent_run": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "package_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "executable_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion",
+    "manifest_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/manifest-a.json",
+    "summary_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/summary-a.json",
+    "provenance_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/build-provenance.json",
+    "manifest_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+    "summary_sha256": "cb3b2214881916bbe135351069d1cccb95a4c9d96c9b1264ac7a4c97626985a1",
+    "provenance_sha256": "af4a0b22b4cc0fe2c693fee719cfdf204cac4c72a50a4f85a171337f47b233b4",
+    "executable_sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5",
+    "package_mode": "drwx------",
+    "executable_mode": "-rwx------",
+    "package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894",
+    "unknown_license_count": 0,
+    "package_secret_scan_findings": 0,
+    "retained_after_final_attempt": true
+  },
+  "temporary_attempt": {
+    "logical_run_path": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/production-ab-final-20260808-ef93aec2565c489f9a291be2a335d283",
+    "physical_run_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/production-ab-final-20260808-ef93aec2565c489f9a291be2a335d283",
+    "run_mode": "0700",
+    "profile_sha256": "af8150b92a0cd1b9771cfd01c4c1c098c0363ec2a2610624b480000f7441ab2b",
+    "profile_local_port": 18880,
+    "gateway_port": 8787,
+    "production_config_reference": "read_only_symlink_to_existing_data_gateway_json",
+    "production_secret_store_reference": "read_only_symlinks_to_existing_marker_and_secret_directory",
+    "start_json_sha256": "be5b48cd1ae4d80927c922d1c94f3f462afd9d04e2f8b8dd762a72602ad44d48",
+    "start_json_size": 1408,
+    "start_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "recovery_log_sha256": "b4526510142a1e63cafb99ea83847c9997a5bb086d1668142a0d26ba6d5ea19a",
+    "cleanup": {
+      "child_mode_verified": true,
+      "boundary_parent_verified": true,
+      "candidate_processes_before_cleanup": 0,
+      "local_listener_18880_before_cleanup": false,
+      "child_removed": true,
+      "parent_candidate_run_retained": true
+    }
+  },
+  "governance": {
+    "algorithm": "runtime-health-governance-v2; sorted JSON metadata entries; full includes path,type,mode,uid,gid,size,mtime_ns,sha256; content includes path,sha256",
+    "file_count": 12,
+    "historical_full_canonical_sha256": "85f6ef6af8c403d91004980cd549a44d78b7aad64b97e72647dc199486253a70",
+    "historical_drift_to_previous_pre_attempt_sha256": "06950f64a6d9a15b73f3fd8ea5412a5aa2d689c1c0bf6975ba8bb6af4560a999",
+    "historical_drift_attribution": "Observed before this attempt; source unknown; not attributed to this attempt and not rebaselined.",
+    "pre_attempt_full_sha256": "afda314f23072e7c77ea72f59d83411118aec2f35aad9e6887d91ea529ca00e0",
+    "pre_attempt_content_sha256": "d8cdda00e7974fc35daabe899735f04f3b84a99ff07639ca2c49ea7f3f73e07a",
+    "pre_attempt_stable_two_samples": true,
+    "post_restore_full_sha256": "afda314f23072e7c77ea72f59d83411118aec2f35aad9e6887d91ea529ca00e0",
+    "post_restore_content_sha256": "d8cdda00e7974fc35daabe899735f04f3b84a99ff07639ca2c49ea7f3f73e07a",
+    "post_restore_stable_two_samples": true,
+    "post_restore_matches_pre_attempt": true,
+    "murus_app": {
+      "version": "2.7",
+      "build": "501",
+      "binary_sha256": "0c3f3ebd78f9d26eac24fa6f0aff6110486badc328d1624ba6d6c32625c98cec"
+    },
+    "application_firewall_read_only": {
+      "global_sha256": "f22cd6b73adda58064466357432da52a057ea7181e3fcc167e383fc1c1025eb4",
+      "block_all_sha256": "bba5991926a17529c0646473929e0752f07c02a68ca9fa8b15941c0e3d0c3a57",
+      "stealth_sha256": "268b94f91b2081e4167092bf78f9bba9cb73bf0d078659a9c20640319ffae6c6",
+      "apps_sha256": "14728285d4ef4ab44ac2a34510f6e97e0078aae48066e6a789afc20c4c45d7a3",
+      "logging_query": "unsupported_or_absent_optional_diagnostic"
+    },
+    "network_read_only": {
+      "route_10_77_0_1_sha256": "f65eb34d8eb91ec5e6f7d782b67d5826a0d8b98a2ef02e80038b15b5d22b3f87",
+      "utun4_sha256": "434961fd6b66881cb75c6963f46edc118fbba68456829b46527607bab3907f81",
+      "scutil_nc_sha256": "8a8019eeee7eccb8b31338359dd08c083fbe36825235d395105b0a281ca96480",
+      "network_extensions_sha256": "5baa47738eecf85ddb3a81ebc2816ebe4f2f064669f15d3097e356f428e65364"
+    }
+  },
+  "production_baseline_and_final": {
+    "direct_executable": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+    "direct_executable_sha256_before_and_after": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+    "direct_pid_before": 29106,
+    "direct_pid_final": 57246,
+    "direct_listener_final": "10.77.0.1:8787 IPv4",
+    "recovery_command": [
+      "tunnelminion",
+      "gateway",
+      "--data-dir",
+      "data"
+    ],
+    "recovery_cwd": "/Users/mac/Working-Env/tunnelminion-mvp",
+    "model_pid": 61981,
+    "model_listener": "*:8082",
+    "model_health_status": 200,
+    "preexisting_local_app_pid": 60508,
+    "preexisting_local_app_listener": "127.0.0.1:8787",
+    "accepted_install_sha256_before_and_after": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+    "accepted_current_package_id": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+    "accepted_previous_package_id": "tunnelminion-0-1-0-darwin-arm64-69b48173ee81",
+    "production_config_sha256_before_and_after": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90",
+    "production_secret_store_marker_sha256_before_and_after": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+    "autostart_matching_entries_before_and_after": 0,
+    "reserved_alt_ports_empty_after": [18880, 18881, 18882, 18883],
+    "candidate_process_count_after": 0,
+    "a_final_no_authorization": {
+      "http_status": 401,
+      "elapsed_seconds": 0.090483,
+      "authorization_header_sent": false,
+      "response_body_discarded": true
+    }
+  },
+  "production_switch": {
+    "hard_deadline_seconds": 180,
+    "transition_elapsed_seconds": 33.086,
+    "direct_stop_signal": "SIGTERM to preverified PID 29106 only",
+    "terminal_detached_launch": true,
+    "candidate_start": {
+      "runtime_state": "running",
+      "startup_elapsed_seconds": 9.834,
+      "gateway_pid": 57106,
+      "local_pid": 57113,
+      "gateway_listener": "10.77.0.1:8787 IPv4",
+      "local_listener": "127.0.0.1:18880 IPv4",
+      "process_identity": "fixed retained candidate executable and runtime component arguments"
+    },
+    "listener_ownership": {
+      "gateway": "verified by /usr/sbin/lsof for candidate PID 57106",
+      "local": "verified by /usr/sbin/lsof for candidate PID 57113",
+      "hairpin": "not used as local lifecycle prerequisite"
+    },
+    "a_peer_probes": [
+      {"http_status": 401, "elapsed_seconds": 0.109061},
+      {"http_status": 401, "elapsed_seconds": 0.090127},
+      {"http_status": 401, "elapsed_seconds": 0.089149}
+    ],
+    "a_peer_acceptance": {
+      "status": "peer_reachable",
+      "accepted": true,
+      "authorization_header_sent": false,
+      "response_body_discarded": true,
+      "stable_401": true
+    },
+    "duplicate_start": {
+      "exit_code": 0,
+      "runtime_state": "running",
+      "gateway_pid_same": true,
+      "local_pid_same": true
+    },
+    "new_ssh_session_status": {
+      "runtime_state": "running",
+      "gateway_pid": 57106,
+      "local_pid": 57113
+    },
+    "runtime_metrics": {
+      "gateway_cpu_percent": 0.1,
+      "local_cpu_percent": 0.1,
+      "gateway_memory_percent": 0.3,
+      "local_memory_percent": 0.3,
+      "gateway_rss_kb": 112032,
+      "local_rss_kb": 113216,
+      "gateway_log_size_before_stop_bytes": 330,
+      "local_log_size_before_stop_bytes": 331,
+      "gateway_log_size_after_stop_bytes": 613,
+      "local_log_size_after_stop_bytes": 614,
+      "gateway_log_growth_bytes": 283,
+      "local_log_growth_bytes": 283
+    },
+    "peer_offline_classification": {
+      "fixture_only": true,
+      "endpoint_value_retained": false,
+      "status": "peer_unreachable",
+      "accepted": false,
+      "error_code": "peer_timeout",
+      "latency_ms": 604,
+      "authorization_header_sent": false,
+      "response_body_discarded": true
+    },
+    "stop_and_recovery": {
+      "guarded_runtime_stop_exit_code": 0,
+      "new_ssh_session_stopped": true,
+      "gateway_process_present_after_stop": false,
+      "local_process_present_after_stop": false,
+      "listener_disappeared_before_direct_recovery": true,
+      "safe_stop_after_listener_disappeared_exit_code": 0,
+      "recovery_direct_pid": 57246,
+      "recovery_listener_verified": true,
+      "recovery_a_no_authorization_status": 401,
+      "recovery_success": true
+    },
+    "orchestration_note": "The offline probe correctly returns process exit 1 for not-accepted peer_unreachable; the first guard treated that expected exit as an exception, then finally performed the normal runtime stop and direct recovery. No candidate restart or fourth production switch occurred; stopped status and safe stop were reverified in a new SSH session."
+  },
+  "task_decision": {
+    "5.1": {"status": "completed", "checkbox_changed": false, "basis": "Existing confirmed candidate, recovery command and stable pre-stop baselines were reverified."},
+    "5.2": {"status": "completed", "checkbox_changed": true, "basis": "Candidate local runtime and both listener owners were running after detached start, and three real Windows no-token probes returned 401."},
+    "5.3": {"status": "completed", "checkbox_changed": true, "basis": "Duplicate start preserved both PIDs; new-session running and stopped status, guarded normal stop, listener disappearance, safe stop, manual direct recovery and peer offline classification were verified."},
+    "5.4": {"status": "completed", "checkbox_changed": true, "basis": "Pre/post governance, firewall/route/interface summaries, deadline, peer latency, CPU/memory, log growth, state and recovery evidence all passed; direct fallback did not replace candidate A/B evidence."}
+  },
+  "quality_gates": {
+    "json_validation": "passed",
+    "security_scan": "passed",
+    "openspec_strict": "passed",
+    "git_diff_check": "passed",
+    "prior_cross_platform_package_and_full_static_gates": "passed_in_retained_candidate_provenance"
+  }
+}
