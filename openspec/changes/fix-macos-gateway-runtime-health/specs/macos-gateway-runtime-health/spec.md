@@ -6,9 +6,9 @@
 进程所有权、预期监听器所有权和稳定窗口通过；生产 accepted MUST 另外要求已批准 peer 的无 token
 请求在预算内得到 `401`。PID 或监听器存在 MUST NOT 单独等同于 peer 可达。
 
-#### Scenario: macOS 本机 hairpin 不可用但 peer 可达
+#### Scenario: macOS 本机私网 hairpin 不可用但 peer 可达
 
-- **WHEN** macOS runtime 拥有 Gateway 进程与配置监听器，B 本机访问自身 WireGuard 地址超时，而 A
+- **WHEN** macOS runtime 拥有 Gateway 进程与配置监听器，B 本机访问自身私网地址超时，而 A
   的无 token 请求得到 `401`
 - **THEN** 本地 lifecycle 报告 `running`，A/B 验收报告 `peer_reachable`，系统不得把 Gateway 误报为
   `startup_unstable`
@@ -24,10 +24,16 @@
 - **WHEN** 本地 Gateway 已通过进程与监听器所有权验证，但没有与当前 package/入口匹配的 peer 证据
 - **THEN** 本地操作保持可用，A/B 验收状态为 `peer_unverified`，不得伪造 `peer_reachable`
 
+#### Scenario: peer 使用非 WireGuard 的可路由地址
+
+- **WHEN** 部署者通过局域网、企业 VPN 或其他网络提供配置的 Gateway endpoint，A 的无 token 请求
+  在预算内得到 `401`
+- **THEN** A/B 验收报告 `peer_reachable`；系统不得要求 WireGuard、`wg` CLI 或自动发现作为前置
+
 ### Requirement: Gateway 本地就绪必须验证监听器所有权
 
 系统 MUST 验证配置的私网监听地址和端口由记录中的 Gateway PID 拥有，并 MUST 在稳定窗口后复核。
-macOS MUST NOT 把对自身 WireGuard 地址的 HTTP 请求作为本地就绪硬依赖；无法读取监听器所有权时
+macOS MUST NOT 把对自身配置私网地址的 HTTP 请求作为本地就绪硬依赖；无法读取监听器所有权时
 MUST fail closed，且不得退化为“端口被任意进程监听即成功”。
 
 #### Scenario: 监听器属于其他进程
@@ -90,15 +96,18 @@ executable、组件参数和实例身份决定能否正常终止。peer 未验�
 
 ### Requirement: 健康修复不得改写生产安全边界
 
-本 change MUST NOT 自动修改 Application Firewall、Murus、WireGuard、route、Gateway 绑定、生产
-配置、SecretStore、模型进程或自启动项。探针与状态输出 MUST NOT 读取或输出 token、Authorization
-header、完整响应正文、完整 endpoint 或不可信异常正文。
+本 change MUST NOT 自动修改客户管理的 Application Firewall、Murus、VPN、WireGuard、route、
+Gateway 绑定、生产配置、SecretStore、模型进程或自启动项，也 MUST NOT 要求某一种 VPN 或发现机制。
+探针与状态输出 MUST NOT 读取或输出 token、Authorization header、完整响应正文、完整 endpoint
+或不可信异常正文。
 
 #### Scenario: 完成隔离与真实验收
 
 - **WHEN** 修复通过 macOS 隔离测试和真实 A/B runtime-managed Gateway 验收
-- **THEN** 只有运行包进程/状态/受限日志和获明确授权的切换发生变化，Murus、WireGuard、稳定 route、
-  配置、SecretStore、模型 8082 与零自启动证据保持不变
+- **THEN** 只有运行包进程/状态/受限日志和获明确授权的切换发生变化；相关防火墙规则或只读视图摘要、
+  route/接口摘要、配置、SecretStore、模型 8082 与零自启动证据保持不变。缺少厂商专用 CLI、完整
+  peer 导出或不影响放行策略的 logging 状态 MUST NOT 单独否决已证明无网络写入且前后 endpoint
+  可达性一致的验收
 
 #### Scenario: peer 返回恶意或过大正文
 

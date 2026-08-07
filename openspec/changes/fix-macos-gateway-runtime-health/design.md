@@ -6,6 +6,10 @@
 30 秒的 `startup_timeout_seconds` 实际约 185 秒才退出。此时 Windows A 已能稳定得到 `401`，但
 runtime 把 Gateway 记录为 `startup_unstable`。
 
+WireGuard 只是当前 A/B 环境提供可路由私网地址的方式，不是 Gateway、peer 验收或本地生命周期的
+产品依赖。客户也可以提供局域网地址、企业 VPN 地址或其他可达 endpoint；地址发现与网络接入由部署
+环境负责，本 change 不实现自动发现或自动开防火墙。
+
 不能把 Gateway 探针简单改成“进程还在”或“端口存在”：首次防火墙未授权时，进程和监听器都存在，
 但 A 的 HTTP flow 被挂起。当前机器人工授权已经解决系统信任前置；本 change 只修复本地生命周期
 和 peer 验收的职责划分。
@@ -22,10 +26,13 @@ Python 开发环境缺少依赖，不能作为可靠回退。修复实现与测�
 - 让启动预算成为从命令开始计时的真实 monotonic deadline。
 - 同时防止 hairpin 假阴性和“只看监听器”假阳性。
 - 保持现有进程所有权、秘密、数据目录、零自启动和网络不写入边界。
+- 让 peer 验收只依赖已配置 endpoint 的真实响应，不依赖特定 VPN 工具或传输实现。
 
 **Non-Goals:**
 
-- 不自动修改 Application Firewall、Murus、WireGuard、route 或 Gateway 绑定。
+- 不自动修改客户管理的 Application Firewall、Murus、VPN、WireGuard、route 或 Gateway 绑定；
+  部署者负责放行配置的程序、地址和端口。
+- 不实现 mDNS/Bonjour、广播扫描或其他局域网自动发现；该能力如需要应拆成独立 change。
 - 不实现 Developer ID/公证或新的 trust manifest；当前机器人工许可由独立 trust change 负责。
 - 不要求 A、Coordinator 或模型在 B 执行本地 `start/status/stop` 时在线。
 - 不新增 Gateway HTTP endpoint，不读取 token，不把 peer 证据写入长期记忆。
@@ -46,7 +53,7 @@ Python 开发环境缺少依赖，不能作为可靠回退。修复实现与测�
 否决方案：把 peer 探测塞进 B 的 `runtime start`。它会让 A/Coordinator 变成本地启动硬依赖，并在
 peer 临时离线时错误回滚健康自有进程。
 
-### 2. Gateway 本地就绪使用进程专属监听器所有权，不使用自身 WireGuard HTTP
+### 2. Gateway 本地就绪使用进程专属监听器所有权，不使用自身私网地址 HTTP
 
 本地应用继续使用环回 HTTP。Gateway 使用新的有界 `GatewayListenerOwnershipProbe`：验证配置地址/
 端口存在、监听 socket 属于记录中的 PID，并在稳定窗口后复核所有权。macOS 适配器优先使用当前
@@ -56,8 +63,9 @@ API 权限不足，使用固定 executable、固定参数、无 shell
 的 `lsof -nP -a -p <pid> -iTCP@<host>:<port> -sTCP:LISTEN` 降级。实现前必须用隔离进程验证两条路径；
 均不可用时返回稳定的 `listener_ownership_unverified`，不得退化为端口级成功。
 
-监听器所有权只证明本地进程就绪，不证明 Application Firewall 或 peer 可达。A 端 acceptance runner
-仍必须发送无 Authorization header 的有界 `/v1/capabilities` 请求并得到 `401`。
+监听器所有权只证明本地进程就绪，不证明客户防火墙或 peer 可达。A 端 acceptance runner 仍必须向
+配置的 endpoint 发送无 Authorization header 的有界 `/v1/capabilities` 请求并得到 `401`；该
+endpoint 可以来自 WireGuard、普通局域网或其他由部署者提供的可路由网络。
 
 否决方案：把配置 host 改成 `127.0.0.1` 做自检。Gateway 没有环回监听器，临时新增监听会扩大攻击面
 并改变既有协议边界。
@@ -89,6 +97,11 @@ fake clock/sleep，证明墙钟耗时不超过预算加固定调度容差，而�
 任何失败都停止可证明属于候选的进程，恢复切换前已验证入口并复核 A `401`；不得依赖已损坏的旧
 Python `.venv`，不得回滚 SQLite、节点身份、配置或 SecretStore。
 
+切换前后只需证明本 change 没有改写客户管理的网络边界：固定相关防火墙规则文件或只读视图摘要、
+当前 route/接口摘要以及真实 A peer `401`，执行后逐项复核。缺少某个厂商专用 CLI、完整 peer 配置
+导出或不影响放行策略的 logging 状态，不能单独阻塞切换；前提是执行路径不包含任何网络写操作，
+配置 endpoint 在切换前可达，并且相关可观测摘要在切换后保持不变。
+
 ## Risks / Trade-offs
 
 - [监听器所有权适配器在 macOS 权限不足] → 先做进程专属 API/lsof 隔离 spike；两者都失败时返回
@@ -106,7 +119,8 @@ Python `.venv`，不得回滚 SQLite、节点身份、配置或 SecretStore。
 2. 接线 Gateway 本地就绪，保留本地应用环回 HTTP 行为，更新脱敏 CLI 状态与兼容测试。
 3. 在 macOS 隔离 package/数据目录验证 hairpin 不通、listener 归属、超时、PID 冲突和安全停止。
 4. 运行 Windows/macOS 全量、覆盖率、秘密、OpenSpec 和打包门禁；更新运维文档与主 FigJam。
-5. 固定真实 A/B 与当前 direct Gateway 基线，受控切换新 package，完成本地 lifecycle 与 A peer `401`。
+5. 固定真实 A/B、当前 direct Gateway 和客户管理网络边界的可观测基线，受控切换新 package，完成
+   本地 lifecycle 与配置 endpoint 上的 A peer `401`。
 6. 成功后更新 `package-manual-node-runtime` 6.3b；失败时恢复切换前已验证入口并保留证据。
 
 ## Open Questions

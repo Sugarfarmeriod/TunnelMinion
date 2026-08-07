@@ -13,11 +13,13 @@ WireGuard 地址，导致 `runtime start` 等待约 185 秒后把实际可服务
   远超 `startup_timeout_seconds` 的等待。
 - macOS 本机 hairpin 不可用时，不把所有权匹配且监听正常的 Gateway 误报为 failed；PID 或监听器
   单独存在也不得标记 peer accepted，真实生产验收继续要求 A 无 token请求得到 `401`。
+- peer 地址与底层传输解耦：当前 A/B 环境使用 WireGuard 地址，但同一契约也适用于客户提供的局域网、
+  企业 VPN 或其他可路由地址；TunnelMinion 不把 WireGuard 或自动局域网发现作为本 change 的前置。
 - `status` 与 `stop` 只依赖可证明的本地进程所有权，peer 离线或尚未验收不得阻止状态读取和安全停止。
 - 修复后重跑 fake/集成矩阵与真实 B 的 runtime-managed start/status/stop、重复 start、终端脱离、
   新会话 stopped、手动恢复和 A peer `401`。
-- 非目标：不自动修改 Application Firewall、Murus、WireGuard 或 route；不实现 Developer ID/公证、
-  Coordinator、模型生命周期、开机自启或新的 Gateway HTTP 协议。
+- 非目标：不自动修改客户管理的防火墙、VPN、WireGuard 或 route，也不实现局域网自动发现；不实现
+  Developer ID/公证、Coordinator、模型生命周期、开机自启或新的 Gateway HTTP 协议。
 
 ## Capabilities
 
@@ -35,6 +37,7 @@ WireGuard 地址，导致 `runtime start` 等待约 185 秒后把实际可服务
 
 - 影响 `tunnelminion.runtime.control`、`tunnelminion.runtime.lifecycle`、runtime 状态模型、CLI 脱敏输出
   以及相应单元/集成/A-B 验收证据。
-- 不改变运行包格式、Gateway token/SecretStore、生产数据目录、模型进程、Coordinator 或网络治理。
+- 不改变运行包格式、Gateway token/SecretStore、生产数据目录、模型进程、Coordinator 或客户管理的
+  网络治理；部署者负责让配置的 Gateway 地址和端口可达，TunnelMinion 负责检测并报告结果。
 - 当前生产 B 继续由已获人工许可的正式候选 direct Gateway 提供服务；在修复通过真实验收前不得
   假装它已经由 runtime 管理，也不得停止该入口而没有已验证回退方案。
