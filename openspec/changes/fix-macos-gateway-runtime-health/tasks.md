@@ -36,7 +36,7 @@
 
 ## 6. 文档、架构图与交付
 
-- [ ] 6.1 更新本地 lifecycle/peer accepted 区别、真实总 deadline、listener ownership、客户负责防火墙放行、传输方式无关、可选防火墙日志诊断、当前机器人工许可、升级回退和故障诊断文档，明确没有 Murus 或日志权限仍可运行、无开机自启且旧 Python 环境不是可靠退路；局域网自动发现与跨厂商防火墙日志适配分别留给独立 change
+- [x] 6.1 更新本地 lifecycle/peer accepted 区别、真实总 deadline、listener ownership、客户负责防火墙放行、传输方式无关、可选防火墙日志诊断、当前机器人工许可、升级回退和故障诊断文档，明确没有 Murus 或日志权限仍可运行、无开机自启且旧 Python 环境不是可靠退路；局域网自动发现与跨厂商防火墙日志适配分别留给独立 change
 - [ ] 6.2 核对并按需更新主 FigJam 的本地生命周期/peer 数据面、客户管理防火墙、可替换网络传输、外部模型、Coordinator 延期、当前 direct/目标 runtime-managed 状态、最后核对日期和当前/历史标记；若无需改图，在验收证据中说明原因
 - [ ] 6.3 运行最终全量质量、安全、双平台 package、真实 A/B、文档链接、主架构图和 OpenSpec 门禁，提交并推送最终阶段，创建 PR
 - [ ] 6.4 合并后同步 `macos-gateway-runtime-health` 主规格，完成 `package-manual-node-runtime` 6.3b 的真实复验并分别归档 change
