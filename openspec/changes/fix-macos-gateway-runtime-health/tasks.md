@@ -29,7 +29,7 @@
 
 ## 5. 真实 A/B 受控切换
 
-- [ ] 5.1 取得用户对实际保留的精确 package 与短时 Gateway 切换的确认，固定当前 direct Gateway 恢复命令、配置 endpoint 的 A peer `401`、package/配置/SecretStore、客户管理防火墙规则或只读视图摘要、route/接口、8082/8787、进程与零自启动基线；防火墙日志可安全读取时只保存脱敏摘要，不把没有 Murus、缺少日志权限、厂商专用 VPN CLI、完整 peer 导出或不影响放行策略的 logging 状态单独当作 blocker
+- [x] 5.1 取得用户对实际保留的精确 package 与短时 Gateway 切换的确认，固定当前 direct Gateway 恢复命令、配置 endpoint 的 A peer `401`、package/配置/SecretStore、客户管理防火墙规则或只读视图摘要、route/接口、8082/8787、进程与零自启动基线；防火墙日志可安全读取时只保存脱敏摘要，不把没有 Murus、缺少日志权限、厂商专用 VPN CLI、完整 peer 导出或不影响放行策略的 logging 状态单独当作 blocker
 - [ ] 5.2 在不改客户管理的防火墙、VPN、WireGuard 或 route 且不停止生产模型的前提下，停止当前 direct Gateway、启动 runtime-managed 候选并退出控制终端，验证 B 本地 running 与配置 endpoint 上的 A peer `401` 同时成立
 - [ ] 5.3 验证重复 start、status、正常 stop、新会话保持 stopped、手动恢复、listener 消失后的安全 stop 和 peer 暂时离线；任一失败恢复切换前已验证入口并复核 `401`
 - [ ] 5.4 保存相关防火墙规则/只读视图与 route/接口摘要的执行后不变性、deadline/首次与稳定 peer 延迟、CPU/内存、运行日志增长、状态正确率和恢复成功率证据；防火墙日志仅在已有安全接口和授权时作为脱敏的可选诊断，不以其缺失阻塞验收，也不以 direct fallback 成功冲抵 runtime-managed 失败

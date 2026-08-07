@@ -1,0 +1,277 @@
+{
+  "schema_version": "macos-gateway-runtime-health-production-attempt-evidence.v2",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.1-5.4",
+  "recorded_on": "2026-08-08",
+  "planning_baseline": {
+    "remote_tracking_revision": "15ce0fefe62b1e3900a5e45b0536fe6b36361a51",
+    "source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+    "docs_questions_read_or_transferred": false
+  },
+  "scope": {
+    "production_stop_or_switch_attempted": true,
+    "production_gateway_stopped": true,
+    "production_gateway_restored": true,
+    "production_model_stopped": false,
+    "preexisting_local_app_stopped": false,
+    "candidate_started": true,
+    "candidate_accepted_or_installed": false,
+    "accepted_pointer_overwritten": false,
+    "firewall_murus_wireguard_route_modified": false,
+    "production_config_or_secret_store_modified": false,
+    "self_start_changed": false,
+    "docs_questions_read_or_transferred": false,
+    "tasks_modified": true,
+    "tasks_change_scope": "Synced latest 15ce0fe wording for tasks 5.1-5.4 and 6.1-6.2; checked only independently completed 5.1."
+  },
+  "retained_candidate": {
+    "confirmation_status": "user_confirmed_for_short_ab_attempt",
+    "candidate_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "logical_run_path": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "resolved_run_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "run_mode": "0700",
+    "run_created_at": "2026-08-06T16:03:01.907433+00:00",
+    "package_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "package_mode": "0700",
+    "package_created_at": "2026-08-06T16:17:33.548613+00:00",
+    "manifest_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/manifest-a.json",
+    "summary_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/summary-a.json",
+    "provenance_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/build-provenance.json",
+    "manifest_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+    "summary_sha256": "cb3b2214881916bbe135351069d1cccb95a4c9d96c9b1264ac7a4c97626985a1",
+    "provenance_sha256": "af4a0b22b4cc0fe2c693fee719cfdf204cac4c72a50a4f85a171337f47b233b4",
+    "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+    "lock_sha256": "56b8d0b1cb50997240392686afb450a72e57268d78513857c6bf12b58ac5e574",
+    "manifest_files": 139,
+    "manifest_files_matched": 139,
+    "package_files": 139,
+    "package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894",
+    "repeat_package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894",
+    "retained_top_level": [
+      "build-provenance.json",
+      "governance",
+      "manifest-a.json",
+      "manifest-b.json",
+      "package-a",
+      "source-2b71a39.tar",
+      "summary-a.json",
+      "summary-b.json",
+      "toolchain"
+    ],
+    "all_retained_artifact_paths_owner_only": true,
+    "unknown_license_count": 0,
+    "package_secret_scan_findings": 0,
+    "candidate_process_before_attempt": 0,
+    "reserved_ports_before_attempt": {
+      "18880": "no_listener",
+      "18881": "no_listener",
+      "18882": "no_listener",
+      "18883": "no_listener"
+    }
+  },
+  "governance": {
+    "historical_full_canonical_sha256": "85f6ef6af8c403d91004980cd549a44d78b7aad64b97e72647dc199486253a70",
+    "pre_attempt_live_full_canonical_sha256": "06950f64a6d9a15b73f3fd8ea5412a5aa2d689c1c0bf6975ba8bb6af4560a999",
+    "pre_attempt_content_canonical_sha256": "8ed6e5bf069cca15b5288f92d4db46d89a8a3eee8f4c28cc50fac7affec68e11",
+    "post_restore_full_canonical_sha256": "06950f64a6d9a15b73f3fd8ea5412a5aa2d689c1c0bf6975ba8bb6af4560a999",
+    "post_restore_content_canonical_sha256": "8ed6e5bf069cca15b5288f92d4db46d89a8a3eee8f4c28cc50fac7affec68e11",
+    "pre_attempt_stable_two_samples": true,
+    "post_restore_stable_two_samples": true,
+    "post_restore_matches_pre_attempt_content": true,
+    "historical_drift_observed_before_first_stop": true,
+    "historical_drift_changed_content_paths": [
+      "/Library/Application Support/Murus/Configuration/murus.conf",
+      "/etc/murus/murus.inbound"
+    ],
+    "historical_drift_attribution": "Observed before any stop or candidate start in this attempt; source unknown; not attributed to this attempt and not rebaselined.",
+    "pre_attempt_snapshot_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/governance/murus-live-pre-attempt.json",
+    "post_restore_snapshot_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/governance/murus-live-post-restore.json",
+    "murus_canonical_manifest_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/governance/murus-file-manifest.json",
+    "murus_app": {
+      "version": "2.7",
+      "build": "501",
+      "binary_sha256": "0c3f3ebd78f9d26eac24fa6f0aff6110486badc328d1624ba6d6c32625c98cec"
+    },
+    "application_firewall_read_only": {
+      "global_sha256": "9bd6de659c4e91c60b2c6e36e3de9c0bbfb1a4112a2387a96dc201a874704337",
+      "block_all_sha256": "66226ea1c71c1ad7d2f118ade4d568a4dc5cb230160ecf8e5c94040dda5d40a5",
+      "stealth_sha256": "b46ad16390cc53e7b9a48658173148223d0f68894ff29ddd7824edd480cabe9b",
+      "apps_view_sha256": "ec42f3797ebd630b32b2c5ca23b9755cd7729a81688c434b4cecb05021f9202b",
+      "logging_query": "unsupported_or_absent_optional_diagnostic"
+    },
+    "network_read_only": {
+      "route_destination": "10.77.0.1",
+      "route_interface": "utun4",
+      "route_sha256": "779dd81066f2c6745459ff2a6d8d2c27c2daeb0624368eb03b14e4cffb327e1d",
+      "interface_sha256": "429bd2d25d65d309a061054fea96a0d4b360bed0092ba40f08fd7cb9be7bba85",
+      "scutil_nc_list_sha256": "021164803c05394a29461a23acfa79bebd5cad0b0475b66107e3bf40722ee983",
+      "network_extension_list_sha256": "f2ee3aac17cd8757acd9389d8c76b942ba5a844fdd5bda4fd9bb4e0465cac6bf",
+      "network_write_performed": false,
+      "wg_peer_export_available": false
+    }
+  },
+  "production_baseline_and_recovery": {
+    "direct_executable": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+    "direct_executable_sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+    "recovery_command": [
+      "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+      "gateway",
+      "--data-dir",
+      "data"
+    ],
+    "recovery_cwd": "/Users/mac/Working-Env/tunnelminion-mvp",
+    "pre_attempt_direct_pid": 53620,
+    "first_recovery_pid": 23364,
+    "final_recovery_pid": 29106,
+    "pre_attempt_direct_command_sha256": "b945db08a157451525fbf3da46996db89726106c93d1d4c168f7c1e6b999140f",
+    "final_recovery_command_sha256": "81e8be9d61cc6f6cbadf52683503173aae153b0cfe5cd4cad44d26c18949512b",
+    "model_pid": 61981,
+    "model_listener": "*:8082",
+    "model_health_status": 200,
+    "install_state_path": "/Users/mac/Library/Application Support/TunnelMinionRuntime/runtime-install.json",
+    "install_state_sha256_before_and_after": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+    "current_package_id_unchanged": "tunnelminion-0-1-0-darwin-arm64-cee836fea82b",
+    "previous_package_id_unchanged": "tunnelminion-0-1-0-darwin-arm64-69b48173ee81",
+    "program_data_secret_separated": true,
+    "production_config_sha256": "2371c88ca8e0bbdfeb7a17fe7e0043e261cc30579b3cf9637a4e88147c0f9c90",
+    "production_secret_marker_sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+    "secret_values_read_or_output": false,
+    "preexisting_local_app_pid": 60508,
+    "preexisting_local_app_listener": "127.0.0.1:8787",
+    "preexisting_local_app_stopped": false,
+    "autostart_matching_lines_before_and_after": 0,
+    "a_peer_no_authorization": {
+      "before_first_stop_status": 401,
+      "before_first_stop_elapsed_ms": 95.307,
+      "after_first_recovery_status": 401,
+      "after_first_recovery_elapsed_ms": 130.323,
+      "after_second_recovery_status": 401,
+      "after_second_recovery_elapsed_ms": 158.045,
+      "final_status": 401,
+      "final_elapsed_ms": 100.268,
+      "authorization_header_sent": false
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "ab_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/production-ab-20260808-1786120061224360000",
+      "profile_local_port": 8787,
+      "candidate_gateway_pid": 22281,
+      "candidate_gateway_listener_observed": true,
+      "candidate_runtime_start_result": "failed",
+      "runtime_component_states": {
+        "gateway": "running",
+        "local": "failed"
+      },
+      "local_failure_code": "startup_unstable",
+      "local_failure_cause": "preexisting local app already owned 127.0.0.1:8787",
+      "preexisting_local_app_pid": 60508,
+      "candidate_gateway_stopped": true,
+      "recovery_verified": true,
+      "peer_probe_performed": false,
+      "guardian_terminal_status": "restored",
+      "guardian_instrumentation_note": "The preexisting local app was intentionally not classified as candidate-owned; final post-check verified candidate process count zero and direct recovery.",
+      "metrics": {
+        "peer_latency_ms": null,
+        "cpu_memory": "not_collected_after_local_start_failure",
+        "log_growth": "startup_logs_hashed_only"
+      }
+    },
+    {
+      "attempt": 2,
+      "ab_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/production-ab-20260808-1786120592104321000",
+      "profile_local_port": 18880,
+      "candidate_gateway_pid": 25318,
+      "candidate_local_pid": 25320,
+      "candidate_gateway_listener_observed": true,
+      "candidate_local_listener_observed": true,
+      "runtime_start": {
+        "returncode": 0,
+        "runtime_state": "running",
+        "component_states": {
+          "gateway": "running",
+          "local": "running"
+        },
+        "startup_elapsed_seconds": 5.777,
+        "hard_deadline_seconds": 180
+      },
+      "a_peer_acceptance": {
+        "report_mode": "independent_peer_probe",
+        "manifest_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+        "status": "peer_unreachable",
+        "accepted": false,
+        "error_code": "peer_timeout",
+        "latency_ms": 3075,
+        "http_status": null,
+        "authorization_header_sent": false,
+        "response_body_discarded": true,
+        "report_local_temp_path_cleaned": true
+      },
+      "raw_peer_probe_summary": {
+        "http_status": 0,
+        "curl_timeout_seconds": 5.005557,
+        "authorization_header_sent": false
+      },
+      "failure_decision": "candidate_gateway_listener_was_present_but_configured_A_peer_did_not_return_401; stop_follow_on_lifecycle_checks",
+      "recovery_control": "restore",
+      "candidate_stopped": true,
+      "recovery_verified": true,
+      "recovery_pid": 29106,
+      "guardian_terminal_status": "restored",
+      "guardian_elapsed_seconds": 130.334,
+      "metrics": {
+        "first_peer_latency_ms": 3075,
+        "stable_peer_latency_ms": null,
+        "cpu_memory": "not_collected_after_peer_failure",
+        "log_growth": "runtime_log_sizes_hashed_only",
+        "state_accuracy": "runtime_start_reported_running; peer_acceptance_failed",
+        "recovery_success": true
+      }
+    }
+  ],
+  "task_decision": {
+    "5.1": {
+      "status": "completed",
+      "basis": "User confirmed this exact retained candidate and short switch; recovery, current direct, no-token 401, program/data/secret separation, customer-managed firewall read-only view, route/interface, model, listener, accepted pointers and zero-autostart baselines were fixed before the first stop. Historical Murus drift was recorded without rebaselining or modification."
+    },
+    "5.2": {
+      "status": "blocked",
+      "basis": "Both components reached local running in attempt 2, but A peer returned peer_timeout rather than the required 401. Attempt 1 separately failed because local component port 8787 was already owned by the preexisting local app."
+    },
+    "5.3": {
+      "status": "not_completed",
+      "basis": "Duplicate-start/status/normal-stop/new-session lifecycle checks were intentionally not continued after the required A peer check failed; restoration and post-listener safety were exercised by the guarded recovery path."
+    },
+    "5.4": {
+      "status": "not_completed",
+      "basis": "Execution/post-restore governance invariance, startup deadline, failure latency and recovery were recorded, but stable peer latency, CPU/memory, full lifecycle state accuracy and successful runtime-managed A/B acceptance do not exist; fallback does not mask the candidate failure."
+    }
+  },
+  "quality_gates": {
+    "candidate_targeted_manifest_license_secret_checks": "passed_before_each_attempt",
+    "murus_pre_post_same_algorithm_check": "passed_with_historical_drift_recorded",
+    "production_final_listener_owner_check": "passed",
+    "production_final_model_check": "passed",
+    "production_final_no_authorization_401_check": "passed",
+    "openspec_strict": "passed",
+    "json_validation": "passed",
+    "secret_scan": "passed",
+    "offline_security_evaluation": {
+      "dataset": "evaluations/datasets/mvp-v1.json",
+      "safety_failures": 0,
+      "passed": true
+    },
+    "full_test_and_static_gates": {
+      "windows_current": {
+        "ruff_format": "passed",
+        "ruff": "passed",
+        "pyright": "0 errors, 0 warnings, 0 informations",
+        "pytest": "817 passed, 1 skipped",
+        "coverage": "100%"
+      },
+      "macos_candidate_build_quality": "passed_in_retained_candidate_provenance_and_prior_cross_platform_gate"
+    },
+    "git_diff_check": "passed"
+  }
+}
