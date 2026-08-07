@@ -77,6 +77,17 @@ TunnelMinion 不自动发现节点，也不自动修改网络策略。
 `401`，候选才是 `peer_reachable` 且可以标记 accepted；尚未验收和不可达分别报告
 `peer_unverified`、`peer_unreachable`。
 
+```mermaid
+flowchart TD
+    Start["runtime start / status"] --> Owned{"进程身份、监听器所有权、稳定窗口都成立？"}
+    Owned -- "否" --> LocalFailed["本地 lifecycle 失败；不声称 running"]
+    Owned -- "是" --> Running["本地 running"]
+    Running --> Peer{"获准 peer 是否执行无 token 请求？"}
+    Peer -- "未执行" --> Unverified["peer_unverified"]
+    Peer -- "得到 401" --> Reachable["peer_reachable；候选才具备 accepted 资格"]
+    Peer -- "超时或其他结果" --> Unreachable["peer_unreachable；本地 status / safe stop 仍可用"]
+```
+
 监听器所有权不是“端口有人占用”。runtime 会联合核对 PID、启动时间、executable、组件参数和
 实例身份，并验证 socket 属于该进程；无法证明时报告 `listener_ownership_unverified`，其他进程
 占用端口时不会误报成功。macOS 不使用本机访问自身私网地址的 HTTP hairpin 作为本地就绪前置，
@@ -125,6 +136,20 @@ tunnelminion runtime-package status
 已固定命令与身份的 direct 入口，但不能把旧源码 checkout、损坏的 `.venv` 或碰巧存在的系统
 Python 当作可靠退路。切换只改变程序指针和受管进程，不回滚 SQLite、checkpoint、节点身份、
 Gateway token、Coordinator refresh、普通配置或 SecretStore。
+
+```mermaid
+flowchart TD
+    Stage["校验并 stage 新 package；不改 current"] --> Baseline["固定当前入口、恢复命令和 peer 401 基线"]
+    Baseline --> StopOld["停止旧入口"]
+    StopOld --> Activate["activate 候选并手工 start"]
+    Activate --> Local{"本地 lifecycle running？"}
+    Local -- "否" --> Rollback["只停止可证明属于候选的进程"]
+    Local -- "是" --> Peer{"获准 peer 无 token 请求得到 401？"}
+    Peer -- "是" --> Continue["允许继续人工接受或切换"]
+    Peer -- "否" --> Rollback
+    Rollback --> Restore["激活上一 package 或恢复已验证 direct 命令"]
+    Restore --> Verify["再次确认 peer 401；数据与 SecretStore 不回滚"]
+```
 
 ## 只移除程序
 
