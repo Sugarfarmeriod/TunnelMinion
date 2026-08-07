@@ -1,0 +1,250 @@
+{
+  "schema_version": "macos-gateway-runtime-health-production-nonprod-contrast.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.2-diagnostic",
+  "recorded_on": "2026-08-08",
+  "planning_baseline": {
+    "remote_revision": "55012441ffad01a9d7818e98da80e17a1d7f025e",
+    "local_head_before_diagnostic": "b204df7ad16a6de82e5f11ce8cc3b2a6f9980ddb"
+  },
+  "scope": {
+    "nonproduction_only": true,
+    "production_direct_stopped": false,
+    "production_model_stopped": false,
+    "production_ports_used": [8787, 8082],
+    "alt_ports_used": [18880, 18881],
+    "customer_firewall_murus_wireguard_route_modified": false,
+    "production_config_secretstore_accepted_autostart_modified": false,
+    "tasks_modified": false,
+    "docs_questions_read": false,
+    "raw_fixture_token_or_secret_output": false,
+    "raw_log_lines_output": false
+  },
+  "retained_candidate": {
+    "candidate_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+    "executable_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion",
+    "manifest_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+    "executable_sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5",
+    "package_mode": "drwx------",
+    "executable_mode": "-rwx------",
+    "retained_after_test": true
+  },
+  "isolated_fixture": {
+    "logical_parent_run": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "physical_parent_run": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+    "child_run": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/nonprod-ab-20260808-011836-7c0cd0bbad06",
+    "child_run_mode": "0700",
+    "profile": {
+      "local_port": 18880,
+      "gateway_port": 18881,
+      "profile_sha256": "bc601814e7274fcb161c177b3d2aa4000d19cf7f802e572e7e6ddb8bca92a0c4",
+      "gateway_config_sha256": "0c70cf59faf34b1bac48028b47bcbc5885d54650519478526ef3be757547ced4",
+      "secret_store_marker_sha256": "671908ad0c5e5edfad99ccde79c124e585e6da6bf06f433c5317d03ac2d9774f",
+      "fixture_secret_store": "restricted_file_under_child_run",
+      "fixture_token_value_retained": false,
+      "fixture_node_id_value_retained": false
+    },
+    "cleanup": {
+      "pre_cleanup_child_processes": 0,
+      "pre_cleanup_alt_listener_bytes": 0,
+      "child_removed": true,
+      "cleanup_boundary_verified": true,
+      "candidate_parent_run_retained": true
+    }
+  },
+  "production_preflight": {
+    "direct_gateway": {
+      "pid": 29106,
+      "listener": "10.77.0.1:8787 IPv4",
+      "executable_sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a"
+    },
+    "preexisting_local_app": {
+      "pid": 60508,
+      "listener": "127.0.0.1:8787 IPv4",
+      "unchanged_by_scope": true
+    },
+    "model": {
+      "pid": 61981,
+      "listener": "*:8082",
+      "unchanged_by_scope": true
+    },
+    "candidate_process_count": 0,
+    "reserved_alt_ports_empty": [18880, 18881, 18882, 18883],
+    "a_no_authorization": {
+      "http_status": 401,
+      "elapsed_seconds": 0.099553,
+      "response_body_discarded": true
+    },
+    "accepted_runtime_install_sha256": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c"
+  },
+  "direct_alt": {
+    "executable_path": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+    "executable_sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+    "profile_and_data_same_as_candidate_alt": true,
+    "guard_pid": 49733,
+    "runtime_start_pid": 49743,
+    "gateway_pid": 49750,
+    "observed": {
+      "gateway_listener": "10.77.0.1:18881 IPv4",
+      "gateway_state": "starting",
+      "gateway_process_present": true,
+      "local_state_file_created": false,
+      "local_listener": null,
+      "runtime_start_returned": false,
+      "observation_elapsed_seconds_at_abort": ">99"
+    },
+    "artifacts": {
+      "start_json_size": 0,
+      "start_json_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gateway_log_sha256": "4cd4412127ccc99663124b757495746bbe3f4346f41d13a7ec0a9429d559a3e7",
+      "gateway_state_sha256": "0aed29d829513c336a76744e0a71b9e31e147ad50844dddc05567a52f6fed137",
+      "stop_result_sha256": "2bff67d3ac9a4be49d2bbf096327da7a094c6547c991565e75e2889ec9c34cb1"
+    },
+    "cleanup": {
+      "guard_finally_ran": true,
+      "first_stop_result": "runtime_operation_busy",
+      "runtime_start_pid_terminated": true,
+      "gateway_pid_terminated": true,
+      "listener_18880_18881_empty_after_cleanup": true,
+      "valid_control_group": false
+    },
+    "decision": "Skipped A and B lifecycle acceptance because the existing direct executable never completed local runtime start; this is an honest unsupported/inconclusive control, not a peer timeout result.",
+    "observer_note": "One interim status command had a diagnostic path-quoting typo and is excluded; the process/state/lsof observations above are from corrected read-only checks."
+  },
+  "candidate_alt": {
+    "executable_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion",
+    "executable_sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5",
+    "guard_pid": 50908,
+    "gateway_pid": 50911,
+    "local_pid": 50929,
+    "start": {
+      "runtime_state": "running",
+      "runtime_exit_code": 0,
+      "gateway_state": "running",
+      "local_state": "running",
+      "gateway_listener": "10.77.0.1:18881 IPv4",
+      "local_listener": "127.0.0.1:18880 IPv4",
+      "gateway_process_present": true,
+      "local_process_present": true,
+      "startup_status_json_sha256": "965b2d0d8957c85054fc655dff28b749f820c5f160874a7b2d6def32b1c352e5",
+      "gateway_record_executable_sha256": "ff06d576a753227cbf076c873ba5d866a9b311a150332d51f2b9ba35e6115ba0",
+      "local_record_executable_sha256": "ff06d576a753227cbf076c873ba5d866a9b311a150332d51f2b9ba35e6115ba0",
+      "data_dir_sha256": "e689c60ff2335e6f2e49611a3fc95ee4551de8a9ac0358c0774b646d0eb97072"
+    },
+    "new_ssh_session_status": {
+      "return_code": 0,
+      "runtime_state": "running",
+      "gateway_process_present": true,
+      "local_process_present": true
+    },
+    "b_local_probe": {
+      "endpoint": "127.0.0.1:18880/",
+      "http_status": 404,
+      "elapsed_seconds": 0.001534,
+      "response_body_discarded": true,
+      "runtime_health_contract": "status below 500 is accepted by the local component probe"
+    },
+    "b_hairpin_probe": {
+      "endpoint": "10.77.0.1:18881/v1/capabilities",
+      "exit_code": 28,
+      "http_status": 0,
+      "elapsed_seconds": 1.010784,
+      "bytes": 0,
+      "interpretation": "Expected Mac self-hairpin failure; not used as local lifecycle failure."
+    },
+    "a_no_authorization_probe": {
+      "endpoint": "10.77.0.1:18881/v1/capabilities",
+      "http_status": 401,
+      "elapsed_seconds": 0.099302,
+      "response_body_discarded": true,
+      "authorization_header_sent": false
+    },
+    "logs": {
+      "gateway_size": 614,
+      "gateway_sha256": "e51692ecf9bd297bee54fee935065cdfaa3cfdbfb2e659bbf7acf7a490af4671",
+      "local_size": 614,
+      "local_sha256": "fcf6d83fbd7e8cf2b54609cad114388c7ec53ef46e8b31b6b381f2b3ac9ff449",
+      "raw_lines_retained": false
+    },
+    "stop": {
+      "runtime_state": "stopped",
+      "runtime_exit_code": 0,
+      "gateway_state": "stopped",
+      "local_state": "stopped",
+      "gateway_process_present": false,
+      "local_process_present": false,
+      "stop_json_sha256": "9d5f94f088be5d74ed36618baa2e1d2563026a1fbe5664078a9861d78d24a767"
+    }
+  },
+  "production_postcondition": {
+    "direct_gateway": {
+      "pid": 29106,
+      "listener": "10.77.0.1:8787 IPv4",
+      "same_owner_as_preflight": true
+    },
+    "preexisting_local_app": {"pid": 60508, "listener": "127.0.0.1:8787 IPv4", "unchanged_by_scope": true},
+    "model": {"pid": 61981, "listener": "*:8082", "unchanged_by_scope": true},
+    "candidate_process_count": 0,
+    "reserved_alt_ports_empty": [18880, 18881, 18882, 18883],
+    "a_no_authorization": {
+      "http_status": 401,
+      "elapsed_seconds": 0.088675,
+      "response_body_discarded": true
+    },
+    "accepted_runtime_install_sha256": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+    "retained_candidate_executable_still_exists": true,
+    "retained_candidate_executable_sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5"
+  },
+  "diagnosis": {
+    "result": "candidate_alt_peer_reachable",
+    "confidence_update": "The retained candidate executable can start under the runtime manager and return A no-token 401 on an isolated non-production port with a fixture profile/data set. A pure candidate binary/signature failure is therefore substantially weakened, but the failed direct-alt control and the different port/data from the original production attempt prevent a unique root-cause attribution.",
+    "ranked_hypotheses": [
+      {
+        "rank": 1,
+        "hypothesis": "Original production-window state, port-specific customer policy, or production data/config interaction caused the earlier 8787 timeout.",
+        "confidence": "medium",
+        "support": ["The same candidate executable returned 401 from A on 18881 in an isolated fixture.", "The restored direct production endpoint continued returning 401."],
+        "status": "most_consistent_but_not_proven"
+      },
+      {
+        "rank": 2,
+        "hypothesis": "Candidate-specific path-level Murus/pf or firewall filtering at the original production endpoint.",
+        "confidence": "medium_low",
+        "support": ["The original attempt timed out on 8787 while the current AF view is not a complete Murus/pf rule proof."],
+        "counterevidence": ["The same candidate path succeeded on 18881 under the isolated fixture."],
+        "status": "still_possible_for_8787_only"
+      },
+      {
+        "rank": 3,
+        "hypothesis": "Candidate process accept/serve defect independent of port/configuration.",
+        "confidence": "low",
+        "counterevidence": ["Candidate-alt listener ownership, local running state and A 401 all succeeded."],
+        "status": "substantially_weakened"
+      },
+      {
+        "rank": 4,
+        "hypothesis": "VPN/route or standard Application Firewall/signature failure.",
+        "confidence": "low",
+        "counterevidence": ["Earlier route/utun4 digests were stable; both executables were permitted by current socketfilterfw; candidate-alt reached A 401."],
+        "status": "not_supported"
+      }
+    ]
+  },
+  "minimum_next_step": {
+    "no_third_production_switch": true,
+    "recommended": "Do not retry production yet. First diagnose or fix why the existing direct executable's isolated runtime start remains in starting with a listener but no local component; then, if needed, run a future approved direct-alt control on a non-production port. The candidate-alt result alone does not complete 5.2 because 5.2 is the real production A/B gate.",
+    "macos_click_allow_needed": false,
+    "click_allow_basis": "No prompt occurred; candidate-alt was permitted and returned 401 without any firewall or network write."
+  },
+  "task_decision": {
+    "5.2": {"status": "blocked", "checkbox_changed": false, "basis": "Non-production candidate-alt succeeded, but the required production runtime-managed A/B was not re-run and the direct-alt control was inconclusive."},
+    "5.3": {"status": "not_completed", "checkbox_changed": false, "basis": "Only candidate-alt normal stop and new-session status were exercised; the full required production lifecycle matrix remains incomplete."},
+    "5.4": {"status": "not_completed", "checkbox_changed": false, "basis": "Non-production latency/state and cleanup evidence exists, but this does not replace production attempt invariance and accepted A/B evidence."}
+  },
+  "quality_gates": {
+    "json_parse": "passed",
+    "security_scan": "passed",
+    "openspec_strict": "passed",
+    "git_diff_check": "passed"
+  }
+}
