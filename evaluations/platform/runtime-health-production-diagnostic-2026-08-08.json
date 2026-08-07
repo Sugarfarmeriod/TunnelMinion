@@ -1,0 +1,325 @@
+{
+  "schema_version": "macos-gateway-runtime-health-production-diagnostic.v1",
+  "change": "fix-macos-gateway-runtime-health",
+  "stage": "5.2",
+  "recorded_on": "2026-08-08",
+  "planning_baseline": {
+    "remote_revision": "e173c662369de494fc88e7086a3f214554927407",
+    "local_head_before_diagnostic": "20a269a65b59b34ce6d509b9886460dc287e7839"
+  },
+  "scope": {
+    "read_only_diagnostic": true,
+    "third_production_stop_or_switch": false,
+    "candidate_started_during_diagnostic": false,
+    "production_gateway_or_model_modified": false,
+    "firewall_murus_wireguard_route_modified": false,
+    "production_config_secretstore_accepted_autostart_modified": false,
+    "tasks_modified": false,
+    "docs_questions_read": false,
+    "raw_secret_or_token_output": false,
+    "raw_log_lines_retained_or_output": false
+  },
+  "inputs": {
+    "attempt_evidence_path": "evaluations/platform/runtime-health-production-attempt-2026-08-08.json",
+    "attempt_evidence_sha256": "a05b752aff1c123c7823d14284156b81265f8e89a0574f66b63f602c436e2dc5",
+    "remote_host": "10.77.0.1",
+    "remote_system": "Darwin arm64",
+    "retained_candidate": {
+      "candidate_id": "tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+      "logical_run_path": "/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+      "physical_run_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611",
+      "package_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9",
+      "executable_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion",
+      "manifest_sha256": "f26ae3b1d091c6f82e402a4923282b0eca304c1958274438e5371774076723a2",
+      "executable_sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5",
+      "source_revision": "2b71a39cd08fa4e3b9b5479876e948ff5007b7b9",
+      "source_tree_sha256": "fdb02b656ab9ab0213ec9834f6a008e7cdb1ced6354e10d3a692673d51c00a0b",
+      "package_tree_sha256": "99eda73e4c1edee6a6b0cf7933e3bccf3708d0f97eb3b8efbad9ec864edd2894"
+    }
+  },
+  "attempt_2_timeout": {
+    "ab_path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/production-ab-20260808-1786120592104321000",
+    "runtime_start": {
+      "returncode": 0,
+      "runtime_state": "running",
+      "gateway_state": "running",
+      "local_state": "running",
+      "startup_elapsed_seconds": 5.777,
+      "hard_deadline_seconds": 180.0,
+      "gateway_pid": 25318,
+      "local_pid": 25320,
+      "gateway_listener": "10.77.0.1:8787 IPv4",
+      "local_listener": "127.0.0.1:18880 IPv4"
+    },
+    "a_peer_acceptance": {
+      "status": "peer_unreachable",
+      "accepted": false,
+      "error_code": "peer_timeout",
+      "latency_ms": 3075,
+      "http_status": null,
+      "authorization_header_sent": false,
+      "response_body_discarded": true,
+      "raw_curl_http_status": 0,
+      "raw_curl_elapsed_seconds": 5.005557
+    },
+    "failure_boundary": "The candidate listener and local runtime state were present, but A received no HTTP response; follow-on lifecycle checks were intentionally not run and the guarded restore completed."
+  },
+  "executable_comparison": {
+    "direct": {
+      "path": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion",
+      "sha256": "2f037db84f8062deb6af5cb4f9cab3077ff10faba6216f7fb56e12b0c852f95a",
+      "file_type": "Mach-O 64-bit executable arm64",
+      "stat": {
+        "inode": 21340842,
+        "device": 16777230,
+        "mode": "-rwxr-xr-x",
+        "uid": "mac",
+        "gid": "staff",
+        "size": 16827104,
+        "mtime_epoch": 1785527688
+      },
+      "codesign": {
+        "returncode": 0,
+        "verify_returncode": 0,
+        "format": "Mach-O thin (arm64)",
+        "identifier": "tunnelminion-55554944de2142777ac28cfc683580b6e2d64da8",
+        "flags": "adhoc",
+        "team_identifier": "not set",
+        "cdhash": "865ecc954c2f142de12d995db737b09ae6e4a904",
+        "output_sha256": "822665660317d769b5306539a2e98db4b6d366389c83b441d474bc3b3e76fb86"
+      },
+      "gatekeeper_assessment": {
+        "spctl_returncode": 3,
+        "verdict": "rejected",
+        "output_sha256": "677cecd7688103561455b378cc8dd00b84717a9d08dcdcc83441aca1a666a7ab",
+        "stapler_validate_returncode": 65,
+        "stapler_output_sha256": "2559fb1a93f84532d0e276eabfdda41d7198a0107854b77f840392ae5df32013"
+      },
+      "quarantine": {
+        "xattr_names": ["com.apple.provenance"],
+        "xattr_output_sha256": "ab30a6750b1ca1f42777f995a2c098d82a2fe7469c552b9bc6639b1236955f61",
+        "com_apple_quarantine_present": false
+      }
+    },
+    "candidate": {
+      "path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion",
+      "sha256": "3f0b795081a662cc4e567b472cc191a8d36a1bf25f1f317f97f64b84f09980c5",
+      "file_type": "Mach-O 64-bit executable arm64",
+      "stat": {
+        "inode": 21799809,
+        "device": 16777230,
+        "mode": "-rwx------",
+        "uid": "mac",
+        "gid": "wheel",
+        "size": 14091680,
+        "mtime_epoch": 1786033053
+      },
+      "codesign": {
+        "returncode": 0,
+        "verify_returncode": 0,
+        "format": "Mach-O thin (arm64)",
+        "identifier": "tunnelminion-5555494470dfce6bb4972b5d3fc6bab69bbd2015",
+        "flags": "adhoc",
+        "team_identifier": "not set",
+        "cdhash": "9cd5cdc409a4b85830ac19ec34154eae4f61811d",
+        "output_sha256": "0773a7e7c759ba10fcfc2c0b8b057cb293155c5f7e95c93ef47f172c82940d6b"
+      },
+      "gatekeeper_assessment": {
+        "spctl_returncode": 3,
+        "verdict": "rejected",
+        "output_sha256": "9845be3c363f6e724806ccb07276fd381b49ff945c96026cf8f8d9d42dcb4c23",
+        "stapler_validate_returncode": 65,
+        "stapler_output_sha256": "56f29dce7c36037f5d8027ad442bff88bf82208954af66abe59d48de2499e3b4"
+      },
+      "quarantine": {
+        "xattr_names": ["com.apple.provenance"],
+        "xattr_output_sha256": "ab30a6750b1ca1f42777f995a2c098d82a2fe7469c552b9bc6639b1236955f61",
+        "com_apple_quarantine_present": false
+      }
+    },
+    "interpretation": "Both raw Mach-O executables are ad-hoc signed with no Team ID, both pass codesign verification, both are rejected by spctl, and neither has com.apple.quarantine. This does not distinguish the candidate as a new Gatekeeper/signature case."
+  },
+  "listener_process_and_parent_comparison": {
+    "current_direct": {
+      "pid": 29106,
+      "ppid": 1,
+      "listener": "10.77.0.1:8787 IPv4",
+      "ownership_probe": "lsof identified PID 29106"
+    },
+    "current_preexisting_local_app": {
+      "pid": 60508,
+      "ppid": 60299,
+      "listener": "127.0.0.1:8787 IPv4",
+      "ownership_probe": "lsof identified PID 60508"
+    },
+    "current_candidate_pids": {
+      "pids": [22281, 22307, 25318, 25320],
+      "processes_alive": false,
+      "listener_present_now": false
+    },
+    "historical_candidate_state": {
+      "gateway_1": {"pid": 22281, "lifecycle": "running", "error_code": null},
+      "local_1": {"pid": 22307, "lifecycle": "failed", "error_code": "startup_unstable"},
+      "gateway_2": {"pid": 25318, "lifecycle": "running", "error_code": null},
+      "local_2": {"pid": 25320, "lifecycle": "running", "error_code": null},
+      "recorded_parent_pid": false,
+      "parent_tree_conclusion": "The retained redacted runtime state has no candidate PPID field and the old PIDs are gone; parent-child equivalence with the restored direct process cannot be proved from retained evidence."
+    },
+    "ipv6": "No IPv6 listener was present in the current lsof snapshot; the historical candidate observation was IPv4 10.77.0.1:8787 and IPv4 127.0.0.1:18880."
+  },
+  "application_firewall_and_governance": {
+    "application_firewall_tool": "/usr/libexec/ApplicationFirewall/socketfilterfw",
+    "global_state": "enabled",
+    "block_all": "disabled",
+    "stealth_mode": "off",
+    "global_sha256": "9bd6de659c4e91c60b2c6e36e3de9c0bbfb1a4112a2387a96dc201a874704337",
+    "block_all_sha256": "66226ea1c71c1ad7d2f118ade4d568a4dc5cb230160ecf8e5c94040dda5d40a5",
+    "stealth_sha256": "b46ad16390cc53e7b9a48658173148223d0f68894ff29ddd7824edd480cabe9b",
+    "recorded_pre_attempt_apps_view_sha256": "ec42f3797ebd630b32b2c5ca23b9755cd7729a81688c434b4cecb05021f9202b",
+    "current_raw_apps_view_sha256": "9aeb6438719d41e9343d13d8b302dc4872f71f6bf4fea126cbe747e44504f489",
+    "apps_view_drift_attribution": "The current app-list digest differs from the 5.1 recorded digest; the permitted historical cause is unknown and no write was performed by this diagnostic, so it is not attributed to this attempt.",
+    "current_matching_entries": [
+      {"path": "/private/tmp/tunnelminion-runtime-health-20260806-000241-f74ef82a7c7a4611/package-a/tunnelminion-0-1-0-darwin-arm64-fdb02b656ab9/tunnelminion", "status": "permitted"},
+      {"path": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-2c89c1561e2ef254f6129637/tunnelminion", "status": "permitted"},
+      {"path": "/Users/mac/Library/Application Support/TunnelMinionRuntime/versions/pkg-8aead1436912409ca3dd41d8/tunnelminion", "status": "permitted"}
+    ],
+    "getappblocked_output_sha256": {
+      "direct": "f8617f9f99581e3e4c7d48b7abf3439083cd962a02a661b93633618a29ad3492",
+      "candidate": "fe144b32c285d91bb510557172eb9a14e1b37e680e0a44098e644652e4ea51eb"
+    },
+    "murus_canonical": {
+      "pre_attempt_full_sha256": "06950f64a6d9a15b73f3fd8ea5412a5aa2d689c1c0bf6975ba8bb6af4560a999",
+      "post_restore_full_sha256": "06950f64a6d9a15b73f3fd8ea5412a5aa2d689c1c0bf6975ba8bb6af4560a999",
+      "pre_attempt_content_sha256": "8ed6e5bf069cca15b5288f92d4db46d89a8a3eee8f4c28cc50fac7affec68e11",
+      "post_restore_content_sha256": "8ed6e5bf069cca15b5288f92d4db46d89a8a3eee8f4c28cc50fac7affec68e11",
+      "two_sample_stability": true,
+      "historical_baseline_drift_sha256": "85f6ef6af8c403d91004980cd549a44d78b7aad64b97e72647dc199486253a70",
+      "interpretation": "Murus content and metadata were unchanged across this attempt; this does not prove that its path-specific rules permit the candidate executable."
+    }
+  },
+  "network_and_local_curl": {
+    "route": {"destination": "10.77.0.1", "interface": "utun4", "sha256": "779dd81066f2c6745459ff2a6d8d2c27c2daeb0624368eb03b14e4cffb327e1d"},
+    "interface": {"name": "utun4", "address": "10.77.0.1", "sha256": "429bd2d25d65d309a061054fea96a0d4b360bed0092ba40f08fd7cb9be7bba85"},
+    "scutil_nc_sha256": "021164803c05394a29461a23acfa79bebd5cad0b0475b66107e3bf40722ee983",
+    "network_extensions_sha256": "f2ee3aac17cd8757acd9389d8c76b942ba5a844fdd5bda4fd9bb4e0465cac6bf",
+    "current_mac_local_curl": {
+      "wireguard_address": {"exit_code": 28, "http_status": 0, "elapsed_seconds": 1.001436, "bytes": 0},
+      "loopback": {"exit_code": 0, "http_status": 200, "elapsed_seconds": 0.002655, "bytes_discarded": 28177}
+    },
+    "current_direct_a_curl": {"exit_code": 0, "http_status": 401, "elapsed_seconds": 0.089033, "bytes_discarded": 118, "authorization_header_sent": false},
+    "interpretation": "The expected Mac self-hairpin timeout is present, while the restored direct endpoint remains reachable from A and returns 401. Route/interface digests match the pre-attempt evidence."
+  },
+  "candidate_log_metadata": {
+    "read_mode": "size, mtime, sha256, line count and fixed-token counts only; no log line text was emitted or retained",
+    "attempt_2": {
+      "gateway": {"size": 613, "mtime_epoch": 1786120769, "lines": 8, "sha256": "730d5651b51c16f3cc72143b1c19b9db208d5238f8f8a61eb09a562ef4c817a3", "fixed_token_counts": {"uvicorn": 8, "server": 2, "process": 2, "http": 1, "request": 0, "response": 0, "connection": 0, "timeout": 0, "bind": 0, "permission": 0, "model": 0, "coordinator": 0, "exception": 0, "traceback": 0}},
+      "local": {"size": 614, "mtime_epoch": 1786120769, "lines": 8, "sha256": "b0eb1a3a824559c60b414179ffefe2c3c034c43b67e3a874c9f3f0b3b4ea5240", "fixed_token_counts": {"uvicorn": 8, "server": 2, "process": 2, "http": 1, "request": 0, "response": 0, "connection": 0, "timeout": 0, "bind": 0, "permission": 0, "model": 0, "coordinator": 0, "exception": 0, "traceback": 0}},
+      "guardian": {"size": 0, "mtime_epoch": 1786120639, "lines": 0, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+      "recovery": "not present in retained attempt-2 directory"
+    },
+    "interpretation": "The retained metadata proves startup logging occurred but contains no counted request/response/connection/timeout/bind error markers. It is insufficient to prove that an A SYN reached and was accepted by the candidate process."
+  },
+  "root_cause_ranking": [
+    {
+      "rank": 1,
+      "hypothesis": "Customer-managed Murus/pf or another path-specific network policy did not pass the new candidate executable's peer flow.",
+      "confidence": "medium",
+      "supporting_evidence": [
+        "The candidate owned the expected IPv4 listener, but A received HTTP 000 with zero bytes and timed out.",
+        "The restored direct executable at the same 10.77.0.1:8787 endpoint returned 401 before/after the attempt and in the current read-only check.",
+        "The route and utun4 hashes are unchanged, while the direct and candidate executable paths and CDHashes differ.",
+        "Murus stability proves no governance write, not that a path-specific rule allows the candidate."
+      ],
+      "counterevidence": [
+        "The current Application Firewall list contains both paths and reports both as permitted.",
+        "No firewall log or packet capture at the timeout was retained."
+      ],
+      "status": "plausible_not_proven"
+    },
+    {
+      "rank": 2,
+      "hypothesis": "The candidate process had a listener but did not accept or serve the peer connection correctly.",
+      "confidence": "medium_low",
+      "supporting_evidence": [
+        "lsof proves socket ownership and bind, not HTTP accept/readiness or response handling.",
+        "The candidate-side fixed-token metadata has no request/response/connection markers at the timeout.",
+        "The retained state has no candidate PPID or packet-level evidence."
+      ],
+      "counterevidence": [
+        "Both candidate components were reported running and the listener was observed on the configured address.",
+        "No bind, permission, exception, or model/coordinator marker was counted in the retained log metadata."
+      ],
+      "status": "plausible_not_proven"
+    },
+    {
+      "rank": 3,
+      "hypothesis": "VPN or route difference caused the A timeout.",
+      "confidence": "low",
+      "supporting_evidence": [],
+      "counterevidence": [
+        "Pre/post route, utun4, scutil and Network Extension digests match.",
+        "The same A path reaches the restored direct executable and returns 401."
+      ],
+      "status": "not_supported_by_current_evidence"
+    },
+    {
+      "rank": 4,
+      "hypothesis": "Candidate-only codesign, notarization or standard Application Firewall approval blocked the flow.",
+      "confidence": "low",
+      "supporting_evidence": [
+        "Both executables are ad-hoc signed with no Team ID and both spctl assessments are rejected."
+      ],
+      "counterevidence": [
+        "Both pass codesign verification, neither has com.apple.quarantine, and the current Application Firewall reports both paths permitted.",
+        "The direct executable is also rejected by spctl yet served A 401."
+      ],
+      "status": "not_supported_as_candidate_specific_cause"
+    },
+    {
+      "rank": 5,
+      "hypothesis": "Attempt-1 local port conflict caused the attempt-2 timeout.",
+      "confidence": "none_for_attempt_2",
+      "supporting_evidence": ["Attempt 1 had a separate 127.0.0.1:8787 preexisting-app collision."],
+      "counterevidence": ["Attempt 2 used 127.0.0.1:18880 and both components reached running."],
+      "status": "ruled_out_for_attempt_2"
+    }
+  ],
+  "conclusion": "The evidence proves a real candidate peer-timeout blocker but does not uniquely distinguish path-specific customer firewall filtering from a listener/process accept problem. It does not support blaming route changes or a candidate-only Gatekeeper signature failure. 5.2 remains blocked; no third production switch is justified by this diagnostic.",
+  "minimum_next_validation": {
+    "executed_now": false,
+    "requires_new_user_authorization": true,
+    "action": "Use a separate non-production candidate run and port without stopping or replacing 8787. From A, run a bounded TCP/HTTP probe while Mac records only packet/interface evidence and a redacted firewall decision. Compare whether SYN/HTTP reaches the candidate process; do not use Mac hairpin as the verdict.",
+    "interpretation": {
+      "no_syn_or_firewall_drop": "Escalates path-specific Murus/pf/customer firewall approval; inspect the customer-managed rule for the exact candidate path/hash.",
+      "syn_reaches_process_but_no_http": "Escalates candidate accept/serve/process semantics; inspect candidate runtime implementation and redacted startup/request diagnostics.",
+      "syn_and_http_reach_process_and_401": "Only then can the A peer part of 5.2 be reconsidered; 5.3/5.4 still need their own checks."
+    },
+    "macos_click_allow": {
+      "needed_now": false,
+      "basis": "Current socketfilterfw read-only output says both direct and candidate paths are permitted; no prompt was observed and no evidence requires clicking Allow now.",
+      "conditional_future_action": "If an explicitly approved isolated test presents a macOS prompt after verifying the exact candidate path and manifest, the user must decide whether to click Allow; this diagnostic does not authorize that action."
+    }
+  },
+  "task_decision": {
+    "5.2": {"status": "blocked", "checkbox_changed": false, "basis": "A peer timeout remained after local runtime and listener ownership succeeded."},
+    "5.3": {"status": "not_completed", "checkbox_changed": false, "basis": "Follow-on duplicate-start/status/stop checks were correctly stopped after the required peer check failed."},
+    "5.4": {"status": "not_completed", "checkbox_changed": false, "basis": "Governance invariance and recovery exist, but stable peer latency, full lifecycle accuracy and successful runtime-managed A/B evidence do not."}
+  },
+  "postcondition": {
+    "candidate_process_count": 0,
+    "current_direct_pid": 29106,
+    "current_direct_listener": "10.77.0.1:8787 IPv4",
+    "model_pid": 61981,
+    "model_port": 8082,
+    "current_direct_a_no_authorization_status": 401,
+    "accepted_runtime_install_sha256": "7c39741debb6130a04e9eeb991ee6fce8562a1c2318728ca17ae448241d0796c",
+    "production_restored": true,
+    "third_switch_performed": false
+  },
+  "quality_gates": {
+    "json_parse": "passed",
+    "security_scan": "passed",
+    "openspec_strict": "passed",
+    "git_diff_check": "passed"
+  }
+}
