@@ -79,6 +79,35 @@ def test_owned_listener_is_ready_and_wrong_component_is_rejected(tmp_path: Path)
     )
 
 
+def test_gateway_listener_owned_by_runtime_child_maps_to_managed_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    processes = {
+        42: FakeProcess(),
+        43: FakeProcess((Connection(("10.77.0.1", 8787)),)),
+    }
+
+    def process(pid: int) -> FakeProcess:
+        return processes[pid]
+
+    def child_pids(pid: int, component: RuntimeComponent) -> tuple[int, ...]:
+        assert pid == 42
+        assert component is RuntimeComponent.GATEWAY
+        return (43,)
+
+    probe = GatewayListenerOwnershipProbe(
+        _data_dir(tmp_path),
+        process_factory=process,
+    )
+    monkeypatch.setattr(
+        listener_module,
+        "_runtime_child_pids",
+        child_pids,
+    )
+
+    assert probe.readiness(RuntimeComponent.GATEWAY, 42, 0.5) == ReadinessResult(True)
+
+
 @pytest.mark.parametrize(
     ("connections", "expected"),
     [

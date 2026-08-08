@@ -18,8 +18,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
-from jsonschema import Draft202012Validator
 from pydantic import JsonValue
+
+from tunnelminion.runtime.preflight import verify_runtime_package
 
 MANIFEST_VERSION = "runtime-package-manifest/v1"
 FORBIDDEN_PROGRAM_DATA = frozenset(
@@ -71,32 +72,9 @@ def load_and_verify_manifest(
     manifest_path: Path,
     schema_path: Path,
 ) -> dict[str, JsonValue]:
-    """校验 manifest schema、平台、入口与逐文件摘要。"""
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    Draft202012Validator(schema).validate(raw)  # pyright: ignore[reportUnknownMemberType]
-    manifest = cast(dict[str, JsonValue], raw)
-    if manifest["schema_version"] != MANIFEST_VERSION:
-        raise ValueError("运行包 manifest 版本不受支持")
-    candidate = cast(dict[str, JsonValue], manifest["candidate"])
-    if candidate["platform"] != sys.platform:
-        raise ValueError("运行包平台与当前系统不匹配")
-    files = cast(list[dict[str, JsonValue]], manifest["files"])
-    seen: set[str] = set()
-    for item in files:
-        relative = cast(str, item["path"])
-        if relative in seen:
-            raise ValueError("运行包 manifest 文件路径重复")
-        seen.add(relative)
-        path = _safe_package_path(package_root, relative)
-        if not path.is_file():
-            raise ValueError("运行包清单文件缺失")
-        if path.stat().st_size != item["size"] or file_sha256(path) != item["sha256"]:
-            raise ValueError("运行包清单摘要不匹配")
-    entrypoint = cast(str, manifest["entrypoint"])
-    if entrypoint not in seen:
-        raise ValueError("运行包入口不在文件清单中")
-    return manifest
+    """复用产品启动与安装的权威运行包校验，再返回清单。"""
+    verify_runtime_package(package_root, manifest_path, schema_path, ())
+    return cast(dict[str, JsonValue], json.loads(manifest_path.read_text(encoding="utf-8")))
 
 
 def sanitized_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -31,7 +32,7 @@ def _manifest(package_root: Path, entrypoint: str = "fixture.bin") -> dict[str, 
             "id": "fixture-candidate",
             "layout": "onedir-freeze",
             "platform": sys.platform,
-            "architecture": "test",
+            "architecture": platform.machine().lower(),
             "python_version": "3.12.0",
             "application_version": "0.1.0",
         },
@@ -88,18 +89,31 @@ def test_manifest_requires_valid_platform_hash_and_confined_paths(tmp_path: Path
     loaded = acceptance.load_and_verify_manifest(package_root, manifest_path, schema)
     assert loaded["schema_version"] == acceptance.MANIFEST_VERSION
 
+    extra = package_root / "unexpected.bin"
+    extra.write_bytes(b"unexpected")
+    with pytest.raises(ValueError, match="集合不闭合"):
+        acceptance.load_and_verify_manifest(package_root, manifest_path, schema)
+    extra.unlink()
+
+    wrong_architecture = _manifest(package_root)
+    candidate = cast(dict[str, JsonValue], wrong_architecture["candidate"])
+    candidate["architecture"] = "arm64" if platform.machine().lower() != "arm64" else "amd64"
+    manifest_path.write_text(json.dumps(wrong_architecture), encoding="utf-8")
+    with pytest.raises(ValueError, match="architecture"):
+        acceptance.load_and_verify_manifest(package_root, manifest_path, schema)
+
     wrong_platform = _manifest(package_root)
     candidate = cast(dict[str, JsonValue], wrong_platform["candidate"])
     candidate["platform"] = "darwin" if sys.platform == "win32" else "win32"
     manifest_path.write_text(json.dumps(wrong_platform), encoding="utf-8")
-    with pytest.raises(ValueError, match="平台与当前系统不匹配"):
+    with pytest.raises(ValueError, match="platform"):
         acceptance.load_and_verify_manifest(package_root, manifest_path, schema)
 
     bad_hash = _manifest(package_root)
     files = cast(list[dict[str, JsonValue]], bad_hash["files"])
     files[0]["sha256"] = "0" * 64
     manifest_path.write_text(json.dumps(bad_hash), encoding="utf-8")
-    with pytest.raises(ValueError, match="摘要不匹配"):
+    with pytest.raises(ValueError, match="文件校验失败"):
         acceptance.load_and_verify_manifest(package_root, manifest_path, schema)
 
     with pytest.raises(ValueError, match="逃逸运行包"):
@@ -190,6 +204,16 @@ def test_acceptance_relocates_package_and_reports_program_data_boundary(
     assert report["program_data_entries"] == []
 
     (package_root / "model.json").write_text("{}", encoding="utf-8")
+    manifest = _manifest(package_root)
+    files = cast(list[dict[str, JsonValue]], manifest["files"])
+    files.append(
+        {
+            "path": "model.json",
+            "sha256": hashlib.sha256(b"{}").hexdigest(),
+            "size": 2,
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     report = acceptance.run_acceptance(
         package_root,
         manifest_path,
