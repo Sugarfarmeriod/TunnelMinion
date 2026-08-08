@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI
-from platformdirs import user_data_path
 
 from tunnelminion.agent.conversation import InMemoryConversationService
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
@@ -47,6 +46,7 @@ from tunnelminion.platforms.windows.system import (
     default_docker_path,
     default_wg_path,
 )
+from tunnelminion.runtime.profile import default_runtime_data_dir
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -84,7 +84,7 @@ class WindowsApplication:
 
 def default_data_dir() -> Path:
     """返回当前系统账户的 TunnelMinion 数据目录。"""
-    return Path(user_data_path("TunnelMinion", "TunnelMinion"))
+    return default_runtime_data_dir()
 
 
 def load_or_create_node_id(path: Path) -> NodeId:
