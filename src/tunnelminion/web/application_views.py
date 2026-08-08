@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
 
 from tunnelminion import __version__
 from tunnelminion.agent.coordinator import (
@@ -21,6 +25,7 @@ from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.configuration import ModelConfigurationService
 from tunnelminion.model.contracts import ProviderErrorCode
+from tunnelminion.runtime.profile import current_program_dir
 from tunnelminion.web import overview as overview_contracts
 from tunnelminion.web.resources import CoordinatorResourceState, coordinator_resource_view
 
@@ -53,6 +58,7 @@ _FRESHNESS = {
         overview_contracts.OverviewFreshness.NOT_APPLICABLE
     ),
 }
+_PACKAGE_MANIFEST_FILE = "runtime-package-manifest.json"
 
 
 @dataclass(frozen=True)
@@ -87,13 +93,52 @@ def build_application_view_bindings(
         model_service,
         managed,
         clock or (lambda: datetime.now(UTC)),
-        runtime_package
-        or overview_contracts.RuntimePackageOverview(
-            kind=overview_contracts.RuntimePackageKind.SOURCE,
-            version=__version__,
-        ),
+        runtime_package or detect_runtime_package(),
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
+
+
+def detect_runtime_package(
+    program_dir: Path | None = None,
+    *,
+    frozen: bool | None = None,
+) -> overview_contracts.RuntimePackageOverview:
+    """从已安装清单判断交付形态；损坏清单只降级显示，不阻断本机页面。"""
+    program = (program_dir or current_program_dir()).resolve()
+    manifest_path = program / _PACKAGE_MANIFEST_FILE
+    is_frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    if manifest_path.is_file():
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("运行包清单必须是对象")
+            manifest = cast(dict[str, object], raw)
+            candidate_value = manifest.get("candidate")
+            if not isinstance(candidate_value, dict):
+                raise ValueError("运行包清单缺少 candidate")
+            candidate = cast(dict[str, object], candidate_value)
+            schema = manifest.get("schema_version")
+            version = candidate.get("application_version")
+            if not isinstance(schema, str) or not isinstance(version, str):
+                raise ValueError("运行包清单缺少版本摘要")
+            return overview_contracts.RuntimePackageOverview(
+                kind=overview_contracts.RuntimePackageKind.STANDALONE,
+                version=version,
+                manifest_schema=schema,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            return overview_contracts.RuntimePackageOverview(
+                kind=overview_contracts.RuntimePackageKind.UNKNOWN,
+                version=__version__,
+            )
+    return overview_contracts.RuntimePackageOverview(
+        kind=(
+            overview_contracts.RuntimePackageKind.STANDALONE
+            if is_frozen
+            else overview_contracts.RuntimePackageKind.SOURCE
+        ),
+        version=__version__,
+    )
 
 
 class _ApplicationViewAdapter:

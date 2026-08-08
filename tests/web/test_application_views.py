@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -324,6 +326,37 @@ def test_unconfigured_defaults_are_local_only_and_resource_callbacks_are_absent(
     assert result.services.freshness is OverviewFreshness.UNKNOWN
     assert resources.coordinator_status is None
     assert resources.coordinator_cache is None
+
+
+def test_runtime_package_detection_uses_installed_manifest(tmp_path: Path) -> None:
+    manifest = {
+        "schema_version": "runtime-package-manifest/v2",
+        "candidate": {"application_version": "1.2.3"},
+    }
+    (tmp_path / "runtime-package-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    package = views.detect_runtime_package(tmp_path, frozen=True)
+
+    assert package.kind is RuntimePackageKind.STANDALONE
+    assert package.version == "1.2.3"
+    assert package.manifest_schema == "runtime-package-manifest/v2"
+
+
+@pytest.mark.parametrize("payload", ("[]", "{}", '{"candidate": {}}', "{"))
+def test_runtime_package_detection_degrades_for_invalid_manifest(
+    tmp_path: Path, payload: str
+) -> None:
+    (tmp_path / "runtime-package-manifest.json").write_text(payload, encoding="utf-8")
+
+    package = views.detect_runtime_package(tmp_path, frozen=True)
+
+    assert package.kind is RuntimePackageKind.UNKNOWN
+    assert package.manifest_schema is None
+
+
+def test_runtime_package_detection_distinguishes_raw_freeze_and_source(tmp_path: Path) -> None:
+    assert views.detect_runtime_package(tmp_path, frozen=True).kind is RuntimePackageKind.STANDALONE
+    assert views.detect_runtime_package(tmp_path, frozen=False).kind is RuntimePackageKind.SOURCE
 
 
 @pytest.mark.parametrize(
