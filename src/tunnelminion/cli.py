@@ -24,6 +24,293 @@ _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
+def _runtime_port(value: str) -> int:
+    """解析 runtime 本地端口，同时保持帮助文本简短。"""
+    port = int(value)
+    if not 1024 <= port <= 65535:
+        raise argparse.ArgumentTypeError("端口必须在 1024 到 65535 之间")
+    return port
+
+
+def _runtime_command(values: list[str]) -> int:
+    """配置或执行不注册系统自启动项的手工 runtime 操作。"""
+    parser = argparse.ArgumentParser(description="手工管理 TunnelMinion 常驻组件")
+    parser.add_argument("runtime")
+    parser.add_argument("action", choices=("configure", "start", "status", "stop"))
+    parser.add_argument("--profile", type=Path)
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--local-port", type=_runtime_port, default=8000)
+    parser.add_argument("--enable-gateway", action="store_true")
+    args = parser.parse_args(values)
+
+    from tunnelminion.runtime.control import (
+        build_lifecycle_manager,
+        build_runtime_preflight,
+        profile_summary,
+        runtime_control_view,
+    )
+    from tunnelminion.runtime.lifecycle import ComponentRuntimeState
+    from tunnelminion.runtime.preflight import PreflightStatus
+    from tunnelminion.runtime.process import RuntimeOperationBusy
+    from tunnelminion.runtime.profile import (
+        FileRuntimeProfileRepository,
+        RuntimeComponent,
+        RuntimeProfile,
+        current_program_dir,
+        default_runtime_data_dir,
+        default_runtime_profile_path,
+        resolve_runtime_paths,
+    )
+
+    profile_path = (args.profile or default_runtime_profile_path()).expanduser().resolve()
+    repository = FileRuntimeProfileRepository(profile_path, current_program_dir())
+    if args.action == "configure":
+        components = {RuntimeComponent.LOCAL}
+        if args.enable_gateway:
+            components.add(RuntimeComponent.GATEWAY)
+        try:
+            profile = RuntimeProfile(
+                data_dir=(args.data_dir or default_runtime_data_dir()).expanduser().resolve(),
+                enabled_components=frozenset(components),
+                local_port=args.local_port,
+            )
+            repository.save(profile)
+        except (OSError, ValueError):
+            print(
+                json.dumps(
+                    {"status": "failed", "error_code": "runtime_profile_invalid"},
+                    ensure_ascii=False,
+                )
+            )
+            return 2
+        print(profile_summary(profile))
+        return 0
+
+    try:
+        profile = repository.load()
+    except (OSError, ValueError):
+        profile = None
+    if profile is None:
+        print(
+            json.dumps(
+                {"status": "failed", "error_code": "runtime_profile_invalid"},
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    paths = resolve_runtime_paths(profile.data_dir, profile_path)
+    manager = build_lifecycle_manager(profile, paths)
+    preflight_report = None
+    try:
+        if args.action == "start":
+            current = manager.status()
+            active_components = frozenset(
+                item.component
+                for item in current.components
+                if item.state is ComponentRuntimeState.RUNNING
+            )
+            preflight_report = build_runtime_preflight().run(
+                paths,
+                active_components=active_components,
+            )
+            global_failure = any(
+                item.status is PreflightStatus.FAILED
+                and item.name in {"package", "profile", "data-dir"}
+                for item in preflight_report.checks
+            )
+            if global_failure:
+                print(
+                    json.dumps(
+                        {
+                            "status": "failed",
+                            "error_code": "runtime_preflight_failed",
+                            "preflight": preflight_report.model_dump(mode="json"),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                )
+                return 2
+        report = getattr(manager, args.action)()
+    except RuntimeOperationBusy:
+        print(
+            json.dumps(
+                {"status": "failed", "error_code": "runtime_operation_busy"},
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    view = runtime_control_view(report, profile, paths)
+    if preflight_report is None:
+        print(view.model_dump_json())
+    else:
+        output = view.model_dump(mode="json")
+        output["preflight"] = preflight_report.model_dump(mode="json")
+        print(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    return report.exit_code
+
+
+def _runtime_package_command(values: list[str]) -> int:
+    """管理与生产数据分离的版本化程序目录。"""
+    parser = argparse.ArgumentParser(description="安装、切换或移除 TunnelMinion 运行包")
+    parser.add_argument("runtime-package")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    def add_common(target: argparse.ArgumentParser) -> None:
+        target.add_argument("--profile", type=Path)
+        target.add_argument("--install-root", type=Path)
+
+    stage_parser = subparsers.add_parser("stage", help="校验并并行放置新版本")
+    add_common(stage_parser)
+    stage_parser.add_argument("--package-root", type=Path, required=True)
+    stage_parser.add_argument("--manifest", type=Path, required=True)
+    activate_parser = subparsers.add_parser("activate", help="在组件停止后切换版本")
+    add_common(activate_parser)
+    activate_parser.add_argument("--package-id", required=True)
+    status_parser = subparsers.add_parser("status", help="查看当前和上一程序版本")
+    add_common(status_parser)
+    remove_parser = subparsers.add_parser("remove", help="只移除程序并保留数据和秘密")
+    add_common(remove_parser)
+    args = parser.parse_args(values)
+
+    from tunnelminion.runtime.install import (
+        RuntimePackageInstaller,
+        default_runtime_install_root,
+    )
+    from tunnelminion.runtime.process import DetachedProcessAdapter, ProcessRecordRepository
+    from tunnelminion.runtime.profile import (
+        FileRuntimeProfileRepository,
+        current_program_dir,
+        default_runtime_profile_path,
+        resolve_runtime_paths,
+    )
+
+    profile_path = (args.profile or default_runtime_profile_path()).expanduser().resolve()
+    try:
+        profile = FileRuntimeProfileRepository(profile_path, current_program_dir()).load()
+        if profile is None:
+            raise ValueError("runtime profile missing")
+        paths = resolve_runtime_paths(profile.data_dir, profile_path)
+        installer = RuntimePackageInstaller(
+            args.install_root or default_runtime_install_root(),
+            profile.data_dir,
+        )
+    except (OSError, ValueError):
+        print(json.dumps({"status": "failed", "error_code": "runtime_profile_invalid"}))
+        return 2
+
+    records = ProcessRecordRepository(paths.state_dir)
+    processes = DetachedProcessAdapter()
+
+    def stopped() -> bool:
+        try:
+            return all(
+                (record := records.load(component)) is None or processes.inspect(record.pid) is None
+                for component in profile.enabled_components
+            )
+        except (OSError, ValueError):
+            return False
+
+    try:
+        if args.action == "stage":
+            package = installer.stage(args.package_root, args.manifest)
+            output: dict[str, object] = {
+                "status": "staged",
+                "package_id": package.package_id,
+                "application_version": package.application_version,
+                "manifest_sha256": package.manifest_sha256,
+            }
+        elif args.action == "activate":
+            state = installer.activate(args.package_id, stopped)
+            output = {
+                "status": "activated",
+                "current_package_id": state.current_package_id,
+                "previous_package_id": state.previous_package_id,
+            }
+        elif args.action == "status":
+            state = installer.load()
+            program = installer.current_program_dir()
+            output = {
+                "status": "ready",
+                "current_package_id": state.current_package_id,
+                "previous_package_id": state.previous_package_id,
+                "installed_package_ids": [item.package_id for item in state.packages],
+                "current_program_directory": str(program) if program is not None else None,
+                "data_dir_sha256": state.data_dir_sha256,
+            }
+        else:
+            removed = installer.remove_program(stopped)
+            output = {
+                "status": "removed",
+                "removed_package_ids": list(removed),
+                "data_preserved": True,
+                "secret_store_preserved": True,
+            }
+    except RuntimeError:
+        print(json.dumps({"status": "failed", "error_code": "runtime_components_running"}))
+        return 2
+    except (KeyError, OSError, ValueError):
+        print(json.dumps({"status": "failed", "error_code": "runtime_package_invalid"}))
+        return 2
+    print(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    return 0
+
+
+def _runtime_child(values: list[str]) -> int:
+    """运行单个真实组件，并把启动异常收敛为零秘密稳定错误。"""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("runtime-child")
+    parser.add_argument("--runtime-component", choices=("local", "gateway"), required=True)
+    parser.add_argument("--runtime-instance-id", required=True)
+    parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--local-port", type=int, required=True, choices=range(1024, 65536))
+    parser.add_argument("--runtime-log-file", type=Path, required=True)
+    args = parser.parse_args(values)
+
+    from uuid import UUID
+
+    from tunnelminion.runtime.logging import runtime_log_config, write_runtime_event
+
+    try:
+        UUID(args.runtime_instance_id)
+        if args.runtime_component == "gateway":
+            from tunnelminion.macos_app import build_macos_gateway_application
+
+            bundle = build_macos_gateway_application(args.data_dir)
+            application = bundle.app
+            host = bundle.bind.host
+            port = bundle.bind.port
+        else:
+            host = "127.0.0.1"
+            port = args.local_port
+            if sys.platform == "darwin":
+                from tunnelminion.macos_app import build_macos_local_application
+
+                application = build_macos_local_application(args.data_dir).app
+            else:
+                from tunnelminion.app import build_windows_application
+
+                application = build_windows_application(args.data_dir).app
+        uvicorn.run(
+            application,
+            host=host,
+            port=port,
+            access_log=False,
+            log_config=runtime_log_config(args.runtime_log_file),
+        )
+    except Exception:
+        write_runtime_event(args.runtime_log_file, "component_start_failed")
+        print(
+            json.dumps(
+                {"status": "failed", "error_code": "component_start_failed"},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
 def _managed_status(values: list[str]) -> int:
     """输出常规节点的脱敏 managed 状态，并用稳定代码表示本地读取失败。"""
     parser = argparse.ArgumentParser(description="查看 managed node 脱敏状态")
@@ -308,6 +595,12 @@ def _create_operation_preauthorization(values: list[str]) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "runtime":
+        return _runtime_command(values)
+    if values and values[0] == "runtime-package":
+        return _runtime_package_command(values)
+    if values and values[0] == "runtime-child":
+        return _runtime_child(values)
     if values and values[0] == "export":
         return _export_data(values)
     if values and values[0] == "uninstall":

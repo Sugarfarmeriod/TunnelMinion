@@ -3,7 +3,7 @@
 - [x] 0.1 从最新 `origin/main` 创建 `feature/local-product-experience`，确认工作树干净且不读取或修改 `docs/questions/`
 - [x] 0.2 建立 workstream→owner→文件表；`package.json`、`package-lock.json`、共享 API client/schema、公共路由、Python 应用工厂、package manifest、OpenSpec tasks 与集成分支始终只有一个写入者
 - [ ] 0.3 固定四张 legacy 页面、现有 API/OpenAPI、CSP、Windows/macOS package、关键用户流、压缩体积与加载/刷新延迟基线，fixture 不得读取秘密
-- [ ] 0.4 确认 `package-manual-node-runtime` 相关运行包分支栈已进入 `main`；在此之前只允许 package 只读审计和 clean-room harness，不复制第二套 builder
+- [x] 0.4 确认 `package-manual-node-runtime` 相关运行包分支栈已进入 `main`；在此之前只允许 package 只读审计和 clean-room harness，不复制第二套 builder
 - [ ] 0.5 每个阶段提交前复核 ownership、`git status`、diff、生成物和秘密范围；跨 owner 修改由 integration owner 串行合入
 
 ## 1. 契约与工具链 spike
