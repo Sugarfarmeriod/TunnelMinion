@@ -123,7 +123,11 @@ def test_formal_build_is_deterministic_and_schema_valid(
 def test_wheel_force_includes_the_unique_frontend_dist() -> None:
     configuration = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     wheel = configuration["tool"]["hatch"]["build"]["targets"]["wheel"]
-    assert wheel["force-include"] == {"build/frontend-dist": "tunnelminion/web/ui"}
+    assert wheel["hooks"]["custom"] == {"path": "hatch_build.py"}
+    assert "force-include" not in wheel
+    hook = Path("hatch_build.py").read_text(encoding="utf-8")
+    assert 'if version != "standard"' in hook
+    assert 'build_data["force_include"][str(frontend)] = "tunnelminion/web/ui"' in hook
 
 
 def test_formal_build_rejects_missing_or_linked_frontend(

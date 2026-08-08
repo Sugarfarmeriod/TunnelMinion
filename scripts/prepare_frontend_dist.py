@@ -11,14 +11,14 @@ import sys
 import zipfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import cast
-
-from pydantic import JsonValue
+from typing import TypeAlias, cast
 
 try:
     from scripts.stage_frontend import stage_frontend
 except ModuleNotFoundError:
     from stage_frontend import stage_frontend  # pyright: ignore[reportMissingImports]
+
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 RECEIPT_SCHEMA = "tunnelminion/frontend-dist-receipt/v1"
 FRONTEND_INPUTS = (

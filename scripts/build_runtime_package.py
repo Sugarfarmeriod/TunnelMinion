@@ -51,6 +51,7 @@ SOURCE_INPUTS = (
     Path("src"),
     Path("scripts/build_runtime_package.py"),
     Path("scripts/prepare_frontend_dist.py"),
+    Path("hatch_build.py"),
 )
 FRONTEND_DIST = Path("build/frontend-dist")
 PACKAGED_FRONTEND_RELATIVE = Path("tunnelminion/web/ui")
