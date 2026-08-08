@@ -29,6 +29,69 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+function makeOverview() {
+  const section = {
+    source: "local_observation",
+    evidence_at: "2026-08-08T08:00:00+08:00",
+    freshness: "live",
+    error: null,
+  } as const;
+  return {
+    schema_version: "resource-overview/v1",
+    generated_at: "2026-08-08T08:00:00+08:00",
+    local: {
+      ...section,
+      source: "local_runtime",
+      runtime: "running",
+      platform: "macos",
+      version: "0.1.0",
+      package: {
+        name: "tunnelminion",
+        kind: "standalone",
+        version: "0.1.0",
+        manifest_schema: "runtime-package-manifest/v1",
+      },
+      readiness: "ready",
+    },
+    model: {
+      ...section,
+      source: "model_configuration",
+      configured: true,
+      status: "available",
+    },
+    coordinator: {
+      ...section,
+      source: "coordinator_sync",
+      configured: true,
+      state: "ready",
+      revision: 7,
+      last_success_at: "2026-08-08T08:00:00+08:00",
+    },
+    network_path: {
+      ...section,
+      source: "network_path_evidence",
+      configured: true,
+      state: "direct",
+      provider: "macos",
+      revision: 3,
+      handshake: {
+        status: "passed",
+        observed_at: "2026-08-08T08:00:00+08:00",
+      },
+      route: {
+        status: "passed",
+        observed_at: "2026-08-08T08:00:00+08:00",
+      },
+      probe: {
+        status: "passed",
+        observed_at: "2026-08-08T08:00:00+08:00",
+      },
+    },
+    nodes: { ...section, items: [] },
+    services: { ...section, items: [] },
+  };
+}
+
 function renderSettings() {
   const client = new QueryClient({
     defaultOptions: {
@@ -303,5 +366,44 @@ describe("SettingsPage", () => {
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
     ).toHaveLength(1);
+  });
+
+  it("提供服务端脱敏诊断下载且不把诊断包写入浏览器存储", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(makeConfiguration()));
+    const localStorageSpy = vi.spyOn(Storage.prototype, "setItem");
+
+    renderSettings();
+
+    const download = await screen.findByRole("link", {
+      name: "下载脱敏诊断包",
+    });
+    expect(download).toHaveAttribute("href", "/api/diagnostics/export");
+    expect(download).toHaveAttribute("download");
+    expect(
+      screen.getByText(/没有 Murus、防火墙日志权限或厂商 VPN 工具时/),
+    ).toBeVisible();
+    expect(screen.getByText(/不可达不等于一定是防火墙/)).toBeVisible();
+    expect(localStorageSpy).not.toHaveBeenCalled();
+  });
+
+  it("在设置页展示强类型 runtime、版本、Coordinator 与路径状态", async () => {
+    fetchMock.mockImplementation((input) => {
+      const path = String(input);
+      return Promise.resolve(
+        jsonResponse(
+          path.endsWith("/api/resources/overview")
+            ? makeOverview()
+            : makeConfiguration(),
+        ),
+      );
+    });
+
+    renderSettings();
+
+    expect(await screen.findByText("本机就绪")).toBeVisible();
+    expect(screen.getByText("macos / 0.1.0")).toBeVisible();
+    expect(screen.getByText("standalone / 0.1.0")).toBeVisible();
+    expect(screen.getByText("ready（live）")).toBeVisible();
+    expect(screen.getByText("direct（probe: passed）")).toBeVisible();
   });
 });

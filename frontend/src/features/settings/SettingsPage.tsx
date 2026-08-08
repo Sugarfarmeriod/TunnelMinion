@@ -3,6 +3,8 @@ import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
+import { requestJson } from "../../api/client";
+import { resourceOverviewSchema } from "../../api/schemas/overview";
 
 import {
   deleteModelConfiguration,
@@ -156,6 +158,13 @@ export function SettingsPage() {
   const query = useQuery({
     queryKey: ["model-configuration"],
     queryFn: getModelConfiguration,
+    retry: false,
+  });
+  const systemQuery = useQuery({
+    queryKey: ["resource-overview"],
+    queryFn: () =>
+      requestJson("/api/resources/overview", resourceOverviewSchema),
+    enabled: query.isSuccess,
     retry: false,
   });
   const [endpoint, setEndpoint] = useState("");
@@ -552,6 +561,118 @@ export function SettingsPage() {
           </form>
         </>
       )}
+
+      <article
+        aria-labelledby="system-status-title"
+        className="settings-status-card"
+      >
+        <div className="settings-status-card__heading">
+          <h3 id="system-status-title">Runtime、Coordinator 与网络路径</h3>
+          <span className="settings-status">
+            {systemQuery.data === undefined
+              ? systemQuery.isPending
+                ? "正在读取"
+                : "当前未知"
+              : systemQuery.data.local.readiness === "ready"
+                ? "本机就绪"
+                : "需要留意"}
+          </span>
+        </div>
+        {systemQuery.data === undefined ? (
+          <div role={systemQuery.isPending ? "status" : "alert"}>
+            <p>
+              {systemQuery.isPending
+                ? "正在读取本机运行状态……"
+                : "暂时读不到本机总览；模型设置和诊断下载仍可独立使用。"}
+            </p>
+            {systemQuery.isPending ? null : (
+              <button onClick={() => void systemQuery.refetch()} type="button">
+                重试读取运行状态
+              </button>
+            )}
+          </div>
+        ) : (
+          <dl className="settings-metadata">
+            <div>
+              <dt>Runtime</dt>
+              <dd>{systemQuery.data.local.runtime}</dd>
+            </div>
+            <div>
+              <dt>平台 / 版本</dt>
+              <dd>
+                {systemQuery.data.local.platform ?? "unknown"} /{" "}
+                {systemQuery.data.local.version ?? "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt>Package</dt>
+              <dd>
+                {systemQuery.data.local.package.kind} /{" "}
+                {systemQuery.data.local.package.version ?? "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt>Coordinator</dt>
+              <dd>
+                {systemQuery.data.coordinator.state}（
+                {systemQuery.data.coordinator.freshness}）
+              </dd>
+            </div>
+            <div>
+              <dt>网络路径</dt>
+              <dd>
+                {systemQuery.data.network_path.state}（probe:{" "}
+                {systemQuery.data.network_path.probe.status}）
+              </dd>
+            </div>
+            <div>
+              <dt>证据时间</dt>
+              <dd>
+                {systemQuery.data.network_path.evidence_at ??
+                  "尚无网络路径证据"}
+              </dd>
+            </div>
+          </dl>
+        )}
+        <p className="settings-recovery">
+          Coordinator
+          或网络路径不可用时，本机资源、记忆和已有操作清理仍应继续工作；总览页提供更完整的来源与新鲜度说明。
+        </p>
+      </article>
+
+      <article
+        aria-labelledby="diagnostics-export-title"
+        className="settings-diagnostics-card"
+      >
+        <div>
+          <p className="eyebrow">只读、脱敏</p>
+          <h3 id="diagnostics-export-title">导出诊断包</h3>
+          <p>
+            下载当前本机状态、可选诊断来源和恢复建议。诊断包不会包含模型密钥、Gateway
+            token、认证头、私钥或完整聊天内容，也不会保存到浏览器存储。
+          </p>
+        </div>
+        <a
+          className="settings-download-link"
+          download
+          href="/api/diagnostics/export"
+        >
+          下载脱敏诊断包
+        </a>
+        <div className="settings-recovery-guide">
+          <h4>看不懂状态时，按这个顺序来</h4>
+          <ol>
+            <li>先看总览里的本机 Runtime 是否正在运行。</li>
+            <li>再看真实 probe 结果；不可达不等于一定是防火墙。</li>
+            <li>
+              没有 Murus、防火墙日志权限或厂商 VPN
+              工具时，相关来源只会显示“不可用”，不会阻止 TunnelMinion
+              的其他功能。
+            </li>
+            <li>需要协助时，把刚下载的脱敏 JSON 发给维护者。</li>
+          </ol>
+        </div>
+      </article>
 
       {confirmation === null ? null : (
         <SettingsConfirmationDialog

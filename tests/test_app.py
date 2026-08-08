@@ -112,6 +112,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/resources/node-summary" in paths
     assert "/api/resources/managed-node" in paths
     assert "/api/resources/overview" in paths
+    assert "/api/diagnostics/export" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
     assert "/api/operations" in paths
@@ -131,9 +132,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
     local_client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
-    overview = local_client.get(
-        "/api/resources/overview"
-    )
+    overview = local_client.get("/api/resources/overview")
     assert overview.status_code == 200
     overview_body = overview.json()
     assert overview_body["local"]["readiness"] == "ready"
@@ -141,6 +140,18 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert overview_body["coordinator"]["state"] == "unconfigured"
     assert overview_body["network_path"]["state"] == "unconfigured"
     assert overview_body["network_path"]["handshake"]["status"] == "missing"
+    diagnostics = local_client.get("/api/diagnostics/export")
+    assert diagnostics.status_code == 200
+    assert diagnostics.headers["content-disposition"].startswith(
+        'attachment; filename="tunnelminion-diagnostics-'
+    )
+    diagnostics_body = diagnostics.json()
+    assert diagnostics_body["schema_version"] == "diagnostics-export/v1"
+    assert diagnostics_body["overview"]["runtime"]["platform"] == "windows"
+    assert [item["status"] for item in diagnostics_body["optional_sources"]] == [
+        "unavailable",
+        "unavailable",
+    ]
 
     def create_provider(_self: ModelConfigurationService) -> AppProvider:
         return AppProvider()

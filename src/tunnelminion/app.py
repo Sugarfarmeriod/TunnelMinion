@@ -52,6 +52,7 @@ from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 from tunnelminion.web.application_views import build_application_view_bindings
 from tunnelminion.web.conversation import create_conversation_router
+from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.overview import create_overview_router
@@ -198,6 +199,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         )
     )
     app.include_router(create_overview_router(views.overview_service))
+    app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))

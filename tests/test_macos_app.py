@@ -296,6 +296,17 @@ def test_macos_local_resources_degrade_without_model(
     assert overview.status_code == 200
     assert cast(dict[str, object], overview_body["local"])["platform"] == "macos"
     assert cast(dict[str, object], overview_body["coordinator"])["state"] == "unconfigured"
+    diagnostics = client.get("/api/diagnostics/export", headers={})
+    diagnostics_body = cast(dict[str, object], diagnostics.json())
+    assert diagnostics.status_code == 200
+    assert diagnostics.headers["cache-control"] == "no-store"
+    diagnostics_overview = cast(dict[str, object], diagnostics_body["overview"])
+    diagnostics_runtime = cast(dict[str, object], diagnostics_overview["runtime"])
+    assert diagnostics_runtime["platform"] == "macos"
+    assert [
+        cast(dict[str, object], item)["status"]
+        for item in cast(list[object], diagnostics_body["optional_sources"])
+    ] == ["unavailable", "unavailable"]
     model = client.get("/api/model-config", headers={})
     assert cast(dict[str, object], model.json())["status"] == "unconfigured"
     cross_site = client.post(

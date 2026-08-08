@@ -220,6 +220,48 @@
   font-weight: 700;
 }
 
+.settings-diagnostics-card {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.settings-diagnostics-card h3,
+.settings-diagnostics-card h4,
+.settings-diagnostics-card p,
+.settings-recovery-guide ol {
+  margin: 0;
+}
+
+.settings-download-link {
+  align-items: center;
+  align-self: start;
+  background: var(--color-accent-strong);
+  border-radius: calc(var(--radius-panel) / 2);
+  color: var(--color-surface);
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  text-decoration: none;
+  width: fit-content;
+}
+
+.settings-recovery-guide {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settings-recovery-guide ol {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 1.25rem;
+}
+
 .settings-dialog-backdrop {
   align-items: center;
   background: rgb(0 0 0 / 58%);
