@@ -11,13 +11,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from tunnelminion.web import spa
-from tunnelminion.web.spa import create_spa_router, default_spa_root, resolve_spa_asset
+from tunnelminion.web.spa import (
+    create_spa_router,
+    default_spa_root,
+    default_ui_entrypoint,
+    resolve_spa_asset,
+)
 
 
 class ApiClient(Protocol):
     """屏蔽 TestClient 当前缺失的严格类型标注。"""
 
-    def get(self, url: str) -> httpx.Response: ...
+    def get(self, url: str, *, follow_redirects: bool = True) -> httpx.Response: ...
 
 
 def _client(tmp_path: Path) -> ApiClient:
@@ -44,6 +49,27 @@ def test_spa_serves_entry_deep_routes_and_immutable_assets(tmp_path: Path) -> No
     assert asset.status_code == 200
     assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert asset.headers["x-content-type-options"] == "nosniff"
+
+
+def test_default_entry_uses_react_and_supports_legacy_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path)
+
+    default = client.get("/", follow_redirects=False)
+    assert default.status_code == 307
+    assert default.headers["location"] == "/app/overview"
+    assert default_ui_entrypoint({}) == "/app/overview"
+    assert default_ui_entrypoint({"TUNNELMINION_DEFAULT_UI": " legacy "}) == "/resources"
+
+    monkeypatch.setenv("TUNNELMINION_DEFAULT_UI", "legacy")
+    assert default_ui_entrypoint({}) == "/app/overview"
+    rollback = client.get("/", follow_redirects=False)
+    assert rollback.status_code == 307
+    assert rollback.headers["location"] == "/resources"
+
+    with pytest.raises(ValueError, match="TUNNELMINION_DEFAULT_UI"):
+        default_ui_entrypoint({"TUNNELMINION_DEFAULT_UI": "unknown"})
 
 
 def test_spa_does_not_swallow_api_or_missing_assets(tmp_path: Path) -> None:

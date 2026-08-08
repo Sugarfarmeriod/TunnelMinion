@@ -282,6 +282,16 @@ def test_macos_local_resources_degrade_without_model(
     bundle = build_macos_local_application(tmp_path / "local")
     client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
 
+    paths = set(bundle.app.openapi()["paths"])
+    for original, legacy in (
+        ("/chat", "/legacy/chat"),
+        ("/resources", "/legacy/resources"),
+        ("/operations", "/legacy/operations"),
+        ("/memories", "/legacy/memories"),
+    ):
+        assert original in paths
+        assert legacy in paths
+    assert "/" in paths
     assert client.get("/resources", headers={}).status_code == 200
     summary = client.get("/api/resources/node-summary", headers={})
     assert summary.status_code == 200

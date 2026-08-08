@@ -117,12 +117,15 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/runs/{value}/events" in paths
     assert "/api/operations" in paths
     assert "/api/preauthorizations" in paths
-    assert "/resources" in paths
-    assert "/operations" in paths
-    assert "/legacy/chat" in paths
-    assert "/legacy/resources" in paths
-    assert "/legacy/operations" in paths
-    assert "/legacy/memories" in paths
+    for original, legacy in (
+        ("/chat", "/legacy/chat"),
+        ("/resources", "/legacy/resources"),
+        ("/operations", "/legacy/operations"),
+        ("/memories", "/legacy/memories"),
+    ):
+        assert original in paths
+        assert legacy in paths
+    assert "/" in paths
     assert "/app/{route_path}" in paths
     assert "/app-assets/{asset_path}" in paths
     assert bundle.node_id

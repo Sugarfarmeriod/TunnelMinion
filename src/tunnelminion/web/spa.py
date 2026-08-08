@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+
+_DEFAULT_UI_ENV = "TUNNELMINION_DEFAULT_UI"
+_UI_ENTRYPOINTS = {
+    "react": "/app/overview",
+    "legacy": "/resources",
+}
 
 _CSP = "; ".join(
     (
@@ -44,8 +52,19 @@ def default_spa_root() -> Path:
     return packaged
 
 
+def default_ui_entrypoint(environment: Mapping[str, str] | None = None) -> str:
+    """选择默认界面；回退只改变入口，不迁移或删除任何用户数据。"""
+    source = os.environ if environment is None else environment
+    selected = source.get(_DEFAULT_UI_ENV, "react").strip().lower()
+    try:
+        return _UI_ENTRYPOINTS[selected]
+    except KeyError as error:
+        allowed = ", ".join(sorted(_UI_ENTRYPOINTS))
+        raise ValueError(f"{_DEFAULT_UI_ENV} 必须是以下值之一：{allowed}") from error
+
+
 def create_spa_router(asset_root: Path | None = None) -> APIRouter:
-    """创建只匹配 `/app/*` 与 `/app-assets/*` 的静态路由。"""
+    """创建默认入口及只匹配 `/app/*` 与 `/app-assets/*` 的静态路由。"""
     root = (asset_root or default_spa_root()).resolve()
     index = root / "index.html"
     router = APIRouter()
@@ -61,6 +80,10 @@ def create_spa_router(asset_root: Path | None = None) -> APIRouter:
             raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
         return FileResponse(candidate, headers=_ASSET_HEADERS)
 
+    def default_entry() -> RedirectResponse:
+        return RedirectResponse(default_ui_entrypoint(), status_code=307)
+
+    router.add_api_route("/", default_entry, methods=["GET"], response_class=RedirectResponse)
     router.add_api_route("/app", spa_entry, methods=["GET"], response_class=FileResponse)
     router.add_api_route("/app/", spa_entry, methods=["GET"], response_class=FileResponse)
     router.add_api_route(

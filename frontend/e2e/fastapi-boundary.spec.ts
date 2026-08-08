@@ -6,6 +6,13 @@ const localBrowserHeaders = {
   "Sec-Fetch-Site": "same-origin",
 };
 
+test("默认入口进入 React 总览", async ({ page }) => {
+  const response = await page.goto("/");
+  expect(response?.status()).toBe(200);
+  expect(page.url()).toBe(`${baseURL}/app/overview`);
+  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+});
+
 test("FastAPI 交付深链、严格缓存和同源 CSP", async ({ page, request }) => {
   const response = await page.goto("/app/operations/not-a-real-operation");
   expect(response?.status()).toBe(200);
