@@ -17,6 +17,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 from pydantic import JsonValue
 
@@ -122,6 +123,21 @@ def _wait_for_fixture(port: int, timeout_seconds: float) -> dict[str, JsonValue]
     raise TimeoutError("运行包 fixture 未在预算内就绪") from last_error
 
 
+def _wait_for_status(url: str, expected: int, timeout_seconds: float) -> int:
+    """在总预算内等待真实产品 HTTP 端点返回预期状态。"""
+    deadline = time.monotonic() + timeout_seconds
+    last_error: OSError | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=min(1.0, timeout_seconds)) as response:
+                if response.status == expected:
+                    return response.status
+        except OSError as exc:
+            last_error = exc
+        time.sleep(0.05)
+    raise TimeoutError("运行包产品端点未在预算内就绪") from last_error
+
+
 def _component_probe(component: str, port: int) -> int:
     path = "/api/resources/health" if component == "local" else "/v1/capabilities"
     status, _body = _read_json(f"http://127.0.0.1:{port}{path}", 2.0)
@@ -223,6 +239,76 @@ def run_component(
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 process.kill()
+            process.wait(timeout=5)
+
+
+def run_product_local(
+    entrypoint: Path,
+    data_dir: Path,
+    working_dir: Path,
+) -> dict[str, JsonValue]:
+    """在无源码、Node 和网络依赖的目录启动正式本地产品并打开 React 入口。"""
+    port = _available_port()
+    started = time.monotonic()
+    log_file = data_dir / "runtime" / "logs" / "local.log"
+    process = subprocess.Popen(
+        (
+            str(entrypoint),
+            "runtime-child",
+            "--runtime-component=local",
+            f"--runtime-instance-id={uuid4()}",
+            "--data-dir",
+            str(data_dir),
+            "--local-port",
+            str(port),
+            "--runtime-log-file",
+            str(log_file),
+        ),
+        cwd=working_dir,
+        env=sanitized_environment(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        try:
+            health_status = _wait_for_status(
+                f"http://127.0.0.1:{port}/api/resources/health",
+                200,
+                STARTUP_TIMEOUT_SECONDS,
+            )
+            app_status = _wait_for_status(
+                f"http://127.0.0.1:{port}/app/overview",
+                200,
+                5.0,
+            )
+        except TimeoutError:
+            exit_code = process.poll()
+            return {
+                "component": "local-product",
+                "duration_ms": round((time.monotonic() - started) * 1000, 3),
+                "error_code": (
+                    "process-exited-before-ready" if exit_code is not None else "startup-timeout"
+                ),
+                "exit_code": exit_code,
+                "passed": False,
+            }
+        return {
+            "component": "local-product",
+            "duration_ms": round((time.monotonic() - started) * 1000, 3),
+            "error_code": None,
+            "exit_code": None,
+            "health_status": health_status,
+            "app_status": app_status,
+            "passed": process.poll() is None,
+        }
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
                 process.wait(timeout=5)
 
 
@@ -248,17 +334,20 @@ def run_acceptance(
         )
         work = sandbox / "work"
         work.mkdir()
-        results = [
-            run_component(
-                entrypoint,
-                entrypoint_args,
-                component,
-                sandbox / f"data-{component}",
-                work,
-                forbidden_paths,
-            )
-            for component in ("local", "gateway")
-        ]
+        if manifest["schema_version"] == "runtime-package-manifest/v2":
+            results = [run_product_local(entrypoint, sandbox / "data-local", work)]
+        else:
+            results = [
+                run_component(
+                    entrypoint,
+                    entrypoint_args,
+                    component,
+                    sandbox / f"data-{component}",
+                    work,
+                    forbidden_paths,
+                )
+                for component in ("local", "gateway")
+            ]
         program_data_entries = sorted(
             path.name for path in relocated.rglob("*") if path.name in FORBIDDEN_PROGRAM_DATA
         )
@@ -283,7 +372,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--schema",
         type=Path,
-        default=Path("schemas/runtime-package-manifest-v1.schema.json"),
+        default=Path("schemas"),
     )
     parser.add_argument("--forbid-path", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)

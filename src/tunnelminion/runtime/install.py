@@ -25,7 +25,7 @@ from tunnelminion.runtime.profile import (
 INSTALL_STATE_VERSION = "runtime-install/v1"
 INSTALL_STATE_FILE = "runtime-install.json"
 PACKAGE_MANIFEST_FILE = "runtime-package-manifest.json"
-PACKAGE_SCHEMA_RELATIVE = Path("schemas/runtime-package-manifest-v1.schema.json")
+PACKAGE_SCHEMA_RELATIVE = Path("schemas")
 _PACKAGE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,159}$")
 
 

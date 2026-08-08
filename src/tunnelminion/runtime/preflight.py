@@ -31,6 +31,10 @@ from tunnelminion.runtime.profile import (
 
 _SUPPORTED_PLATFORMS = frozenset({"win32", "darwin"})
 _EMBEDDED_MANIFEST_FILE = "runtime-package-manifest.json"
+_MANIFEST_SCHEMAS = {
+    "runtime-package-manifest/v1": "runtime-package-manifest-v1.schema.json",
+    "runtime-package-manifest/v2": "runtime-package-manifest-v2.schema.json",
+}
 _ARCHITECTURE_ALIASES = {
     "amd64": "amd64",
     "x86_64": "amd64",
@@ -97,6 +101,100 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _schema_for_manifest(
+    manifest: dict[str, object], manifest_path: Path, schema_path: Path
+) -> Path:
+    """只按受信映射选择 schema，拒绝未知版本或版本/文件错配。"""
+    version = manifest.get("schema_version")
+    if not isinstance(version, str) or version not in _MANIFEST_SCHEMAS:
+        raise ValueError("运行包 manifest 版本不受支持")
+    expected = _MANIFEST_SCHEMAS[version]
+    candidate = schema_path / expected if schema_path.is_dir() else schema_path
+    if candidate.name != expected:
+        raise ValueError("运行包 manifest 与 schema 版本不匹配")
+    if candidate.resolve() == manifest_path.resolve():
+        raise ValueError("运行包 manifest 不能充当 schema")
+    return candidate
+
+
+def _verify_v2_frontend(
+    package_root: Path,
+    manifest: dict[str, object],
+    records: list[dict[str, object]],
+) -> None:
+    """交叉校验 v2 前端根、逐文件类型、数量与整体摘要。"""
+    frontend = manifest.get("frontend")
+    if not isinstance(frontend, dict):
+        raise ValueError("v2 运行包缺少前端摘要")
+    values = cast(dict[str, object], frontend)
+    root_value = values.get("root")
+    expected_digest = values.get("sha256")
+    expected_count = values.get("file_count")
+    if not isinstance(root_value, str):
+        raise ValueError("v2 运行包前端根无效")
+    frontend_root = _safe_package_path(package_root, root_value)
+    if not frontend_root.is_dir() or not (frontend_root / "index.html").is_file():
+        raise ValueError("v2 运行包前端缺少 index.html")
+    prefix = f"{root_value.rstrip('/')}/"
+    frontend_records = [record for record in records if record.get("type") == "frontend"]
+    if any(
+        not isinstance(record.get("path"), str) or not cast(str, record["path"]).startswith(prefix)
+        for record in frontend_records
+    ):
+        raise ValueError("v2 运行包前端文件类型或根目录无效")
+    paths = tuple(
+        sorted(
+            (path for path in frontend_root.rglob("*") if path.is_file()),
+            key=lambda path: path.relative_to(frontend_root).as_posix(),
+        )
+    )
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.relative_to(frontend_root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(_file_sha256(path)))
+    if (
+        len(paths) != expected_count
+        or len(frontend_records) != expected_count
+        or digest.hexdigest() != expected_digest
+    ):
+        raise ValueError("v2 运行包前端摘要或文件数不匹配")
+
+
+def _verify_v2_semantics(
+    package_root: Path,
+    manifest: dict[str, object],
+    records: list[dict[str, object]],
+    entrypoint: str,
+) -> None:
+    """补足 JSON Schema 无法表达的 v2 类型与许可证交叉约束。"""
+    entrypoint_records = [
+        record
+        for record in records
+        if record.get("path") == entrypoint and record.get("type") == "entrypoint"
+    ]
+    if len(entrypoint_records) != 1:
+        raise ValueError("v2 运行包入口类型无效")
+    licenses = manifest.get("licenses")
+    if not isinstance(licenses, list):
+        raise ValueError("v2 运行包许可证清单无效")
+    ecosystems: set[str] = set()
+    for raw in cast(list[object], licenses):
+        if not isinstance(raw, dict):
+            raise ValueError("v2 运行包许可证记录无效")
+        item = cast(dict[str, object], raw)
+        ecosystem = item.get("ecosystem")
+        license_name = item.get("license")
+        if not isinstance(ecosystem, str) or not isinstance(license_name, str):
+            raise ValueError("v2 运行包许可证来源无效")
+        if "UNKNOWN" in license_name.upper():
+            raise ValueError("v2 运行包包含未知许可证")
+        ecosystems.add(ecosystem)
+    if ecosystems != {"python", "npm"}:
+        raise ValueError("v2 运行包必须同时记录 Python 与 npm 许可证来源")
+    _verify_v2_frontend(package_root, manifest, records)
+
+
 def canonical_runtime_architecture(value: str | None = None) -> str:
     """把双平台常见 CPU 名称收敛成可比较的稳定值。"""
     raw = (value or platform.machine()).strip().lower()
@@ -155,19 +253,22 @@ def verify_runtime_package(
     if package_root.is_symlink() or manifest_path.is_symlink() or schema_path.is_symlink():
         raise ValueError("运行包路径不得是符号链接")
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    Draft202012Validator(_load_schema(schema_path)).validate(raw)  # pyright: ignore[reportUnknownMemberType]
     if not isinstance(raw, dict):
         raise ValueError("运行包清单根节点必须是对象")
     manifest = cast(dict[str, object], raw)
+    selected_schema = _schema_for_manifest(manifest, manifest_path, schema_path)
+    Draft202012Validator(_load_schema(selected_schema)).validate(raw)  # pyright: ignore[reportUnknownMemberType]
     raw_files = manifest.get("files")
     if not isinstance(raw_files, list):
         raise ValueError("运行包清单缺少文件列表")
     files = cast(list[object], raw_files)
+    records: list[dict[str, object]] = []
     seen: set[str] = set()
     for item in files:
         if not isinstance(item, dict):
             raise ValueError("运行包文件记录无效")
         record = cast(dict[str, object], item)
+        records.append(record)
         relative = record.get("path")
         expected_hash = record.get("sha256")
         expected_size = record.get("size")
@@ -184,6 +285,8 @@ def verify_runtime_package(
     entrypoint = manifest.get("entrypoint")
     if not isinstance(entrypoint, str) or entrypoint not in seen:
         raise ValueError("运行包入口未被清单覆盖")
+    if manifest.get("schema_version") == "runtime-package-manifest/v2":
+        _verify_v2_semantics(package_root, manifest, records, entrypoint)
     _verify_platform_and_architecture(manifest)
     _verify_closed_file_set(package_root, manifest_path, seen)
     for module in critical_imports:

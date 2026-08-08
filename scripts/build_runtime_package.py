@@ -22,7 +22,6 @@ from pydantic import JsonValue
 
 try:
     from scripts.build_runtime_package_spike import (
-        MANIFEST_VERSION,
         file_sha256,
         git_revision,
         license_inventory,
@@ -32,7 +31,6 @@ try:
     from scripts.prepare_frontend_dist import verify_frontend_dist
 except ModuleNotFoundError:
     from build_runtime_package_spike import (  # pyright: ignore[reportMissingImports]
-        MANIFEST_VERSION,
         file_sha256,
         git_revision,
         license_inventory,
@@ -42,14 +40,17 @@ except ModuleNotFoundError:
     from prepare_frontend_dist import verify_frontend_dist  # pyright: ignore[reportMissingImports]
 
 APPLICATION_VERSION = importlib.metadata.version("tunnelminion")
+MANIFEST_VERSION = "runtime-package-manifest/v2"
 SOURCE_INPUTS = (
     Path("pyproject.toml"),
     Path("uv.lock"),
     Path("frontend/package.json"),
     Path("frontend/package-lock.json"),
     Path("frontend/src"),
+    Path("schemas"),
     Path("src"),
     Path("scripts/build_runtime_package.py"),
+    Path("scripts/prepare_frontend_dist.py"),
 )
 FRONTEND_DIST = Path("build/frontend-dist")
 PACKAGED_FRONTEND_RELATIVE = Path("tunnelminion/web/ui")
@@ -97,6 +98,84 @@ def _frontend_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _npm_license_inventory(lock_path: Path) -> list[dict[str, JsonValue]]:
+    """从固定 npm lock 生成不依赖当前平台 node_modules 的许可清单。"""
+    raw = json.loads(lock_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("npm lock 缺少完整 packages 清单")
+    lock = cast(dict[str, object], raw)
+    packages_value = lock.get("packages")
+    if not isinstance(packages_value, dict):
+        raise ValueError("npm lock 缺少完整 packages 清单")
+    packages = cast(dict[str, object], packages_value)
+    inventory: list[dict[str, JsonValue]] = []
+    for package_path, value in packages.items():
+        if not package_path or not isinstance(value, dict):
+            continue
+        package = cast(dict[str, object], value)
+        name = package_path.rsplit("node_modules/", 1)[-1]
+        version = package.get("version")
+        license_name = package.get("license")
+        if (
+            not name
+            or not isinstance(version, str)
+            or not isinstance(license_name, str)
+            or not license_name.strip()
+            or "UNKNOWN" in license_name.upper()
+        ):
+            raise ValueError(f"npm 依赖 {name or package_path} 缺少已接受许可证")
+        inventory.append(
+            {
+                "ecosystem": "npm",
+                "name": name,
+                "version": version,
+                "license": license_name[:240],
+                "source": "frontend/package-lock.json",
+            }
+        )
+    if not inventory:
+        raise ValueError("npm lock 没有依赖许可记录")
+    return sorted(inventory, key=lambda item: (cast(str, item["name"]), cast(str, item["version"])))
+
+
+def _python_license_inventory(work: Path) -> list[dict[str, JsonValue]]:
+    """给既有 Python 许可清单补充生态和可复核来源。"""
+    inventory: list[dict[str, JsonValue]] = []
+    for item in license_inventory(work):
+        license_name = cast(str, item["license"])
+        if "UNKNOWN" in license_name.upper():
+            raise ValueError(f"Python 依赖 {item['name']} 缺少已接受许可证")
+        inventory.append(
+            {
+                "ecosystem": "python",
+                "name": item["name"],
+                "version": item["version"],
+                "license": license_name,
+                "source": "installed-python-metadata",
+            }
+        )
+    return inventory
+
+
+def _v2_package_files(root: Path, entrypoint: str) -> list[dict[str, JsonValue]]:
+    """给逐文件摘要补充供 v2 交叉校验的稳定逻辑类型。"""
+    frontend_prefix = f"_internal/{PACKAGED_FRONTEND_RELATIVE.as_posix()}/"
+    records: list[dict[str, JsonValue]] = []
+    for raw in package_files(root):
+        path = cast(str, raw["path"])
+        file_type = "runtime"
+        if path == entrypoint:
+            file_type = "entrypoint"
+        elif path.startswith(frontend_prefix):
+            file_type = "frontend"
+        elif path.startswith("schemas/"):
+            file_type = "schema"
+        elif path == "THIRD_PARTY_LICENSES.json":
+            file_type = "license-evidence"
+        records.append({**raw, "type": file_type})
+    return records
+
+
 def _canonicalize_embedded_zip(path: Path) -> None:
     """固定 PyInstaller 标准库 ZIP 的成员顺序和元数据。"""
     if not path.is_file():
@@ -140,7 +219,8 @@ def build_runtime_package(
         raise ValueError("运行包构建拒绝陈旧或不一致的 frontend dist")
     revision = git_revision(source_revision)
     source_digest = source_tree_sha256(SOURCE_INPUTS)
-    lock_sha256 = file_sha256(Path("uv.lock"))
+    python_lock_sha256 = file_sha256(Path("uv.lock"))
+    npm_lock_sha256 = file_sha256(Path("frontend/package-lock.json"))
     version_label = re.sub(r"[^a-z0-9-]", "-", APPLICATION_VERSION.lower())
     package_id = (
         f"tunnelminion-{version_label}-{sys.platform}-"
@@ -187,7 +267,10 @@ def build_runtime_package(
             ),
             environment=environment,
         )
-        licenses = license_inventory(work)
+        licenses = [
+            *_python_license_inventory(work),
+            *_npm_license_inventory(Path("frontend/package-lock.json")),
+        ]
         built = dist / "tunnelminion"
         packaged_frontend = built / "_internal" / PACKAGED_FRONTEND_RELATIVE
         if _frontend_digest(packaged_frontend) != frontend_digest or len(
@@ -201,6 +284,7 @@ def build_runtime_package(
     schema_dir.mkdir()
     for schema in (
         "runtime-package-manifest-v1.schema.json",
+        "runtime-package-manifest-v2.schema.json",
         "runtime-profile-v1.schema.json",
     ):
         shutil.copy2(Path("schemas") / schema, schema_dir / schema)
@@ -210,7 +294,8 @@ def build_runtime_package(
         json.dumps(licenses, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    files = package_files(package_root)
+    entrypoint = _executable_name()
+    files = _v2_package_files(package_root, entrypoint)
     manifest: dict[str, JsonValue] = {
         "schema_version": MANIFEST_VERSION,
         "candidate": {
@@ -224,10 +309,16 @@ def build_runtime_package(
         "build": {
             "source_revision": revision,
             "source_tree_sha256": source_digest,
-            "lock_sha256": lock_sha256,
+            "python_lock_sha256": python_lock_sha256,
+            "npm_lock_sha256": npm_lock_sha256,
             "builder": f"PyInstaller {importlib.metadata.version('pyinstaller')} onedir",
         },
-        "entrypoint": _executable_name(),
+        "frontend": {
+            "root": f"_internal/{PACKAGED_FRONTEND_RELATIVE.as_posix()}",
+            "sha256": frontend_digest,
+            "file_count": len(frontend_files),
+        },
+        "entrypoint": entrypoint,
         "entrypoint_args": [],
         "files": cast(JsonValue, files),
         "licenses": cast(JsonValue, licenses),
@@ -245,7 +336,8 @@ def build_runtime_package(
         "architecture": platform.machine().lower(),
         "source_revision": revision,
         "source_tree_sha256": source_digest,
-        "lock_sha256": lock_sha256,
+        "python_lock_sha256": python_lock_sha256,
+        "npm_lock_sha256": npm_lock_sha256,
         "frontend_dist_sha256": frontend_digest,
         "frontend_file_count": len(frontend_files),
         "manifest_sha256": file_sha256(manifest_path),
