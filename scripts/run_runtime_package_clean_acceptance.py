@@ -90,6 +90,36 @@ def sanitized_environment(source: Mapping[str, str] | None = None) -> dict[str, 
     return values
 
 
+def isolated_product_environment(
+    empty_path: Path, source: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """隐藏 Node 与开发环境，并把常见外部 HTTP 客户端导向不可用的本机端口。"""
+    empty_path.mkdir(parents=True, exist_ok=True)
+    values = sanitized_environment(source)
+    values["PATH"] = str(empty_path.resolve())
+    values["HTTP_PROXY"] = "http://127.0.0.1:9"
+    values["HTTPS_PROXY"] = "http://127.0.0.1:9"
+    values["ALL_PROXY"] = "http://127.0.0.1:9"
+    values["NO_PROXY"] = "127.0.0.1,localhost"
+    return values
+
+
+def _source_like_entries(files: Sequence[dict[str, JsonValue]]) -> list[str]:
+    """列出不应出现在正式冻结包中的源码与仓库元数据。"""
+    forbidden_suffixes = (".py", ".ts", ".tsx")
+    entries: list[str] = []
+    for item in files:
+        value = item.get("path")
+        if not isinstance(value, str):
+            continue
+        parts = Path(value).parts
+        if any(part in {".git", "src", "frontend"} for part in parts) or value.lower().endswith(
+            forbidden_suffixes
+        ):
+            entries.append(value)
+    return sorted(entries)
+
+
 def _available_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -251,6 +281,11 @@ def run_product_local(
     port = _available_port()
     started = time.monotonic()
     log_file = data_dir / "runtime" / "logs" / "local.log"
+    environment = isolated_product_environment(working_dir / "empty-path")
+    node_available = shutil.which("node", path=environment["PATH"]) is not None
+    source_environment_present = any(
+        name in environment for name in ("CONDA_PREFIX", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV")
+    )
     process = subprocess.Popen(
         (
             str(entrypoint),
@@ -265,7 +300,7 @@ def run_product_local(
             str(log_file),
         ),
         cwd=working_dir,
-        env=sanitized_environment(),
+        env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -300,7 +335,12 @@ def run_product_local(
             "exit_code": None,
             "health_status": health_status,
             "app_status": app_status,
-            "passed": process.poll() is None,
+            "node_available": node_available,
+            "source_environment_present": source_environment_present,
+            "external_http_proxy_blocked": True,
+            "passed": (
+                process.poll() is None and not node_available and not source_environment_present
+            ),
         }
     finally:
         if process.poll() is None:
@@ -334,7 +374,8 @@ def run_acceptance(
         )
         work = sandbox / "work"
         work.mkdir()
-        if manifest["schema_version"] == "runtime-package-manifest/v2":
+        is_v2 = manifest["schema_version"] == "runtime-package-manifest/v2"
+        if is_v2:
             results = [run_product_local(entrypoint, sandbox / "data-local", work)]
         else:
             results = [
@@ -351,7 +392,12 @@ def run_acceptance(
         program_data_entries = sorted(
             path.name for path in relocated.rglob("*") if path.name in FORBIDDEN_PROGRAM_DATA
         )
-    passed = all(result["passed"] is True for result in results) and not program_data_entries
+    source_entries = _source_like_entries(files) if is_v2 else []
+    passed = (
+        all(result["passed"] is True for result in results)
+        and not program_data_entries
+        and not source_entries
+    )
     return {
         "schema_version": "runtime-package-clean-acceptance/v1",
         "candidate": candidate,
@@ -360,6 +406,7 @@ def run_acceptance(
         "package_size_bytes": sum(cast(int, item["size"]) for item in files),
         "components": cast(JsonValue, results),
         "program_data_entries": cast(JsonValue, program_data_entries),
+        "source_entries": cast(JsonValue, source_entries),
         "passed": passed,
     }
 

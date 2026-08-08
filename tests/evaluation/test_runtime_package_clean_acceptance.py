@@ -140,6 +140,20 @@ def test_environment_and_path_checks_remove_development_injection(tmp_path: Path
         }
     )
     assert cleaned == {"KEEP": "yes", "PYTHONNOUSERSITE": "1"}
+    isolated = acceptance.isolated_product_environment(
+        tmp_path / "empty-path", {"PATH": "node-bin", "PYTHONPATH": "bad"}
+    )
+    assert isolated["PATH"] == str((tmp_path / "empty-path").resolve())
+    assert "PYTHONPATH" not in isolated
+    assert isolated["HTTP_PROXY"] == "http://127.0.0.1:9"
+    assert isolated["NO_PROXY"] == "127.0.0.1,localhost"
+    assert acceptance._source_like_entries(  # pyright: ignore[reportPrivateUsage]
+        [
+            {"path": "_internal/app.py"},
+            {"path": "frontend/src/App.tsx"},
+            {"path": "_internal/app.js"},
+        ]
+    ) == ["_internal/app.py", "frontend/src/App.tsx"]
     forbidden = tmp_path / "repo"
     assert (
         acceptance._path_hits(  # pyright: ignore[reportPrivateUsage]
@@ -208,6 +222,7 @@ def test_acceptance_relocates_package_and_reports_program_data_boundary(
     )
     assert report["passed"] is True
     assert report["program_data_entries"] == []
+    assert report["source_entries"] == []
 
     (package_root / "model.json").write_text("{}", encoding="utf-8")
     manifest = _manifest(package_root)
