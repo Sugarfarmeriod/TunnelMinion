@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tomllib
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -13,8 +15,29 @@ from pydantic import JsonValue
 from scripts import build_runtime_package as builder
 
 
-def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def _fake_builder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
     epochs: list[str] = []
+    frontend = tmp_path / "frontend-dist"
+    (frontend / "assets").mkdir(parents=True)
+    (frontend / "index.html").write_text("<main></main>", encoding="utf-8")
+    (frontend / "assets/app.js").write_text("export {};", encoding="utf-8")
+    (frontend / "assets/app.css").write_text("main{}", encoding="utf-8")
+    monkeypatch.setattr(builder, "FRONTEND_DIST", frontend)
+
+    def receipt(root: Path) -> dict[str, JsonValue]:
+        del root
+        return {
+            "dist_sha256": builder._frontend_digest(  # pyright: ignore[reportPrivateUsage]
+                frontend
+            ),
+            "file_count": 3,
+        }
+
+    monkeypatch.setattr(
+        builder,
+        "verify_frontend_dist",
+        receipt,
+    )
 
     def run(command: Sequence[str], *, environment: dict[str, str]) -> None:
         epochs.append(environment["SOURCE_DATE_EPOCH"])
@@ -26,6 +49,12 @@ def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         executable.write_bytes(b"deterministic-runtime")
         internal = dist / "_internal"
         internal.mkdir()
+        add_data = command[command.index("--add-data") + 1]
+        assert add_data == f"{frontend.resolve()}:tunnelminion/web/ui"
+        shutil.copytree(
+            frontend,
+            internal / "tunnelminion/web/ui",
+        )
         order = ("b.pyc", "a.pyc") if len(epochs) == 1 else ("a.pyc", "b.pyc")
         with zipfile.ZipFile(internal / "base_library.zip", "w") as archive:
             for name in order:
@@ -56,7 +85,7 @@ def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_formal_build_is_deterministic_and_schema_valid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    epochs = _fake_builder(monkeypatch)
+    epochs = _fake_builder(monkeypatch, tmp_path)
     first_manifest = tmp_path / "first.manifest.json"
     first_summary = tmp_path / "first.summary.json"
     first = builder.build_runtime_package(tmp_path / "first-output", first_manifest, first_summary)
@@ -78,6 +107,27 @@ def test_formal_build_is_deterministic_and_schema_valid(
     package_root = next((tmp_path / "first-output").iterdir())
     assert (package_root / "THIRD_PARTY_LICENSES.json").exists()
     assert (package_root / "schemas" / "runtime-profile-v1.schema.json").exists()
+    assert (package_root / "_internal/tunnelminion/web/ui/index.html").is_file()
+    assert first["frontend_file_count"] == 3
+    assert len(str(first["frontend_dist_sha256"])) == 64
+
+
+def test_wheel_force_includes_the_unique_frontend_dist() -> None:
+    configuration = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    wheel = configuration["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert wheel["force-include"] == {"build/frontend-dist": "tunnelminion/web/ui"}
+
+
+def test_formal_build_rejects_missing_or_linked_frontend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(builder, "FRONTEND_DIST", tmp_path / "missing")
+    with pytest.raises(ValueError, match=r"frontend-dist/index\.html"):
+        builder.build_runtime_package(
+            tmp_path / "output",
+            tmp_path / "manifest.json",
+            tmp_path / "summary.json",
+        )
 
 
 def test_formal_build_main_rejects_repository_targets_and_prints_summary(
@@ -97,7 +147,7 @@ def test_formal_build_main_rejects_repository_targets_and_prints_summary(
             ]
         )
 
-    _fake_builder(monkeypatch)
+    _fake_builder(monkeypatch, tmp_path)
     assert (
         builder.main(
             [

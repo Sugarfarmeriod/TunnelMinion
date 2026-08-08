@@ -29,6 +29,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
       - name: 从锁文件安装前端依赖
         run: npm --prefix frontend ci
 
@@ -38,8 +41,13 @@ jobs:
           npm --prefix frontend run typecheck
           npm --prefix frontend test
           npm --prefix frontend run test:supply-chain
-          npm --prefix frontend run build
+          python scripts/prepare_frontend_dist.py --root . --skip-install
           npm --prefix frontend run size:check
+
+      - name: 验证 wheel 收集同一份前端产物
+        run: |
+          uv build --wheel --out-dir build/wheel
+          python -c "from pathlib import Path; from scripts.prepare_frontend_dist import verify_wheel_frontend; verify_wheel_frontend(Path('.'), next(Path('build/wheel').glob('*.whl')))"
 
       - name: 生成 npm 漏洞与许可证证据
         run: npm --prefix frontend run supply-chain:check
@@ -47,7 +55,7 @@ jobs:
       - name: 暂存并扫描被忽略的前端产物
         if: always()
         run: |
-          python scripts/stage_frontend.py --source frontend/dist --destination build/frontend-dist
+          python -c "from pathlib import Path; from scripts.prepare_frontend_dist import verify_frontend_dist; verify_frontend_dist(Path('.'))"
           python scripts/security_scan.py --root . --artifact frontend/dist --artifact build/frontend-dist
 
       - name: 上传前端供应链证据
@@ -62,7 +70,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
-          path: frontend/dist
+          path: |
+            build/frontend-dist
+            build/frontend-dist-receipt.json
           if-no-files-found: error
 
   frontend-browser:

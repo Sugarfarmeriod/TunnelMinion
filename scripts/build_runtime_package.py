@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -28,6 +29,7 @@ try:
         package_files,
         source_tree_sha256,
     )
+    from scripts.prepare_frontend_dist import verify_frontend_dist
 except ModuleNotFoundError:
     from build_runtime_package_spike import (  # pyright: ignore[reportMissingImports]
         MANIFEST_VERSION,
@@ -37,14 +39,20 @@ except ModuleNotFoundError:
         package_files,
         source_tree_sha256,
     )
+    from prepare_frontend_dist import verify_frontend_dist  # pyright: ignore[reportMissingImports]
 
 APPLICATION_VERSION = importlib.metadata.version("tunnelminion")
 SOURCE_INPUTS = (
     Path("pyproject.toml"),
     Path("uv.lock"),
+    Path("frontend/package.json"),
+    Path("frontend/package-lock.json"),
+    Path("frontend/src"),
     Path("src"),
     Path("scripts/build_runtime_package.py"),
 )
+FRONTEND_DIST = Path("build/frontend-dist")
+PACKAGED_FRONTEND_RELATIVE = Path("tunnelminion/web/ui")
 
 
 def _source_date_epoch(revision: str) -> str:
@@ -60,6 +68,33 @@ def _run(command: Sequence[str], *, environment: dict[str, str]) -> None:
 
 def _executable_name() -> str:
     return "tunnelminion.exe" if sys.platform == "win32" else "tunnelminion"
+
+
+def _frontend_files(root: Path) -> tuple[Path, ...]:
+    """验证唯一前端暂存区，拒绝缺文件、符号链接和特殊文件。"""
+    resolved = root.resolve()
+    if not (resolved / "index.html").is_file():
+        raise ValueError("运行包构建缺少 build/frontend-dist/index.html")
+    files: list[Path] = []
+    for path in resolved.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("运行包前端暂存区不得包含符号链接")
+        if path.is_file():
+            files.append(path)
+        elif not path.is_dir():
+            raise ValueError("运行包前端暂存区不得包含特殊文件")
+    return tuple(sorted(files, key=lambda item: item.relative_to(resolved).as_posix()))
+
+
+def _frontend_digest(root: Path) -> str:
+    """按相对路径和内容生成跨平台稳定的前端产物摘要。"""
+    resolved = root.resolve()
+    digest = hashlib.sha256()
+    for path in _frontend_files(resolved):
+        digest.update(path.relative_to(resolved).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(file_sha256(path)))
+    return digest.hexdigest()
 
 
 def _canonicalize_embedded_zip(path: Path) -> None:
@@ -95,13 +130,21 @@ def build_runtime_package(
     source_revision: str | None = None,
 ) -> dict[str, JsonValue]:
     """构建版本化目录，并生成清单、许可和稳定摘要。"""
+    frontend_root = FRONTEND_DIST.resolve()
+    frontend_files = _frontend_files(frontend_root)
+    frontend_digest = _frontend_digest(frontend_root)
+    frontend_receipt = verify_frontend_dist(Path.cwd())
+    if frontend_receipt.get("dist_sha256") != frontend_digest or frontend_receipt.get(
+        "file_count"
+    ) != len(frontend_files):
+        raise ValueError("运行包构建拒绝陈旧或不一致的 frontend dist")
     revision = git_revision(source_revision)
     source_digest = source_tree_sha256(SOURCE_INPUTS)
     lock_sha256 = file_sha256(Path("uv.lock"))
     version_label = re.sub(r"[^a-z0-9-]", "-", APPLICATION_VERSION.lower())
     package_id = (
         f"tunnelminion-{version_label}-{sys.platform}-"
-        f"{platform.machine().lower()}-{source_digest[:12]}"
+        f"{platform.machine().lower()}-{source_digest[:12]}-{frontend_digest[:12]}"
     )
     package_root = output_root / package_id
     if package_root.exists():
@@ -122,6 +165,8 @@ def build_runtime_package(
                 "--noconfirm",
                 "--clean",
                 "--onedir",
+                "--contents-directory",
+                "_internal",
                 "--name",
                 "tunnelminion",
                 "--distpath",
@@ -136,12 +181,19 @@ def build_runtime_package(
                 "tunnelminion",
                 "--copy-metadata",
                 "keyring",
+                "--add-data",
+                f"{frontend_root}:{PACKAGED_FRONTEND_RELATIVE.as_posix()}",
                 "src/tunnelminion/__main__.py",
             ),
             environment=environment,
         )
         licenses = license_inventory(work)
         built = dist / "tunnelminion"
+        packaged_frontend = built / "_internal" / PACKAGED_FRONTEND_RELATIVE
+        if _frontend_digest(packaged_frontend) != frontend_digest or len(
+            _frontend_files(packaged_frontend)
+        ) != len(frontend_files):
+            raise ValueError("PyInstaller 未完整收集唯一 frontend dist")
         shutil.copytree(built, package_root, copy_function=shutil.copy2)
     _canonicalize_embedded_zip(package_root / "_internal" / "base_library.zip")
 
@@ -194,6 +246,8 @@ def build_runtime_package(
         "source_revision": revision,
         "source_tree_sha256": source_digest,
         "lock_sha256": lock_sha256,
+        "frontend_dist_sha256": frontend_digest,
+        "frontend_file_count": len(frontend_files),
         "manifest_sha256": file_sha256(manifest_path),
         "file_count": len(files),
         "size_bytes": sum(cast(int, item["size"]) for item in files),

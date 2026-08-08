@@ -46,6 +46,9 @@ package = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/tunnelminion"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"build/frontend-dist" = "tunnelminion/web/ui"
+
 [tool.pyright]
 include = ["src", "tests", "scripts", "spikes"]
 pythonVersion = "3.11"
