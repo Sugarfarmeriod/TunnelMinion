@@ -7,7 +7,9 @@ import {
 
 import { OverviewPage } from "../features/overview";
 import { ChatPage } from "../features/chat";
+import { MemoriesPage } from "../features/memories";
 import { OperationDetailPage, OperationsPage } from "../features/operations";
+import { SettingsPage } from "../features/settings";
 import { RouteErrorPage } from "./RouteErrorPage";
 
 const navigation = [
@@ -42,16 +44,6 @@ function ProductShell() {
   );
 }
 
-function FoundationPlaceholder({ title }: { title: string }) {
-  return (
-    <section aria-labelledby="page-title" className="surface">
-      <p className="eyebrow">功能正在接入</p>
-      <h2 id="page-title">{title}</h2>
-      <p>这里会显示服务端已经确认的状态，不会在浏览器里猜测。</p>
-    </section>
-  );
-}
-
 export const router = createBrowserRouter([
   {
     path: "/app",
@@ -66,10 +58,10 @@ export const router = createBrowserRouter([
         path: "operations/:operationId",
         element: <OperationDetailPage />,
       },
-      { path: "memories", element: <FoundationPlaceholder title="记忆" /> },
+      { path: "memories", element: <MemoriesPage /> },
       {
         path: "settings",
-        element: <FoundationPlaceholder title="设置与诊断" />,
+        element: <SettingsPage />,
       },
     ],
   },

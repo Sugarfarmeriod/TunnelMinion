@@ -11,7 +11,7 @@ describe("operationDetailSchema", () => {
     expect(() =>
       operationDetailSchema.parse({
         ...detail,
-        access_token: "tmn_share_must_not_enter_the_browser_contract",
+        access_token: "tmn_share_must-not-leak-browser-contract",
       }),
     ).toThrow();
   });

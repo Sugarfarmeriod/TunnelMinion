@@ -55,8 +55,8 @@
 
 ## 6. Memories、Settings 与 Diagnostics
 
-- [ ] 6.1 仅在 `frontend/src/features/memories` 实现长期记忆来源、作用域、时间、原作用域内修正、删除和精确清空；首版不提供跨作用域移动
-- [ ] 6.2 仅在 `frontend/src/features/settings` 实现模型、Coordinator、runtime、版本和可选诊断来源的脱敏状态；秘密只走现有受限配置流程且不得回显
+- [x] 6.1 仅在 `frontend/src/features/memories` 实现长期记忆来源、作用域、时间、原作用域内修正、删除和精确清空；首版不提供跨作用域移动
+- [x] 6.2 仅在 `frontend/src/features/settings` 实现模型、Coordinator、runtime、版本和可选诊断来源的脱敏状态；秘密只走现有受限配置流程且不得回显
 - [ ] 6.3 实现诊断导出入口和大白话恢复步骤；没有 Murus、日志权限或厂商 VPN CLI 时核心功能仍可用
 - [ ] 6.4 覆盖作用域隔离、删除竞态、错误修正、秘密字段、诊断脱敏、无模型清理、键盘与屏幕阅读状态提示
 - [ ] 6.5 运行前后端全量门禁与 Windows/macOS 人工验收，提交并推送 Memories/Settings 阶段

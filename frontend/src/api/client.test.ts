@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { requestJson } from "./client";
+import { requestJson, requestNoContent } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -68,5 +68,32 @@ describe("同源 API client", () => {
     await expect(
       requestJson("/api/read", z.object({ ok: z.boolean() })),
     ).rejects.toThrow();
+  });
+
+  it("明确接受 204 且不尝试解析空响应正文", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+    );
+
+    await expect(
+      requestNoContent("/api/item", { method: "DELETE" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("无正文请求拒绝其他成功状态，避免误判删除结果", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(
+      requestNoContent("/api/item", { method: "DELETE" }),
+    ).rejects.toMatchObject({ code: "unexpected_response" });
   });
 });

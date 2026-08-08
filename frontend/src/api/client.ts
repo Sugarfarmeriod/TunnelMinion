@@ -18,6 +18,28 @@ export async function requestJson<T>(
   schema: ZodType<T>,
   init: RequestInit = {},
 ): Promise<T> {
+  const response = await request(path, init);
+  return schema.parse(await response.json());
+}
+
+export async function requestNoContent(
+  path: `/api/${string}`,
+  init: RequestInit = {},
+): Promise<void> {
+  const response = await request(path, init);
+  if (response.status !== 204) {
+    throw new ApiError(
+      response.status,
+      "unexpected_response",
+      "服务返回了无法确认的成功结果",
+    );
+  }
+}
+
+async function request(
+  path: `/api/${string}`,
+  init: RequestInit,
+): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
@@ -35,7 +57,7 @@ export async function requestJson<T>(
     const detail = getErrorDetail(payload);
     throw new ApiError(response.status, detail.code, detail.message);
   }
-  return schema.parse(await response.json());
+  return response;
 }
 
 function getErrorDetail(payload: unknown): { code: string; message: string } {
