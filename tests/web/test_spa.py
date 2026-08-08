@@ -79,6 +79,7 @@ def test_default_spa_root_prefers_package_then_source_staging(
     ui = package / "ui"
     ui.mkdir(parents=True)
     (ui / "index.html").write_text("package", encoding="utf-8")
+
     def package_files(_package: str) -> Path:
         return package
 
