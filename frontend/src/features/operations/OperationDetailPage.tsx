@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ActionConfirmationDialog } from "./ActionConfirmationDialog";
@@ -171,6 +171,8 @@ export function OperationDetailPage() {
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(
     null,
   );
+  const [returnFocusAction, setReturnFocusAction] =
+    useState<OperationAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -183,6 +185,25 @@ export function OperationDetailPage() {
     queryFn: () => getOperation(operationId ?? ""),
     enabled: operationId !== undefined && operationId.length > 0,
   });
+
+  useEffect(() => {
+    if (confirmation !== null || returnFocusAction === null) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      (
+        document.getElementById(`operation-action-${returnFocusAction}`) ??
+        document.getElementById("operation-detail-title")
+      )?.focus();
+      setReturnFocusAction(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [confirmation, returnFocusAction]);
+
+  function closeConfirmation(action: OperationAction) {
+    setReturnFocusAction(action);
+    setConfirmation(null);
+  }
 
   async function readLatest(): Promise<OperationDetail> {
     if (operationId === undefined) {
@@ -266,7 +287,7 @@ export function OperationDetailPage() {
     const submittedDetail = confirmation.detail;
     try {
       await submitOperationAction(operationId, payload);
-      setConfirmation(null);
+      closeConfirmation(submittedAction);
       try {
         await readLatest();
         setActionMessage(
@@ -278,7 +299,7 @@ export function OperationDetailPage() {
         );
       }
     } catch (error) {
-      setConfirmation(null);
+      closeConfirmation(submittedAction);
       if (!isUnknownOperationWriteError(error)) {
         setActionError(
           `${readableOperationError(error as Error)}。服务端已明确拒绝且未执行请求；页面不会自动重放。`,
@@ -555,7 +576,7 @@ export function OperationDetailPage() {
           action={confirmation.action}
           detail={confirmation.detail}
           submitting={submitting}
-          onCancel={() => setConfirmation(null)}
+          onCancel={() => closeConfirmation(confirmation.action)}
           onConfirm={(payload) => void confirmAction(payload)}
         />
       )}
