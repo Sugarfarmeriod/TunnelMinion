@@ -142,7 +142,7 @@
 
 .operation-status--warning {
   background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  color: color-mix(in srgb, #b26a00 85%, var(--color-text));
+  color: color-mix(in srgb, #b26a00 75%, var(--color-text));
 }
 
 .operation-status--danger {

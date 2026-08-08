@@ -534,6 +534,7 @@ export function OperationDetailPage() {
             actions.map((action) => (
               <button
                 key={action}
+                id={`operation-action-${action}`}
                 disabled={
                   preparingAction !== null || submitting || query.isRefetchError
                 }

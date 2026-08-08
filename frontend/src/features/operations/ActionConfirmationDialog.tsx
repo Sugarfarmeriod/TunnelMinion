@@ -34,7 +34,12 @@ export function ActionConfirmationDialog({
 }: ActionConfirmationDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement &&
+      document.activeElement !== document.body
+      ? document.activeElement
+      : null,
+  );
   const [reason, setReason] = useState("");
   const defaultExpiry = useMemo(
     () =>
@@ -46,22 +51,21 @@ export function ActionConfirmationDialog({
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
 
   useEffect(() => {
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
     cancelRef.current?.focus();
     return () => {
-      queueMicrotask(() => {
+      window.setTimeout(() => {
         const previous = previousFocusRef.current;
         if (previous?.isConnected) {
           previous.focus();
         } else {
-          document.getElementById("operation-detail-title")?.focus();
+          (
+            document.getElementById(`operation-action-${action}`) ??
+            document.getElementById("operation-detail-title")
+          )?.focus();
         }
-      });
+      }, 0);
     };
-  }, []);
+  }, [action]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape" && !submitting) {
