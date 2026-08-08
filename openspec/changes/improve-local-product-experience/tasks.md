@@ -72,7 +72,7 @@
 
 - [x] 8.1 runtime 分支栈合并后，每次 clean-first 生成唯一 `build/frontend-dist`；wheel 通过 Hatch force-include、PyInstaller 通过显式 add-data 收集同一 dist
 - [x] 8.2 构建器发出 `runtime-package-manifest/v2`，记录 Python/npm lock digest、frontend dist digest、文件数、每项相对路径/摘要/大小/类型和 npm/Python 许可证来源；现有运行包校验/安装流程支持 v2 并兼容 v1，未知版本/路径穿越/损坏/遗漏/陈旧 dist fail closed，不新建第二套安装器
-- [ ] 8.3 构建 Windows amd64 与 macOS arm64 package，验证相同 frontend dist 摘要及目标机无 Node、源码、网络仍可运行
+- [x] 8.3 构建 Windows amd64 与 macOS arm64 package，验证相同 frontend dist 摘要及目标机无 Node、源码、网络仍可运行
 - [ ] 8.4 React 默认入口发布时，以自动防删除契约保证原四页路径及 `/legacy/*` 别名在首发和紧随其后的版本继续存在，并演练只恢复默认 `/` 映射的回退；实际删除另建 change
 - [ ] 8.5 执行真实 A/B：总览、聊天、peer、审批、记忆和模型/Coordinator/peer 降级；不修改客户防火墙、WireGuard、路由、模型、秘密或自启动
 - [ ] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
