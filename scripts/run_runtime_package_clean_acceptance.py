@@ -35,6 +35,7 @@ FORBIDDEN_PROGRAM_DATA = frozenset(
 )
 EXPECTED_NATIVE_EXTENSION_COUNT = 5
 STARTUP_TIMEOUT_SECONDS = 30.0
+INSTALLED_MANIFEST_FILE = "runtime-package-manifest.json"
 
 
 def file_sha256(path: Path) -> str:
@@ -166,6 +167,21 @@ def _wait_for_status(url: str, expected: int, timeout_seconds: float) -> int:
             last_error = exc
         time.sleep(0.05)
     raise TimeoutError("运行包产品端点未在预算内就绪") from last_error
+
+
+def _runtime_package_evidence(overview: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """只保留总览中可公开复核的运行包摘要。"""
+    local = overview.get("local")
+    if not isinstance(local, dict):
+        raise ValueError("总览缺少 local section")
+    package = local.get("package")
+    if not isinstance(package, dict):
+        raise ValueError("总览缺少 package section")
+    return {
+        "kind": package.get("kind"),
+        "version": package.get("version"),
+        "manifest_schema": package.get("manifest_schema"),
+    }
 
 
 def _component_probe(component: str, port: int) -> int:
@@ -317,6 +333,11 @@ def run_product_local(
                 200,
                 5.0,
             )
+            overview_status, overview = _read_json(
+                f"http://127.0.0.1:{port}/api/resources/overview",
+                5.0,
+            )
+            package = _runtime_package_evidence(overview)
         except TimeoutError:
             exit_code = process.poll()
             return {
@@ -338,8 +359,14 @@ def run_product_local(
             "node_available": node_available,
             "source_environment_present": source_environment_present,
             "external_http_proxy_blocked": True,
+            "runtime_package": package,
             "passed": (
-                process.poll() is None and not node_available and not source_environment_present
+                process.poll() is None
+                and not node_available
+                and not source_environment_present
+                and overview_status == 200
+                and package["kind"] == "standalone"
+                and package["manifest_schema"] == "runtime-package-manifest/v2"
             ),
         }
     finally:
@@ -366,6 +393,9 @@ def run_acceptance(
         sandbox = Path(temporary)
         relocated = sandbox / "program"
         shutil.copytree(package_root, relocated)
+        is_v2 = manifest["schema_version"] == "runtime-package-manifest/v2"
+        if is_v2:
+            shutil.copy2(manifest_path, relocated / INSTALLED_MANIFEST_FILE)
         entrypoint = _safe_package_path(relocated, cast(str, manifest["entrypoint"]))
         entrypoint_args = _resolve_entrypoint_args(
             relocated,
@@ -374,7 +404,6 @@ def run_acceptance(
         )
         work = sandbox / "work"
         work.mkdir()
-        is_v2 = manifest["schema_version"] == "runtime-package-manifest/v2"
         if is_v2:
             results = [run_product_local(entrypoint, sandbox / "data-local", work)]
         else:

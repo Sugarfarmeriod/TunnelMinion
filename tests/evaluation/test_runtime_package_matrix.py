@@ -99,6 +99,11 @@ def _write_target(
                     "node_available": False,
                     "source_environment_present": False,
                     "external_http_proxy_blocked": True,
+                    "runtime_package": {
+                        "kind": "standalone",
+                        "version": "0.1.0",
+                        "manifest_schema": "runtime-package-manifest/v2",
+                    },
                 }
             ],
         },

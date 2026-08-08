@@ -80,12 +80,15 @@ def verify_runtime_package_matrix(evidence_root: Path, frontend_receipt: Path) -
         if not isinstance(components, list) or len(cast(list[object], components)) != 1:
             raise ValueError("运行包缺少正式本地产品验收结果")
         component = _nested_object(cast(list[object], components)[0], "运行包隔离运行证据不完整")
+        package = _nested_object(component.get("runtime_package"), "运行包总览缺少交付形态证据")
         if (
             component.get("health_status") != 200
             or component.get("app_status") != 200
             or component.get("node_available") is not False
             or component.get("source_environment_present") is not False
             or component.get("external_http_proxy_blocked") is not True
+            or package.get("kind") != "standalone"
+            or package.get("manifest_schema") != "runtime-package-manifest/v2"
         ):
             raise ValueError("运行包隔离运行证据不完整")
         if acceptance.get("source_entries") != [] or acceptance.get("program_data_entries") != []:

@@ -189,6 +189,32 @@ def test_environment_and_path_checks_remove_development_injection(tmp_path: Path
     )
 
 
+def test_runtime_package_evidence_is_minimal_and_requires_sections() -> None:
+    evidence = acceptance._runtime_package_evidence(  # pyright: ignore[reportPrivateUsage]
+        {
+            "local": {
+                "package": {
+                    "kind": "standalone",
+                    "version": "0.1.0",
+                    "manifest_schema": "runtime-package-manifest/v2",
+                    "private_path": "must-not-escape",
+                }
+            }
+        }
+    )
+    assert evidence == {
+        "kind": "standalone",
+        "version": "0.1.0",
+        "manifest_schema": "runtime-package-manifest/v2",
+    }
+    with pytest.raises(ValueError, match="local"):
+        acceptance._runtime_package_evidence({})  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="package"):
+        acceptance._runtime_package_evidence(  # pyright: ignore[reportPrivateUsage]
+            {"local": {}}
+        )
+
+
 def test_acceptance_relocates_package_and_reports_program_data_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
