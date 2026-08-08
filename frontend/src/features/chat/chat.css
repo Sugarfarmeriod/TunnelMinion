@@ -280,8 +280,10 @@
   border-radius: calc(var(--radius-panel) / 2);
   color: var(--color-text);
   max-width: 100%;
+  min-width: 0;
   min-height: 2.75rem;
   padding: var(--space-2);
+  width: 100%;
 }
 
 .chat-composer textarea {

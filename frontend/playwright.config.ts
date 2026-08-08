@@ -15,8 +15,10 @@ export default defineConfig({
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
   webServer: {
-    command: "npm run dev -- --strictPort",
+    command:
+      "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4174",
     url: "http://127.0.0.1:4174/app/overview",
     reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
   },
 });

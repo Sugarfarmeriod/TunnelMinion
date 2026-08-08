@@ -24,7 +24,7 @@
 - [x] 2.4 实现统一本机请求守卫：Host allowlist、精确同源 Origin、拒绝 cross-site Fetch Metadata、自定义请求头、稳定 403 错误码与无宽泛 CORS
 - [x] 2.5 将 legacy 页面的 unsafe 请求迁移到相同门禁，并覆盖合法同源、DNS rebinding、恶意/缺失 Origin、cross-site、缺失/错误 header、固定错误优先级与真实 CLI corpus 兼容契约测试
 - [x] 2.6 由 FastAPI 提供 `/app/*` 与 `/app-assets/*`，确保 fallback 不吞 `/api/*`/SSE；`index.html` no-store、哈希资源 immutable、生产 CSP 禁止内联和外部脚本
-- [ ] 2.7 覆盖路径穿越、恶意 HTML/script、外部资源、缓存误报、CSP、浏览器存储与 320 CSS px/200% zoom 基础门禁，提交并推送 Foundation 代码检查点
+- [x] 2.7 覆盖路径穿越、恶意 HTML/script、外部资源、缓存误报、CSP、浏览器存储与 320 CSS px/200% zoom 基础门禁，提交并推送 Foundation 代码检查点
 - [ ] 2.8 Foundation 关闭前核对并按需更新主 FigJam 的安全边界与静态资源交付边界，同步最后核对日期、当前/历史标记和仓库主图链接；额度不足时允许后续独立切片继续，但 Foundation 阶段保持未关闭
 
 ## 3. Overview 与真实应用装配
