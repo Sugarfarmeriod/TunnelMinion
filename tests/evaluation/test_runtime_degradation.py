@@ -76,7 +76,7 @@ def test_model_failure_keeps_resource_and_operation_controls_available(
     assert failure.reason.value == "model_timeout"
     assert "模型响应正文" not in failure.model_dump_json()
 
-    with TestClient(bundle.app) as raw_client:
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as raw_client:
         client = cast(ApiClient, raw_client)
         resource = client.get("/api/resources/node-summary")
         operations = client.get("/api/operations")

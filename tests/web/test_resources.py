@@ -92,6 +92,7 @@ def test_resource_routes_work_without_model_provider() -> None:
     assert "即使模型不可用" in page.text
     assert "refreshAll" in page.text
     assert page.headers["cache-control"] == "no-store"
+    assert client.get("/legacy/resources").text == page.text
     assert client.get("/api/resources/network-path").json() == {
         "configured": False,
         "provider": None,

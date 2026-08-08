@@ -225,6 +225,12 @@ def create_resource_router(
     )
     router.add_api_route("/api/resources/probe", probe, methods=["POST"])
     router.add_api_route("/resources", page, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route(
+        "/legacy/resources",
+        page,
+        methods=["GET"],
+        response_class=HTMLResponse,
+    )
     return router
 
 

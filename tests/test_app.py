@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from keyring.errors import KeyringError
 from pydantic import JsonValue
 
@@ -110,18 +111,36 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/model-config" in paths
     assert "/api/resources/node-summary" in paths
     assert "/api/resources/managed-node" in paths
+    assert "/api/resources/overview" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
     assert "/api/operations" in paths
     assert "/api/preauthorizations" in paths
     assert "/resources" in paths
     assert "/operations" in paths
+    assert "/legacy/chat" in paths
+    assert "/legacy/resources" in paths
+    assert "/legacy/operations" in paths
+    assert "/legacy/memories" in paths
+    assert "/app/{route_path}" in paths
+    assert "/app-assets/{asset_path}" in paths
     assert bundle.node_id
     assert bundle.audit_sink.records == []
     assert bundle.tool_runtime
     assert bundle.tool_registry
     assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
+    local_client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
+    overview = local_client.get(
+        "/api/resources/overview"
+    )
+    assert overview.status_code == 200
+    overview_body = overview.json()
+    assert overview_body["local"]["readiness"] == "ready"
+    assert overview_body["model"]["status"] == "unconfigured"
+    assert overview_body["coordinator"]["state"] == "unconfigured"
+    assert overview_body["network_path"]["state"] == "unconfigured"
+    assert overview_body["network_path"]["handshake"]["status"] == "missing"
 
     def create_provider(_self: ModelConfigurationService) -> AppProvider:
         return AppProvider()

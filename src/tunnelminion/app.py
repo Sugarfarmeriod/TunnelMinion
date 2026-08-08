@@ -50,10 +50,14 @@ from tunnelminion.platforms.windows.system import (
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.web.application_views import build_application_view_bindings
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
+from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
+from tunnelminion.web.spa import create_spa_router
 
 
 @dataclass(frozen=True)
@@ -176,13 +180,28 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         docs_url="/api/docs",
         lifespan=managed_application_lifespan(managed),
     )
+    install_local_request_guard(app)
+    views = build_application_view_bindings(
+        node_id=node_id,
+        platform=Platform.WINDOWS,
+        model_service=model_service,
+        managed=managed,
+    )
     app.include_router(create_model_router(model_service))
     app.include_router(
-        create_resource_router(runtime, node_id, managed_status=managed.resource_payload)
+        create_resource_router(
+            runtime,
+            node_id,
+            coordinator_status=views.resource_bindings.coordinator_status,
+            coordinator_cache=views.resource_bindings.coordinator_cache,
+            managed_status=managed.resource_payload,
+        )
     )
+    app.include_router(create_overview_router(views.overview_service))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
+    app.include_router(create_spa_router())
     return WindowsApplication(
         app,
         node_id,

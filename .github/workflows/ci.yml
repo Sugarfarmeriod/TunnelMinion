@@ -9,6 +9,74 @@ permissions:
   contents: read
 
 jobs:
+  frontend-quality:
+    name: React / 质量与生产构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 从锁文件安装前端依赖
+        run: npm --prefix frontend ci
+
+      - name: 运行前端质量门禁
+        run: |
+          npm --prefix frontend run format:check
+          npm --prefix frontend run typecheck
+          npm --prefix frontend test
+          npm --prefix frontend run build
+          npm --prefix frontend run size:check
+          npm --prefix frontend audit --audit-level=high
+
+      - name: 上传唯一前端构建物
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  frontend-browser:
+    name: React / ${{ matrix.os }} / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            browser: chromium
+          - os: macos-latest
+            browser: webkit
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 从锁文件安装前端依赖
+        run: npm --prefix frontend ci
+
+      - name: 安装锁定的浏览器
+        working-directory: frontend
+        run: npx playwright install ${{ matrix.browser }}
+
+      - name: 运行真实浏览器门禁
+        working-directory: frontend
+        run: npx playwright test --project=${{ matrix.browser }}
+
   quality:
     name: Python 3.11 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

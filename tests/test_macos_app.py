@@ -48,7 +48,13 @@ class ApiClient(Protocol):
 
     def get(self, url: str, *, headers: dict[str, str]) -> httpx.Response: ...
 
-    def post(self, url: str, *, json: object | None = None) -> httpx.Response: ...
+    def post(
+        self,
+        url: str,
+        *,
+        json: object | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response: ...
 
 
 def write_gateway_config(
@@ -122,7 +128,7 @@ def test_macos_gateway_exposes_only_authenticated_v1_tools(
     assert bundle.app.docs_url is None
     assert bundle.app.openapi_url is None
 
-    client = cast(ApiClient, TestClient(bundle.app))
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
     for local_path in ("/docs", "/resources", "/api/model-config"):
         assert client.get(local_path, headers={}).status_code == 404
     capabilities = client.get("/v1/capabilities", headers={"Authorization": f"Bearer {TOKEN}"})
@@ -182,7 +188,7 @@ def test_macos_gateway_enables_safe_sharing_only_with_explicit_peer_scope(
     assert bundle.bind.port == 18_883
     assert bundle.operation_service is not None
     assert bundle.operation_workflow is not None
-    with TestClient(bundle.app) as raw_client:
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as raw_client:
         client = cast(ApiClient, raw_client)
         response = client.get(
             "/v1/capabilities",
@@ -274,7 +280,7 @@ def test_macos_local_resources_degrade_without_model(
         no_interfaces,
     )
     bundle = build_macos_local_application(tmp_path / "local")
-    client = cast(ApiClient, TestClient(bundle.app))
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
 
     assert client.get("/resources", headers={}).status_code == 200
     summary = client.get("/api/resources/node-summary", headers={})
@@ -285,8 +291,23 @@ def test_macos_local_resources_degrade_without_model(
     enrollment = cast(dict[str, object], managed_body["enrollment"])
     assert enrollment["state"] == "unconfigured"
     assert bundle.managed_node.runtime is None
+    overview = client.get("/api/resources/overview", headers={})
+    overview_body = cast(dict[str, object], overview.json())
+    assert overview.status_code == 200
+    assert cast(dict[str, object], overview_body["local"])["platform"] == "macos"
+    assert cast(dict[str, object], overview_body["coordinator"])["state"] == "unconfigured"
     model = client.get("/api/model-config", headers={})
     assert cast(dict[str, object], model.json())["status"] == "unconfigured"
+    cross_site = client.post(
+        "/api/threads",
+        headers={
+            "Origin": "https://attacker.example",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+    assert cross_site.status_code == 403
+    assert cross_site.json()["detail"]["code"] == "cross_site_request"
+    assert client.get("/resources", headers={"Host": "attacker.example"}).status_code == 403
     unavailable = client.post("/api/ai/runs/availability")
     assert unavailable.status_code == 503
     thread = cast(dict[str, object], client.post("/api/threads").json())
