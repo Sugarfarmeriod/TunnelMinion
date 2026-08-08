@@ -7,6 +7,7 @@ import {
 
 import { OverviewPage } from "../features/overview";
 import { ChatPage } from "../features/chat";
+import { OperationDetailPage, OperationsPage } from "../features/operations";
 import { RouteErrorPage } from "./RouteErrorPage";
 
 const navigation = [
@@ -60,10 +61,10 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate replace to="overview" /> },
       { path: "overview", element: <OverviewPage /> },
       { path: "chat", element: <ChatPage /> },
-      { path: "operations", element: <FoundationPlaceholder title="操作" /> },
+      { path: "operations", element: <OperationsPage /> },
       {
         path: "operations/:operationId",
-        element: <FoundationPlaceholder title="操作详情" />,
+        element: <OperationDetailPage />,
       },
       { path: "memories", element: <FoundationPlaceholder title="记忆" /> },
       {

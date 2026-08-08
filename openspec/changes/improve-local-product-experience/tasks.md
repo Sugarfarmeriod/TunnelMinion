@@ -47,10 +47,10 @@
 
 ## 5. Operations
 
-- [ ] 5.1 仅在 `frontend/src/features/operations` 实现状态列表；进入 `/app/operations/:operationId` 必须按 ID 读取详情 API，不复用列表对象
-- [ ] 5.2 批准、拒绝、取消和撤销前复读最新详情、允许动作与 state，使用对象明确确认、单次提交和超时后只查询不重放；复读不替代服务端状态迁移、授权与幂等冲突检查
-- [ ] 5.3 展示目标证据、风险、访问者、端口、有效期、授权依据、verification、owned resources、cleanup record、manual action 与脱敏错误
-- [ ] 5.4 覆盖重复点击、陈旧列表、过期批准、权限拒绝、网络超时、请求节点离线、rollback/cleanup failure 与模型/Coordinator 离线撤销
+- [x] 5.1 仅在 `frontend/src/features/operations` 实现状态列表；进入 `/app/operations/:operationId` 必须按 ID 读取详情 API，不复用列表对象
+- [x] 5.2 批准、拒绝、取消和撤销前复读最新详情、允许动作与 state，使用对象明确确认、单次提交和超时后只查询不重放；复读不替代服务端状态迁移、授权与幂等冲突检查
+- [x] 5.3 展示目标证据、风险、访问者、端口、有效期、授权依据、verification、owned resources、cleanup record、manual action 与脱敏错误
+- [x] 5.4 覆盖重复点击、陈旧列表、过期批准、权限拒绝、网络超时、请求节点离线、rollback/cleanup failure 与模型/Coordinator 离线撤销
 - [ ] 5.5 在隔离资源上执行 Windows/macOS 真实操作 UI 验收，确认零秘密输出，提交并推送 Operations 阶段
 
 ## 6. Memories、Settings 与 Diagnostics
