@@ -75,7 +75,7 @@ Node Runtime SHALL 通过环回地址提供统一 React 产品界面，并 SHALL
 单条和清空指定作用域。页面 MUST 明确区分长期记忆与聊天记录。
 
 #### Scenario: 用户修正错误记忆
-- **WHEN** 用户编辑一条记忆并确认新的内容与作用域
+- **WHEN** 用户在原作用域内编辑一条记忆并确认新的内容
 - **THEN** 页面提交修订、重新读取服务端记录并展示新的更新时间和来源信息
 
 #### Scenario: 用户清空一个作用域
@@ -132,13 +132,13 @@ Node Runtime SHALL 通过环回地址提供统一 React 产品界面，并 SHALL
 - **WHEN** 用户不使用鼠标浏览待批准计划
 - **THEN** 用户可以按合理焦点顺序阅读计划、打开确认并选择批准或取消，焦点不会丢失
 
-#### Scenario: 窄窗口查看节点故障
-- **WHEN** 用户在验收定义的最窄视口打开节点详情
-- **THEN** 状态、证据时间和主要恢复动作保持可见且页面不产生阻断操作的横向溢出
+#### Scenario: 320 CSS px 窄窗口完成关键流程
+- **WHEN** 用户在 320 CSS px 或桌面 200% zoom 下打开节点详情、operation 详情或确认对话框
+- **THEN** 状态、证据时间、焦点和主要动作保持可达，且页面不产生阻断操作的横向溢出
 
 ### Requirement: React 生产资源必须可重复构建并随离线运行包交付
 
-项目 SHALL 使用锁文件从固定输入构建前端，执行格式、类型、单元、组件、安全和生产构建门禁，
+项目 SHALL 使用 Node.js 22.14.0、npm 10.9.2、提交的 `package-lock.json` 与 `npm ci` 从固定输入构建前端，执行格式、类型、单元、组件、安全和生产构建门禁，
 并 SHALL 把带内容哈希的静态资源纳入 Windows 与 macOS 版本化 package。目标机器运行界面 MUST
 NOT 依赖 Node.js、源码 checkout、开发缓存或网络下载。
 
@@ -149,3 +149,96 @@ NOT 依赖 Node.js、源码 checkout、开发缓存或网络下载。
 #### Scenario: React 默认入口验收失败
 - **WHEN** 切换后的界面出现静态资源、CSP、SSE 或操作控制回归
 - **THEN** 发布流程恢复已验证的旧页面入口且不删除线程、记忆、操作记录、配置或秘密
+
+### Requirement: 本机 Web 请求必须抵御 DNS rebinding 与跨站写入
+
+Node Runtime MUST 在路由和领域服务之前校验本机 Web 请求。`Host` 仅允许当前监听端口上的
+`localhost`、`127.0.0.1` 与 `[::1]`。浏览器 unsafe 请求 MUST 具有精确同源 `Origin`、不得具有
+`Sec-Fetch-Site: cross-site`，并 MUST 携带 `X-TunnelMinion-Request: same-origin`。服务端 MUST NOT
+开放宽泛跨站 CORS。没有 `Origin` 与 Fetch Metadata 的本机 CLI SHALL 保持兼容，并继续接受既有
+认证、授权、幂等和数据校验。
+
+#### Scenario: DNS rebinding Host 被拒绝
+- **WHEN** 请求使用不在环回 allowlist 的 Host
+- **THEN** 服务端在路由执行前返回 `403 invalid_host`
+
+#### Scenario: 恶意网页向环回地址发起写请求
+- **WHEN** 浏览器 unsafe 请求的 Origin 不同源、Fetch Metadata 为 cross-site，或缺少/伪造规定自定义头
+- **THEN** 服务端按 `invalid_host`、`cross_site_request`、`invalid_origin`、`request_header_required`、`invalid_request_header` 的固定优先级返回最高优先级 403，且 operation、memory、conversation 领域服务未被调用
+
+#### Scenario: 合法同源浏览器写请求
+- **WHEN** React 或 legacy 页面从可信本机 origin 发起非 cross-site 写请求并携带规定自定义头
+- **THEN** 请求进入既有服务端认证、授权、幂等、确认与验证流程
+
+#### Scenario: 本机 CLI 没有浏览器元数据
+- **WHEN** 现有环回 CLI/测试客户端以真实方法、路径和规范化 Host（localhost、IPv4 或带方括号 IPv6 加当前监听端口）请求，且同时没有 Origin 与 Fetch Metadata
+- **THEN** 请求保持兼容，并继续由既有服务端安全边界决定结果；只有同时缺少两类浏览器元数据才进入该兼容分支
+
+### Requirement: 总览与操作详情必须由强类型服务端契约提供
+
+Node Runtime SHALL 提供 `GET /api/resources/overview`，统一返回本机 runtime、平台、版本、package、
+readiness、模型 configured/status/error、Coordinator state/freshness/revision/last success、network
+path 的 handshake/route/probe/evidence time、已知节点和服务，以及各 section 的来源、新鲜度和稳定
+错误码。前端 MUST NOT 从宽泛 JSON 自行推断这些领域状态。
+
+`GET /api/operations/{operation_id}` SHALL 返回脱敏的 owned resources、verification、cleanup record、
+manual action、允许动作和当前 state。操作列表只可作为摘要；批准、拒绝、取消或撤销前 MUST
+重新读取详情。该复读不形成客户端原子锁；并发正确性仍由服务端状态迁移、授权和幂等检查保证，
+冲突后前端 MUST 读取最新状态且 MUST NOT 自动重放写请求。
+
+#### Scenario: Coordinator 与 path 已配置并产生证据
+- **WHEN** Windows 或 macOS 标准应用入口已经装配 Coordinator cache/status 与 network path evidence
+- **THEN** overview 返回真实状态、来源与时间，不得因应用工厂漏传依赖而误报 `unconfigured`
+
+#### Scenario: 从陈旧操作列表进入详情
+- **WHEN** 用户从旧列表对象打开 operation 并准备提交动作
+- **THEN** 页面按 operation ID 读取最新详情，并以最新允许动作和 state 决定是否可提交；服务端拒绝竞态冲突
+
+### Requirement: SPA 路由、缓存与 CSP 必须保持 API 边界
+
+React 页面 SHALL 位于 `/app/*`，内容哈希资源 SHALL 位于 `/app-assets/*`。SPA fallback MUST NOT
+吞掉 `/api/*` 或 SSE 的 404。`index.html` MUST 使用 `no-store`，内容哈希资源 SHALL 使用 immutable
+长缓存；生产 CSP MUST 禁止内联与外部脚本。
+
+#### Scenario: 刷新深层页面路由
+- **WHEN** 用户直接刷新 `/app/operations/{operation_id}`
+- **THEN** FastAPI 返回 SPA 入口且 CSP、缓存头正确
+
+#### Scenario: 请求不存在的 API 或 SSE 资源
+- **WHEN** 客户端请求不存在的 `/api/*` 或事件流路径
+- **THEN** 服务端保持 API/SSE 404，而不是返回 HTML 200
+
+### Requirement: 运行包清单必须覆盖同一份前端构建物并保留 legacy 回退
+
+构建流程 MUST 每次 clean-first 生成唯一 `build/frontend-dist`，wheel 与 Windows/macOS PyInstaller
+package MUST 收集同一份 dist。构建器 SHALL 发出 `runtime-package-manifest/v2`，记录 Python/npm
+lock digest、frontend dist digest、文件数、每项相对路径/内容摘要/大小/类型与 npm/Python 许可证
+来源；现有运行包校验/安装流程 SHALL 支持 v2 并继续兼容已有 v1，但 MUST NOT 静默改写 v1 或接受
+未知 schema、路径穿越、缺文件、损坏或陈旧 dist。本 change 不新建第二套安装器。
+
+React 成为默认入口后，原 `/chat`、`/resources`、`/operations`、`/memories` 与对应 `/legacy/*`
+别名 SHALL 在 React 首发版本以及至少紧随其后的一个版本继续存在，并使用相同写请求门禁；默认
+`/` 只切换入口映射。自动契约 MUST 防止本 change 删除这些路由，实际删除 MUST 由后续独立 change
+完成。
+
+#### Scenario: 双平台 package 消费相同前端产物
+- **WHEN** 构建 Windows amd64 与 macOS arm64 package
+- **THEN** 两个 package 中的 frontend dist 摘要完全相同，目标机无 Node、源码、网络仍能运行
+
+#### Scenario: manifest 版本或前端产物不可信
+- **WHEN** 安装器遇到未知 manifest 版本、路径穿越、遗漏、摘要不符或陈旧 dist
+- **THEN** 构建或安装 fail closed，且 v1 不被伪装成 v2
+
+#### Scenario: React 默认入口发布后的回退周期
+- **WHEN** React 首次成为默认入口
+- **THEN** 原四页路径及其 `/legacy/*` 别名在首发和紧随其后的版本继续可用，回退只改默认 `/` 映射且不迁移或删除用户数据
+
+### Requirement: 浏览器、可访问性与前端体积必须具有固定门禁
+
+CI SHALL 在 Windows Chromium 与 macOS WebKit 覆盖关键流程；axe serious/critical 违规 MUST 为 0。
+主要流程 SHALL 在 1280×720、320 CSS px 与 200% zoom 下可操作。初始 JS+CSS gzip 总量 MUST NOT
+超过 300 KiB；后续增长超过前一已接受基线的 10% MUST 有审查说明。
+
+#### Scenario: 前端质量或体积超出门禁
+- **WHEN** 任一浏览器关键流程、可访问性级别、视口重排或体积预算失败
+- **THEN** PR 门禁失败，且不得以单平台或人工截图替代
