@@ -20,7 +20,7 @@
 
 - [x] 2.1 建立 `frontend/`、React Router、TanStack Query、Zod、Vitest、Testing Library、MSW、Playwright、axe 与统一质量命令
 - [x] 2.2 实现同源 API client；浏览器 unsafe 请求统一发送 `X-TunnelMinion-Request: same-origin`，不在浏览器持久化秘密或完整诊断 payload
-- [ ] 2.3 实现统一外壳、`/app/*` 路由、导航、design tokens、loading/empty/stale/error、Error Boundary 和非颜色状态语义
+- [x] 2.3 实现统一外壳、`/app/*` 路由、导航、design tokens、loading/empty/stale/error、Error Boundary 和非颜色状态语义
 - [x] 2.4 实现统一本机请求守卫：Host allowlist、精确同源 Origin、拒绝 cross-site Fetch Metadata、自定义请求头、稳定 403 错误码与无宽泛 CORS
 - [x] 2.5 将 legacy 页面的 unsafe 请求迁移到相同门禁，并覆盖合法同源、DNS rebinding、恶意/缺失 Origin、cross-site、缺失/错误 header、固定错误优先级与真实 CLI corpus 兼容契约测试
 - [x] 2.6 由 FastAPI 提供 `/app/*` 与 `/app-assets/*`，确保 fallback 不吞 `/api/*`/SSE；`index.html` no-store、哈希资源 immutable、生产 CSP 禁止内联和外部脚本
@@ -39,10 +39,10 @@
 
 ## 4. Chat 与公开 SSE
 
-- [ ] 4.1 仅在 `frontend/src/features/chat` 实现 thread 新建、选择、继续、删除和消息展示，删除说明不得影响独立长期记忆
-- [ ] 4.2 实现 run 发起、取消和公开工具轨迹，只展示允许的节点、工具、状态、耗时、tool run ID 与证据引用
-- [ ] 4.3 以自有序号 reducer 实现 SSE `after` 恢复、去重、缺口、终态关闭、页面恢复和卸载清理，不自动重放工具或写请求
-- [ ] 4.4 覆盖模型不可用、工具失败、取消竞态、重复/缺口事件、恶意文本、超长内容和未知写结果不得重放
+- [x] 4.1 仅在 `frontend/src/features/chat` 实现 thread 新建、选择、继续、删除和消息展示，删除说明不得影响独立长期记忆
+- [x] 4.2 实现 run 发起、取消和公开工具轨迹，只展示允许的节点、工具、状态、耗时、tool run ID 与证据引用
+- [x] 4.3 以自有序号 reducer 实现 SSE `after` 恢复、去重、缺口、终态关闭、页面恢复和卸载清理，不自动重放工具或写请求
+- [x] 4.4 覆盖模型不可用、工具失败、取消竞态、重复/缺口事件、恶意文本、超长内容和未知写结果不得重放
 - [ ] 4.5 运行现有 AI 评估与前后端门禁，提交并推送 Chat 阶段
 
 ## 5. Operations

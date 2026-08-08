@@ -6,6 +6,8 @@ import {
 } from "react-router-dom";
 
 import { OverviewPage } from "../features/overview";
+import { ChatPage } from "../features/chat";
+import { RouteErrorPage } from "./RouteErrorPage";
 
 const navigation = [
   ["总览", "/app/overview"],
@@ -53,10 +55,11 @@ export const router = createBrowserRouter([
   {
     path: "/app",
     element: <ProductShell />,
+    errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <Navigate replace to="overview" /> },
       { path: "overview", element: <OverviewPage /> },
-      { path: "chat", element: <FoundationPlaceholder title="聊天" /> },
+      { path: "chat", element: <ChatPage /> },
       { path: "operations", element: <FoundationPlaceholder title="操作" /> },
       {
         path: "operations/:operationId",
