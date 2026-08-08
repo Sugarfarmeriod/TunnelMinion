@@ -96,6 +96,7 @@ class FakeNetworkSyncTransport:
         self.acknowledgements: list[NetworkAcknowledgement] = []
         self.path_statuses: list[dict[str, object]] = []
         self.pull_calls: list[tuple[int, bool]] = []
+        self.second_pull_started = asyncio.Event()
         self.error: CoordinatorClientError | ManagedNetworkSyncError | None = None
         self.block: asyncio.Event | None = None
         self.delay = 0.0
@@ -113,6 +114,8 @@ class FakeNetworkSyncTransport:
         assert authentication.network_id == NETWORK_ID
         assert authentication.node_id == NODE_A
         self.pull_calls.append((after_revision, full_sync))
+        if len(self.pull_calls) == 2:
+            self.second_pull_started.set()
         if self.block is not None:
             await self.block.wait()
         if self.delay:
@@ -414,7 +417,7 @@ def test_run_loop_retries_after_interval_without_model(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         task = asyncio.create_task(synchronizer.run())
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(transport.second_pull_started.wait(), timeout=1)
         synchronizer.stop()
         await task
 
