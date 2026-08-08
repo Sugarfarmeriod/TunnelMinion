@@ -39,6 +39,9 @@ dev = [
   "pytest-cov>=6.0",
   "ruff>=0.11",
 ]
+package = [
+    "pyinstaller==6.21.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tunnelminion"]
