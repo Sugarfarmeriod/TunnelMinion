@@ -24,6 +24,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
       - name: 从锁文件安装前端依赖
         run: npm --prefix frontend ci
 
@@ -32,9 +37,26 @@ jobs:
           npm --prefix frontend run format:check
           npm --prefix frontend run typecheck
           npm --prefix frontend test
+          npm --prefix frontend run test:supply-chain
           npm --prefix frontend run build
           npm --prefix frontend run size:check
-          npm --prefix frontend audit --audit-level=high
+
+      - name: 生成 npm 漏洞与许可证证据
+        run: npm --prefix frontend run supply-chain:check
+
+      - name: 暂存并扫描被忽略的前端产物
+        if: always()
+        run: |
+          python scripts/stage_frontend.py --source frontend/dist --destination build/frontend-dist
+          python scripts/security_scan.py --root . --artifact frontend/dist --artifact build/frontend-dist
+
+      - name: 上传前端供应链证据
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: supply-chain-frontend
+          path: build/supply-chain/*.json
+          if-no-files-found: error
 
       - name: 上传唯一前端构建物
         uses: actions/upload-artifact@v7
@@ -122,3 +144,18 @@ jobs:
 
       - name: 扫描仓库与评估材料中的秘密
         run: uv run python scripts/security_scan.py --root .
+
+      - name: 生成 Python 漏洞与许可证证据
+        if: always()
+        run: >-
+          uv run python scripts/dependency_evidence.py
+          --root .
+          --output-dir build/supply-chain/${{ runner.os }}
+
+      - name: 上传 Python 供应链证据
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: supply-chain-python-${{ runner.os }}
+          path: build/supply-chain/${{ runner.os }}/*.json
+          if-no-files-found: error

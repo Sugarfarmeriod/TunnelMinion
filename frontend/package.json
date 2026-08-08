@@ -14,9 +14,11 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:supply-chain": "node --test scripts/*.test.mjs",
     "test:watch": "vitest",
     "build": "tsc --noEmit && vite build",
     "size:check": "node scripts/check-bundle-size.mjs",
+    "supply-chain:check": "node scripts/check-npm-supply-chain.mjs",
     "preview": "vite preview",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test"
