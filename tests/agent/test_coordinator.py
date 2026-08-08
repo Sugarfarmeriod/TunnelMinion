@@ -147,6 +147,8 @@ class FakeTransport:
         self.lose_capability_response = False
         self.lose_service_response = False
         self.registration_keys: list[str] = []
+        self.heartbeat_calls = 0
+        self.second_heartbeat_started = asyncio.Event()
 
     def _raise(self) -> None:
         if self.fail is not None:
@@ -167,6 +169,9 @@ class FakeTransport:
         request: HeartbeatRequest,
     ) -> HeartbeatResponse:
         self._raise()
+        self.heartbeat_calls += 1
+        if self.heartbeat_calls == 2:
+            self.second_heartbeat_started.set()
         return HeartbeatResponse(
             received_at=NOW,
             node_status=NodeStatus.ONLINE,
@@ -447,7 +452,7 @@ async def test_run_can_stop_without_blocking_local_work(tmp_path: Path) -> None:
         clock=lambda: NOW,
     )
     task = asyncio.create_task(sync.run(lambda: (), lambda: ()))
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(transport.second_heartbeat_started.wait(), timeout=1)
     sync.stop()
     await task
     assert sync.status.phase is SyncPhase.STOPPED
