@@ -383,7 +383,11 @@ export function MemoriesPage() {
         }
         await query.refetch();
       } else if (requestError instanceof ApiError) {
-        setNotice({ kind: "error", message: readableError(requestError) });
+        await query.refetch();
+        setNotice({
+          kind: "error",
+          message: `${readableError(requestError)} 页面只重新读取了一次，没有自动重放删除；请按最新记录决定下一步。`,
+        });
       } else {
         await query.refetch();
         setNotice({

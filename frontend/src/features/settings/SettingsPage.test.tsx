@@ -312,6 +312,48 @@ describe("SettingsPage", () => {
         screen.getByRole("button", { name: "重新读取状态" }),
       ).toHaveFocus(),
     );
+    expect(
+      screen.getByText(
+        "服务端已用 204 明确确认：模型配置和已保存密钥均已清除。",
+      ),
+    ).toHaveAttribute("role", "status");
+  });
+
+  it("模型不可用时仍允许清除配置与密钥，且只提交一次", async () => {
+    let current = makeConfiguration({
+      status: "unavailable",
+      error_code: "provider_unreachable",
+      error_message: "本机模型服务未响应",
+      api_key_configured: true,
+    });
+    fetchMock.mockImplementation((_input, init) => {
+      if (init?.method === "DELETE") {
+        current = makeConfiguration({
+          endpoint: null,
+          model: null,
+          timeout_seconds: null,
+          status: "unconfigured",
+          api_key_configured: false,
+        });
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(jsonResponse(current));
+    });
+    const user = userEvent.setup();
+
+    renderSettings();
+    expect(await screen.findByText("模型当前不可用")).toBeVisible();
+    const clear = screen.getByRole("button", {
+      name: "清除模型配置与密钥",
+    });
+    expect(clear).toBeEnabled();
+    await user.click(clear);
+    await user.click(screen.getByRole("button", { name: "确认清除一次" }));
+
+    expect(await screen.findByText("尚未配置")).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+    ).toHaveLength(1);
   });
 
   it("keyring 部分失败后即使重读未配置也不宣称密钥已清除", async () => {
@@ -384,6 +426,32 @@ describe("SettingsPage", () => {
     ).toBeVisible();
     expect(screen.getByText(/不可达不等于一定是防火墙/)).toBeVisible();
     expect(localStorageSpy).not.toHaveBeenCalled();
+  });
+
+  it("诊断状态响应夹带秘密字段时 fail closed，仍保留脱敏下载入口", async () => {
+    const leakedSecret = "gateway-token-must-never-render";
+    fetchMock.mockImplementation((input) => {
+      const path = String(input);
+      return Promise.resolve(
+        jsonResponse(
+          path.endsWith("/api/resources/overview")
+            ? { ...makeOverview(), gateway_token: leakedSecret }
+            : makeConfiguration(),
+        ),
+      );
+    });
+
+    renderSettings();
+
+    expect(
+      await screen.findByText(
+        "暂时读不到本机总览；模型设置和诊断下载仍可独立使用。",
+      ),
+    ).toBeVisible();
+    expect(document.body.textContent).not.toContain(leakedSecret);
+    expect(
+      screen.getByRole("link", { name: "下载脱敏诊断包" }),
+    ).toHaveAttribute("href", "/api/diagnostics/export");
   });
 
   it("在设置页展示强类型 runtime、版本、Coordinator 与路径状态", async () => {
