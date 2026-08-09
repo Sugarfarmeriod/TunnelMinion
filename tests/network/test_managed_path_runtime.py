@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -514,7 +515,7 @@ def test_repository_rejects_real_parent_reparse_point(tmp_path: Path) -> None:
     parent_link_root = root / "parent-link-root"
     parent_link_root.mkdir()
     _create_symlink_or_skip(parent_link_root / "managed-path", outside, directory=True)
-    with pytest.raises(ManagedPathCheckpointError, match="父级"):
+    with pytest.raises(ManagedPathCheckpointError, match="可信子目录"):
         repository(parent_link_root)
 
 
@@ -525,7 +526,7 @@ def test_repository_rejects_real_target_reparse_point(tmp_path: Path) -> None:
     outside = root / "outside.json"
     outside.write_text("sentinel", encoding="utf-8")
     _create_symlink_or_skip(state_dir / "checkpoint.json", outside)
-    with pytest.raises(ManagedPathCheckpointError, match="reparse"):
+    with pytest.raises(ManagedPathCheckpointError, match="可信文件"):
         repository(root)
     assert outside.read_text(encoding="utf-8") == "sentinel"
 
@@ -1073,9 +1074,26 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
     with pytest.raises(OSError):
         api._attributes(1)
 
+    for error, error_type in (
+        (80, FileExistsError),
+        (2, FileNotFoundError),
+        (5, PermissionError),
+        (32, ManagedPathCheckpointError),
+    ):
+        monkeypatch.setitem(
+            runtime_module.ctypes.__dict__,
+            "get_last_error",
+            lambda current=error: current,
+        )
+        with pytest.raises(error_type):
+            api._raise_last_error("stable")
+    monkeypatch.setitem(runtime_module.ctypes.__dict__, "get_last_error", lambda: 999)
+
     api._create_file = create_invalid
     with pytest.raises(OSError):
         api.open_directory(Path("state"))
+    with pytest.raises(OSError):
+        api.open_file(Path("checkpoint"), create=False, writable=False, deletable=False)
 
     api._create_file = create_handle
     api._get_info = get_info_reparse
@@ -1090,6 +1108,7 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ManagedPathCheckpointError, match="普通文件"):
         api.require_regular(1)
 
+    api.fd_handle = fd_handle
     api._set_info = set_info_failure
     with pytest.raises(OSError):
         api.replace(1, Path("target"))
@@ -1097,7 +1116,6 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
         api.unlink(1)
     api._lock_file = lock_success
     api._unlock_file = unlock_failure
-    api.fd_handle = fd_handle
     with pytest.raises(OSError), api.lock(1):
         pass
     api._close_handle = close_failure
@@ -1191,6 +1209,32 @@ def test_windows_trusted_handle_success_paths_are_platform_independent(
         child._identity = None
         child.validate()
         return child
+
+    class FakeKernelFunction:
+        def __init__(self, callback: Callable[..., int]) -> None:
+            self._callback = callback
+            self.restype: object | None = None
+
+        def __call__(self, *args: object) -> int:
+            return self._callback(*args)
+
+    kernel32 = SimpleNamespace(
+        CreateFileW=FakeKernelFunction(create_file),
+        GetFileInformationByHandleEx=FakeKernelFunction(get_info),
+        SetFileInformationByHandle=FakeKernelFunction(set_info),
+        CloseHandle=FakeKernelFunction(close_handle),
+        LockFileEx=FakeKernelFunction(lock_file),
+        UnlockFileEx=FakeKernelFunction(unlock_file),
+    )
+
+    def load_kernel32(_name: str, *, use_last_error: bool) -> SimpleNamespace:
+        assert use_last_error
+        return kernel32
+
+    with monkeypatch.context() as ctypes_patch:
+        ctypes_patch.setitem(runtime_module.ctypes.__dict__, "WinDLL", load_kernel32)
+        initialized = api_type()
+    assert initialized._create_file is kernel32.CreateFileW
 
     api._create_file = create_file
     api._get_info = get_info
