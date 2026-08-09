@@ -1,0 +1,70 @@
+## 0. 基线、归属与安全前置
+
+- [ ] 0.1 从实现开始时最新 `origin/main` 创建/更新匹配的 `feature/complete-managed-path-runtime` 分支，确认工作树干净、基线已包含本提案且全程不读取或修改 `docs/questions/`
+- [ ] 0.2 固定单一主写 owner 负责公共 lifecycle、应用工厂、状态 schema 和本 change 的 OpenSpec tasks；记录与 `improve-local-product-experience` 应用工厂写入的串行合并顺序
+- [ ] 0.3 只读盘点现有 L3 authorization/policy repository、Provider/governance/ledger/journal、sync checkpoint 和 path controller 接口，产出 network/node/revision/Provider/资源/计划摘要/观察指纹/有效期字段映射
+- [ ] 0.4 固定 Windows/macOS 只读 handshake/route/probe 能力、最低权限、稳定错误、TTL、超时、候选数量和刷新间隔矩阵；未验证能力标记为 spike 假设
+- [ ] 0.5 固定禁止修改清单与前后不变性采集：`HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动
+
+## 1. 状态、授权端口与纯 fake 安全骨架
+
+- [ ] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
+- [ ] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
+- [ ] 1.3 为既有本机 L3 持久授权建立只读查询端口与精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
+- [ ] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
+- [ ] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
+- [ ] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 2. Windows/macOS 生产只读 PathProbe
+
+- [ ] 2.1 先用受控 fixture 固定 `PathProbe` 共用契约：候选来源/网段/端口过滤、单并发、超时、取消、最小刷新间隔和四维证据时间
+- [ ] 2.2 实现 Windows 只读 endpoint/handshake/精确 host route/target probe 适配，权限不足或工具缺失只返回稳定降级且不提权、不执行任意命令
+- [ ] 2.3 实现 macOS 同契约只读适配，明确官方/受支持读取边界，不调用 Murus、防火墙写接口、route 写命令或 WireGuard 配置命令
+- [ ] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、旧 handshake、route 缺失、target timeout、权限拒绝和取消矩阵
+- [ ] 2.5 在 Windows/macOS 只读环境保存探测前后网络不变性与来源证据；无法现场验证的平台保持对应真实门禁未完成，不用 fixture 代替
+- [ ] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 3. fake Provider 下的完整治理生命周期
+
+- [ ] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
+- [ ] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
+- [ ] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
+- [ ] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
+- [ ] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
+- [ ] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 4. 证据 TTL、刷新与真实状态投影
+
+- [ ] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
+- [ ] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
+- [ ] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
+- [ ] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
+- [ ] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
+- [ ] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 5. Windows/macOS 常规应用单一装配
+
+- [ ] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
+- [ ] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
+- [ ] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
+- [ ] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
+- [ ] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
+- [ ] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 6. 批准资源上的真实 Provider 门禁
+
+- [ ] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
+- [ ] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
+- [ ] 6.3 在批准资源上验证真实 apply → Provider verify → path verify → selection → acknowledgement，并保存提交、平台、入口、授权和观测时间 provenance
+- [ ] 6.4 注入真实 verify failure/受控中断并验证 rollback/recover、所有权冲突和 manual intervention，不用命令退出码或 fake 证据替代
+- [ ] 6.5 在另一平台重复相同门禁；若平台资源或权限未获批准，只报告 blocker，不将单平台结果外推为双平台完成
+- [ ] 6.6 核对 `HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动前后不变；检查证据与 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+
+## 7. 常规入口真实 A/B 与下游交接
+
+- [ ] 7.1 只有阶段 1–6 门禁和双端隔离资源批准完成后，才用 Windows/macOS 常规入口执行真实 A/B authorization → lifecycle → selection/evidence → TTL stale → refresh recovery
+- [ ] 7.2 覆盖 Coordinator 离线、模型缺失、单端 probe 失败、sink 失败、重启恢复和 static fallback；证明本地只读功能与独立 Gateway 继续工作
+- [ ] 7.3 保存 A/B 证据 provenance 与前后不变性；专用脚本、旧归档证据、fake、PR #44 Coordinator/cache 或 stale UI 均不得替代本轮常规入口结果
+- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、FigJam 或 tasks；向 package change 只交付已合并常规入口能力
+- [ ] 7.5 运行全量质量、架构、安全、秘密、双平台真实门禁和 `openspec validate complete-managed-path-runtime --strict`，核对所有证据来自当前提交且未把降级成功计为生产成功
+- [ ] 7.6 检查最终 `git status`/diff/生成物/秘密与任务勾选范围，以 Conventional Commit 提交并普通 push，创建面向 `main` 的 Draft PR；合并后再同步主规格和归档 change
