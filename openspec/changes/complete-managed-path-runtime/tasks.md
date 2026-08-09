@@ -1,10 +1,20 @@
 ## 0. 基线、归属与安全前置
 
-- [ ] 0.1 从实现开始时最新 `origin/main` 创建/更新匹配的 `feature/complete-managed-path-runtime` 分支，确认工作树干净、基线已包含本提案且全程不读取或修改 `docs/questions/`
-- [ ] 0.2 固定单一主写 owner 负责公共 lifecycle、应用工厂、状态 schema 和本 change 的 OpenSpec tasks；记录与 `improve-local-product-experience` 应用工厂写入的串行合并顺序
-- [ ] 0.3 只读盘点现有 L3 authorization/policy repository、Provider/governance/ledger/journal、sync checkpoint 和 path controller 接口，产出 network/node/revision/Provider/资源/计划摘要/观察指纹/有效期字段映射
-- [ ] 0.4 固定 Windows/macOS 只读 handshake/route/probe 能力、最低权限、稳定错误、TTL、超时、候选数量和刷新间隔矩阵；未验证能力标记为 spike 假设
-- [ ] 0.5 固定禁止修改清单与前后不变性采集：`HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动
+- [x] 0.1 从实现开始时最新 `origin/main` 创建/更新匹配的 `feature/complete-managed-path-runtime` 分支，确认工作树干净、基线已包含本提案且全程不读取或修改 `docs/questions/`
+  - 证据：2026-08-10 将干净分支以 `--ff-only` 从 `369c9b3` 快进到 `origin/main@5f00e073`；基线即合并提案的 PR #47，全程搜索均显式排除禁止目录。
+- [x] 0.2 固定单一主写 owner 负责公共 lifecycle、应用工厂、状态 schema 和本 change 的 OpenSpec tasks；记录与 `improve-local-product-experience` 应用工厂写入的串行合并顺序
+  - 归属：本任务是阶段 0–1 的唯一 OpenSpec tasks 与 `src/tunnelminion/network/**` 主写者；阶段 1 不修改应用工厂。未来应用工厂接线必须先合并本 change 的状态契约，再由 `improve-local-product-experience` owner 串行 rebase/接线，禁止同阶段并写 `app.py`/`macos_app.py`。
+- [x] 0.3 只读盘点现有 L3 authorization/policy repository、Provider/governance/ledger/journal、sync checkpoint 和 path controller 接口，产出 network/node/revision/Provider/资源/计划摘要/观察指纹/有效期字段映射
+  - 授权映射：`NetworkAuthorizationScope` 已绑定 network/node/provider/action、ownership resource/fingerprint、接口/地址池/host route/重叠路由/listen port/peer/relay、revision/parent revision 与 `plan_hash`；`NetworkAuthorizationGrant` 已绑定批准/过期/撤销时间并提供 `is_active`。
+  - 持久化缺口：`NetworkOperationPolicy` 仅保存进程内 grant；`SQLiteNetworkGovernanceStore` 保存执行记录而不保存授权；operation preauthorization 仅覆盖 L2。因此阶段 1 只新增 L3 grant 只读 Protocol/匹配器，不伪造不存在的持久 adapter。
+  - 执行映射：`NetworkProvider` 固定 observe/plan/apply/verify/rollback/recover；ledger 以 network/node 保存 provider、resource/stable interface、creation nonce、public key hash、parent revision、desired hash、system fingerprint；平台 journal 以幂等键保存逐步回执。
+  - 同步/路径映射：sync checkpoint 保存 pending/applied/last-known-good revision 与退避；path verifier/controller 已包含 provider/revision、候选哈希、handshake/route/target 时间维度、阈值与 last-known-good，但没有生产 probe、授权 repository 或 path checkpoint。
+- [x] 0.4 固定 Windows/macOS 只读 handshake/route/probe 能力、最低权限、稳定错误、TTL、超时、候选数量和刷新间隔矩阵；未验证能力标记为 spike 假设
+  - 已证实仓库能力：两端 `SystemReader` 只提供接口、监听器与进程读取；macOS 仅对监听器增加固定 `lsof` 降级。仓库没有生产 `PathProbe`、handshake reader 或精确 route reader，故这些平台能力与最低权限均标记为阶段 2 spike 假设，本轮绝不现场探测。
+  - 固定契约基线：候选上限 4、单候选 1s、target 2s、handshake 最大年龄 180s、连续失败/成功阈值 3/2、minimum dwell 30s；阶段 2 待验证假设为 evidence TTL 180s、最小刷新间隔 30s、只读权限不足映射 `permission_denied`、能力缺失映射 `unsupported`，不得用命令成功或旧证据替代。
+  - 稳定失败维度沿用 `no_approved_candidate`、`endpoint_unreachable`、`handshake_stale`、`host_route_missing`、`target_unreachable`；平台实现、权限与真实延迟在阶段 2 验证前均不宣称成立。
+- [x] 0.5 固定禁止修改清单与前后不变性采集：`HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动
+  - 本轮禁止调用任何真实 probe/Provider/平台写接口；禁止修改或读取客户网络正文。后续真实门禁必须分别采集接口/路由/listener/配置摘要的前后不变性，并保持 `HomeMac`、B 手写配置、防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密存储和自启动完全不变。
 
 ## 1. 状态、授权端口与纯 fake 安全骨架
 
