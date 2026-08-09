@@ -72,7 +72,10 @@ from tunnelminion.platforms.windows.system import SystemReader
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
-from tunnelminion.web.application_views import build_application_view_bindings
+from tunnelminion.web.application_views import (
+    NetworkPathViewBindings,
+    build_application_view_bindings,
+)
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
 from tunnelminion.web.memory import create_memory_router
@@ -267,6 +270,7 @@ def build_macos_local_application(
     data_dir: Path | None = None,
     *,
     interface_name: str | None = None,
+    network_path: NetworkPathViewBindings | None = None,
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
     node = _build_macos_node(data_dir, interface_name=interface_name)
@@ -310,6 +314,7 @@ def build_macos_local_application(
         platform=Platform.MACOS,
         model_service=node.model_service,
         managed=managed,
+        network_path=network_path,
     )
     app.include_router(create_model_router(node.model_service))
     app.include_router(
@@ -318,6 +323,7 @@ def build_macos_local_application(
             node.node_id,
             coordinator_status=views.resource_bindings.coordinator_status,
             coordinator_cache=views.resource_bindings.coordinator_cache,
+            network_path_status=views.resource_bindings.network_path,
             managed_status=managed.resource_payload,
         )
     )

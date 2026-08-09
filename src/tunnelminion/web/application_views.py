@@ -25,9 +25,17 @@ from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.configuration import ModelConfigurationService
 from tunnelminion.model.contracts import ProviderErrorCode
+from tunnelminion.network.path_controller import (
+    DirectPathEvidence,
+    PathSelection,
+)
 from tunnelminion.runtime.profile import current_program_dir
 from tunnelminion.web import overview as overview_contracts
-from tunnelminion.web.resources import CoordinatorResourceState, coordinator_resource_view
+from tunnelminion.web.resources import (
+    CoordinatorResourceState,
+    ManagedPathResourceView,
+    coordinator_resource_view,
+)
 
 Clock = Callable[[], datetime]
 _COORDINATOR_STATES = {
@@ -63,10 +71,20 @@ _PACKAGE_MANIFEST_FILE = "runtime-package-manifest.json"
 
 @dataclass(frozen=True)
 class CoordinatorResourceBindings:
-    """`create_resource_router` 可直接消费的 Coordinator 依赖。"""
+    """`create_resource_router` 可直接消费的控制面与路径依赖。"""
 
     coordinator_status: Callable[[], CoordinatorSyncStatus] | None
     coordinator_cache: CoordinatorCache | None
+    network_path: Callable[[], ManagedPathResourceView]
+
+
+@dataclass(frozen=True)
+class NetworkPathViewBindings:
+    """真实路径选择、证据和本机授权的只读 callback。"""
+
+    selection: Callable[[], PathSelection | None]
+    evidence: Callable[[], DirectPathEvidence | None]
+    authorization: Callable[[], str]
 
 
 @dataclass(frozen=True)
@@ -83,6 +101,7 @@ def build_application_view_bindings(
     platform: Platform,
     model_service: ModelConfigurationService,
     managed: ManagedNodeApplication,
+    network_path: NetworkPathViewBindings | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -94,6 +113,7 @@ def build_application_view_bindings(
         managed,
         clock or (lambda: datetime.now(UTC)),
         runtime_package or detect_runtime_package(),
+        network_path,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -150,11 +170,13 @@ class _ApplicationViewAdapter:
         managed: ManagedNodeApplication,
         clock: Clock,
         package: overview_contracts.RuntimePackageOverview,
+        network_path: NetworkPathViewBindings | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
         self.model_service = model_service
         self.managed = managed
+        self.path_bindings = network_path
         self.clock = clock
         self.package = package
 
@@ -306,6 +328,52 @@ class _ApplicationViewAdapter:
                 overview_contracts.NetworkPathOverviewState.UNKNOWN,
                 error,
                 True,
+            )
+        path = self.path_snapshot()
+        if path is not None:
+            selection, evidence = path
+            path_error = (
+                evidence.stable_error_code.value
+                if evidence is not None and evidence.stable_error_code is not None
+                else selection.stable_error_code.value
+                if selection.stable_error_code is not None
+                else None
+            )
+            return overview_contracts.NetworkPathOverview(
+                source=overview_contracts.OverviewSource.NETWORK_PATH_EVIDENCE,
+                evidence_at=(
+                    evidence.observed_at if evidence is not None else selection.last_evidence_at
+                ),
+                freshness=(
+                    overview_contracts.OverviewFreshness.FRESH
+                    if evidence is not None
+                    else overview_contracts.OverviewFreshness.UNKNOWN
+                ),
+                error=(
+                    overview_contracts.OverviewError(code=path_error)
+                    if path_error is not None
+                    else None
+                ),
+                configured=True,
+                state=overview_contracts.NetworkPathOverviewState(selection.path_type.value),
+                provider=selection.provider,
+                revision=selection.revision,
+                handshake=self.evidence_view(
+                    evidence.handshake_fresh if evidence is not None else None,
+                    evidence.last_handshake_at if evidence is not None else None,
+                ),
+                route=self.evidence_view(
+                    evidence.host_route_present if evidence is not None else None,
+                    evidence.observed_at if evidence is not None else None,
+                ),
+                probe=self.evidence_view(
+                    evidence.target_probe_succeeded if evidence is not None else None,
+                    (
+                        evidence.target_probe_at or evidence.observed_at
+                        if evidence is not None
+                        else None
+                    ),
+                ),
             )
         if explicit is overview_contracts.CoordinatorOverviewState.CREDENTIAL_MISSING:
             return self.empty_path(True, overview_contracts.NetworkPathOverviewState.PENDING, error)
@@ -520,16 +588,104 @@ class _ApplicationViewAdapter:
             return CoordinatorResourceBindings(
                 lambda: coordinator.directory.status,
                 coordinator.coordinator_cache,
+                self.network_path_resource,
             )
         configured, _, error = self.managed_state()
         if configured is False and error is None:
-            return CoordinatorResourceBindings(None, None)
+            return CoordinatorResourceBindings(None, None, self.network_path_resource)
         cache = CoordinatorCache()
         status = CoordinatorSyncStatus(
             phase=SyncPhase.STOPPED,
             last_error_code=error or "coordinator_sync_not_started",
         )
-        return CoordinatorResourceBindings(lambda: status, cache)
+        return CoordinatorResourceBindings(lambda: status, cache, self.network_path_resource)
+
+    def network_path_resource(self) -> ManagedPathResourceView:
+        """让 legacy 资源接口与 overview 消费同一份真实路径快照。"""
+        path = self.path_snapshot()
+        authorization = self.path_authorization()
+        if path is not None:
+            selection, evidence = path
+            return ManagedPathResourceView(
+                configured=True,
+                provider=selection.provider,
+                revision=selection.revision,
+                authorization_state=authorization,
+                path_type=selection.path_type,
+                candidate_count=(
+                    evidence.candidate_count if evidence is not None else selection.candidate_count
+                ),
+                handshake_fresh=evidence.handshake_fresh if evidence is not None else False,
+                host_route_present=(
+                    evidence.host_route_present if evidence is not None else False
+                ),
+                target_probe_succeeded=(
+                    evidence.target_probe_succeeded if evidence is not None else False
+                ),
+                last_handshake_at=(
+                    evidence.last_handshake_at if evidence is not None else None
+                ),
+                last_probe_at=evidence.target_probe_at if evidence is not None else None,
+                stable_error_code=(
+                    evidence.stable_error_code.value
+                    if evidence is not None and evidence.stable_error_code is not None
+                    else selection.stable_error_code.value
+                    if selection.stable_error_code is not None
+                    else None
+                ),
+            )
+        overview = self.network_path()
+        return ManagedPathResourceView(
+            configured=overview.configured is True,
+            provider=overview.provider,
+            revision=overview.revision or 0,
+            authorization_state=authorization,
+            stable_error_code=overview.error.code if overview.error is not None else None,
+        )
+
+    def path_snapshot(self) -> tuple[PathSelection, DirectPathEvidence | None] | None:
+        """只组合同 provider/revision 的真实选择与证据，拒绝混合陈旧事实。"""
+        if self.path_bindings is None:
+            return None
+        selection = self.path_bindings.selection()
+        if selection is None:
+            return None
+        evidence = self.path_bindings.evidence()
+        if evidence is not None and (
+            evidence.provider is not selection.provider or evidence.revision != selection.revision
+        ):
+            evidence = None
+        return selection, evidence
+
+    def path_authorization(self) -> str:
+        if self.path_bindings is not None:
+            return self.path_bindings.authorization()
+        _, explicit, _ = self.managed_state()
+        if explicit is overview_contracts.CoordinatorOverviewState.UNCONFIGURED:
+            return "unconfigured"
+        if explicit is overview_contracts.CoordinatorOverviewState.CONFIG_INVALID:
+            return "configuration-invalid"
+        if explicit is overview_contracts.CoordinatorOverviewState.CREDENTIAL_MISSING:
+            return "credential-missing"
+        if explicit is overview_contracts.CoordinatorOverviewState.SYNC_NOT_STARTED:
+            return "sync-not-started"
+        return "unknown"
+
+    @staticmethod
+    def evidence_view(
+        passed: bool | None,
+        observed_at: datetime | None,
+    ) -> overview_contracts.NetworkEvidenceOverview:
+        return overview_contracts.NetworkEvidenceOverview(
+            status=(
+                overview_contracts.EvidenceStatus.MISSING
+                if passed is None
+                else overview_contracts.EvidenceStatus.PASSED
+                if passed
+                else overview_contracts.EvidenceStatus.FAILED
+            ),
+            observed_at=observed_at,
+        )
 
     def managed_state(
         self,

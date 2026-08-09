@@ -56,6 +56,12 @@ from tunnelminion.network.contracts import (
     ProviderKind,
     SignedDesiredConfig,
 )
+from tunnelminion.network.path_controller import (
+    DirectPathErrorCode,
+    DirectPathEvidence,
+    NetworkPathType,
+    PathSelection,
+)
 from tunnelminion.web import application_views as views
 from tunnelminion.web.overview import (
     CoordinatorOverviewState,
@@ -183,6 +189,7 @@ def bindings(
     *,
     model: ModelConfigurationService | None = None,
     package: RuntimePackageOverview | None = None,
+    network_path: views.NetworkPathViewBindings | None = None,
     clock_none: bool = False,
 ) -> views.ApplicationViewBindings:
     arguments: dict[str, object] = {
@@ -195,6 +202,8 @@ def bindings(
         arguments["clock"] = lambda: NOW
     if package is not None:
         arguments["runtime_package"] = package
+    if network_path is not None:
+        arguments["network_path"] = network_path
     return views.build_application_view_bindings(**arguments)  # pyright: ignore[reportArgumentType]
 
 
@@ -311,6 +320,48 @@ def signed_config(*, revision: int = 4, parent: int = 0) -> SignedDesiredConfig:
     )
 
 
+def path_selection(
+    *,
+    provider: ProviderKind = ProviderKind.WINDOWS,
+    revision: int = 4,
+    error: DirectPathErrorCode | None = None,
+) -> PathSelection:
+    return PathSelection(
+        path_type=NetworkPathType.DIRECT,
+        provider=provider,
+        revision=revision,
+        last_known_good_revision=revision,
+        candidate_count=1,
+        consecutive_failures=0,
+        consecutive_successes=2,
+        selected_at=NOW,
+        last_evidence_at=NOW,
+        stable_error_code=error,
+    )
+
+
+def path_evidence(
+    *,
+    provider: ProviderKind = ProviderKind.WINDOWS,
+    revision: int = 4,
+    verified: bool = True,
+) -> DirectPathEvidence:
+    return DirectPathEvidence(
+        provider=provider,
+        revision=revision,
+        candidate_count=1,
+        selected_candidate_hash="sha256:" + "b" * 64,
+        endpoint_probe_at=NOW,
+        endpoint_probe_succeeded=True,
+        last_handshake_at=NOW,
+        handshake_fresh=verified,
+        host_route_present=verified,
+        target_probe_at=NOW,
+        target_probe_succeeded=verified,
+        verified=verified,
+        stable_error_code=None if verified else DirectPathErrorCode.HANDSHAKE_STALE,
+        observed_at=NOW,
+    )
 def test_unconfigured_defaults_are_local_only_and_resource_callbacks_are_absent() -> None:
     result = bindings(managed()).overview_service.view()
     resources = bindings(managed()).resource_bindings
@@ -454,6 +505,123 @@ def test_managed_setup_states_remain_distinct(
     assert result.resource_bindings.coordinator_cache is not None
 
 
+@pytest.mark.parametrize(
+    ("application", "configured", "authorization", "error"),
+    (
+        (managed(), False, "unconfigured", None),
+        (
+            managed(status=enrollment(None, error="managed_config_invalid")),
+            False,
+            "configuration-invalid",
+            "managed_config_invalid",
+        ),
+        (
+            managed(config(), status=enrollment(config(), credential=False)),
+            True,
+            "credential-missing",
+            "coordinator_credential_missing",
+        ),
+        (
+            managed(config()),
+            True,
+            "sync-not-started",
+            "network_sync_not_started",
+        ),
+    ),
+)
+def test_network_resource_binding_preserves_managed_setup_state(
+    application: ManagedNodeApplication,
+    configured: bool,
+    authorization: str,
+    error: str | None,
+) -> None:
+    resource = bindings(application).resource_bindings.network_path()
+
+    assert resource.configured is configured
+    assert resource.authorization_state == authorization
+    assert resource.stable_error_code == error
+
+
+def test_real_path_selection_evidence_and_authorization_feed_both_views() -> None:
+    selection = path_selection()
+    evidence = path_evidence()
+    path = views.NetworkPathViewBindings(
+        selection=lambda: selection,
+        evidence=lambda: evidence,
+        authorization=lambda: "authorized-l3",
+    )
+    result = bindings(managed(config()), network_path=path)
+
+    overview = result.overview_service.view().network_path
+    resource = result.resource_bindings.network_path()
+    assert overview.state is NetworkPathOverviewState.DIRECT
+    assert overview.source is OverviewSource.NETWORK_PATH_EVIDENCE
+    assert overview.freshness is OverviewFreshness.FRESH
+    assert overview.handshake.status is EvidenceStatus.PASSED
+    assert overview.route.status is EvidenceStatus.PASSED
+    assert overview.probe.status is EvidenceStatus.PASSED
+    assert resource.configured is True
+    assert resource.authorization_state == "authorized-l3"
+    assert resource.path_type is NetworkPathType.DIRECT
+    assert resource.handshake_fresh is True
+    assert resource.host_route_present is True
+    assert resource.target_probe_succeeded is True
+
+
+def test_path_binding_does_not_mix_mismatched_or_missing_evidence() -> None:
+    selection = path_selection(error=DirectPathErrorCode.TARGET_UNREACHABLE)
+    mismatched = path_evidence(revision=5)
+    path = views.NetworkPathViewBindings(
+        selection=lambda: selection,
+        evidence=lambda: mismatched,
+        authorization=lambda: "awaiting-authorization",
+    )
+    result = bindings(managed(config()), network_path=path)
+
+    overview = result.overview_service.view().network_path
+    resource = result.resource_bindings.network_path()
+    assert overview.freshness is OverviewFreshness.UNKNOWN
+    assert overview.handshake.status is EvidenceStatus.MISSING
+    assert overview.error is not None
+    assert overview.error.code == "target_unreachable"
+    assert resource.candidate_count == 1
+    assert resource.last_handshake_at is None
+    assert resource.stable_error_code == "target_unreachable"
+
+
+def test_empty_path_selection_falls_back_to_managed_sync_state() -> None:
+    path = views.NetworkPathViewBindings(
+        selection=lambda: None,
+        evidence=lambda: path_evidence(),
+        authorization=lambda: "awaiting-authorization",
+    )
+    result = bindings(managed(config()), network_path=path)
+
+    overview = result.overview_service.view().network_path
+    resource = result.resource_bindings.network_path()
+    assert overview.state is NetworkPathOverviewState.PENDING
+    assert overview.error is not None
+    assert overview.error.code == "network_sync_not_started"
+    assert resource.authorization_state == "awaiting-authorization"
+
+
+def test_failed_real_path_evidence_remains_explicit() -> None:
+    selection = path_selection()
+    evidence = path_evidence(verified=False)
+    path = views.NetworkPathViewBindings(
+        selection=lambda: selection,
+        evidence=lambda: evidence,
+        authorization=lambda: "authorized-l3",
+    )
+    overview = bindings(managed(config()), network_path=path).overview_service.view().network_path
+
+    assert overview.handshake.status is EvidenceStatus.FAILED
+    assert overview.route.status is EvidenceStatus.FAILED
+    assert overview.probe.status is EvidenceStatus.FAILED
+    assert overview.error is not None
+    assert overview.error.code == "handshake_stale"
+
+
 def test_additional_config_and_credential_failure_branches() -> None:
     invalid = config(node_id=REMOTE_NODE)
     cases = (
@@ -539,6 +707,42 @@ def test_coordinator_state_matrix(
     assert result.configured is True
 
 
+def test_stale_coordinator_cache_recovers_through_live_factory_bindings() -> None:
+    coordinator = coordinator_loops(
+        CoordinatorSyncStatus(
+            phase=SyncPhase.BACKOFF,
+            last_success_at=NOW - timedelta(minutes=5),
+            last_error_code="offline",
+            server_revision=6,
+        ),
+        nodes=(directory_node(NodeStatus.STALE, DirectoryFreshness.STALE),),
+    )
+    result = bindings(managed(config(), coordinator=coordinator))
+    assert result.overview_service.view().coordinator.state is CoordinatorOverviewState.STALE
+
+    coordinator.directory.status = CoordinatorSyncStatus(
+        phase=SyncPhase.IDLE,
+        last_success_at=NOW,
+        server_revision=7,
+    )
+    coordinator.coordinator_cache.replace(
+        CoordinatorAuthorizationView(
+            network_id=NETWORK,
+            generated_at=NOW,
+            expires_at=NOW + timedelta(minutes=5),
+            nodes=(directory_node(),),
+            verification_keys=key_set(),
+        )
+    )
+
+    recovered = result.overview_service.view().coordinator
+    callback = result.resource_bindings.coordinator_status
+    assert recovered.state is CoordinatorOverviewState.READY
+    assert recovered.freshness is OverviewFreshness.FRESH
+    assert recovered.last_success_at == NOW
+    assert callback is not None and callback().server_revision == 7
+
+
 def test_real_caches_are_redacted_and_resource_bindings_remain_live() -> None:
     remote_nodes = (
         directory_node(node_id=LOCAL_NODE),
@@ -579,6 +783,7 @@ def test_real_caches_are_redacted_and_resource_bindings_remain_live() -> None:
     callback = result.resource_bindings.coordinator_status
     assert callback is not None and callback().server_revision == 7
     assert result.resource_bindings.coordinator_cache is coordinator.coordinator_cache
+    assert result.resource_bindings.network_path().authorization_state == "unknown"
     serialized = overview.model_dump_json().lower()
     for forbidden in (
         "coordinator_endpoint",

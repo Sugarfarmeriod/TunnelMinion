@@ -50,7 +50,10 @@ from tunnelminion.runtime.profile import default_runtime_data_dir
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
-from tunnelminion.web.application_views import build_application_view_bindings
+from tunnelminion.web.application_views import (
+    NetworkPathViewBindings,
+    build_application_view_bindings,
+)
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
 from tunnelminion.web.memory import create_memory_router
@@ -104,7 +107,11 @@ def load_or_create_node_id(path: Path) -> NodeId:
     return node_id
 
 
-def build_windows_application(data_dir: Path | None = None) -> WindowsApplication:
+def build_windows_application(
+    data_dir: Path | None = None,
+    *,
+    network_path: NetworkPathViewBindings | None = None,
+) -> WindowsApplication:
     """组装模型配置、六个真实只读工具和本机 Web 入口。"""
     root = data_dir or default_data_dir()
     node_id = load_or_create_node_id(root / "node-id")
@@ -187,6 +194,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         platform=Platform.WINDOWS,
         model_service=model_service,
         managed=managed,
+        network_path=network_path,
     )
     app.include_router(create_model_router(model_service))
     app.include_router(
@@ -195,6 +203,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
             node_id,
             coordinator_status=views.resource_bindings.coordinator_status,
             coordinator_cache=views.resource_bindings.coordinator_cache,
+            network_path_status=views.resource_bindings.network_path,
             managed_status=managed.resource_payload,
         )
     )
