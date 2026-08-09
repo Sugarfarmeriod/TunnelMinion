@@ -14,8 +14,11 @@ from fastapi.testclient import TestClient
 from keyring.errors import KeyringError
 from pydantic import JsonValue
 from tests.operation.factories import plan
+from tests.test_app import configured_managed_application, real_path_bindings
 
+from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfiguration,
@@ -346,3 +349,36 @@ def test_macos_local_resources_degrade_without_model(
 
     monkeypatch.setattr("tunnelminion.macos_app.default_data_dir", lambda: tmp_path / "factory")
     assert create_macos_app().title == "TunnelMinion"
+
+
+def test_macos_factory_binds_configured_coordinator_and_real_path_views(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
+    bundle = build_macos_local_application(
+        tmp_path / "macos-bindings",
+        network_path=real_path_bindings(Platform.MACOS),
+    )
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
+
+    coordinator = client.get("/api/resources/coordinator", headers={}).json()
+    path = client.get("/api/resources/network-path", headers={}).json()
+    overview = client.get("/api/resources/overview", headers={}).json()
+    assert coordinator["configured"] is True
+    assert coordinator["state"] == "connecting"
+    assert path["configured"] is True
+    assert path["provider"] == "macos"
+    assert path["authorization_state"] == "authorized-l3"
+    assert overview["coordinator"]["state"] == "sync_not_started"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["probe"]["status"] == "passed"

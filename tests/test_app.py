@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import runpy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from pydantic import JsonValue
 
 from tunnelminion import cli
 from tunnelminion.agent.conversation import StartRunInput
+from tunnelminion.agent.managed_application import ManagedNodeApplication
+from tunnelminion.agent.managed_node import ManagedNodeConfig, ManagedNodeState, ManagedNodeStatus
 from tunnelminion.app import (
     WindowsApplication,
     build_windows_application,
@@ -23,7 +26,9 @@ from tunnelminion.app import (
     default_data_dir,
     load_or_create_node_id,
 )
-from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.coordinator.contracts import GatewayEndpoint
+from tunnelminion.domain.identifiers import NetworkId, NodeId, RunId, ThreadId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.macos_app import SafeSharingGatewaySettings
 from tunnelminion.model.configuration import ModelConfigurationService
@@ -33,10 +38,85 @@ from tunnelminion.model.contracts import (
     ModelRequest,
     ModelResponse,
 )
+from tunnelminion.network.contracts import ProviderKind
+from tunnelminion.network.path_controller import (
+    DirectPathEvidence,
+    NetworkPathType,
+    PathSelection,
+)
 from tunnelminion.platforms.windows.models import InterfaceSnapshot
 from tunnelminion.platforms.windows.system import CommandResult
 from tunnelminion.tools.contracts import ToolCallContext, ToolExecutionRequest
+from tunnelminion.web.application_views import NetworkPathViewBindings
 from tunnelminion.web.operations import PreauthorizationInput
+
+PATH_NOW = datetime(2026, 8, 10, 8, 0, tzinfo=UTC)
+
+
+def configured_managed_application(
+    node_id: NodeId,
+    platform: Platform,
+) -> ManagedNodeApplication:
+    """构造不启动后台循环的已配置装配事实。"""
+    config = ManagedNodeConfig(
+        enabled=True,
+        coordinator_endpoint="http://10.77.0.1:8790",
+        network_id=NetworkId("network_0123456789abcdef0123456789abcdef"),
+        node_id=node_id,
+        display_name="本机测试节点",
+        platform=platform,
+        gateway_endpoint=GatewayEndpoint(host="10.77.0.2", port=8787),
+        pinned_fingerprints=frozenset({"a" * 64}),
+    )
+    return ManagedNodeApplication(
+        config=config,
+        enrollment=ManagedNodeStatus(
+            configured=True,
+            enabled=True,
+            state=ManagedNodeState.READY,
+            schema_version=config.schema_version,
+            network_id=config.network_id,
+            node_id=node_id,
+            platform=platform,
+            credential_configured=True,
+        ),
+    )
+
+
+def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
+    """生成 endpoint、route 与秘密均已脱敏的真实路径事实。"""
+    provider = ProviderKind(platform.value)
+    selection = PathSelection(
+        path_type=NetworkPathType.DIRECT,
+        provider=provider,
+        revision=3,
+        last_known_good_revision=3,
+        candidate_count=1,
+        consecutive_failures=0,
+        consecutive_successes=2,
+        selected_at=PATH_NOW,
+        last_evidence_at=PATH_NOW,
+    )
+    evidence = DirectPathEvidence(
+        provider=provider,
+        revision=3,
+        candidate_count=1,
+        selected_candidate_hash="sha256:" + "b" * 64,
+        endpoint_probe_at=PATH_NOW,
+        endpoint_probe_succeeded=True,
+        last_handshake_at=PATH_NOW,
+        handshake_fresh=True,
+        host_route_present=True,
+        target_probe_at=PATH_NOW,
+        target_probe_succeeded=True,
+        verified=True,
+        observed_at=PATH_NOW,
+    )
+    return NetworkPathViewBindings(
+        selection=lambda: selection,
+        evidence=lambda: evidence,
+        authorization=lambda: "authorized-l3",
+    )
 
 
 class AppProvider:
@@ -134,6 +214,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.tool_registry
     assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
+
     local_client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
     overview = local_client.get("/api/resources/overview")
     assert overview.status_code == 200
@@ -181,6 +262,39 @@ def test_node_id_is_created_once_and_application_is_composed(
 
     monkeypatch.setattr("keyring.get_password", keyring_failure)
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
+
+
+def test_windows_factory_binds_configured_coordinator_and_real_path_views(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.app.build_managed_node_application", fake_managed)
+    bundle = build_windows_application(
+        tmp_path / "windows-bindings",
+        network_path=real_path_bindings(Platform.WINDOWS),
+    )
+    client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
+
+    coordinator = client.get("/api/resources/coordinator").json()
+    path = client.get("/api/resources/network-path").json()
+    overview = client.get("/api/resources/overview").json()
+    assert coordinator["configured"] is True
+    assert coordinator["state"] == "connecting"
+    assert path["configured"] is True
+    assert path["path_type"] == "direct"
+    assert path["authorization_state"] == "authorized-l3"
+    assert overview["coordinator"]["state"] == "sync_not_started"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["handshake"]["status"] == "passed"
 
 
 def test_regular_windows_and_macos_apps_survive_invalid_managed_config(
