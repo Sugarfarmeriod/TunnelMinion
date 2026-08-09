@@ -423,7 +423,8 @@ class _WindowsTrustedDirectoryApi:
         )
 
     def __init__(self) -> None:
-        kernel32 = cast(Any, ctypes.WinDLL("kernel32", use_last_error=True))
+        win_dll = cast(Callable[..., Any], ctypes.__dict__["WinDLL"])
+        kernel32 = win_dll("kernel32", use_last_error=True)
         self._create_file = kernel32.CreateFileW
         self._create_file.restype = ctypes.c_void_p
         self._get_info = kernel32.GetFileInformationByHandleEx
@@ -439,7 +440,8 @@ class _WindowsTrustedDirectoryApi:
 
     @staticmethod
     def _raise_last_error(label: str) -> None:
-        error = ctypes.get_last_error()
+        get_last_error = cast(Callable[[], int], ctypes.__dict__["get_last_error"])
+        error = get_last_error()
         if error in {80, 183}:
             raise FileExistsError(error, label)
         if error in {2, 3}:
@@ -510,15 +512,16 @@ class _WindowsTrustedDirectoryApi:
 
     @staticmethod
     def _handle_to_fd(handle: int) -> int:
-        import msvcrt
-
-        return msvcrt.open_osfhandle(handle, os.O_BINARY | os.O_RDWR)
+        runtime = importlib.import_module("msvcrt")
+        open_osfhandle = cast(Callable[[int, int], int], runtime.__dict__["open_osfhandle"])
+        binary_flag = cast(int, os.__dict__.get("O_BINARY", 0))
+        return open_osfhandle(handle, binary_flag | os.O_RDWR)
 
     @staticmethod
     def fd_handle(descriptor: int) -> int:
-        import msvcrt
-
-        return msvcrt.get_osfhandle(descriptor)
+        runtime = importlib.import_module("msvcrt")
+        get_osfhandle = cast(Callable[[int], int], runtime.__dict__["get_osfhandle"])
+        return get_osfhandle(descriptor)
 
     def _attributes(self, handle: int) -> int:
         value = self._FileAttributeTagInfo()
