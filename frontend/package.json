@@ -21,7 +21,8 @@
     "supply-chain:check": "node scripts/check-npm-supply-chain.mjs",
     "preview": "vite preview",
     "pretest:e2e": "npm run build",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:package": "playwright test --config playwright.package.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",

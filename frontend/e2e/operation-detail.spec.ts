@@ -35,7 +35,7 @@ for (const viewport of [
     await page.goto(`/app/operations/${operationId}`);
 
     await expect(
-      page.getByRole("heading", { name: "playwright-dashboard" }),
+      page.getByRole("heading", { name: "package-acceptance-dashboard" }),
     ).toBeVisible();
     await expect(page.getByText(`operation ${operationId}`)).toBeVisible();
     await expect(page.getByText("等待本机批准")).toBeVisible();

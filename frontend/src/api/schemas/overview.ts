@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const timestamp = z.string().datetime({ offset: true });
 const optionalTimestamp = timestamp.nullable();
+const nodeId = z.string().regex(/^node_[0-9a-f]{32}$/);
+const serviceId = z.string().regex(/^service_[0-9a-f]{32}$/);
 const freshness = z.enum([
   "live",
   "fresh",
@@ -124,7 +126,7 @@ export const resourceOverviewSchema = z
         items: z.array(
           z
             .object({
-              node_id: z.string().uuid(),
+              node_id: nodeId,
               display_name: z.string(),
               platform: z.enum(["windows", "macos", "linux"]).nullable(),
               state: z.enum([
@@ -151,8 +153,8 @@ export const resourceOverviewSchema = z
         items: z.array(
           z
             .object({
-              service_id: z.string().uuid(),
-              node_id: z.string().uuid(),
+              service_id: serviceId,
+              node_id: nodeId,
               display_name: z.string().nullable(),
               protocol: z.enum(["tcp", "udp", "http", "https"]).nullable(),
               port: z.number().int().min(1).max(65535).nullable(),

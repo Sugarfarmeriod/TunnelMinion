@@ -11,6 +11,9 @@ import { OverviewPage } from "./OverviewPage";
 
 const generatedAt = "2026-08-08T09:00:00+08:00";
 const evidenceAt = "2026-08-08T08:59:00+08:00";
+const nodeA = `node_${"1".repeat(32)}`;
+const nodeB = `node_${"2".repeat(32)}`;
+const serviceA = `service_${"3".repeat(32)}`;
 
 function makeOverview(): ResourceOverview {
   return {
@@ -173,7 +176,7 @@ describe("OverviewPage", () => {
       error: { code: "directory_cache_stale", retryable: true },
       items: [
         {
-          node_id: "6fcf3484-754b-46c6-bc3e-f4571e76495e",
+          node_id: nodeA,
           display_name: "离线的 Mac",
           platform: "macos",
           state: "offline",
@@ -183,7 +186,7 @@ describe("OverviewPage", () => {
           service_count: 0,
         },
         {
-          node_id: "3b95993e-bb66-4991-887d-195ae40b9b34",
+          node_id: nodeB,
           display_name: "状态待确认的电脑",
           platform: null,
           state: "unknown",
@@ -226,7 +229,7 @@ describe("OverviewPage", () => {
     const maliciousService = "<script>alert('service')</script>";
     payload.nodes.items = [
       {
-        node_id: "6fcf3484-754b-46c6-bc3e-f4571e76495e",
+        node_id: nodeA,
         display_name: maliciousNode,
         platform: "macos",
         state: "online",
@@ -238,8 +241,8 @@ describe("OverviewPage", () => {
     ];
     payload.services.items = [
       {
-        service_id: "4c548794-d3bd-455e-b4a6-cc6076a48a70",
-        node_id: "6fcf3484-754b-46c6-bc3e-f4571e76495e",
+        service_id: serviceA,
+        node_id: nodeA,
         display_name: maliciousService,
         protocol: "https",
         port: 443,
@@ -265,7 +268,7 @@ describe("OverviewPage", () => {
     const first = makeOverview();
     first.nodes.items = [
       {
-        node_id: "6fcf3484-754b-46c6-bc3e-f4571e76495e",
+        node_id: nodeA,
         display_name: "旧的节点记录",
         platform: "macos",
         state: "online",

@@ -56,6 +56,52 @@ describe("overview 运行时契约", () => {
     ).toBe("unknown");
   });
 
+  it("接受后端公开的不透明 node/service 标识符，不把它们误当 UUID", () => {
+    const node = {
+      node_id: `node_${"1".repeat(32)}`,
+      display_name: "本机",
+      platform: "windows",
+      state: "local",
+      source: "local_observation",
+      evidence_at: "2026-08-08T00:00:00Z",
+      freshness: "live",
+      service_count: 1,
+    };
+    const overview = {
+      ...validOverview(),
+      nodes: { ...section, items: [node] },
+      services: {
+        ...section,
+        items: [
+          {
+            service_id: `service_${"2".repeat(32)}`,
+            node_id: node.node_id,
+            display_name: "本机面板",
+            protocol: "http",
+            port: 4175,
+            accessibility: "loopback",
+            lifecycle: "active",
+            state: "available",
+            source: "local_observation",
+            evidence_at: "2026-08-08T00:00:00Z",
+            freshness: "live",
+          },
+        ],
+      },
+    };
+
+    expect(resourceOverviewSchema.parse(overview).nodes.items).toHaveLength(1);
+    expect(() =>
+      resourceOverviewSchema.parse({
+        ...overview,
+        nodes: {
+          ...overview.nodes,
+          items: [{ ...node, node_id: "6fcf3484-754b-46c6-bc3e-f4571e76495e" }],
+        },
+      }),
+    ).toThrow();
+  });
+
   it("拒绝未知字段和伪造正常状态", () => {
     expect(() =>
       resourceOverviewSchema.parse({

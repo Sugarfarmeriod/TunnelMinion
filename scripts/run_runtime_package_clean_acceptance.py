@@ -57,6 +57,9 @@ def _safe_package_path(root: Path, relative: str) -> Path:
     return candidate
 
 
+safe_package_path = _safe_package_path
+
+
 def _resolve_entrypoint_args(
     package_root: Path,
     entrypoint_args: Sequence[str],
@@ -167,6 +170,9 @@ def _wait_for_status(url: str, expected: int, timeout_seconds: float) -> int:
             last_error = exc
         time.sleep(0.05)
     raise TimeoutError("运行包产品端点未在预算内就绪") from last_error
+
+
+wait_for_status = _wait_for_status
 
 
 def _runtime_package_evidence(overview: dict[str, JsonValue]) -> dict[str, JsonValue]:
