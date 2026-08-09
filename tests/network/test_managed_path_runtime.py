@@ -6,19 +6,19 @@ import asyncio
 import base64
 import json
 import os
-import sqlite3
-import stat
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 from pydantic import ValidationError
 from tests.network.factories import NETWORK_ID, NODE_A, NOW, desired, observation
 
 from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId
+from tunnelminion.network import managed_path_runtime as runtime_module
 from tunnelminion.network.contracts import (
     NetworkAction,
     NetworkPlan,
@@ -283,6 +283,8 @@ def test_state_schema_uses_fixed_codes_and_strict_utc() -> None:
         checkpoint(
             selection=ManagedPathSelectionState(path_type=NetworkPathType.DIRECT, selected_at=NOW)
         )
+    with pytest.raises(ValidationError, match="publication identity"):
+        checkpoint(sink_delivery_states=(ManagedPathSinkDeliveryState.NOT_ATTEMPTED,))
 
 
 @pytest.mark.parametrize(
@@ -468,16 +470,12 @@ def test_crashed_process_owner_claim_remains_fail_closed(tmp_path: Path) -> None
 
 def test_repository_lock_covers_owner_validation_and_save(tmp_path: Path) -> None:
     repo = repository(tmp_path.resolve(), writer_name="writer-a")
-    lock_path = repo.path.parent / ".writer-lock.sqlite3"
     repo.load()
-    connection = sqlite3.connect(lock_path, timeout=0, isolation_level=None)
-    connection.execute("BEGIN EXCLUSIVE")
-    try:
-        with pytest.raises(ManagedPathCheckpointError, match="正忙"):
-            repo.save(checkpoint())
-    finally:
-        connection.rollback()
-        connection.close()
+    with (
+        repo._trusted.lock(repo._lock_name),  # pyright: ignore[reportPrivateUsage]
+        pytest.raises(ManagedPathCheckpointError, match="正忙"),
+    ):
+        repo.save(checkpoint())
     repo.save(checkpoint(revision=2))
     assert repo.load() == checkpoint(revision=2)
 
@@ -490,10 +488,10 @@ def test_repository_random_temp_cleanup_and_previous_state_survives(
     original = checkpoint()
     repo.save(original)
 
-    def fail_replace(_source: object, _target: object) -> None:
+    def fail_replace(_descriptor: int, _source: str, _target: str) -> None:
         raise OSError("crash")
 
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.replace", fail_replace)
+    monkeypatch.setattr(repo._trusted, "replace_open_file", fail_replace)  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(OSError, match="crash"):
         repo.save(checkpoint(revision=2))
     assert repo.load() == original
@@ -539,8 +537,10 @@ def test_exclusive_open_rejects_real_temp_reparse_without_touching_target(tmp_pa
     malicious_temp = repo.path.parent / ".checkpoint.json.attacker.tmp"
     _create_symlink_or_skip(malicious_temp, outside)
     with pytest.raises((FileExistsError, ManagedPathCheckpointError)):
-        repo._open_exclusive_regular(  # pyright: ignore[reportPrivateUsage]
-            malicious_temp
+        repo._trusted.open_file(  # pyright: ignore[reportPrivateUsage]
+            malicious_temp.name,
+            create=True,
+            writable=True,
         )
     assert outside.read_text(encoding="utf-8") == "sentinel"
     assert malicious_temp.is_symlink()
@@ -554,31 +554,98 @@ def test_exclusive_open_rejects_real_directory_reparse_point(tmp_path: Path) -> 
     malicious_temp = repo.path.parent / ".checkpoint.json.attacker-dir.tmp"
     _create_symlink_or_skip(malicious_temp, outside, directory=True)
     with pytest.raises((FileExistsError, IsADirectoryError, ManagedPathCheckpointError)):
-        repo._open_exclusive_regular(  # pyright: ignore[reportPrivateUsage]
-            malicious_temp
+        repo._trusted.open_file(  # pyright: ignore[reportPrivateUsage]
+            malicious_temp.name,
+            create=True,
+            writable=True,
         )
 
 
-def test_save_revalidates_random_temp_identity_before_replace(
+def test_save_binds_replace_to_trusted_directory_during_directory_swap(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path.resolve()
     repo = repository(root)
-    original = repo._require_regular_identity  # pyright: ignore[reportPrivateUsage]
-    calls = 0
+    state_dir = repo.path.parent
+    moved = root / "trusted-managed-path"
+    outside = root / "outside"
+    outside.mkdir()
+    sentinel = outside / "checkpoint.json"
+    sentinel.write_text("sentinel", encoding="utf-8")
+    swapped = False
 
-    def reject_changed_identity(path: Path, expected: os.stat_result) -> None:
-        nonlocal calls
-        calls += 1
-        if path.suffix == ".tmp":
-            raise ManagedPathCheckpointError("临时文件身份或 reparse 状态已变化")
-        original(path, expected)
+    def swap_directory(boundary: str) -> None:
+        nonlocal swapped
+        if boundary != "before_checkpoint_replace":
+            return
+        try:
+            state_dir.rename(moved)
+        except OSError:
+            return
+        state_dir.symlink_to(outside, target_is_directory=True)
+        swapped = True
 
-    monkeypatch.setattr(repo, "_require_regular_identity", reject_changed_identity)
-    with pytest.raises(ManagedPathCheckpointError, match="身份"):
+    monkeypatch.setattr(repo, "_on_io_boundary", swap_directory)
+    if os.name == "nt":
         repo.save(checkpoint())
-    assert repo.load() is None
+        assert not swapped
+        assert repo.load() == checkpoint()
+    else:
+        with pytest.raises(ManagedPathCheckpointError, match="公开身份已变化"):
+            repo.save(checkpoint())
+        assert swapped
+    assert sentinel.read_text(encoding="utf-8") == "sentinel"
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "before_writer_lock",
+        "before_lease_read",
+        "before_checkpoint_read",
+        "before_secret_scan_read",
+    ],
+)
+def test_read_lease_lock_and_secret_scan_fail_closed_on_directory_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+) -> None:
+    root = tmp_path.resolve()
+    repo = repository(root)
+    repo.save(checkpoint())
+    state_dir = repo.path.parent
+    moved = root / "trusted-managed-path"
+    outside = root / "outside"
+    outside.mkdir()
+    sentinel = outside / "checkpoint.json"
+    sentinel.write_text("sentinel", encoding="utf-8")
+    swapped = False
+
+    def swap_directory(current: str) -> None:
+        nonlocal swapped
+        if current != boundary or swapped:
+            return
+        try:
+            state_dir.rename(moved)
+        except OSError:
+            return
+        state_dir.symlink_to(outside, target_is_directory=True)
+        swapped = True
+
+    monkeypatch.setattr(repo, "_on_io_boundary", swap_directory)
+    operation = (
+        repo.assert_no_secret_material if boundary == "before_secret_scan_read" else repo.load
+    )
+    if os.name == "nt":
+        operation()
+        assert not swapped
+    else:
+        with pytest.raises(ManagedPathCheckpointError, match="公开身份已变化"):
+            operation()
+        assert swapped
+    assert sentinel.read_text(encoding="utf-8") == "sentinel"
 
 
 def test_repository_rejects_non_regular_paths_and_changed_owner(tmp_path: Path) -> None:
@@ -612,154 +679,65 @@ def test_repository_defensive_path_resolution_checks(
     with pytest.raises(ManagedPathCheckpointError, match="路径别名"):
         repository(alias_root)
 
-    monkeypatch.undo()
-    escaped_root = tmp_path.resolve() / "escaped-root"
-    escaped_root.mkdir()
-
-    def escaped_resolve(path: Path, strict: bool = False) -> Path:
-        if path == escaped_root / "managed-path":
-            return escaped_root.parent / "outside" / "managed-path"
-        return original_resolve(path, strict=strict)
-
-    monkeypatch.setattr(Path, "resolve", escaped_resolve)
-    with pytest.raises(ManagedPathCheckpointError, match="逃逸"):
-        repository(escaped_root)
-
 
 def test_repository_defensive_stat_and_handle_checks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root = tmp_path.resolve()
-    missing = root / "missing"
-    with pytest.raises(ManagedPathCheckpointError, match="父级无法读取"):
-        FileManagedPathCheckpointRepository._require_directory(  # pyright: ignore[reportPrivateUsage]
-            missing
-        )
-    plain = root / "plain"
-    plain.write_text("x", encoding="utf-8")
-    with pytest.raises(ManagedPathCheckpointError, match="父级"):
-        FileManagedPathCheckpointRepository._require_directory(  # pyright: ignore[reportPrivateUsage]
-            plain
-        )
-
-    original_stat = Path.stat
-
-    def denied_stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
-        del path, follow_symlinks
-        raise PermissionError("denied")
-
-    monkeypatch.setattr(Path, "stat", denied_stat)
-    with pytest.raises(ManagedPathCheckpointError, match="路径无法读取"):
-        FileManagedPathCheckpointRepository._require_safe_optional_file(  # pyright: ignore[reportPrivateUsage]
-            plain
-        )
-    monkeypatch.setattr(Path, "stat", original_stat)
-
-    class ReparseMetadata:
-        st_mode = stat.S_IFREG
-        st_file_attributes = 0x400
-
-    def reparse_stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
-        del path, follow_symlinks
-        return cast(os.stat_result, ReparseMetadata())
-
-    monkeypatch.setattr(Path, "stat", reparse_stat)
-    with pytest.raises(ManagedPathCheckpointError, match="reparse"):
-        FileManagedPathCheckpointRepository._require_safe_optional_file(  # pyright: ignore[reportPrivateUsage]
-            plain
-        )
-    monkeypatch.setattr(Path, "stat", original_stat)
-
-    descriptor = os.open(plain, os.O_RDONLY)
-    try:
-
-        def different_files(_left: os.stat_result, _right: os.stat_result) -> bool:
-            return False
-
-        monkeypatch.setattr(
-            "tunnelminion.network.managed_path_runtime.os.path.samestat",
-            different_files,
-        )
-        with pytest.raises(ManagedPathCheckpointError, match="句柄指向"):
-            FileManagedPathCheckpointRepository._validate_open_regular(  # pyright: ignore[reportPrivateUsage]
-                descriptor,
-                plain,
-            )
-    finally:
-        os.close(descriptor)
-
-    other = root / "other"
-    other.write_text("y", encoding="utf-8")
-    with pytest.raises(ManagedPathCheckpointError, match="身份"):
-        FileManagedPathCheckpointRepository._require_regular_identity(  # pyright: ignore[reportPrivateUsage]
-            plain,
-            other.stat(),
-        )
+    del monkeypatch
+    repo = repository(tmp_path.resolve())
+    with pytest.raises(ManagedPathCheckpointError, match="单层文件名"):
+        repo._trusted.open_file("../escape")  # pyright: ignore[reportPrivateUsage]
+    repo._trusted.close()  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ManagedPathCheckpointError, match="可信目录句柄已关闭"):
+        repo.load()
 
 
 def test_repository_closes_exclusive_handle_when_validation_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path.resolve() / "exclusive"
+    repo = repository(tmp_path.resolve())
 
-    def reject_handle(
-        _cls: type[FileManagedPathCheckpointRepository],
-        _descriptor: int,
-        _path: Path,
-    ) -> os.stat_result:
-        raise ManagedPathCheckpointError("安全文件句柄无法验证")
+    def no_progress(_descriptor: int, _payload: object) -> int:
+        return 0
 
-    monkeypatch.setattr(
-        FileManagedPathCheckpointRepository,
-        "_validate_open_regular",
-        classmethod(reject_handle),
-    )
-    with pytest.raises(ManagedPathCheckpointError, match="句柄无法验证"):
-        FileManagedPathCheckpointRepository._open_exclusive_regular(  # pyright: ignore[reportPrivateUsage]
-            path
-        )
-    path.unlink()
+    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.write", no_progress)
+    with pytest.raises(ManagedPathCheckpointError, match="未取得进展"):
+        repo.save(checkpoint())
+    assert not tuple(repo.path.parent.glob("*.tmp"))
 
 
 def test_repository_directory_fsync_open_failure_is_fail_safe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def denied_open(_path: object, _flags: int, _mode: int = 0o777) -> int:
+    repo = repository(tmp_path.resolve())
+
+    def denied_fsync(_descriptor: int) -> None:
         raise PermissionError("denied")
 
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.open", denied_open)
-    assert (
-        FileManagedPathCheckpointRepository._fsync_directory(  # pyright: ignore[reportPrivateUsage]
-            tmp_path.resolve()
-        )
-        is None
-    )
+    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.fsync", denied_fsync)
+    with pytest.raises(ManagedPathCheckpointError, match="文件无法持久化"):
+        repo.save(checkpoint())
+    assert not tuple(repo.path.parent.glob("*.tmp"))
 
 
 def test_repository_wraps_open_handle_stat_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path.resolve() / "plain"
-    path.write_text("x", encoding="utf-8")
-    descriptor = os.open(path, os.O_RDONLY)
+    repo = repository(tmp_path.resolve())
+    original = repo._trusted.replace_open_file  # pyright: ignore[reportPrivateUsage]
 
-    def denied_stat(value: Path, *, follow_symlinks: bool = True) -> os.stat_result:
-        del value, follow_symlinks
-        raise PermissionError("denied")
+    def fail_after_replace(descriptor: int, source: str, target: str) -> None:
+        original(descriptor, source, target)
+        raise ManagedPathCheckpointError("checkpoint 目录元数据无法持久化")
 
-    monkeypatch.setattr(Path, "stat", denied_stat)
-    try:
-        with pytest.raises(ManagedPathCheckpointError, match="句柄无法验证"):
-            FileManagedPathCheckpointRepository._validate_open_regular(  # pyright: ignore[reportPrivateUsage]
-                descriptor,
-                path,
-            )
-    finally:
-        os.close(descriptor)
+    monkeypatch.setattr(repo._trusted, "replace_open_file", fail_after_replace)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ManagedPathCheckpointError, match="元数据无法持久化"):
+        repo.save(checkpoint())
+    assert repo.load() == checkpoint()
 
 
 def test_repository_closes_temp_descriptor_if_stream_creation_fails(
@@ -768,11 +746,11 @@ def test_repository_closes_temp_descriptor_if_stream_creation_fails(
 ) -> None:
     repo = repository(tmp_path.resolve())
 
-    def fail_fdopen(*_args: object, **_kwargs: object) -> Any:
-        raise OSError("fdopen failed")
+    def fail_write(_descriptor: int, _payload: object) -> int:
+        raise OSError("write failed")
 
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.fdopen", fail_fdopen)
-    with pytest.raises(OSError, match="fdopen failed"):
+    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.write", fail_write)
+    with pytest.raises(OSError, match="write failed"):
         repo.save(checkpoint())
 
 
@@ -780,24 +758,343 @@ def test_directory_fsync_success_path_is_platform_independent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, int]] = []
+    del monkeypatch
+    repo = repository(tmp_path.resolve())
+    repo.save(checkpoint())
+    assert repo.load() == checkpoint()
 
-    def open_directory(_path: os.PathLike[str] | str, _flags: int) -> int:
-        return 91
 
-    def fsync_directory(descriptor: int) -> None:
-        calls.append(("fsync", descriptor))
+def test_owner_claim_metadata_failure_cleans_partial_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_type = runtime_module.__dict__["_TrustedDirectory"]
+    original_sync = trusted_type.sync_metadata
+    sync_count = 0
 
-    def close_directory(descriptor: int) -> None:
+    def fail_claim_sync(instance: Any, descriptor: int | None = None) -> None:
+        nonlocal sync_count
+        sync_count += 1
+        if sync_count == 2:
+            raise ManagedPathCheckpointError("owner claim 元数据无法持久化")
+        original_sync(instance, descriptor)
+
+    monkeypatch.setattr(trusted_type, "sync_metadata", fail_claim_sync)
+    root = tmp_path.resolve()
+    with pytest.raises(ManagedPathCheckpointError, match="owner claim 元数据无法持久化"):
+        repository(root)
+    assert not (root / "managed-path" / ".writer-owner.json").exists()
+
+
+def test_uninitialized_repository_has_no_trusted_directory() -> None:
+    repository_type = FileManagedPathCheckpointRepository
+    uninitialized = object.__new__(repository_type)
+    uninitialized.__dict__["_directory"] = None
+    trusted_property = repository_type.__dict__["_trusted"]
+    with pytest.raises(ManagedPathCheckpointError, match="尚未初始化"):
+        trusted_property.__get__(uninitialized, repository_type)
+
+
+def test_posix_trusted_directory_handle_operations_are_relative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_type = runtime_module.__dict__["_TrustedDirectory"]
+    trusted = object.__new__(trusted_type)
+    trusted.path = tmp_path.resolve()
+    trusted._windows = None
+    trusted._descriptor = 91
+    trusted._closed = False
+    trusted._identity = trusted.path.stat()
+    directory_metadata = trusted.path.stat()
+    regular_metadata = Path(__file__).stat()
+    calls: list[tuple[object, ...]] = []
+
+    def fake_fstat(descriptor: int) -> os.stat_result:
+        return directory_metadata if descriptor in {91, 93} else regular_metadata
+
+    def fake_open(
+        name: os.PathLike[str] | str,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        calls.append(("open", str(name), flags, mode, dir_fd))
+        if str(name) == "missing":
+            raise FileNotFoundError(str(name))
+        if str(name) == "child":
+            return 93
+        return 92
+
+    def fake_mkdir(
+        name: os.PathLike[str] | str,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> None:
+        calls.append(("mkdir", str(name), mode, dir_fd))
+
+    def fake_close(descriptor: int) -> None:
         calls.append(("close", descriptor))
 
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.open", open_directory)
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.fsync", fsync_directory)
-    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.close", close_directory)
-    FileManagedPathCheckpointRepository._fsync_directory(  # pyright: ignore[reportPrivateUsage]
-        tmp_path.resolve()
+    def fake_replace(
+        source: os.PathLike[str] | str,
+        target: os.PathLike[str] | str,
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+    ) -> None:
+        calls.append(("replace", str(source), str(target), src_dir_fd, dst_dir_fd))
+
+    def fake_unlink(name: os.PathLike[str] | str, *, dir_fd: int | None = None) -> None:
+        calls.append(("unlink", str(name), dir_fd))
+
+    def fake_fsync(descriptor: int) -> None:
+        calls.append(("fsync", descriptor))
+
+    def fake_read(_descriptor: int, _size: int) -> bytes:
+        return b""
+
+    def fake_flock(descriptor: int, operation: int) -> None:
+        calls.append(("flock", descriptor, operation))
+
+    def fake_import_module(_name: str) -> SimpleNamespace:
+        return fake_fcntl
+
+    def fake_child_constructor(path: Path, *, descriptor: int) -> Any:
+        child = object.__new__(trusted_type)
+        child.path = path
+        child._windows = None
+        child._descriptor = descriptor
+        child._closed = False
+        child._identity = directory_metadata
+        child.validate()
+        return child
+
+    monkeypatch.setattr(runtime_module.os, "fstat", fake_fstat)
+    monkeypatch.setattr(runtime_module.os, "open", fake_open)
+    monkeypatch.setattr(runtime_module.os, "mkdir", fake_mkdir)
+    monkeypatch.setattr(runtime_module.os, "close", fake_close)
+    monkeypatch.setattr(runtime_module.os, "replace", fake_replace)
+    monkeypatch.setattr(runtime_module.os, "unlink", fake_unlink)
+    monkeypatch.setattr(runtime_module.os, "fsync", fake_fsync)
+    monkeypatch.setattr(runtime_module.os, "read", fake_read)
+    fake_fcntl = SimpleNamespace(
+        LOCK_EX=1,
+        LOCK_NB=2,
+        LOCK_UN=4,
+        flock=fake_flock,
     )
-    assert calls == [("fsync", 91), ("close", 91)]
+    monkeypatch.setattr(runtime_module.importlib, "import_module", fake_import_module)
+
+    trusted.validate()
+    trusted.require_public_identity()
+    assert trusted._open_directory(tmp_path) == 92
+    with monkeypatch.context() as platform_patch:
+        platform_patch.setitem(runtime_module.__dict__, "_TrustedDirectory", fake_child_constructor)
+        child = trusted.open_child_directory("child")
+    child.close()
+    descriptor = trusted.open_file("value", create=True, writable=True)
+    assert descriptor == 92
+    assert trusted.read_bytes("value") == b""
+    assert not trusted.exists("missing")
+    with pytest.raises(FileNotFoundError):
+        trusted.unlink("missing")
+    trusted.replace_open_file(92, "source", "target")
+    trusted.unlink("value")
+    with trusted.lock("value"):
+        calls.append(("locked",))
+    successful_flock = fake_fcntl.flock
+
+    def busy_flock(descriptor: int, operation: int) -> None:
+        if operation == 3:
+            raise OSError("busy")
+        successful_flock(descriptor, operation)
+
+    fake_fcntl.flock = busy_flock
+    with pytest.raises(ManagedPathCheckpointError, match="writer 正忙"), trusted.lock("value"):
+        pass
+    trusted.sync_metadata()
+    trusted.close()
+    assert any(call[0] == "replace" for call in calls)
+    assert any(call[0] == "unlink" for call in calls)
+    assert ("flock", 92, 3) in calls
+    assert ("flock", 92, 4) in calls
+
+
+def test_posix_trusted_directory_fail_closed_branches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_type = runtime_module.__dict__["_TrustedDirectory"]
+    trusted = object.__new__(trusted_type)
+    trusted.path = tmp_path.resolve()
+    trusted._windows = None
+    trusted._descriptor = 91
+    trusted._closed = False
+    trusted._identity = trusted.path.stat()
+    directory_metadata = trusted.path.stat()
+    regular_metadata = Path(__file__).stat()
+
+    def return_regular(_descriptor: int) -> os.stat_result:
+        return regular_metadata
+
+    def return_directory(_descriptor: int) -> os.stat_result:
+        return directory_metadata
+
+    def deny_path(*_args: object, **_kwargs: object) -> Never:
+        raise PermissionError("denied")
+
+    def deny_sync(_descriptor: int) -> Never:
+        raise PermissionError("denied")
+
+    def fake_open(
+        _name: os.PathLike[str] | str,
+        _flags: int,
+        _mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        del dir_fd
+        return 92
+
+    def fake_close(_descriptor: int) -> None:
+        return None
+
+    monkeypatch.setattr(runtime_module.os, "fstat", return_regular)
+    with pytest.raises(ManagedPathCheckpointError, match="不再指向目录"):
+        trusted.validate()
+    monkeypatch.setattr(
+        runtime_module.os,
+        "fstat",
+        return_directory,
+    )
+    monkeypatch.setattr(runtime_module.os, "open", fake_open)
+    monkeypatch.setattr(runtime_module.os, "close", fake_close)
+    with pytest.raises(ManagedPathCheckpointError, match="普通文件"):
+        trusted.open_file("directory")
+
+    monkeypatch.setattr(Path, "stat", deny_path)
+    with pytest.raises(ManagedPathCheckpointError, match="公开身份已变化"):
+        trusted.require_public_identity()
+    monkeypatch.undo()
+    monkeypatch.setattr(runtime_module.os, "fstat", return_directory)
+
+    trusted._identity = None
+    with pytest.raises(ManagedPathCheckpointError, match="公开身份已变化"):
+        trusted.require_public_identity()
+    trusted._identity = directory_metadata
+    monkeypatch.setattr(
+        runtime_module.os,
+        "fsync",
+        deny_sync,
+    )
+    with pytest.raises(ManagedPathCheckpointError, match="目录元数据无法持久化"):
+        trusted.sync_metadata()
+
+
+def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    api_type = runtime_module.__dict__["_WindowsTrustedDirectoryApi"]
+    api = object.__new__(api_type)
+
+    def close_success(_handle: int) -> int:
+        return 1
+
+    def close_failure(_handle: int) -> int:
+        return 0
+
+    def get_info_failure(
+        _handle: int,
+        _kind: int,
+        _pointer: Any,
+        _size: int,
+    ) -> int:
+        return 0
+
+    def get_info_reparse(
+        _handle: int,
+        _kind: int,
+        pointer: Any,
+        _size: int,
+    ) -> int:
+        pointer._obj.file_attributes = 0x400
+        return 1
+
+    def get_info_directory(
+        _handle: int,
+        _kind: int,
+        pointer: Any,
+        _size: int,
+    ) -> int:
+        pointer._obj.file_attributes = 0x10
+        return 1
+
+    def create_invalid(*_args: object) -> int:
+        return api._INVALID_HANDLE_VALUE
+
+    def create_handle(*_args: object) -> int:
+        return 1
+
+    def set_info_failure(*_args: object) -> int:
+        return 0
+
+    def lock_success(*_args: object) -> int:
+        return 1
+
+    def unlock_failure(*_args: object) -> int:
+        return 0
+
+    def fd_handle(_descriptor: int) -> int:
+        return 1
+
+    api._close_handle = close_success
+    api._get_info = get_info_failure
+    monkeypatch.setattr(runtime_module.ctypes, "get_last_error", lambda: 999)
+    with pytest.raises(OSError):
+        api._attributes(1)
+
+    api._create_file = create_invalid
+    with pytest.raises(OSError):
+        api.open_directory(Path("state"))
+
+    api._create_file = create_handle
+    api._get_info = get_info_reparse
+    with pytest.raises(ManagedPathCheckpointError, match="reparse"):
+        api.open_directory(Path("state"))
+    with pytest.raises(ManagedPathCheckpointError, match="普通文件"):
+        api.open_file(Path("checkpoint"), create=False, writable=False, deletable=False)
+
+    api._get_info = get_info_reparse
+    with pytest.raises(ManagedPathCheckpointError, match="reparse"):
+        api.require_directory(1)
+    with pytest.raises(ManagedPathCheckpointError, match="普通文件"):
+        api.require_regular(1)
+
+    api._set_info = set_info_failure
+    with pytest.raises(OSError):
+        api.replace(1, Path("target"))
+    with pytest.raises(OSError):
+        api.unlink(1)
+    api._lock_file = lock_success
+    api._unlock_file = unlock_failure
+    api.fd_handle = fd_handle
+    with pytest.raises(OSError), api.lock(1):
+        pass
+    api._close_handle = close_failure
+    with pytest.raises(OSError):
+        api.close_handle(1)
+
+    trusted_type = runtime_module.__dict__["_TrustedDirectory"]
+    trusted = object.__new__(trusted_type)
+    trusted.path = Path("state")
+    trusted._windows = api
+    trusted._descriptor = 1
+    trusted._closed = False
+    trusted._identity = None
+    api._get_info = get_info_directory
+    with pytest.raises(ManagedPathCheckpointError, match="缺少可信文件句柄"):
+        trusted.sync_metadata()
 
 
 def test_repository_rejects_corrupt_owner_claim_at_open_and_load(tmp_path: Path) -> None:
@@ -812,7 +1109,7 @@ def test_repository_rejects_corrupt_owner_claim_at_open_and_load(tmp_path: Path)
     second_root = tmp_path.resolve() / "second"
     second_root.mkdir()
     repo = repository(second_root)
-    repo._owner_path.write_text("{", encoding="utf-8")  # pyright: ignore[reportPrivateUsage]
+    (repo.path.parent / ".writer-owner.json").write_text("{", encoding="utf-8")
     with pytest.raises(ManagedPathCheckpointError, match="owner claim"):
         repo.load()
 
@@ -975,7 +1272,8 @@ async def test_pending_without_authorization_persists_and_never_touches_provider
     assert result.checkpoint.authorization_state is PathAuthorizationState.AWAITING_AUTHORIZATION
     assert result.sink_failures[0].sink_index == 1
     assert repo.load() == result.checkpoint
-    assert good_sink.items == [result.checkpoint]
+    assert len(good_sink.items) == 1
+    assert good_sink.items[0].publication_id == result.checkpoint.publication_id
     assert reader.reads == [(NETWORK_ID, NODE_A)]
     assert provider.calls == []
 
@@ -1006,11 +1304,19 @@ async def test_sink_cancellation_reports_persisted_delivery_states_and_idempoten
     assert provider.calls == []
 
     cancelled.cancel = False
-    retried = await runtime.stage_pending(envelope(TEST_PLAN), TEST_PLAN, at=NOW)
+    retried = await runtime.stage_pending(
+        envelope(TEST_PLAN),
+        TEST_PLAN,
+        at=NOW + timedelta(seconds=17),
+    )
     assert retried.publication_id == result.publication_id
-    assert succeeded.items == [result.checkpoint]
-    assert succeeded.idempotency_keys == [result.publication_id, result.publication_id]
-    assert trailing.items == [result.checkpoint]
+    assert len(succeeded.items) == 1
+    assert succeeded.idempotency_keys == [result.publication_id]
+    assert cancelled.idempotency_keys == [result.publication_id, result.publication_id]
+    assert len(trailing.items) == 1
+    assert trailing.idempotency_keys == [result.publication_id]
+    assert retried.checkpoint is not None
+    assert retried.checkpoint.updated_at == NOW + timedelta(seconds=17)
     assert provider.calls == []
 
 

@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import ctypes
+import importlib
 import json
 import os
 import re
 import secrets
-import sqlite3
 import stat
 import unicodedata
 from collections.abc import Callable, Generator
@@ -17,7 +18,7 @@ from contextlib import contextmanager, suppress
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol, Self, cast
+from typing import Any, Literal, Protocol, Self, cast
 from urllib.parse import unquote
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -97,6 +98,7 @@ _ALLOWED_PUBLIC_KEYS = frozenset(
         "phase",
         "plan_hash",
         "provider",
+        "publication_id",
         "refreshed_at",
         "revision",
         "schema_version",
@@ -104,6 +106,7 @@ _ALLOWED_PUBLIC_KEYS = frozenset(
         "selection",
         "source",
         "stable_error_code",
+        "sink_delivery_states",
         "target_probe_at",
         "target_probe_succeeded",
         "updated_at",
@@ -288,6 +291,8 @@ class ManagedPathCheckpoint(BaseModel):
     evidence: ManagedPathEvidenceState = Field(default_factory=ManagedPathEvidenceState)
     stable_error_code: ManagedPathPhaseOneErrorCode
     updated_at: datetime
+    publication_id: str | None = Field(default=None, pattern=_HASH_PATTERN)
+    sink_delivery_states: tuple[ManagedPathSinkDeliveryState, ...] = ()
 
     @model_validator(mode="after")
     def validate_authorization(self) -> Self:
@@ -295,6 +300,8 @@ class ManagedPathCheckpoint(BaseModel):
         authorized = self.authorization_state is PathAuthorizationState.AUTHORIZED
         if authorized != (self.authorization_id is not None):
             raise ValueError("授权状态与授权 ID 不一致")
+        if self.sink_delivery_states and self.publication_id is None:
+            raise ValueError("sink 发布状态必须绑定 publication identity")
         if (
             self.selection is not None
             and self.selection.path_type is NetworkPathType.DIRECT
@@ -367,6 +374,440 @@ class ManagedPathCheckpointError(RuntimeError):
     """checkpoint 缺失以外的稳定 fail-closed 错误。"""
 
 
+class _WindowsTrustedDirectoryApi:
+    """用目录 handle 约束 Windows 子项 I/O，且拒绝 reparse point。"""
+
+    _GENERIC_READ = 0x80000000
+    _GENERIC_WRITE = 0x40000000
+    _DELETE = 0x00010000
+    _FILE_LIST_DIRECTORY = 0x00000001
+    _FILE_TRAVERSE = 0x00000020
+    _FILE_READ_ATTRIBUTES = 0x00000080
+    _FILE_SHARE_READ = 0x00000001
+    _FILE_SHARE_WRITE = 0x00000002
+    _CREATE_NEW = 1
+    _OPEN_EXISTING = 3
+    _FILE_ATTRIBUTE_NORMAL = 0x00000080
+    _FILE_FLAG_WRITE_THROUGH = 0x80000000
+    _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+    _FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+    _FILE_ATTRIBUTE_DIRECTORY = 0x00000010
+    _FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+    _FILE_ATTRIBUTE_TAG_INFO = 9
+    _FILE_RENAME_INFO = 3
+    _FILE_DISPOSITION_INFO = 4
+    _LOCKFILE_FAIL_IMMEDIATELY = 0x00000001
+    _LOCKFILE_EXCLUSIVE_LOCK = 0x00000002
+    _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    class _FileAttributeTagInfo(ctypes.Structure):
+        _fields_ = (("file_attributes", ctypes.c_uint32), ("reparse_tag", ctypes.c_uint32))
+
+    class _Overlapped(ctypes.Structure):
+        _fields_ = (
+            ("internal", ctypes.c_void_p),
+            ("internal_high", ctypes.c_void_p),
+            ("offset", ctypes.c_uint32),
+            ("offset_high", ctypes.c_uint32),
+            ("event", ctypes.c_void_p),
+        )
+
+    class _FileDispositionInfo(ctypes.Structure):
+        _fields_ = (("delete_file", ctypes.c_int),)
+
+    class _FileRenameInfoHeader(ctypes.Structure):
+        _fields_ = (
+            ("replace_if_exists", ctypes.c_uint32),
+            ("root_directory", ctypes.c_void_p),
+            ("file_name_length", ctypes.c_uint32),
+        )
+
+    def __init__(self) -> None:
+        kernel32 = cast(Any, ctypes.WinDLL("kernel32", use_last_error=True))
+        self._create_file = kernel32.CreateFileW
+        self._create_file.restype = ctypes.c_void_p
+        self._get_info = kernel32.GetFileInformationByHandleEx
+        self._get_info.restype = ctypes.c_int
+        self._set_info = kernel32.SetFileInformationByHandle
+        self._set_info.restype = ctypes.c_int
+        self._close_handle = kernel32.CloseHandle
+        self._close_handle.restype = ctypes.c_int
+        self._lock_file = kernel32.LockFileEx
+        self._lock_file.restype = ctypes.c_int
+        self._unlock_file = kernel32.UnlockFileEx
+        self._unlock_file.restype = ctypes.c_int
+
+    @staticmethod
+    def _raise_last_error(label: str) -> None:
+        error = ctypes.get_last_error()
+        if error in {80, 183}:
+            raise FileExistsError(error, label)
+        if error in {2, 3}:
+            raise FileNotFoundError(error, label)
+        if error == 5:
+            raise PermissionError(error, label)
+        if error in {32, 33}:
+            raise ManagedPathCheckpointError(label)
+        raise OSError(error, label)
+
+    def open_directory(self, path: Path) -> int:
+        handle = cast(
+            int,
+            self._create_file(
+                str(path),
+                self._FILE_LIST_DIRECTORY | self._FILE_TRAVERSE | self._FILE_READ_ATTRIBUTES,
+                self._FILE_SHARE_READ | self._FILE_SHARE_WRITE,
+                None,
+                self._OPEN_EXISTING,
+                self._FILE_FLAG_BACKUP_SEMANTICS | self._FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            ),
+        )
+        if handle == self._INVALID_HANDLE_VALUE:
+            self._raise_last_error("可信目录无法打开")
+        try:
+            self.require_directory(handle)
+        except BaseException:
+            self.close_handle(handle)
+            raise
+        return handle
+
+    def open_file(
+        self,
+        path: Path,
+        *,
+        create: bool,
+        writable: bool,
+        deletable: bool,
+    ) -> int:
+        access = self._GENERIC_READ | self._FILE_READ_ATTRIBUTES
+        if writable:
+            access |= self._GENERIC_WRITE
+        if deletable:
+            access |= self._DELETE
+        handle = cast(
+            int,
+            self._create_file(
+                str(path),
+                access,
+                self._FILE_SHARE_READ | self._FILE_SHARE_WRITE,
+                None,
+                self._CREATE_NEW if create else self._OPEN_EXISTING,
+                self._FILE_ATTRIBUTE_NORMAL
+                | self._FILE_FLAG_OPEN_REPARSE_POINT
+                | (self._FILE_FLAG_WRITE_THROUGH if writable else 0),
+                None,
+            ),
+        )
+        if handle == self._INVALID_HANDLE_VALUE:
+            self._raise_last_error("可信文件无法打开")
+        try:
+            self.require_regular(handle)
+            return self._handle_to_fd(handle)
+        except BaseException:
+            self.close_handle(handle)
+            raise
+
+    @staticmethod
+    def _handle_to_fd(handle: int) -> int:
+        import msvcrt
+
+        return msvcrt.open_osfhandle(handle, os.O_BINARY | os.O_RDWR)
+
+    @staticmethod
+    def fd_handle(descriptor: int) -> int:
+        import msvcrt
+
+        return msvcrt.get_osfhandle(descriptor)
+
+    def _attributes(self, handle: int) -> int:
+        value = self._FileAttributeTagInfo()
+        if not self._get_info(
+            handle,
+            self._FILE_ATTRIBUTE_TAG_INFO,
+            ctypes.byref(value),
+            ctypes.sizeof(value),
+        ):
+            self._raise_last_error("可信句柄元数据无法读取")
+        return value.file_attributes
+
+    def require_directory(self, handle: int) -> None:
+        attributes = self._attributes(handle)
+        if not attributes & self._FILE_ATTRIBUTE_DIRECTORY or attributes & (
+            self._FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise ManagedPathCheckpointError("可信目录不得是 reparse point")
+
+    def require_regular(self, handle: int) -> None:
+        attributes = self._attributes(handle)
+        if attributes & (self._FILE_ATTRIBUTE_DIRECTORY | self._FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ManagedPathCheckpointError("可信文件必须是非 reparse 普通文件")
+
+    def replace(self, descriptor: int, target_path: Path) -> None:
+        encoded_name = str(target_path).encode("utf-16-le")
+        name_offset = self._FileRenameInfoHeader.file_name_length.offset + ctypes.sizeof(
+            ctypes.c_uint32
+        )
+        buffer = ctypes.create_string_buffer(name_offset + len(encoded_name) + 2)
+        header = self._FileRenameInfoHeader.from_buffer(buffer)
+        header.replace_if_exists = 1
+        header.root_directory = None
+        header.file_name_length = len(encoded_name)
+        ctypes.memmove(ctypes.addressof(buffer) + name_offset, encoded_name, len(encoded_name))
+        if not self._set_info(
+            self.fd_handle(descriptor),
+            self._FILE_RENAME_INFO,
+            buffer,
+            len(buffer),
+        ):
+            self._raise_last_error("checkpoint 原子替换失败")
+
+    def unlink(self, descriptor: int) -> None:
+        value = self._FileDispositionInfo(delete_file=1)
+        if not self._set_info(
+            self.fd_handle(descriptor),
+            self._FILE_DISPOSITION_INFO,
+            ctypes.byref(value),
+            ctypes.sizeof(value),
+        ):
+            self._raise_last_error("可信文件删除失败")
+
+    @contextmanager
+    def lock(self, descriptor: int) -> Generator[None, None, None]:
+        overlapped = self._Overlapped()
+        handle = self.fd_handle(descriptor)
+        if not self._lock_file(
+            handle,
+            self._LOCKFILE_FAIL_IMMEDIATELY | self._LOCKFILE_EXCLUSIVE_LOCK,
+            0,
+            1,
+            0,
+            ctypes.byref(overlapped),
+        ):
+            self._raise_last_error("checkpoint writer 正忙")
+        try:
+            yield
+        finally:
+            if not self._unlock_file(handle, 0, 1, 0, ctypes.byref(overlapped)):
+                self._raise_last_error("checkpoint writer 锁无法释放")
+
+    def close_handle(self, handle: int) -> None:
+        if not self._close_handle(handle):
+            self._raise_last_error("可信目录句柄无法关闭")
+
+
+class _TrustedDirectory:
+    """绑定已验证目录对象；后续子项 I/O 不再重新解析可替换父路径。"""
+
+    def __init__(self, path: Path, *, descriptor: int | None = None) -> None:
+        self.path = path
+        self._windows = cast(
+            _WindowsTrustedDirectoryApi | None,
+            _WindowsTrustedDirectoryApi() if os.name == "nt" else None,
+        )
+        self._descriptor = descriptor if descriptor is not None else self._open_directory(path)
+        self._closed = False
+        self._identity = os.fstat(self._descriptor) if self._windows is None else None
+        self.validate()
+
+    def _open_directory(self, path: Path) -> int:
+        if self._windows is not None:
+            return self._windows.open_directory(path)
+        return os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+
+    def validate(self) -> None:
+        if self._closed:
+            raise ManagedPathCheckpointError("可信目录句柄已关闭")
+        if self._windows is not None:
+            self._windows.require_directory(self._descriptor)
+            return
+        metadata = os.fstat(self._descriptor)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ManagedPathCheckpointError("可信目录句柄不再指向目录")
+
+    def require_public_identity(self) -> None:
+        """公开路径被替换时停止；后续 I/O 仍仅使用已绑定目录句柄。"""
+        self.validate()
+        if self._windows is not None:
+            return
+        try:
+            visible = self.path.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise ManagedPathCheckpointError("checkpoint 目录公开身份已变化") from exc
+        if (
+            self._identity is None
+            or not stat.S_ISDIR(visible.st_mode)
+            or stat.S_ISLNK(visible.st_mode)
+            or not os.path.samestat(self._identity, visible)
+        ):
+            raise ManagedPathCheckpointError("checkpoint 目录公开身份已变化")
+
+    def open_child_directory(self, name: str) -> _TrustedDirectory:
+        self._require_name(name)
+        try:
+            if self._windows is not None:
+                os.mkdir(self.path / name, mode=0o700)
+            else:
+                os.mkdir(name, mode=0o700, dir_fd=self._descriptor)
+        except FileExistsError:
+            pass
+        if self._windows is not None:
+            descriptor = self._windows.open_directory(self.path / name)
+        else:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=self._descriptor,
+            )
+        return _TrustedDirectory(self.path / name, descriptor=descriptor)
+
+    def open_file(
+        self,
+        name: str,
+        *,
+        create: bool = False,
+        writable: bool = False,
+        deletable: bool = False,
+    ) -> int:
+        self._require_name(name)
+        self.validate()
+        if self._windows is not None:
+            try:
+                return self._windows.open_file(
+                    self.path / name,
+                    create=create,
+                    writable=writable,
+                    deletable=deletable,
+                )
+            except PermissionError as exc:
+                raise ManagedPathCheckpointError("可信文件必须是非 reparse 普通文件") from exc
+        flags = os.O_RDONLY
+        if writable:
+            flags = os.O_RDWR
+        if create:
+            flags |= os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(name, flags, 0o600, dir_fd=self._descriptor)
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ManagedPathCheckpointError("可信文件必须是普通文件")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor
+
+    def read_bytes(self, name: str) -> bytes:
+        descriptor = self.open_file(name)
+        try:
+            chunks: list[bytes] = []
+            while chunk := os.read(descriptor, 65536):
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(descriptor)
+
+    def exists(self, name: str) -> bool:
+        try:
+            descriptor = self.open_file(name)
+        except FileNotFoundError:
+            return False
+        else:
+            os.close(descriptor)
+            return True
+
+    def replace_open_file(self, descriptor: int, source_name: str, target_name: str) -> None:
+        self._require_name(source_name)
+        self._require_name(target_name)
+        self.validate()
+        if self._windows is not None:
+            self._windows.replace(descriptor, self.path / target_name)
+            self.sync_metadata(descriptor)
+            return
+        os.replace(
+            source_name,
+            target_name,
+            src_dir_fd=self._descriptor,
+            dst_dir_fd=self._descriptor,
+        )
+        self.sync_metadata()
+
+    def unlink(self, name: str, *, missing_ok: bool = False) -> None:
+        try:
+            descriptor = self.open_file(name, writable=True, deletable=True)
+        except FileNotFoundError:
+            if missing_ok:
+                return
+            raise
+        try:
+            if self._windows is not None:
+                self._windows.unlink(descriptor)
+                self.sync_metadata(descriptor)
+            else:
+                os.unlink(name, dir_fd=self._descriptor)
+        finally:
+            os.close(descriptor)
+        if self._windows is None:
+            self.sync_metadata()
+
+    @contextmanager
+    def lock(self, name: str) -> Generator[None, None, None]:
+        descriptor = self.open_file(name, writable=True)
+        try:
+            if self._windows is not None:
+                with self._windows.lock(descriptor):
+                    yield
+            else:
+                fcntl = cast(Any, importlib.import_module("fcntl"))
+
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise ManagedPathCheckpointError("checkpoint writer 正忙") from exc
+                try:
+                    yield
+                finally:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+    def sync_metadata(self, descriptor: int | None = None) -> None:
+        self.validate()
+        if self._windows is not None:
+            if descriptor is None:
+                raise ManagedPathCheckpointError("Windows 元数据同步缺少可信文件句柄")
+            self.sync_file(descriptor)
+            return
+        try:
+            os.fsync(self._descriptor)
+        except OSError as exc:
+            raise ManagedPathCheckpointError("checkpoint 目录元数据无法持久化") from exc
+
+    @staticmethod
+    def sync_file(descriptor: int) -> None:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise ManagedPathCheckpointError("checkpoint 文件无法持久化") from exc
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if self._windows is not None:
+            self._windows.close_handle(self._descriptor)
+        else:
+            os.close(self._descriptor)
+        self._closed = True
+
+    @staticmethod
+    def _require_name(name: str) -> None:
+        if not name or name in {".", ".."} or Path(name).name != name:
+            raise ManagedPathCheckpointError("可信目录只接受固定单层文件名")
+
+
 class FileManagedPathCheckpointRepository:
     """在明确根目录内以不可复用 lease 和跨进程锁原子保存 checkpoint。"""
 
@@ -386,8 +827,9 @@ class FileManagedPathCheckpointRepository:
         self.allowed_root = allowed_root
         self.writer_name = writer_name
         self.path = allowed_root / relative_path
-        self._owner_path = self.path.parent / ".writer-owner.json"
-        self._lock_path = self.path.parent / ".writer-lock.sqlite3"
+        self._checkpoint_name = self.path.name
+        self._owner_name = ".writer-owner.json"
+        self._lock_name = ".writer-lock"
         self._lease_nonce = secrets.token_hex(32)
         self._owner_claim = {
             "schema_version": 1,
@@ -397,8 +839,15 @@ class FileManagedPathCheckpointRepository:
             "process_start_nonce": _PROCESS_START_NONCE,
         }
         self._closed = False
-        self._prepare_root()
-        self._claim_writer()
+        self._root_directory: _TrustedDirectory | None = None
+        self._directory: _TrustedDirectory | None = None
+        try:
+            self._prepare_root()
+            self._ensure_lock_file()
+            self._claim_writer()
+        except BaseException:
+            self._close_directory_handles()
+            raise
 
     def _prepare_root(self) -> None:
         if self._is_reparse_path(self.allowed_root) or not self.allowed_root.is_dir():
@@ -406,41 +855,10 @@ class FileManagedPathCheckpointRepository:
         resolved_root = self.allowed_root.resolve(strict=True)
         if resolved_root != self.allowed_root:
             raise ManagedPathCheckpointError("allowed_root 不得包含路径别名或逃逸")
-        parent = self.path.parent
-        if parent.exists():
-            self._require_directory(parent)
-        else:
-            parent.mkdir(mode=0o700)
-            self._require_directory(parent)
-        if parent.resolve(strict=True).parent != resolved_root:
-            raise ManagedPathCheckpointError("checkpoint 路径逃逸 allowed_root")
-        self._require_safe_optional_file(self.path)
-        self._require_safe_optional_file(self._owner_path)
-        self._require_safe_optional_file(self._lock_path)
-
-    @staticmethod
-    def _require_directory(path: Path) -> None:
-        try:
-            metadata = path.stat(follow_symlinks=False)
-        except OSError as exc:
-            raise ManagedPathCheckpointError("checkpoint 父级无法读取") from exc
-        if not stat.S_ISDIR(
-            metadata.st_mode
-        ) or FileManagedPathCheckpointRepository._is_reparse_stat(metadata):
-            raise ManagedPathCheckpointError("checkpoint 父级必须是非符号链接目录")
-
-    @staticmethod
-    def _require_safe_optional_file(path: Path) -> None:
-        try:
-            metadata = path.stat(follow_symlinks=False)
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            raise ManagedPathCheckpointError("checkpoint 路径无法读取") from exc
-        if FileManagedPathCheckpointRepository._is_reparse_stat(metadata):
-            raise ManagedPathCheckpointError("checkpoint 文件不得是 reparse point")
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ManagedPathCheckpointError("checkpoint 路径必须是普通文件")
+        self._root_directory = _TrustedDirectory(resolved_root)
+        self._directory = self._root_directory.open_child_directory(self.path.parent.name)
+        self._directory.exists(self._checkpoint_name)
+        self._directory.exists(self._owner_name)
 
     @staticmethod
     def _is_reparse_stat(metadata: os.stat_result) -> bool:
@@ -454,81 +872,43 @@ class FileManagedPathCheckpointRepository:
         except OSError:
             return False
 
-    @staticmethod
-    def _exclusive_flags() -> int:
-        return os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-
-    @classmethod
-    def _open_exclusive_regular(cls, path: Path) -> tuple[int, os.stat_result]:
-        try:
-            descriptor = os.open(path, cls._exclusive_flags(), 0o600)
-        except OSError:
-            # Windows 会在目录 reparse point 上先返回 PermissionError。再次以
-            # no-follow 元数据核验，将链接/目录统一收敛为稳定的安全拒绝；普通
-            # 文件碰撞则保留 FileExistsError，供 owner claim 判定“已被占用”。
-            cls._require_safe_optional_file(path)
-            raise
-        try:
-            metadata = cls._validate_open_regular(descriptor, path)
-        except BaseException:
-            os.close(descriptor)
-            raise
-        return descriptor, metadata
-
-    @classmethod
-    def _validate_open_regular(cls, descriptor: int, path: Path) -> os.stat_result:
-        try:
-            handle_metadata = os.fstat(descriptor)
-            path_metadata = path.stat(follow_symlinks=False)
-        except OSError as exc:
-            raise ManagedPathCheckpointError("安全文件句柄无法验证") from exc
-        if (
-            not stat.S_ISREG(handle_metadata.st_mode)
-            or not stat.S_ISREG(path_metadata.st_mode)
-            or cls._is_reparse_stat(handle_metadata)
-            or cls._is_reparse_stat(path_metadata)
-            or not os.path.samestat(handle_metadata, path_metadata)
-        ):
-            raise ManagedPathCheckpointError("安全文件句柄指向 reparse point 或非普通文件")
-        return handle_metadata
-
-    @classmethod
-    def _require_regular_identity(cls, path: Path, expected: os.stat_result) -> None:
-        try:
-            current = path.stat(follow_symlinks=False)
-        except OSError as exc:
-            raise ManagedPathCheckpointError("临时文件身份无法验证") from exc
-        if (
-            not stat.S_ISREG(current.st_mode)
-            or cls._is_reparse_stat(current)
-            or not os.path.samestat(current, expected)
-        ):
-            raise ManagedPathCheckpointError("临时文件身份或 reparse 状态已变化")
-
     def _claim_writer(self) -> None:
         payload = json.dumps(self._owner_claim, separators=(",", ":")) + "\n"
-        try:
-            descriptor, identity = self._open_exclusive_regular(self._owner_path)
-        except FileExistsError as exc:
-            self._require_safe_optional_file(self._owner_path)
-            raise PermissionError("managed path checkpoint lifecycle lease 已被持有") from exc
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        self._require_regular_identity(self._owner_path, identity)
-        self._fsync_directory(self.path.parent)
+        with self._writer_lock(validate_lease=False):
+            try:
+                descriptor = self._trusted.open_file(
+                    self._owner_name,
+                    create=True,
+                    writable=True,
+                    deletable=True,
+                )
+            except FileExistsError as exc:
+                raise PermissionError("managed path checkpoint lifecycle lease 已被持有") from exc
+            try:
+                self._write_all(descriptor, payload.encode("utf-8"))
+                self._trusted.sync_file(descriptor)
+                self._trusted.sync_metadata(descriptor)
+            except BaseException:
+                os.close(descriptor)
+                descriptor = -1
+                with suppress(OSError, ManagedPathCheckpointError):
+                    self._trusted.unlink(self._owner_name, missing_ok=True)
+                raise
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
 
     def load(self) -> ManagedPathCheckpoint | None:
         """兼容识别旧同步状态，但绝不从中推断 path selection。"""
-        self._validate_paths()
-        if not self.path.exists():
-            return None
-        try:
-            raw = self.path.read_text(encoding="utf-8")
-            payload = json.loads(raw)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ManagedPathCheckpointError("managed path checkpoint 无法读取") from exc
+        with self._writer_lock():
+            try:
+                self._on_io_boundary("before_checkpoint_read")
+                self._trusted.require_public_identity()
+                payload = self._read_json(self._checkpoint_name)
+            except FileNotFoundError:
+                return None
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ManagedPathCheckpointError("managed path checkpoint 无法读取") from exc
         if not isinstance(payload, dict):
             raise ManagedPathCheckpointError("managed path checkpoint 结构无效")
         values = cast(dict[str, object], payload)
@@ -562,46 +942,51 @@ class FileManagedPathCheckpointRepository:
             + "\n"
         ).encode("utf-8")
         with self._writer_lock():
-            self._validate_paths()
-            temporary = self.path.parent / f".{self.path.name}.{secrets.token_hex(16)}.tmp"
-            opened_descriptor, identity = self._open_exclusive_regular(temporary)
-            descriptor: int | None = opened_descriptor
+            temporary = f".{self._checkpoint_name}.{secrets.token_hex(16)}.tmp"
+            descriptor = self._trusted.open_file(
+                temporary,
+                create=True,
+                writable=True,
+                deletable=True,
+            )
+            replaced = False
             try:
-                with os.fdopen(descriptor, "wb") as stream:
-                    descriptor = None
-                    stream.write(encoded)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                self._require_regular_identity(temporary, identity)
-                self._validate_paths()
-                os.replace(temporary, self.path)
-                self._require_regular_identity(self.path, identity)
-                self._fsync_directory(self.path.parent)
+                self._write_all(descriptor, encoded)
+                self._trusted.sync_file(descriptor)
+                self._on_io_boundary("before_checkpoint_replace")
+                self._trusted.require_public_identity()
+                self._trusted.replace_open_file(
+                    descriptor,
+                    temporary,
+                    self._checkpoint_name,
+                )
+                replaced = True
             finally:
-                if descriptor is not None:
-                    os.close(descriptor)
-                with suppress(OSError, ManagedPathCheckpointError):
-                    self._require_regular_identity(temporary, identity)
-                    temporary.unlink(missing_ok=True)
+                os.close(descriptor)
+                if not replaced:
+                    with suppress(OSError, ManagedPathCheckpointError):
+                        self._trusted.unlink(temporary, missing_ok=True)
 
     def close(self) -> None:
         """显式释放当前 lease；崩溃遗留 claim 在阶段一保持 fail closed。"""
         if self._closed:
             return
         with self._writer_lock():
-            self._validate_lease()
-            self._owner_path.unlink()
-            self._fsync_directory(self.path.parent)
+            self._trusted.unlink(self._owner_name)
             self._closed = True
+        self._close_directory_handles()
 
     def assert_no_secret_material(self) -> None:
         """扫描 checkpoint 的 key/value，并重新执行严格 schema 校验。"""
-        if not self.path.exists():
-            return
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ManagedPathCheckpointError("managed path checkpoint 无法扫描") from exc
+        with self._writer_lock():
+            try:
+                self._on_io_boundary("before_secret_scan_read")
+                self._trusted.require_public_identity()
+                payload = self._read_json(self._checkpoint_name)
+            except FileNotFoundError:
+                return
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ManagedPathCheckpointError("managed path checkpoint 无法扫描") from exc
         self._reject_secret_material(payload)
         if not isinstance(payload, dict):
             raise ManagedPathCheckpointError("managed path checkpoint 结构无效")
@@ -610,59 +995,84 @@ class FileManagedPathCheckpointRepository:
         except ValidationError as exc:
             raise ManagedPathCheckpointError("managed path checkpoint 校验失败") from exc
 
-    def _validate_paths(self) -> None:
-        if self._closed:
-            raise ManagedPathCheckpointError("managed path checkpoint lifecycle lease 已关闭")
-        self._require_directory(self.path.parent)
-        for path in (self.path, self._owner_path, self._lock_path):
-            self._require_safe_optional_file(path)
-        self._validate_lease()
-
     def _validate_lease(self) -> None:
         try:
-            owner = json.loads(self._owner_path.read_text(encoding="utf-8"))
+            self._on_io_boundary("before_lease_read")
+            self._trusted.require_public_identity()
+            owner = self._read_json(self._owner_name)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ManagedPathCheckpointError("writer owner claim 无法读取") from exc
         if owner != self._owner_claim:
             raise PermissionError("managed path checkpoint lifecycle lease 已变化")
 
     @contextmanager
-    def _writer_lock(self) -> Generator[None, None, None]:
-        self._ensure_lock_file()
-        connection = sqlite3.connect(self._lock_path, timeout=0, isolation_level=None)
-        try:
-            try:
-                connection.execute("BEGIN EXCLUSIVE")
-            except sqlite3.OperationalError as exc:
-                raise ManagedPathCheckpointError("checkpoint writer 正忙") from exc
-            self._validate_paths()
+    def _writer_lock(self, *, validate_lease: bool = True) -> Generator[None, None, None]:
+        if self._closed:
+            raise ManagedPathCheckpointError("managed path checkpoint lifecycle lease 已关闭")
+        self._trusted.validate()
+        self._on_io_boundary("before_writer_lock")
+        self._trusted.require_public_identity()
+        with self._trusted.lock(self._lock_name):
+            self._trusted.validate()
+            if validate_lease:
+                self._validate_lease()
             yield
-            connection.commit()
-        finally:
-            if connection.in_transaction:
-                connection.rollback()
-            connection.close()
 
     def _ensure_lock_file(self) -> None:
         try:
-            descriptor, identity = self._open_exclusive_regular(self._lock_path)
+            descriptor = self._trusted.open_file(
+                self._lock_name,
+                create=True,
+                writable=True,
+                deletable=False,
+            )
         except FileExistsError:
-            self._require_safe_optional_file(self._lock_path)
-            return
-        os.close(descriptor)
-        self._require_regular_identity(self._lock_path, identity)
-        self._fsync_directory(self.path.parent)
-
-    @staticmethod
-    def _fsync_directory(path: Path) -> None:
-        try:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        except OSError:
+            descriptor = self._trusted.open_file(self._lock_name, writable=True)
+            os.close(descriptor)
             return
         try:
-            os.fsync(descriptor)
+            self._write_all(descriptor, b"\0")
+            self._trusted.sync_file(descriptor)
+            self._trusted.sync_metadata(descriptor)
         finally:
             os.close(descriptor)
+
+    @property
+    def _trusted(self) -> _TrustedDirectory:
+        if self._directory is None:
+            raise ManagedPathCheckpointError("可信 checkpoint 目录尚未初始化")
+        return self._directory
+
+    @staticmethod
+    def _write_all(descriptor: int, payload: bytes) -> None:
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise ManagedPathCheckpointError("checkpoint 写入未取得进展")
+            view = view[written:]
+
+    def _read_json(self, name: str) -> object:
+        return json.loads(self._trusted.read_bytes(name).decode("utf-8"))
+
+    def _on_io_boundary(self, boundary: str) -> None:
+        """确定性 race 注入边界；生产实现不执行回调。"""
+        del boundary
+
+    def _close_directory_handles(self) -> None:
+        directory = getattr(self, "_directory", None)
+        if directory is not None:
+            with suppress(OSError, ManagedPathCheckpointError):
+                directory.close()
+            self._directory = None
+        root_directory = getattr(self, "_root_directory", None)
+        if root_directory is not None:
+            with suppress(OSError, ManagedPathCheckpointError):
+                root_directory.close()
+            self._root_directory = None
+
+    def __del__(self) -> None:
+        self._close_directory_handles()
 
     @classmethod
     def _reject_secret_material(cls, payload: object) -> None:
@@ -828,6 +1238,32 @@ class ManagedPathPhaseOneLifecycle:
             raise ValueError("pending plan 与 signed desired config 不一致")
         async with self._lock:
             match = self._authorizations.evaluate(plan, at=at)
+            publication_id = canonical_sha256(
+                {
+                    "schema_version": MANAGED_PATH_CHECKPOINT_SCHEMA_VERSION,
+                    "network_id": str(plan.desired.network_id),
+                    "node_id": str(plan.desired.target_node_id),
+                    "revision": plan.desired.revision,
+                    "provider": plan.desired.provider,
+                    "pending_plan_hash": plan.plan_hash,
+                    "observed_fingerprint": plan.observed_fingerprint,
+                    "authorization_state": match.state,
+                    "authorization_id": match.authorization_id,
+                    "stable_error_code": match.code,
+                }
+            )
+            existing = self._checkpoints.load()
+            delivery_states = (
+                existing.sink_delivery_states
+                if existing is not None and existing.publication_id == publication_id
+                else ()
+            )
+            delivery_states = tuple(
+                delivery_states[index]
+                if index < len(delivery_states)
+                else ManagedPathSinkDeliveryState.NOT_ATTEMPTED
+                for index in range(len(self._sinks))
+            )
             checkpoint = ManagedPathCheckpoint(
                 network_id=plan.desired.network_id,
                 node_id=plan.desired.target_node_id,
@@ -839,10 +1275,14 @@ class ManagedPathPhaseOneLifecycle:
                 authorization_id=match.authorization_id,
                 stable_error_code=match.code,
                 updated_at=_require_utc(at, label="pending 时间"),
+                publication_id=publication_id,
+                sink_delivery_states=delivery_states,
             )
             self._checkpoints.save(checkpoint)
-            publication_id = canonical_sha256(checkpoint.model_dump(mode="json"))
-            deliveries = await self._publish(checkpoint, publication_id=publication_id)
+            checkpoint, deliveries = await self._publish(
+                checkpoint,
+                publication_id=publication_id,
+            )
             code = (
                 ManagedPathOperationCode.PERSISTED_WITH_SINK_FAILURES
                 if any(
@@ -920,42 +1360,46 @@ class ManagedPathPhaseOneLifecycle:
         checkpoint: ManagedPathCheckpoint,
         *,
         publication_id: str,
-    ) -> tuple[ManagedPathSinkDelivery, ...]:
-        deliveries = [
-            ManagedPathSinkDelivery(
-                sink_index=index,
-                state=ManagedPathSinkDeliveryState.NOT_ATTEMPTED,
-            )
-            for index in range(len(self._sinks))
-        ]
+    ) -> tuple[ManagedPathCheckpoint, tuple[ManagedPathSinkDelivery, ...]]:
+        states = list(checkpoint.sink_delivery_states)
         for index, sink in enumerate(self._sinks):
+            if states[index] in {
+                ManagedPathSinkDeliveryState.SUCCEEDED,
+                ManagedPathSinkDeliveryState.FAILED,
+            }:
+                continue
             try:
                 await sink.publish(checkpoint, idempotency_key=publication_id)
             except asyncio.CancelledError:
-                deliveries[index] = ManagedPathSinkDelivery(
-                    sink_index=index,
-                    state=ManagedPathSinkDeliveryState.UNKNOWN,
-                )
+                states[index] = ManagedPathSinkDeliveryState.UNKNOWN
+                checkpoint = checkpoint.model_copy(update={"sink_delivery_states": tuple(states)})
+                self._checkpoints.save(checkpoint)
+                deliveries = self._deliveries(states)
                 raise ManagedPathPublicationCancelled(
                     ManagedPathOperationResult(
                         code=ManagedPathOperationCode.PERSISTED_WITH_SINK_FAILURES,
                         persisted=True,
                         checkpoint=checkpoint,
                         publication_id=publication_id,
-                        sink_deliveries=tuple(deliveries),
+                        sink_deliveries=deliveries,
                     )
                 ) from None
             except Exception:
-                deliveries[index] = ManagedPathSinkDelivery(
-                    sink_index=index,
-                    state=ManagedPathSinkDeliveryState.FAILED,
-                )
+                states[index] = ManagedPathSinkDeliveryState.FAILED
             else:
-                deliveries[index] = ManagedPathSinkDelivery(
-                    sink_index=index,
-                    state=ManagedPathSinkDeliveryState.SUCCEEDED,
-                )
-        return tuple(deliveries)
+                states[index] = ManagedPathSinkDeliveryState.SUCCEEDED
+            checkpoint = checkpoint.model_copy(update={"sink_delivery_states": tuple(states)})
+            self._checkpoints.save(checkpoint)
+        return checkpoint, self._deliveries(states)
+
+    @staticmethod
+    def _deliveries(
+        states: list[ManagedPathSinkDeliveryState],
+    ) -> tuple[ManagedPathSinkDelivery, ...]:
+        return tuple(
+            ManagedPathSinkDelivery(sink_index=index, state=state)
+            for index, state in enumerate(states)
+        )
 
     def read_status(self) -> ManagedPathCheckpoint | None:
         """只读状态投影；不接触授权 writer、refresher 或 Provider。"""
