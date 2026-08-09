@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import errno
 import json
 import os
 import subprocess
@@ -895,6 +896,24 @@ def test_posix_trusted_directory_handle_operations_are_relative(
         platform_patch.setitem(runtime_module.__dict__, "_TrustedDirectory", fake_child_constructor)
         child = trusted.open_child_directory("child")
     child.close()
+
+    def reject_link_open(
+        name: os.PathLike[str] | str,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if str(name) in {"broken", "linked"}:
+            raise OSError(errno.ELOOP, "link rejected")
+        return fake_open(name, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(runtime_module.os, "open", reject_link_open)
+    with pytest.raises(ManagedPathCheckpointError, match="非符号链接目录"):
+        trusted.open_child_directory("broken")
+    with pytest.raises(ManagedPathCheckpointError, match="非符号链接普通文件"):
+        trusted.open_file("linked")
+    monkeypatch.setattr(runtime_module.os, "open", fake_open)
     descriptor = trusted.open_file("value", create=True, writable=True)
     assert descriptor == 92
     assert trusted.read_bytes("value") == b""
@@ -1050,7 +1069,7 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
 
     api._close_handle = close_success
     api._get_info = get_info_failure
-    monkeypatch.setattr(runtime_module.ctypes, "get_last_error", lambda: 999)
+    monkeypatch.setitem(runtime_module.ctypes.__dict__, "get_last_error", lambda: 999)
     with pytest.raises(OSError):
         api._attributes(1)
 
@@ -1095,6 +1114,157 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
     api._get_info = get_info_directory
     with pytest.raises(ManagedPathCheckpointError, match="缺少可信文件句柄"):
         trusted.sync_metadata()
+
+
+def test_windows_trusted_handle_success_paths_are_platform_independent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api_type = runtime_module.__dict__["_WindowsTrustedDirectoryApi"]
+    trusted_type = runtime_module.__dict__["_TrustedDirectory"]
+    api = object.__new__(api_type)
+    calls: list[tuple[object, ...]] = []
+
+    def create_file(path: str, *args: object) -> int:
+        calls.append(("create", path, *args))
+        return 41 if Path(path).name in {"state", "child"} else 43
+
+    def get_info(handle: int, _kind: int, pointer: Any, _size: int) -> int:
+        pointer._obj.file_attributes = 0x10 if handle in {41, 42} else 0
+        return 1
+
+    def set_info(handle: int, kind: int, *_args: object) -> int:
+        calls.append(("set_info", handle, kind))
+        return 1
+
+    def close_handle(handle: int) -> int:
+        calls.append(("close_handle", handle))
+        return 1
+
+    def lock_file(*_args: object) -> int:
+        calls.append(("lock",))
+        return 1
+
+    def unlock_file(*_args: object) -> int:
+        calls.append(("unlock",))
+        return 1
+
+    def open_osfhandle(handle: int, flags: int) -> int:
+        calls.append(("open_osfhandle", handle, flags))
+        return handle + 100
+
+    def get_osfhandle(descriptor: int) -> int:
+        return descriptor - 100
+
+    fake_msvcrt = SimpleNamespace(
+        open_osfhandle=open_osfhandle,
+        get_osfhandle=get_osfhandle,
+    )
+
+    def import_module(name: str) -> SimpleNamespace:
+        assert name == "msvcrt"
+        return fake_msvcrt
+
+    def fake_mkdir(
+        path: os.PathLike[str] | str,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> None:
+        calls.append(("mkdir", str(path), mode, dir_fd))
+
+    def fake_close(descriptor: int) -> None:
+        calls.append(("close_fd", descriptor))
+
+    def fake_fsync(descriptor: int) -> None:
+        calls.append(("fsync", descriptor))
+
+    def fake_read(_descriptor: int, _size: int) -> bytes:
+        return b""
+
+    def child_constructor(path: Path, *, descriptor: int) -> Any:
+        child = object.__new__(trusted_type)
+        child.path = path
+        child._windows = api
+        child._descriptor = descriptor
+        child._closed = False
+        child._identity = None
+        child.validate()
+        return child
+
+    api._create_file = create_file
+    api._get_info = get_info
+    api._set_info = set_info
+    api._close_handle = close_handle
+    api._lock_file = lock_file
+    api._unlock_file = unlock_file
+    monkeypatch.setattr(runtime_module.importlib, "import_module", import_module)
+    monkeypatch.setattr(runtime_module.os, "mkdir", fake_mkdir)
+    monkeypatch.setattr(runtime_module.os, "close", fake_close)
+    monkeypatch.setattr(runtime_module.os, "fsync", fake_fsync)
+    monkeypatch.setattr(runtime_module.os, "read", fake_read)
+
+    directory_handle = api.open_directory(Path("state"))
+    assert directory_handle == 41
+    file_descriptor = api.open_file(
+        Path("checkpoint"),
+        create=True,
+        writable=True,
+        deletable=True,
+    )
+    assert file_descriptor == 143
+    assert api.fd_handle(file_descriptor) == 43
+    api.replace(file_descriptor, Path("target"))
+    api.unlink(file_descriptor)
+    with api.lock(file_descriptor):
+        calls.append(("locked",))
+    api.close_handle(directory_handle)
+
+    trusted = object.__new__(trusted_type)
+    trusted.path = tmp_path / "state"
+    trusted._windows = api
+    trusted._descriptor = 41
+    trusted._closed = False
+    trusted._identity = None
+    trusted.validate()
+    trusted.require_public_identity()
+    assert trusted._open_directory(trusted.path) == 41
+    with monkeypatch.context() as constructor_patch:
+        constructor_patch.setitem(runtime_module.__dict__, "_TrustedDirectory", child_constructor)
+        child = trusted.open_child_directory("child")
+    child.close()
+
+    original_open_directory = api.open_directory
+
+    def deny_directory(_path: Path) -> Never:
+        raise OSError("denied")
+
+    api.open_directory = deny_directory
+    with pytest.raises(ManagedPathCheckpointError, match="非 reparse 目录"):
+        trusted.open_child_directory("blocked")
+    api.open_directory = original_open_directory
+
+    original_open_file = api.open_file
+
+    def deny_open(*_args: object, **_kwargs: object) -> Never:
+        raise PermissionError("denied")
+
+    api.open_file = deny_open
+    with pytest.raises(ManagedPathCheckpointError, match="非 reparse 普通文件"):
+        trusted.open_file("denied")
+    api.open_file = original_open_file
+
+    assert trusted.open_file("value", writable=True) == 143
+    assert trusted.read_bytes("value") == b""
+    trusted.replace_open_file(143, "temporary", "checkpoint")
+    trusted.unlink("value")
+    with trusted.lock("value"):
+        calls.append(("trusted_locked",))
+    trusted.sync_metadata(143)
+    trusted.close()
+    assert ("locked",) in calls
+    assert ("trusted_locked",) in calls
+    assert any(call[0] == "set_info" for call in calls)
 
 
 def test_repository_rejects_corrupt_owner_claim_at_open_and_load(tmp_path: Path) -> None:

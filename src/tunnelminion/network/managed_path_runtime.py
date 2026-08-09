@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import ctypes
+import errno
 import importlib
 import json
 import os
@@ -658,13 +659,19 @@ class _TrustedDirectory:
         except FileExistsError:
             pass
         if self._windows is not None:
-            descriptor = self._windows.open_directory(self.path / name)
+            try:
+                descriptor = self._windows.open_directory(self.path / name)
+            except OSError as exc:
+                raise ManagedPathCheckpointError("可信子目录必须是非 reparse 目录") from exc
         else:
-            descriptor = os.open(
-                name,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=self._descriptor,
-            )
+            try:
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=self._descriptor,
+                )
+            except OSError as exc:
+                raise ManagedPathCheckpointError("可信子目录必须是非符号链接目录") from exc
         return _TrustedDirectory(self.path / name, descriptor=descriptor)
 
     def open_file(
@@ -693,7 +700,12 @@ class _TrustedDirectory:
         if create:
             flags |= os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(name, flags, 0o600, dir_fd=self._descriptor)
+        try:
+            descriptor = os.open(name, flags, 0o600, dir_fd=self._descriptor)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise ManagedPathCheckpointError("可信文件必须是非符号链接普通文件") from exc
+            raise
         try:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode):
