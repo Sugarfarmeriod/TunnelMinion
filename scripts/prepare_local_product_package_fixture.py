@@ -174,6 +174,11 @@ def _compact_sqlite_database(path: Path) -> None:
 
 
 def _prepare_empty_data_dir(data_dir: Path, allowed_root: Path) -> Path:
+    if allowed_root.is_symlink():
+        raise ValueError("允许根目录不得是符号链接")
+    allowed_root.mkdir(parents=True, exist_ok=True)
+    if allowed_root.is_symlink():
+        raise ValueError("允许根目录不得是符号链接")
     root = allowed_root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("允许根目录不是目录")

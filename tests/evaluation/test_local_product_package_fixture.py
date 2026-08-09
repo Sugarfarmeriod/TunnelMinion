@@ -102,6 +102,17 @@ def test_data_directory_must_be_empty_and_inside_allowed_root(tmp_path: Path) ->
         fixture.prepare_fixture(tmp_path / "unknown", tmp_path, "linux")
 
 
+def test_missing_allowed_root_is_created_before_fixture_data(tmp_path: Path) -> None:
+    allowed_root = tmp_path / "new-sandbox"
+    data_dir = allowed_root / "data"
+
+    report = fixture.prepare_fixture(data_dir, allowed_root, _native_platform())
+
+    assert allowed_root.is_dir()
+    assert data_dir.is_dir()
+    assert report["contains_secrets"] is False
+
+
 def test_cli_rejects_receipt_inside_data_dir_before_writing(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
 
