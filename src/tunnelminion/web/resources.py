@@ -105,6 +105,7 @@ def create_resource_router(
     path_selection: Callable[[], PathSelection | None] | None = None,
     path_evidence: Callable[[], DirectPathEvidence | None] | None = None,
     path_authorization: Callable[[], str] | None = None,
+    network_path_status: Callable[[], ManagedPathResourceView] | None = None,
     managed_status: Callable[[], dict[str, JsonValue]] | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> APIRouter:
@@ -160,6 +161,8 @@ def create_resource_router(
         )
 
     async def network_path() -> ManagedPathResourceView:
+        if network_path_status is not None:
+            return network_path_status()
         selection = path_selection() if path_selection is not None else None
         evidence = path_evidence() if path_evidence is not None else None
         if selection is None:
