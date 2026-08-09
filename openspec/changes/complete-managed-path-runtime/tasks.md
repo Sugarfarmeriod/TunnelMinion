@@ -19,12 +19,11 @@
 ## 1. 状态、授权端口与纯 fake 安全骨架
 
 - [x] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
-- [x] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
+- [ ] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
 - [ ] 1.3 为既有本机 L3 持久授权建立只读查询端口与精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
 - [x] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
 - [ ] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
-- [x] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 本轮修复门禁：Ruff 全仓通过、288 files format clean、pyright 零错误；定向 49 passed/1 skipped 且新模块 442 statements/106 branches 为 100%；全量 821 passed/2 skipped 且 13,826 statements/2,686 branches 为 100%；允许范围 secret scan 与 `openspec validate complete-managed-path-runtime --strict` 均通过。
+- [ ] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
 
 ## 2. Windows/macOS 生产只读 PathProbe
 
