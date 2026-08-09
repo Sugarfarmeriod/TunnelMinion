@@ -515,7 +515,7 @@ def test_repository_rejects_real_parent_reparse_point(tmp_path: Path) -> None:
     parent_link_root = root / "parent-link-root"
     parent_link_root.mkdir()
     _create_symlink_or_skip(parent_link_root / "managed-path", outside, directory=True)
-    with pytest.raises(ManagedPathCheckpointError, match="可信.*目录"):
+    with pytest.raises(ManagedPathCheckpointError, match=r"可信.*目录"):
         repository(parent_link_root)
 
 
