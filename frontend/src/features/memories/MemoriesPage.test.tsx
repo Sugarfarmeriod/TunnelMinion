@@ -292,6 +292,12 @@ describe("MemoriesPage", () => {
       source: "用户再次确认",
     });
     expect(capturedBody).not.toHaveProperty("namespace");
+    expect(
+      screen.getByText(
+        /用户“local-user”.*网络“home”.*任务“local-conversation”.*安全域“read-only-agent”/,
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("用户再次确认")).toBeVisible();
     const putCalls = fetchMock.mock.calls.filter(
       ([, init]) => init?.method === "PUT",
     );
@@ -332,6 +338,51 @@ describe("MemoriesPage", () => {
     expect(
       new Headers(deleteCalls[0]?.[1]?.headers).get("X-TunnelMinion-Request"),
     ).toBe("same-origin");
+    expect(
+      screen.getByText(/删除请求的结果未知.*没有自动重放删除/),
+    ).toHaveAttribute("role", "alert");
+  });
+
+  it("删除遇到服务端竞态时只重读最新作用域，不重放 DELETE", async () => {
+    const value = makeMemory();
+    let values = [value];
+    fetchMock.mockImplementation((_input, init) => {
+      if (init?.method === "DELETE") {
+        values = [];
+        return Promise.resolve(
+          jsonResponse(
+            {
+              detail: {
+                code: "memory_conflict",
+                message: "这条记忆已被另一个请求删除",
+              },
+            },
+            409,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse(values));
+    });
+    const user = userEvent.setup();
+
+    renderMemories();
+    await chooseScope(user);
+    await screen.findByText(value.content);
+    await user.click(screen.getByRole("button", { name: "删除这条记忆" }));
+    await user.click(screen.getByRole("button", { name: "确认删除一次" }));
+
+    const notice = await screen.findByText(
+      /这条记忆已被另一个请求删除.*只重新读取了一次.*没有自动重放删除/,
+    );
+    expect(notice).toHaveAttribute("role", "alert");
+    expect(screen.getByText("这个精确作用域还没有长期记忆。")).toBeVisible();
+    expect(screen.queryByText(value.content)).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === undefined),
+    ).toHaveLength(2);
   });
 
   it("只清空确认框中展示的精确作用域，并以重读结果确认 204", async () => {
