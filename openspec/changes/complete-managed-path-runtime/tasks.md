@@ -19,11 +19,15 @@
 ## 1. 状态、授权端口与纯 fake 安全骨架
 
 - [x] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
-- [ ] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
+- [x] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
+  - 证据：`FileManagedPathCheckpointRepository` 将 writer lifecycle claim（随机 nonce、PID、进程启动身份）与 SQLite exclusive transaction 组合，所有权校验和原子保存处于同一锁内；固定 allowed root/relative target，随机同目录独占 temp，并以 no-follow 元数据和打开句柄 identity 拒绝 target/parent/temp symlink、junction、reparse point 与非普通文件。测试覆盖第二实例/第二进程同名 writer、崩溃后 fail closed、并发、路径逃逸、损坏/恢复、旧状态缺失、逐字段错配和零秘密。
+  - 跨平台门禁：提交 `3292aeb` 的 GitHub Actions run `31333019144` 中 Windows job `93294161023` 与 macOS job `93294161063` 均全绿；Windows 实际执行 reparse 反例，macOS 实际执行 symlink 反例，二者均达到全仓 100% statement/branch coverage。
 - [ ] 1.3 为既有本机 L3 持久授权建立只读查询端口与精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
 - [x] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
 - [ ] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
-- [ ] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：本地 Ruff/format、pyright、定向 65 passed/4 skipped（`managed_path_runtime.py` 547 statements、124 branches、100%）、全量 840 passed/5 skipped（13,931 statements、2,704 branches、100%）、离线 8 scenarios/0 safety failures、全仓 secret scan 与 `openspec validate complete-managed-path-runtime --strict` 均通过；实现以 `fix: secure managed path checkpoint lifecycle`、`fix: normalize checkpoint reparse rejection` 和 `test: cover directory fsync failure` 三个 Conventional Commits 普通推送。
+  - 远端证据：GitHub Actions run `31333019144` 的 Windows/macOS 质量、离线安全回归和秘密扫描全部通过；未使用 coverage pragma 排除真实安全逻辑。
 
 ## 2. Windows/macOS 生产只读 PathProbe
 
