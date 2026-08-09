@@ -723,6 +723,22 @@ def test_repository_closes_exclusive_handle_when_validation_fails(
     path.unlink()
 
 
+def test_repository_directory_fsync_open_failure_is_fail_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def denied_open(_path: object, _flags: int, _mode: int = 0o777) -> int:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("tunnelminion.network.managed_path_runtime.os.open", denied_open)
+    assert (
+        FileManagedPathCheckpointRepository._fsync_directory(  # pyright: ignore[reportPrivateUsage]
+            tmp_path.resolve()
+        )
+        is None
+    )
+
+
 def test_repository_wraps_open_handle_stat_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
