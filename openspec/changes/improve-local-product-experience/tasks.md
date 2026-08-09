@@ -64,8 +64,8 @@
 ## 7. 串行整合与浏览器质量门禁
 
 - [ ] 7.1 integration owner 按 Overview → Chat → Operations → Memories/Settings 串行整合；每次整合后运行完整 Python、TypeScript、React 和浏览器门禁
-- [ ] 7.2 Windows Chromium 与 macOS WebKit 覆盖 SPA 深链、CSP、缓存头、SSE、browser storage、写请求防护和关键流程
-- [ ] 7.3 axe serious/critical 为 0；1280×720、320 CSS px、200% zoom 下总览、operation detail/确认框、chat、memory、settings 均可操作
+- [x] 7.2 Windows Chromium 与 macOS WebKit 覆盖 SPA 深链、CSP、缓存头、SSE、browser storage、写请求防护和关键流程
+- [x] 7.3 axe serious/critical 为 0；1280×720、320 CSS px、200% zoom 下总览、operation detail/确认框、chat、memory、settings 均可操作
 - [x] 7.4 供应链覆盖 npm/Python 全依赖漏洞与许可证，扫描 dist/source map/package staging 秘密；后续初始 JS+CSS gzip 增长超过 10% 必须说明
 
 ## 8. Package、迁移与发布验收
