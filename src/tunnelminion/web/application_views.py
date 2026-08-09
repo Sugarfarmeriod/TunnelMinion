@@ -6,7 +6,7 @@ import json
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -67,6 +67,8 @@ _FRESHNESS = {
     ),
 }
 _PACKAGE_MANIFEST_FILE = "runtime-package-manifest.json"
+_NETWORK_PATH_EVIDENCE_STALE_AFTER = timedelta(seconds=180)
+_NETWORK_PATH_EVIDENCE_STALE = "network_path_evidence_stale"
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,15 @@ class ApplicationViewBindings:
 
     overview_service: overview_contracts.OverviewService
     resource_bindings: CoordinatorResourceBindings
+
+
+@dataclass(frozen=True)
+class _PathSnapshot:
+    """同一 revision 的路径事实及其当前时效。"""
+
+    selection: PathSelection
+    evidence: DirectPathEvidence | None
+    freshness: overview_contracts.OverviewFreshness
 
 
 def build_application_view_bindings(
@@ -331,10 +342,13 @@ class _ApplicationViewAdapter:
             )
         path = self.path_snapshot()
         if path is not None:
-            selection, evidence = path
+            selection = path.selection
+            evidence = path.evidence
             path_error = (
                 evidence.stable_error_code.value
                 if evidence is not None and evidence.stable_error_code is not None
+                else _NETWORK_PATH_EVIDENCE_STALE
+                if path.freshness is overview_contracts.OverviewFreshness.STALE
                 else selection.stable_error_code.value
                 if selection.stable_error_code is not None
                 else None
@@ -344,11 +358,7 @@ class _ApplicationViewAdapter:
                 evidence_at=(
                     evidence.observed_at if evidence is not None else selection.last_evidence_at
                 ),
-                freshness=(
-                    overview_contracts.OverviewFreshness.FRESH
-                    if evidence is not None
-                    else overview_contracts.OverviewFreshness.UNKNOWN
-                ),
+                freshness=path.freshness,
                 error=(
                     overview_contracts.OverviewError(code=path_error)
                     if path_error is not None
@@ -605,7 +615,8 @@ class _ApplicationViewAdapter:
         path = self.path_snapshot()
         authorization = self.path_authorization()
         if path is not None:
-            selection, evidence = path
+            selection = path.selection
+            evidence = path.evidence
             return ManagedPathResourceView(
                 configured=True,
                 provider=selection.provider,
@@ -616,19 +627,17 @@ class _ApplicationViewAdapter:
                     evidence.candidate_count if evidence is not None else selection.candidate_count
                 ),
                 handshake_fresh=evidence.handshake_fresh if evidence is not None else False,
-                host_route_present=(
-                    evidence.host_route_present if evidence is not None else False
-                ),
+                host_route_present=(evidence.host_route_present if evidence is not None else False),
                 target_probe_succeeded=(
                     evidence.target_probe_succeeded if evidence is not None else False
                 ),
-                last_handshake_at=(
-                    evidence.last_handshake_at if evidence is not None else None
-                ),
+                last_handshake_at=(evidence.last_handshake_at if evidence is not None else None),
                 last_probe_at=evidence.target_probe_at if evidence is not None else None,
                 stable_error_code=(
                     evidence.stable_error_code.value
                     if evidence is not None and evidence.stable_error_code is not None
+                    else _NETWORK_PATH_EVIDENCE_STALE
+                    if path.freshness is overview_contracts.OverviewFreshness.STALE
                     else selection.stable_error_code.value
                     if selection.stable_error_code is not None
                     else None
@@ -643,7 +652,7 @@ class _ApplicationViewAdapter:
             stable_error_code=overview.error.code if overview.error is not None else None,
         )
 
-    def path_snapshot(self) -> tuple[PathSelection, DirectPathEvidence | None] | None:
+    def path_snapshot(self) -> _PathSnapshot | None:
         """只组合同 provider/revision 的真实选择与证据，拒绝混合陈旧事实。"""
         if self.path_bindings is None:
             return None
@@ -655,7 +664,18 @@ class _ApplicationViewAdapter:
             evidence.provider is not selection.provider or evidence.revision != selection.revision
         ):
             evidence = None
-        return selection, evidence
+        freshness = overview_contracts.OverviewFreshness.UNKNOWN
+        if evidence is not None:
+            observed_at = evidence.observed_at
+            age = (
+                self.now() - observed_at.astimezone(UTC) if observed_at.tzinfo is not None else None
+            )
+            freshness = (
+                overview_contracts.OverviewFreshness.FRESH
+                if age is not None and timedelta(0) <= age <= _NETWORK_PATH_EVIDENCE_STALE_AFTER
+                else overview_contracts.OverviewFreshness.STALE
+            )
+        return _PathSnapshot(selection, evidence, freshness)
 
     def path_authorization(self) -> str:
         if self.path_bindings is not None:

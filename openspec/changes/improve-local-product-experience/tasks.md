@@ -9,7 +9,7 @@
 ## 1. 契约与工具链 spike
 
 - [x] 1.1 固定 Node.js 22.14.0、npm 10.9.2、`packageManager`/engines、`package-lock.json` 与 `npm ci`
-- [ ] 1.2 以最小 spike 验证 React + TypeScript + Vite、FastAPI 同源路径、`/app/*` 深链刷新及无 Node.js 的离线 package 加载
+- [x] 1.2 以最小 spike 验证 React + TypeScript + Vite、FastAPI 同源路径、`/app/*` 深链刷新及无 Node.js 的离线 package 加载
 - [ ] 1.3 以包体积、可访问性、维护成本和许可证验证轻量自有 tokens 与少量无样式可访问 primitives；浏览器门禁固定 Chromium + WebKit
 - [x] 1.4 固定 `GET /api/resources/overview` 与 `GET /api/operations/{operation_id}` 的 Pydantic/OpenAPI schema、脱敏 fixture、未知枚举与稳定错误码矩阵
 - [x] 1.5 固定 Host authority 规范化、错误优先级、Origin/Fetch Metadata/`X-TunnelMinion-Request: same-origin` 威胁矩阵，并收集现有 CLI/测试客户端的真实方法、路径、Host 与端口作为兼容回归 corpus
@@ -64,8 +64,8 @@
 ## 7. 串行整合与浏览器质量门禁
 
 - [ ] 7.1 integration owner 按 Overview → Chat → Operations → Memories/Settings 串行整合；每次整合后运行完整 Python、TypeScript、React 和浏览器门禁
-- [ ] 7.2 Windows Chromium 与 macOS WebKit 覆盖 SPA 深链、CSP、缓存头、SSE、browser storage、写请求防护和关键流程
-- [ ] 7.3 axe serious/critical 为 0；1280×720、320 CSS px、200% zoom 下总览、operation detail/确认框、chat、memory、settings 均可操作
+- [x] 7.2 Windows Chromium 与 macOS WebKit 覆盖 SPA 深链、CSP、缓存头、SSE、browser storage、写请求防护和关键流程
+- [x] 7.3 axe serious/critical 为 0；1280×720、320 CSS px、200% zoom 下总览、operation detail/确认框、chat、memory、settings 均可操作
 - [x] 7.4 供应链覆盖 npm/Python 全依赖漏洞与许可证，扫描 dist/source map/package staging 秘密；后续初始 JS+CSS gzip 增长超过 10% 必须说明
 
 ## 8. Package、迁移与发布验收

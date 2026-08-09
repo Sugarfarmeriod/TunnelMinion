@@ -190,6 +190,7 @@ def bindings(
     model: ModelConfigurationService | None = None,
     package: RuntimePackageOverview | None = None,
     network_path: views.NetworkPathViewBindings | None = None,
+    clock: views.Clock | None = None,
     clock_none: bool = False,
 ) -> views.ApplicationViewBindings:
     arguments: dict[str, object] = {
@@ -199,7 +200,7 @@ def bindings(
         "managed": application,
     }
     if not clock_none:
-        arguments["clock"] = lambda: NOW
+        arguments["clock"] = clock or (lambda: NOW)
     if package is not None:
         arguments["runtime_package"] = package
     if network_path is not None:
@@ -345,6 +346,7 @@ def path_evidence(
     provider: ProviderKind = ProviderKind.WINDOWS,
     revision: int = 4,
     verified: bool = True,
+    observed_at: datetime = NOW,
 ) -> DirectPathEvidence:
     return DirectPathEvidence(
         provider=provider,
@@ -360,8 +362,10 @@ def path_evidence(
         target_probe_succeeded=verified,
         verified=verified,
         stable_error_code=None if verified else DirectPathErrorCode.HANDSHAKE_STALE,
-        observed_at=NOW,
+        observed_at=observed_at,
     )
+
+
 def test_unconfigured_defaults_are_local_only_and_resource_callbacks_are_absent() -> None:
     result = bindings(managed()).overview_service.view()
     resources = bindings(managed()).resource_bindings
@@ -587,6 +591,44 @@ def test_path_binding_does_not_mix_mismatched_or_missing_evidence() -> None:
     assert resource.candidate_count == 1
     assert resource.last_handshake_at is None
     assert resource.stable_error_code == "target_unreachable"
+
+
+def test_path_evidence_expires_and_refreshes_without_losing_history() -> None:
+    current = NOW
+    evidence = path_evidence(observed_at=NOW - timedelta(seconds=181))
+    path = views.NetworkPathViewBindings(
+        selection=path_selection,
+        evidence=lambda: evidence,
+        authorization=lambda: "authorized-l3",
+    )
+
+    stale = bindings(
+        managed(config()),
+        network_path=path,
+        clock=lambda: current,
+    )
+    stale_overview = stale.overview_service.view().network_path
+    stale_resource = stale.resource_bindings.network_path()
+    assert stale_overview.freshness is OverviewFreshness.STALE
+    assert stale_overview.evidence_at == evidence.observed_at
+    assert stale_overview.handshake.status is EvidenceStatus.PASSED
+    assert stale_overview.error is not None
+    assert stale_overview.error.code == "network_path_evidence_stale"
+    assert stale_resource.last_handshake_at == NOW
+    assert stale_resource.stable_error_code == "network_path_evidence_stale"
+
+    evidence = path_evidence(observed_at=current)
+    refreshed = (
+        bindings(
+            managed(config()),
+            network_path=path,
+            clock=lambda: current,
+        )
+        .overview_service.view()
+        .network_path
+    )
+    assert refreshed.freshness is OverviewFreshness.FRESH
+    assert refreshed.error is None
 
 
 def test_empty_path_selection_falls_back_to_managed_sync_state() -> None:
