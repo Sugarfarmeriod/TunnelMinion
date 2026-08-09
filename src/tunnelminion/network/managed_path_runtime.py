@@ -460,7 +460,14 @@ class FileManagedPathCheckpointRepository:
 
     @classmethod
     def _open_exclusive_regular(cls, path: Path) -> tuple[int, os.stat_result]:
-        descriptor = os.open(path, cls._exclusive_flags(), 0o600)
+        try:
+            descriptor = os.open(path, cls._exclusive_flags(), 0o600)
+        except OSError:
+            # Windows 会在目录 reparse point 上先返回 PermissionError。再次以
+            # no-follow 元数据核验，将链接/目录统一收敛为稳定的安全拒绝；普通
+            # 文件碰撞则保留 FileExistsError，供 owner claim 判定“已被占用”。
+            cls._require_safe_optional_file(path)
+            raise
         try:
             metadata = cls._validate_open_regular(descriptor, path)
         except BaseException:

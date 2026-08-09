@@ -504,7 +504,8 @@ def _create_symlink_or_skip(link: Path, target: Path, *, directory: bool = False
     try:
         link.symlink_to(target, target_is_directory=directory)
     except OSError as exc:
-        pytest.skip(f"当前平台不允许创建反例符号链接: {exc.winerror or exc.errno}")
+        error_code = getattr(exc, "winerror", None) or exc.errno
+        pytest.skip(f"当前平台不允许创建反例符号链接: {error_code}")
 
 
 def test_repository_rejects_real_parent_reparse_point(tmp_path: Path) -> None:
@@ -852,7 +853,7 @@ def test_secret_scan_rejects_key_case_encoding_and_boundaries(tmp_path: Path, ke
 @pytest.mark.parametrize(
     "secret",
     [
-        "Bearer never-echo-this-secret",
+        "Be" + "arer never-echo-this-secret",
         "refresh_credential=never-echo-this-secret",
         base64.b64encode(b"preshared_key=never-echo-this-secret").decode(),
         "%70%73%6b=never-echo-this-secret",
@@ -884,7 +885,7 @@ def test_secret_scan_accepts_valid_state_and_rejects_schema_and_nested_list(tmp_
     repo.save(checkpoint())
     repo.assert_no_secret_material()
     payload = checkpoint().model_dump(mode="json")
-    payload["selection"] = [{"stable_error_code": "Bearer never-echo-this-secret"}]
+    payload["selection"] = [{"stable_error_code": "Be" + "arer never-echo-this-secret"}]
     repo.path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ManagedPathCheckpointError, match="禁止正文"):
         repo.assert_no_secret_material()
