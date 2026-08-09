@@ -1062,6 +1062,9 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
     def lock_success(*_args: object) -> int:
         return 1
 
+    def lock_failure(*_args: object) -> int:
+        return 0
+
     def unlock_failure(*_args: object) -> int:
         return 0
 
@@ -1114,6 +1117,10 @@ def test_windows_handle_api_error_paths_are_stable(monkeypatch: pytest.MonkeyPat
         api.replace(1, Path("target"))
     with pytest.raises(OSError):
         api.unlink(1)
+    api._lock_file = lock_failure
+    api._unlock_file = unlock_failure
+    with pytest.raises(OSError), api.lock(1):
+        pass
     api._lock_file = lock_success
     api._unlock_file = unlock_failure
     with pytest.raises(OSError), api.lock(1):
