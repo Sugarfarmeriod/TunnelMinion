@@ -7,7 +7,7 @@ import ipaddress
 import json
 import sqlite3
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, Self
@@ -188,6 +188,9 @@ class NetworkAuthorizationGrant(BaseModel):
 
     @model_validator(mode="after")
     def validate_times(self) -> Self:
+        for value in (self.approved_at, self.expires_at, self.revoked_at):
+            if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
+                raise ValueError("授权时间必须使用 timezone-aware UTC")
         if self.expires_at <= self.approved_at:
             raise ValueError("授权过期时间必须晚于批准时间")
         if self.revoked_at is not None and self.revoked_at < self.approved_at:
