@@ -32,9 +32,9 @@
 ## 2. Windows/macOS 生产只读 PathProbe
 
 - [x] 2.1 先用受控 fixture 固定 `PathProbe` 共用契约：候选来源/网段/端口过滤、单并发、超时、取消、最小刷新间隔和四维证据时间
-  - 证据：`src/tunnelminion/network/path_probe.py` 固定候选上限 4、单候选 1s、target 2s、最小刷新 30s、单并发锁、取消传播和 endpoint/handshake/host-route/target 四维时间；`tests/network/test_path_probe.py` 以受控 fixture 覆盖契约。
+  - 证据：`src/tunnelminion/network/path_probe.py` 固定候选上限 4、单候选 1s、target 2s、`min_refresh_interval_seconds` 精确固定为 30s（小于或大于 30s 均 fail closed）、单并发锁、取消传播和 endpoint/handshake/host-route/target 四维时间；`tests/network/test_path_probe.py` 以受控时钟推进刷新窗口并覆盖拒绝短间隔。
 - [x] 2.2 实现 Windows 只读 endpoint/handshake/精确 host route/target probe 适配，权限不足或工具缺失只返回稳定降级且不提权、不执行任意命令
-  - 证据：`WindowsPathProbe` 仅消费固定参数的 `wg show` 与 `route.exe print` 只读观察器，支持 IPv4/IPv6 精确 host route，并将权限拒绝、能力缺失和读取失败稳定映射；平台定向测试覆盖成功、IPv6、权限/依赖/读取失败和缺失候选。
+  - 证据：`WindowsPathProbe` 仅消费固定参数的 `wg show` 与 `route.exe print` 只读观察器；`windows_route_contains_exact_host` 只解析 `Active Routes` 的固定表头和实际路由行，IPv4 要求 destination=目标、netmask=`255.255.255.255` 且 Interface 匹配目标接口地址，IPv6 要求 destination 恰为 `/128` 且 If 匹配只读 `if_nametoindex` 结果；标题、gateway 中的同地址、宽前缀、持久表、格式错误、非目标接口或接口不确定均 fail closed。受控 route.exe 格式 fixture 覆盖 IPv4/IPv6 正例与负例，并将权限、能力缺失和读取失败稳定映射。
 - [x] 2.3 实现 macOS 同契约只读适配，明确官方/受支持读取边界，不调用 Murus、防火墙写接口、route 写命令或 WireGuard 配置命令
   - 证据：`MacOSPathProbe` 仅消费固定参数的 `wg show` 与 `netstat -rn -f inet|inet6` 只读观察器，覆盖双地址族精确 host route，稳定降级且不含 Murus、防火墙、route 写入或 WireGuard 配置调用；平台定向测试覆盖相同失败边界。
 - [x] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、旧 handshake、route 缺失、target timeout、权限拒绝和取消矩阵
@@ -42,7 +42,7 @@
 - [ ] 2.5 在 Windows/macOS 只读环境保存探测前后网络不变性与来源证据；无法现场验证的平台保持对应真实门禁未完成，不用 fixture 代替
   - 现场门禁未完成：当前执行环境未同时提供可批准的 Windows/macOS 隔离资源与现场验证条件；本阶段未调用真实 PathProbe 或客户网络接口，受控 fixture 未被当作生产能力或现场证据。
 - [ ] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 质量门禁已执行并通过，但本任务按要求保持未完成：2.5 的双平台真实只读前后不变性与来源证据缺失，因此不将本地测试、fixture 或代码门禁外推为阶段完成。
+  - 质量门禁已执行并通过：全量 `912 passed, 5 skipped`、statement + branch coverage `100.00%`、Ruff、Pyright strict、限定范围秘密扫描和 OpenSpec strict 均通过；但本任务按要求保持未完成：2.5 的双平台真实只读前后不变性与来源证据缺失，因此不将本地测试、fixture 或代码门禁外推为阶段完成。
 
 ## 3. fake Provider 下的完整治理生命周期
 

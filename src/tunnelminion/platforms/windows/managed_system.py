@@ -5,7 +5,8 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-from collections.abc import Callable
+import socket
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Self
 
@@ -272,9 +273,11 @@ class WindowsWireGuardObserver:
         self,
         reader: SystemReader,
         commands: FixedWindowsWireGuardCommands,
+        interface_index: Callable[[str], int | None] | None = None,
     ) -> None:
         self._reader = reader
         self._commands = commands
+        self._interface_index = interface_index or system_interface_index
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
         interface = self._reader.interface(interface_name)
@@ -343,12 +346,16 @@ class WindowsWireGuardObserver:
         desired_routes = tuple(
             dict.fromkeys(route for peer in peers for route in peer.allowed_host_routes)
         )[:_MAX_ROUTES]
+        interface_addresses = _canonical_interface_ips(interface.addresses)
+        interface_index = self._interface_index(interface_name)
         present_routes: list[str] = []
         for route in desired_routes:
             result = await self._commands.query_route(route)
-            if (
-                result.returncode == 0
-                and str(ipaddress.ip_network(route, strict=True).network_address) in result.stdout
+            if result.returncode == 0 and windows_route_contains_exact_host(
+                result.stdout,
+                route,
+                interface_addresses=interface_addresses,
+                interface_index=interface_index,
             ):
                 present_routes.append(route)
         public = public_key.stdout.strip()
@@ -364,6 +371,127 @@ class WindowsWireGuardObserver:
             public_key_hash=canonical_sha256({"public_key": public}) if public else None,
             stable_interface_id=f"windows:{interface_name.casefold()}",
         )
+
+
+def windows_route_contains_exact_host(
+    stdout: str,
+    host_route: str,
+    *,
+    interface_addresses: Collection[str],
+    interface_index: int | None,
+) -> bool:
+    """解析固定 `route print` 活动表，只接受目标接口的精确 host route。"""
+    try:
+        network = ipaddress.ip_network(host_route, strict=True)
+    except ValueError:
+        return False
+    if network.prefixlen != network.max_prefixlen:
+        return False
+
+    active_routes = False
+    header_seen = False
+    target_addresses = _canonical_interface_ips(interface_addresses)
+    for line in stdout.splitlines():
+        text = line.strip()
+        lowered = text.casefold()
+        if lowered == "active routes:":
+            active_routes = True
+            header_seen = False
+            continue
+        if not active_routes:
+            continue
+        if lowered == "persistent routes:":
+            return False
+        parts = text.split()
+        lowered_parts = tuple(part.casefold() for part in parts)
+        if network.version == 4:
+            if lowered_parts == (
+                "network",
+                "destination",
+                "netmask",
+                "gateway",
+                "interface",
+                "metric",
+            ):
+                header_seen = True
+                continue
+            if not header_seen or len(parts) != 5:
+                continue
+            try:
+                destination = ipaddress.IPv4Address(parts[0])
+                netmask = ipaddress.IPv4Address(parts[1])
+                interface = ipaddress.IPv4Address(parts[3])
+                metric = int(parts[4])
+            except ValueError:
+                continue
+            gateway = parts[2]
+            gateway_v4: ipaddress.IPv4Address | None = None
+            if gateway.casefold() != "on-link":
+                try:
+                    gateway_v4 = ipaddress.IPv4Address(gateway)
+                except ValueError:
+                    continue
+            if (
+                metric < 1
+                or metric > 9999
+                or destination != network.network_address
+                or netmask != ipaddress.IPv4Address("255.255.255.255")
+                or str(interface) not in target_addresses
+                or gateway_v4 == destination
+            ):
+                continue
+            return True
+        else:
+            if lowered_parts == ("if", "metric", "network", "destination", "gateway"):
+                header_seen = True
+                continue
+            if not header_seen or len(parts) != 4:
+                continue
+            try:
+                route_interface = int(parts[0])
+                metric = int(parts[1])
+                destination = ipaddress.ip_network(parts[2], strict=False)
+            except ValueError:
+                continue
+            gateway = parts[3]
+            gateway_v6: ipaddress.IPv6Address | None = None
+            if gateway.casefold() != "on-link":
+                try:
+                    gateway_v6 = ipaddress.IPv6Address(gateway)
+                except ValueError:
+                    continue
+            if (
+                interface_index is None
+                or route_interface <= 0
+                or route_interface != interface_index
+                or metric < 1
+                or metric > 9999
+                or destination.version != 6
+                or destination.prefixlen != 128
+                or destination.network_address != network.network_address
+                or gateway_v6 == destination.network_address
+            ):
+                continue
+            return True
+    return False
+
+
+def _canonical_interface_ips(values: Collection[str]) -> frozenset[str]:
+    addresses: set[str] = set()
+    for value in values:
+        try:
+            address = ipaddress.ip_address(value.split("%", maxsplit=1)[0])
+        except ValueError:
+            continue
+        addresses.add(str(address))
+    return frozenset(addresses)
+
+
+def system_interface_index(interface_name: str) -> int | None:
+    try:
+        return socket.if_nametoindex(interface_name)
+    except (OSError, ValueError):
+        return None
 
 
 def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:

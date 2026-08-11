@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,9 @@ from tunnelminion.platforms.windows.managed_system import (
     WindowsProviderPaths,
     WindowsWireGuardObserver,
     parse_wireguard_endpoint,
+    system_interface_index,
     windows_is_administrator,
+    windows_route_contains_exact_host,
 )
 from tunnelminion.platforms.windows.models import (
     InterfaceSnapshot,
@@ -208,7 +211,16 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
         stderr="",
     )
     runner.results[(str(fixed.paths.route_exe), "print", "10.203.0.2")] = CommandResult(
-        returncode=0, stdout="route 10.203.0.2 present", stderr=""
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.203.0.2                255.255.255.255  On-link       10.203.0.1  1\n"
+            "Persistent Routes:\n"
+            "  None\n"
+        ),
+        stderr="",
     )
     runner.results[(str(fixed.paths.route_exe), "print", "10.203.0.3")] = CommandResult(
         returncode=1, stdout="", stderr=""
@@ -222,6 +234,7 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
             )
         ),
         fixed,
+        interface_index=lambda _name: 7,
     )
     snapshot = asyncio.run(observer.observe("tmn-test-a"))
     assert snapshot.service_running
@@ -245,6 +258,206 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
             }
         ).system_fingerprint
     )
+
+
+def test_windows_route_parser_accepts_exact_ipv4_and_ipv6_rows() -> None:
+    ipv4 = (
+        "IPv4 Route Table\n"
+        "Active Routes:\n"
+        "Network Destination        Netmask          Gateway       Interface  Metric\n"
+        "10.203.0.2                255.255.255.255  10.203.0.254  10.203.0.1  2\n"
+        "Persistent Routes:\n"
+        "  None\n"
+    )
+    assert windows_route_contains_exact_host(
+        ipv4,
+        "10.203.0.2/32",
+        interface_addresses=("10.203.0.1", "bad"),
+        interface_index=None,
+    )
+
+    ipv6 = (
+        "IPv6 Route Table\n"
+        "Active Routes:\n"
+        " If Metric Network Destination      Gateway\n"
+        " 7  5 fd00::2/128                    On-link\n"
+        "Persistent Routes:\n"
+        "  None\n"
+    )
+    assert windows_route_contains_exact_host(
+        ipv6,
+        "fd00::2/128",
+        interface_addresses=(),
+        interface_index=7,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stdout", "host_route", "interface_addresses", "interface_index"),
+    [
+        (
+            "IPv4 Route Table 10.203.0.2\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.0 On-link 10.203.0.1 1\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "malformed route row\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.255 10.203.0.2 10.203.0.1 1\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.255 On-link 10.203.0.99 1\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.255 bad-gateway 10.203.0.1 1\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.255 On-link 10.203.0.1 bad\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.2 255.255.255.255 On-link 10.203.0.1 10000\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\n"
+            "Network Destination Netmask Gateway Interface Metric\n"
+            "10.203.0.3 255.255.255.255 On-link 10.203.0.1 1\n"
+            "Persistent Routes:\n"
+            "10.203.0.2 255.255.255.255 On-link 10.203.0.1 1\n",
+            "10.203.0.2/32",
+            ("10.203.0.1",),
+            None,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n7 5 fd00::2/64 On-link\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\nmalformed route row\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n8 5 fd00::2/128 On-link\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n7 5 fd00::2/128 On-link\n",
+            "fd00::2/128",
+            (),
+            None,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n7 5 fd00::2/128 fd00::2\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n7 5 fd00::2/128 bad-gateway\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\n7 bad fd00::2/128 On-link\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+        (
+            "Active Routes:\nIf Metric Network Destination Gateway\nbad 5 fd00::2/128 On-link\n",
+            "fd00::2/128",
+            (),
+            7,
+        ),
+    ],
+)
+def test_windows_route_parser_fails_closed_for_ambiguous_rows(
+    stdout: str,
+    host_route: str,
+    interface_addresses: tuple[str, ...],
+    interface_index: int | None,
+) -> None:
+    assert not windows_route_contains_exact_host(
+        stdout,
+        host_route,
+        interface_addresses=interface_addresses,
+        interface_index=interface_index,
+    )
+
+
+def test_windows_route_parser_rejects_invalid_target_and_interface_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert not windows_route_contains_exact_host(
+        "Active Routes:\n",
+        "not-a-route",
+        interface_addresses=(),
+        interface_index=1,
+    )
+    assert not windows_route_contains_exact_host(
+        "Active Routes:\n",
+        "10.203.0.0/24",
+        interface_addresses=(),
+        interface_index=1,
+    )
+
+    def available(_name: str) -> int:
+        return 7
+
+    monkeypatch.setattr(socket, "if_nametoindex", available)
+    assert system_interface_index("tmn-test-a") == 7
+
+    def denied(_name: str) -> int:
+        raise OSError("denied")
+
+    monkeypatch.setattr(socket, "if_nametoindex", denied)
+    assert system_interface_index("tmn-test-a") is None
 
 
 def test_peer_snapshot_rejects_non_host_route() -> None:

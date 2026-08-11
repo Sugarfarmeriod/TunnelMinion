@@ -172,6 +172,8 @@ def test_policy_fixes_budget_ports_and_refresh_interval() -> None:
     with pytest.raises(ValidationError):
         policy(target_timeout_seconds=2.1)
     with pytest.raises(ValidationError):
+        policy(min_refresh_interval_seconds=29.9)
+    with pytest.raises(ValidationError):
         policy(min_refresh_interval_seconds=30.1)
     with pytest.raises(ValidationError):
         policy(approved_ports=(51820, 51820))
@@ -313,8 +315,11 @@ def test_probe_permission_and_unsupported_are_stable_degradations(
 
 def test_probe_handles_reader_timeout_and_permission_errors() -> None:
     timeout_reader = FactsReader(facts(), delay=0.05)
+    cancel = asyncio.Event()
     timed = run(
-        make_probe(timeout_reader, per_candidate_timeout_seconds=0.01).probe(**probe_args())
+        make_probe(timeout_reader, per_candidate_timeout_seconds=0.01).probe(
+            **probe_args(cancel_event=cancel)
+        )
     )
     assert timed.stable_error_code is DirectPathErrorCode.UNSUPPORTED
 
@@ -328,6 +333,15 @@ def test_probe_handles_reader_timeout_and_permission_errors() -> None:
     )
     result = run(denied_probe.probe(**probe_args()))
     assert result.stable_error_code is DirectPathErrorCode.PERMISSION_DENIED
+
+
+def test_probe_target_timeout_with_untriggered_cancel_event() -> None:
+    target = TargetReader(delay=0.05)
+    cancel = asyncio.Event()
+    probe = make_probe(FactsReader(facts()), target, target_timeout_seconds=0.01)
+    result = run(probe.probe(**probe_args(cancel_event=cancel)))
+    assert result.stable_error_code is DirectPathErrorCode.TARGET_UNREACHABLE
+    assert not result.target_probe_succeeded
 
 
 def test_probe_target_timeout_and_compatibility_methods() -> None:
@@ -356,6 +370,7 @@ def test_probe_cancellation_stops_facts_and_target() -> None:
         cancel.set()
         with pytest.raises(asyncio.CancelledError):
             await task
+        assert [item for item in asyncio.all_tasks() if item is not asyncio.current_task()] == []
 
     run(exercise())
     assert reader.active == 0
@@ -371,6 +386,7 @@ def test_probe_cancellation_stops_facts_and_target() -> None:
         cancel.set()
         with pytest.raises(asyncio.CancelledError):
             await task
+        assert [item for item in asyncio.all_tasks() if item is not asyncio.current_task()] == []
 
     run(cancel_target())
 

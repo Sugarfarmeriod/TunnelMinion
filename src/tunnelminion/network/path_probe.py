@@ -30,7 +30,7 @@ class PathProbePolicy(CandidateProbePolicy):
     max_candidates: int = Field(default=4, ge=1, le=4)
     per_candidate_timeout_seconds: float = Field(default=1.0, gt=0, le=1.0)
     target_timeout_seconds: float = Field(default=2.0, gt=0, le=2.0)
-    min_refresh_interval_seconds: float = Field(default=30.0, gt=0, le=30.0)
+    min_refresh_interval_seconds: float = Field(default=30.0, ge=30.0, le=30.0)
 
 
 class ObservedEndpoint(BaseModel):
@@ -306,16 +306,23 @@ class PlatformPathProbe:
         if cancel_event is None:
             return await asyncio.wait_for(task, timeout=timeout_seconds)
         cancel_task = asyncio.create_task(cancel_event.wait())
+        timeout_task = asyncio.create_task(asyncio.sleep(timeout_seconds))
         try:
-            done, _ = await asyncio.wait((task, cancel_task), return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                (task, cancel_task, timeout_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
             if cancel_task in done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
                 raise asyncio.CancelledError
+            if timeout_task in done:
+                raise TimeoutError
             return task.result()
         finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             cancel_task.cancel()
-            await asyncio.gather(cancel_task, return_exceptions=True)
+            timeout_task.cancel()
+            await asyncio.gather(cancel_task, timeout_task, return_exceptions=True)
 
     def _rank_candidates(
         self,
