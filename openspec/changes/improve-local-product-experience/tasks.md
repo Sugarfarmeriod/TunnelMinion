@@ -34,7 +34,7 @@
 - [ ] 3.3 由同一应用装配 owner 抽取 Windows/macOS 共用 Coordinator/path helper，连接真实 status/cache/path/evidence/authorization，避免已配置状态误报 `unconfigured`
 - [x] 3.4 由后端 owner 为 overview/operation model、OpenAPI、应用工厂装配、配置损坏、凭据缺失、同步未开始和未知枚举补齐 100% 分支覆盖契约测试
 - [x] 3.5 仅在 `frontend/src/features/overview` 实现本机、节点、服务和关键依赖卡片，显示来源、证据时间、新鲜度和下一步动作，不把原始 JSON 当主界面
-- [ ] 3.6 覆盖无模型、无 Coordinator、peer 离线、防火墙日志不可读、缓存过期和刷新恢复的组件/浏览器矩阵
+- [x] 3.6 覆盖无模型、无 Coordinator、peer 离线、防火墙日志不可读、缓存过期和刷新恢复的组件/浏览器矩阵
 - [ ] 3.7 在 Windows/macOS 开发运行中验收总览解释、加载/刷新延迟和初始 JS+CSS gzip 不超过 300 KiB，提交并推送 Overview 阶段
 
 ## 4. Chat 与公开 SSE
