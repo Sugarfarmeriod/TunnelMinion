@@ -2,7 +2,8 @@
 
 - [x] 0.1 从最新 `origin/main` 创建 `feature/local-product-experience`，确认工作树干净且不读取或修改 `docs/questions/`
 - [x] 0.2 建立 workstream→owner→文件表；`package.json`、`package-lock.json`、共享 API client/schema、公共路由、Python 应用工厂、package manifest、OpenSpec tasks 与集成分支始终只有一个写入者
-- [ ] 0.3 固定四张 legacy 页面、现有 API/OpenAPI、CSP、Windows/macOS package、关键用户流、压缩体积与加载/刷新延迟基线，fixture 不得读取秘密
+- [x] 0.3 固定四张 legacy 页面、现有 API/OpenAPI、CSP、Windows/macOS package、关键用户流、压缩体积与加载/刷新延迟基线，fixture 不得读取秘密
+  - 证据：`evaluations/baselines/local-product-interface-v1.json` 固定四页及别名响应、双平台一致 OpenAPI、legacy/生产 SPA CSP 与缓存、双平台 package、关键流程、`145073` bytes（`141.67 KiB`）gzip 及 Windows Chromium/macOS WebKit 加载与刷新延迟；`tests/evaluation/test_local_product_interface_baseline.py` 使用一旦读取密钥就失败的 trap，并逐项复核摘要和证据来源。
 - [x] 0.4 确认 `package-manual-node-runtime` 相关运行包分支栈已进入 `main`；在此之前只允许 package 只读审计和 clean-room harness，不复制第二套 builder
 - [ ] 0.5 每个阶段提交前复核 ownership、`git status`、diff、生成物和秘密范围；跨 owner 修改由 integration owner 串行合入
 
