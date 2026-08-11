@@ -9,6 +9,7 @@ from tunnelminion.platforms.windows.adapters import (
     WireGuardStatusAdapter,
 )
 from tunnelminion.platforms.windows.definitions import register_windows_tools
+from tunnelminion.platforms.windows.path_probe import WindowsPathProbe
 
 __all__ = [
     "DockerServicesAdapter",
@@ -16,6 +17,7 @@ __all__ = [
     "NodeSummaryAdapter",
     "ProcessSummaryAdapter",
     "ServiceReachabilityAdapter",
+    "WindowsPathProbe",
     "WireGuardStatusAdapter",
     "register_windows_tools",
 ]

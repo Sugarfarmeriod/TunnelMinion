@@ -10,8 +10,10 @@ import pytest
 from tunnelminion.network.contracts import ProviderMode
 from tunnelminion.platforms.macos.managed_system import (
     FixedMacOSWireGuardCommands,
+    MacOSPeerSnapshot,
     MacOSProviderPaths,
     MacOSWireGuardObserver,
+    parse_wireguard_endpoint,
 )
 from tunnelminion.platforms.macos.system import CommandResult
 
@@ -75,6 +77,7 @@ def test_paths_preflight_and_fixed_commands(tmp_path: Path) -> None:
     asyncio.run(commands.show("utun9", "public-key"))
     asyncio.run(commands.inspect_interface("utun9"))
     asyncio.run(commands.route_table())
+    asyncio.run(commands.route_table("inet6"))
     asyncio.run(commands.up("tmn-test-b", config))
     asyncio.run(commands.down("tmn-test-b", config))
     assert all(isinstance(command, tuple) and "sudo" not in command for command in runner.commands)
@@ -94,6 +97,8 @@ def test_fixed_commands_reject_dynamic_values(tmp_path: Path) -> None:
         asyncio.run(commands.show("utun9;id", "public-key"))
     with pytest.raises(ValueError):
         asyncio.run(commands.show("utun9", "private-key"))
+    with pytest.raises(ValueError):
+        asyncio.run(commands.route_table("bad"))
     with pytest.raises(ValueError):
         commands.config_path("utun4", 1)
     with pytest.raises(ValueError):
@@ -117,6 +122,9 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     )
     runner.results[(str(paths.wg), "show", "utun9", "public-key")] = result("public-b\n")
     runner.results[(str(paths.wg), "show", "utun9", "peers")] = result("peer-b\n")
+    runner.results[(str(paths.wg), "show", "utun9", "endpoints")] = result(
+        "peer-b\t[fd00::10]:51820\n"
+    )
     runner.results[(str(paths.wg), "show", "utun9", "allowed-ips")] = result(
         "peer-b\t10.203.0.1/32,10.0.0.0/8,bad\n \n"
     )
@@ -128,12 +136,17 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
         "not-a-route link#1 UCS utun9\n"
         "bad row\n"
     )
+    runner.results[(str(paths.netstat), "-rn", "-f", "inet6")] = result(
+        "Destination Gateway Flags Netif Expire\nfd00::2 fd00::1 UHS utun9\n"
+    )
     snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe("utun9"))
     assert snapshot.interface_up
     assert snapshot.addresses == ("10.203.0.2/32", "10.203.0.3/32")
-    assert snapshot.host_routes == ("10.203.0.1/32",)
+    assert snapshot.host_routes == ("10.203.0.1/32", "fd00::2/128")
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.1/32",)
     assert snapshot.peers[0].latest_handshake_epoch == 123
+    assert snapshot.peers[0].endpoint_host == "fd00::10"
+    assert snapshot.peers[0].endpoint_port == 51820
     assert snapshot.public_key_hash is not None
     assert snapshot.system_fingerprint.startswith("sha256:")
 
@@ -165,3 +178,10 @@ def test_observer_absent_permission_and_degraded_public_fields(tmp_path: Path) -
 
     runner.results[interfaces] = result("")
     assert not asyncio.run(MacOSWireGuardObserver(commands).observe("utun4")).interface_present
+
+
+def test_macos_peer_endpoint_and_parser_are_fail_closed() -> None:
+    with pytest.raises(ValueError, match="endpoint"):
+        MacOSPeerSnapshot(public_key="peer", endpoint_port=51820)
+    for value in ("", "(none)", "<none>", "bad", "[fd00::1]", "10.0.0.1:not-port", "10.0.0.1:0"):
+        assert parse_wireguard_endpoint(value) is None
