@@ -90,6 +90,13 @@ Windows Chromium 与 macOS B WebKit 26.5 均通过正式离线包验收。Memori
 - 截图只使用 fixture 的 `acceptance-user`、`home/lab`、合成 node ID、合成 endpoint/model；没有主机用户名、绝对路径、令牌或真实客户数据。
 - 限定 evidence 完整性扫描仅覆盖本目录：18 张 PNG 逐一重算 SHA256、10 个 JSON/Markdown 文本文件扫描秘密与绝对路径模式，哈希不匹配 0、秘密/路径 findings 0。
 
+## 失败记录与修复重跑
+
+- Windows 早期自定义运行曾因复用已有正式包父目录而被 `program` closed-set 检查拒绝；后续每次都改用新父目录并重新生成 fixture/data/receipt。
+- Windows 早期 harness 曾使用不一致的字段定位/缺少 base URL，导致 API 200 但没有可接受的记忆卡；随后完全复用 `package-product.spec.ts` 的 `getByLabel`、按钮、home→修正→lab 顺序和期望文案，在 `focus-windows-8` 全新 fixture 上通过。
+- Windows 完整流程第一次成功走到诊断后，临时脚本错误使用 Fetch 风格的 `headers.get`；改为 Playwright `headers()` 映射后，以新 fixture 重跑通过。
+- macOS B 第一次 Python harness 漏注入 axe，第二次被正式前端 CSP 拒绝 inline script；两次都只停止了对应隔离父目录的精确正式包进程。改用 `BrowserContext.add_init_script`，在全新 `focus-macos-4` fixture 上用 WebKit 26.5 重跑并通过。以上均未修改产品代码或公共测试。
+
 ## 质量门禁
 
 | 门禁 | 结果 |
