@@ -1,6 +1,6 @@
 {
   "schema_version": "macos-local-product-acceptance/v1",
-  "generated_at": "2026-08-11T11:47:39.2071655Z",
+  "generated_at": "2026-08-11T11:56:47Z",
   "platform": {
     "name": "macOS",
     "version": "26.5",
@@ -47,12 +47,18 @@
       "总览分别显示本机 ready、模型未配置、Coordinator 未配置和跨节点路径未配置",
       "真实浏览器同源写请求成功创建聊天线程",
       "按 operation ID 读取详情并打开对象明确的批准确认框",
+      "在全新隔离夹具中只提交一次批准，服务端返回 authorized，随后只允许 cancel",
+      "批准只改变 authorization 与 transition；lease、resource、verification、cleanup 均保持 0",
       "home 与 lab 两个长期记忆作用域保持隔离",
       "在原作用域内修正长期记忆并以服务端结果刷新",
       "axe serious/critical 违规为 0",
       "localStorage、sessionStorage 与 IndexedDB 均为空"
     ],
-    "screenshot": "webkit-overview-loaded.png"
+    "screenshots": [
+      "webkit-overview-loaded.png",
+      "operation-approve-submitted.png"
+    ],
+    "operation_approve_evidence": "operation-approve-safety.json"
   },
   "overview_latency_ms": {
     "method": "真实 macOS WebKit 加载 packaged FastAPI 页面；初始加载等待 networkidle、总览标题和 ready 状态，刷新等待 overview API 200 与 ready 状态",
@@ -79,6 +85,8 @@
     "fixture_contains_secrets": false,
     "repository_scanner_command": "python scripts/security_scan.py --root . --artifact build/acceptance/fixture/data --artifact build/acceptance/package",
     "repository_scanner_passed": true,
+    "approval_package_and_fixture_files_scanned": 147,
+    "approval_package_and_fixture_bytes_scanned": 62201673,
     "scanner_result": "no API key, gateway token, Bearer credential, or private key",
     "qwen_contacted": false,
     "external_model_api_called": false
@@ -91,10 +99,9 @@
     "playwright test --config playwright.package.config.ts --reporter=json",
     "playwright screenshot --browser=webkit --full-page --wait-for-timeout=3000 http://127.0.0.1:<loopback>/app/overview"
   ],
-  "scope_conclusion": "macOS arm64 正式离线包在真实 Mac 上启动成功；真实 packaged FastAPI、WebKit 产品主流程、降级表达、无障碍、浏览器零存储、加载/刷新延迟和秘密扫描在本切片范围内通过。",
+  "scope_conclusion": "macOS arm64 正式离线包在真实 Mac 上启动成功；真实 packaged FastAPI、WebKit 产品主流程、隔离批准写入、降级表达、无障碍、浏览器零存储、加载/刷新延迟和秘密扫描在本切片范围内通过。",
   "uncovered": [
     "当前 SSH 会话没有 macOS Screen Recording/Apple Events 授权，系统 Safari 人工截图无法取得；未修改系统权限。WebKit 自动化结果不会被写成 Safari 人工验收。",
-    "本切片只打开了安全夹具的批准确认框，没有提交批准写请求；真实隔离审批写入须在确认调用链无外部副作用后另行验证。",
     "没有修改或探测客户防火墙、WireGuard、路由、模型、秘密或自启动，也没有调用 Qwen 或外部模型 API。"
   ]
 }
