@@ -19,9 +19,28 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 - **WHEN** 当前账户无权读取 handshake/route 或平台没有受支持的只读接口
 - **THEN** lifecycle 发布对应稳定降级错误，不尝试提权、sudo prompt 或写入替代路径，其他本地功能继续运行
 
+### Requirement: 本机 L3 授权必须由单一权威 repository 持久化
+
+系统 SHALL 在现有本机网络治理 SQLite 数据库内，以独立 `network_authorization_grants` 表持久化 `NetworkAuthorizationGrant`，并把它作为 L3 授权的唯一事实来源。repository MUST 提供仅限显式本机控制面的原子 approve/revoke 写端口，以及供 policy、lifecycle、恢复和状态投影使用的只读查询端口；`NetworkOperationPolicy` 的 approve/revoke/evaluate MUST 委派给这些端口，不得继续维护可作为授权事实的私有内存 grant 表。普通启动、模型、对话、记忆、服务观察、Coordinator、页面和远端输入 MUST NOT 获得写端口。系统 MUST NOT 从执行记录、内存 grant、signed desired config 或 operation L2 preauthorization 推断、迁移或扩大 L3 授权。
+
+#### Scenario: 现有治理数据库首次升级
+
+- **WHEN** 现有治理数据库尚无 `network_authorization_grants` 表，但包含旧执行记录或进程内曾有 grant
+- **THEN** 系统只创建空授权表并视为没有授权，不从旧记录或内存推断 grant，pending 保持 `awaiting-authorization`
+
+#### Scenario: 授权跨重启与撤销
+
+- **WHEN** 本机控制面原子保存精确 scope 的 grant，应用重启后读取该 grant，随后本机控制面撤销它
+- **THEN** 重启后的只读查询返回同一授权且撤销后不可再匹配；相同 authorization ID 不得被覆盖为不同 scope，撤销不可逆
+
+#### Scenario: 授权存储不可证明可信
+
+- **WHEN** 授权记录 schema/payload 损坏、包含秘密字段、出现冲突记录或数据库读取失败
+- **THEN** repository fail closed 并返回稳定授权存储错误，lifecycle 不调用 Provider apply，也不回退到内存或执行记录
+
 ### Requirement: managed path 必须由单一授权治理生命周期执行
 
-系统 SHALL 以每个 network/node 单写者 lifecycle 串联 signed config pending、既有本机 L3 授权、Provider observe/plan/apply/verify/rollback/recover、`DirectPathVerifier` 与 `DirectPathController`。任何 Provider 写入前 MUST 重新读取并验证授权与 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期精确匹配；普通启动、模型、对话、记忆、服务观察、Coordinator 或页面 MUST NOT 创建、扩大或代替授权。
+系统 SHALL 以每个 network/node 单写者 lifecycle 串联 signed config pending、权威 repository 中的本机 L3 授权、Provider observe/plan/apply/verify/rollback/recover、`DirectPathVerifier` 与 `DirectPathController`。任何 Provider 写入前 MUST 从同一 repository 重新读取并验证授权与 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期精确匹配；普通启动、模型、对话、记忆、服务观察、Coordinator 或页面 MUST NOT 创建、扩大或代替授权。
 
 #### Scenario: 合法 pending 没有本机授权
 

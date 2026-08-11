@@ -2,7 +2,7 @@
 
 ### Requirement: managed config 必须进入既有治理而不是直接写系统
 
-运行时 SHALL 拉取并验证属于本机的签名 desired config，将合法下一 revision 保存为 pending，并由每个 network/node 的单一 managed path lifecycle 只通过现有本机持久化 L3 policy/authorization 和 Provider observe/plan/apply/verify/rollback/recover 边界执行。授权 MUST 与 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期精确匹配，并在 Provider apply 前重新读取。模型、对话、记忆、服务快照、Coordinator、页面和普通启动 MUST NOT 创建、扩大或代替授权，也不得直接调用网络写入。
+运行时 SHALL 拉取并验证属于本机的签名 desired config，将合法下一 revision 保存为 pending，并由每个 network/node 的单一 managed path lifecycle 只通过本机网络治理 SQLite 内唯一权威的 L3 grant repository 和 Provider observe/plan/apply/verify/rollback/recover 边界执行。授权 MUST 与 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期精确匹配，并在 Provider apply 前从同一 repository 重新读取。模型、对话、记忆、服务快照、Coordinator、页面和普通启动 MUST NOT 获得授权写端口、创建、扩大或代替授权，也不得直接调用网络写入。
 
 #### Scenario: 收到合法配置但没有本机授权
 
