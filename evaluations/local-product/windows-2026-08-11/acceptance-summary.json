@@ -18,7 +18,8 @@
     "external ASCII/Latin-1 package and fixture secret scan (matched text never emitted)",
     "pytest --no-cov --basetemp <writable-temp> [runtime package/fixture/browser tests]",
     "npm test --prefix frontend -- --run",
-    "openspec validate improve-local-product-experience --strict --no-interactive"
+    "openspec validate improve-local-product-experience --strict --no-interactive",
+    "fresh fixture + real Chromium UI approve once; capture request headers, response, latest detail, SQLite table deltas and isolated data boundary"
   ],
   "acceptance": {
     "clean_package": {
@@ -542,6 +543,288 @@
       "passed": true,
       "scanner": "ASCII/Latin-1 pattern scan; matched text never emitted",
       "generated_at": "2026-08-11T11:30:07.363Z"
+    },
+    "operation_approve_safety": {
+      "schema_version": "windows-local-product-operation-approve-safety/v1",
+      "source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+      "package_id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+      "platform": "windows",
+      "browser": {
+        "engine": "chromium",
+        "headless": true,
+        "version": "151.0.7922.34"
+      },
+      "fixture": {
+        "operation_id": "operation_11111111111111111111111111111111",
+        "data_root": "isolated temporary fixture; no user data/keyring"
+      },
+      "static_call_chain_proof": [
+        {
+          "path": "src/tunnelminion/web/operations.py",
+          "lines": "291-341",
+          "claim": "approve validates expiry/current state then calls AuthorizationService.approve_once(local_control=True); no workflow or adapter is called."
+        },
+        {
+          "path": "src/tunnelminion/operation/policy.py",
+          "lines": "233-265",
+          "claim": "approve_once only creates an authorization, transitions awaiting_authorization to authorized, and calls OperationStore.put."
+        },
+        {
+          "path": "src/tunnelminion/app.py",
+          "lines": "166-176",
+          "claim": "Windows OperationControlService is constructed without lifecycle; revoke/execution lifecycle is not connected to this local approval route."
+        },
+        {
+          "path": "src/tunnelminion/operation/workflow.py",
+          "lines": "174-224",
+          "claim": "The separate execute_authorized path is where evidence read, access-token secret write, adapter.create and verification begin; approve does not call it."
+        },
+        {
+          "path": "scripts/prepare_local_product_package_fixture.py",
+          "lines": "49-57,208-232",
+          "claim": "Fixture rejects secret-store get/set/delete during construction, allows only node-id/runtime.sqlite3, and scans fixture files."
+        },
+        {
+          "path": "scripts/run_runtime_package_clean_acceptance.py",
+          "lines": "85-107",
+          "claim": "Packaged process has no source/Node injection and external HTTP proxies point to a dead loopback port."
+        },
+        {
+          "path": "frontend/src/api/client.ts",
+          "lines": "42-56",
+          "claim": "Unsafe browser writes set X-TunnelMinion-Request: same-origin and use same-origin credentials."
+        },
+        {
+          "path": "frontend/src/features/operations/OperationDetailPage.tsx",
+          "lines": "confirmAction",
+          "claim": "After submit the UI closes the dialog and performs one GET refresh; no automatic POST replay is present."
+        }
+      ],
+      "preconditions": {
+        "baseline_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "3e7bb22a58e9c118f306bfe9cef36b3aadcb9e17f3002cc30096bc02e12c80fe"
+          }
+        ],
+        "before_approval_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          }
+        ],
+        "before_operation_db": {
+          "counts": {
+            "checkpoints": 0,
+            "long_term_memories": 2,
+            "operation_authorizations": 0,
+            "operation_cleanups": 0,
+            "operation_leases": 0,
+            "operation_preauthorizations": 0,
+            "operation_resources": 0,
+            "operation_transitions": 2,
+            "operation_verifications": 0,
+            "operations": 1,
+            "tool_artifacts": 0
+          },
+          "tables": [
+            "checkpoints",
+            "long_term_memories",
+            "operation_authorizations",
+            "operation_cleanups",
+            "operation_leases",
+            "operation_preauthorizations",
+            "operation_resources",
+            "operation_transitions",
+            "operation_verifications",
+            "operations",
+            "tool_artifacts"
+          ]
+        },
+        "package_server_host": "127.0.0.1",
+        "external_proxy_policy": "127.0.0.1:9 blackhole",
+        "no_model_or_coordinator_fixture": true
+      },
+      "ui_submission": {
+        "approve_dialog_opened": true,
+        "expiry_input": "2026-08-11T19:55",
+        "submitted_once": true,
+        "request_count": 1,
+        "request": {
+          "method": "POST",
+          "url": "http://127.0.0.1:4179/api/operations/operation_11111111111111111111111111111111/approve",
+          "headers": {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-tunnelminion-request": "same-origin"
+          },
+          "post_data": {
+            "operator": "target-local-user",
+            "expires_at": "2026-08-11T11:55:00.000Z"
+          }
+        },
+        "response": {
+          "status": 200,
+          "operation_id": "operation_11111111111111111111111111111111",
+          "status_value": "authorized",
+          "authorization_basis": "目标节点本地用户逐次批准"
+        },
+        "latest_detail_http_status": 200,
+        "latest_detail": {
+          "state": "authorized",
+          "allowed_actions": [
+            "cancel"
+          ]
+        },
+        "ui_success_message_seen": true
+      },
+      "isolated_side_effects": {
+        "before_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          }
+        ],
+        "after_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          },
+          {
+            "path": "runtime.sqlite3-shm",
+            "size": 32768,
+            "sha256": "be6efd9a2d4c1f5a6262061aebd2ee09a3ceaa49ec413eebef492da8e99726c8"
+          },
+          {
+            "path": "runtime.sqlite3-wal",
+            "size": 32992,
+            "sha256": "cc41ec27448942ad1feab07b7783785ef19b96e5877cd8c47f7e577e937f9b07"
+          }
+        ],
+        "new_files": [
+          "runtime.sqlite3-shm",
+          "runtime.sqlite3-wal"
+        ],
+        "changed_files": [],
+        "unexpected_data_entries": [],
+        "after_operation_db": {
+          "counts": {
+            "checkpoints": 0,
+            "long_term_memories": 2,
+            "operation_authorizations": 1,
+            "operation_cleanups": 0,
+            "operation_leases": 0,
+            "operation_preauthorizations": 0,
+            "operation_resources": 0,
+            "operation_transitions": 3,
+            "operation_verifications": 0,
+            "operations": 1,
+            "tool_artifacts": 0
+          },
+          "tables": [
+            "checkpoints",
+            "long_term_memories",
+            "operation_authorizations",
+            "operation_cleanups",
+            "operation_leases",
+            "operation_preauthorizations",
+            "operation_resources",
+            "operation_transitions",
+            "operation_verifications",
+            "operations",
+            "tool_artifacts"
+          ]
+        },
+        "no_execution_artifacts": true,
+        "no_model_secret_firewall_wireguard_startup_files": true,
+        "allowed_sqlite_sidecars": [
+          "runtime.sqlite3-shm",
+          "runtime.sqlite3-wal"
+        ],
+        "new_files_are_sqlite_sidecars": true,
+        "data_boundary_conclusion": "only the expected SQLite WAL/SHM sidecars appeared after the approval; no model, keyring, firewall, WireGuard, route or startup files"
+      },
+      "process_network_observation": {
+        "before_tasks": [],
+        "after_tasks": [],
+        "before_network": {
+          "available": false,
+          "pids": [],
+          "lines": [],
+          "non_loopback": []
+        },
+        "after_network": {
+          "available": false,
+          "pids": [],
+          "lines": [],
+          "non_loopback": []
+        },
+        "package_process_network_observation_available": false,
+        "non_loopback_package_endpoints_after": [],
+        "external_endpoint_observed": false
+      },
+      "browser_storage_after": {
+        "local": [],
+        "session": [],
+        "indexedDB": []
+      },
+      "no_secret_output": true,
+      "no_replay": true,
+      "no_external_side_effect": true,
+      "passed": true,
+      "generated_at": "2026-08-11T11:50:16.448Z",
+      "limitations": [
+        "Windows tasklist/netstat did not expose the frozen package PID in this managed session; no external endpoint is inferred from that empty snapshot. The safety conclusion instead rests on the static approve call chain, dead external proxy environment, absence of execution tables/resources and closed data boundary."
+      ],
+      "network_observation_conclusion": "unavailable_due_to_managed_process_snapshot_permissions; not used as sole proof"
+    },
+    "operation_approve_secret_scan": {
+      "schema_version": "windows-local-product-operation-approve-secret-scan/v1",
+      "files_scanned": 218,
+      "bytes_scanned": 63986368,
+      "hits": [],
+      "passed": true,
+      "scanner": "ASCII/Latin-1 patterns; matched text never emitted",
+      "generated_at": "2026-08-11T11:51:16.936Z"
     }
   },
   "test_results": {
@@ -557,18 +840,33 @@
     },
     "openspec_strict": "valid",
     "repository_security_scan": "passed",
-    "external_package_scan": "passed"
+    "external_package_scan": "passed",
+    "operation_approve_safety": {
+      "passed": true,
+      "request_count": 1,
+      "http_status": 200,
+      "latest_state": "authorized",
+      "no_execution_artifacts": true,
+      "note": "tasklist/netstat PID snapshot unavailable; static call-chain and local DB/file evidence are explicit"
+    },
+    "operation_approve_secret_scan": "passed",
+    "operation_approve_targeted": {
+      "passed": 17,
+      "warnings": 1,
+      "tests": "tests/web/test_operation_control.py + tests/evaluation/test_runtime_package_browser_server.py"
+    },
+    "openspec_strict_supplement": "valid"
   },
   "conclusions": [
     "Windows amd64 standalone package relocated outside the repository and served real FastAPI routes successfully.",
     "Overview first/refresh UI stayed operable; model, Coordinator, and network-path/peer evidence are explicit degraded states, not startup prerequisites.",
-    "Operation detail exposed and opened every action the fixture/server allowed (approve/reject/cancel); no write was submitted. Revoke was not advertised for the awaiting-authorization fixture and was not claimed.",
-    "Memory home/lab scope isolation, settings, redacted diagnostics download, 320 CSS px layout, CSP/cache/nosniff, empty browser storage, and secret scans passed."
+    "Memory home/lab scope isolation, settings, redacted diagnostics download, 320 CSS px layout, CSP/cache/nosniff, empty browser storage, and secret scans passed.",
+    "真实 Windows Chromium 提交了一次批准：POST 只发 1 次并返回 authorized；最新详情只允许 cancel，SQLite 有授权和状态转移但无 lease/resource/verification/cleanup，证明未进入执行器。"
   ],
   "uncovered": [
     "Windows system/browser OS-level 200% zoom was not reliably controllable from this Chromium harness; no deviceScaleFactor substitution was used. A separate 640x360 CSS-layout probe passed.",
     "This slice is headless Chromium; a human desktop GUI pass and customer firewall/WireGuard/Murus conditions were intentionally not used.",
     "The repository Playwright package config could not start its uv webServer in this locked-down worktree because the project environment cache/lock was inaccessible; the direct server harness exercised the same real package and Chromium instead, and the limitation is recorded rather than hidden."
   ],
-  "generated_at": "2026-08-11T11:34:44.609Z"
+  "generated_at": "2026-08-11T11:52:36.865Z"
 }
