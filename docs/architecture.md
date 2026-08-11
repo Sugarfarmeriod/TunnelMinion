@@ -33,7 +33,7 @@ flowchart LR
         proxyB[自有临时 HTTP 入口]
     end
 
-    model[OpenAI-compatible Qwen]
+    model[OpenAI-compatible 模型]
 
     user --> webA --> agentA
     agentA --> toolsA --> platformA
@@ -44,6 +44,14 @@ flowchart LR
     agentA --> model
     webB --> toolsB
     webB --> storesB
+```
+
+离线受审 SVG：[当前主架构图](assets/architecture/architecture-01.svg)。SVG 使用脚本内固定版本的
+Mermaid CLI 与[严格离线配置](mermaid-config.json)生成，再校验源摘要、脚本、HTML、外链、事件处理器和
+`foreignObject`。复核不需要 Node.js 或网络；更新源图后执行：
+
+```powershell
+uv run python scripts/validate_mermaid_docs.py docs/architecture.md --svg-dir docs/assets/architecture --config docs/mermaid-config.json --write
 ```
 
 两端结构一致，但每项服务的监听范围不同：
@@ -152,17 +160,19 @@ peer。模型可为状态生成解释，但启用或禁用模型后，Provider �
 
 ```mermaid
 flowchart LR
-    A["Windows A<br/>10.253.0.2/32<br/>tmn-accept-a.r1"]
-    HA["既有 HomeMac<br/>10.77.0.2"]
-    HB["既有 B WireGuard<br/>10.77.0.1"]
-    B["macOS B<br/>10.253.0.1/32<br/>utun7"]
-    P["临时目标探测<br/>TCP 18888"]
+    A["Windows A 10.253.0.2/32 tmn-accept-a.r1"]
+    HA["既有 HomeMac 10.77.0.2"]
+    HB["既有 B WireGuard 10.77.0.1"]
+    B["macOS B 10.253.0.1/32 utun7"]
+    P["临时目标探测 TCP 18888"]
 
-    A -->|"加密 WireGuard packet<br/>对端 /32 route"| HA
-    HA -->|"既有外层路径<br/>UDP 18889"| HB
+    A -->|"加密 WireGuard packet；对端 /32 route"| HA
+    HA -->|"既有外层路径；UDP 18889"| HB
     HB --> B
     B --> P
 ```
+
+离线受审 SVG：[真实 A/B 路径图](assets/architecture/architecture-02.svg)。
 
 `HomeMac` 与 B 原 `utun4` 只是新 WireGuard 会话的外层可达路径，不归本次 Provider 所有。
 只有新鲜 handshake、对端 `/32` route 和 A 发起的目标探测同时通过时才标记 `direct`。
