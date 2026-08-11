@@ -51,7 +51,8 @@
 - [x] 5.2 批准、拒绝、取消和撤销前复读最新详情、允许动作与 state，使用对象明确确认、单次提交和超时后只查询不重放；复读不替代服务端状态迁移、授权与幂等冲突检查
 - [x] 5.3 展示目标证据、风险、访问者、端口、有效期、授权依据、verification、owned resources、cleanup record、manual action 与脱敏错误
 - [x] 5.4 覆盖重复点击、陈旧列表、过期批准、权限拒绝、网络超时、请求节点离线、rollback/cleanup failure 与模型/Coordinator 离线撤销
-- [ ] 5.5 在隔离资源上执行 Windows/macOS 真实操作 UI 验收，确认零秘密输出，提交并推送 Operations 阶段
+- [x] 5.5 在隔离资源上执行 Windows/macOS 真实操作 UI 验收，确认零秘密输出，提交并推送 Operations 阶段
+  - 证据：Windows Chromium 与 macOS WebKit 均在正式离线包的全新隔离 fixture 中通过 UI 只提交一次批准，服务端返回 `authorized`；授权与状态迁移之外的 lease/resource/verification/cleanup 均保持为零，浏览器存储为空，package/fixture 秘密扫描零命中。平台证据分别由 PR #53、#54 提交、推送并串行合入本分支。
 
 ## 6. Memories、Settings 与 Diagnostics
 
