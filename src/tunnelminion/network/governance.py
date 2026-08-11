@@ -23,8 +23,10 @@ from tunnelminion.network.contracts import (
     ManagedResourceOwnership,
     NetworkAcknowledgement,
     NetworkAction,
+    NetworkError,
     NetworkErrorCode,
     NetworkPlan,
+    OwnershipState,
     ProviderKind,
     ProviderReceipt,
     ReceiptStatus,
@@ -32,6 +34,11 @@ from tunnelminion.network.contracts import (
     SignedDesiredConfig,
     VerificationResult,
     canonical_sha256,
+)
+from tunnelminion.network.path_controller import (
+    DirectPathEvidence,
+    NetworkPathType,
+    PathSelection,
 )
 from tunnelminion.network.provider import NetworkProvider
 from tunnelminion.tools.contracts import ToolCancellationToken
@@ -59,15 +66,27 @@ _GRANT_SECRET_KEY_FRAGMENTS = (
 class NetworkGovernancePhase(StrEnum):
     """本机 L3 网络操作的持久化阶段。"""
 
+    OBSERVING = "observing"
+    PLANNING = "planning"
+    RECHECKING = "rechecking"
     AWAITING_AUTHORIZATION = "awaiting_authorization"
     AUTHORIZED = "authorized"
     APPLYING = "applying"
+    APPLIED = "applied"
     VERIFYING = "verifying"
+    PROVIDER_VERIFIED = "provider_verified"
+    PATH_VERIFYING = "path_verifying"
+    PATH_RECONCILING = "path_reconciling"
+    PATH_DEGRADED = "path_degraded"
+    ROLLING_BACK = "rolling_back"
+    ACKNOWLEDGING = "acknowledging"
     VERIFIED = "verified"
     ROLLED_BACK = "rolled_back"
     OWNERSHIP_CONFLICT = "ownership_conflict"
     MANUAL_INTERVENTION = "manual_intervention"
     CANCELLED = "cancelled"
+    RECOVERING = "recovering"
+    RECOVERY_REQUIRED = "recovery_required"
 
 
 class NetworkPolicyAction(StrEnum):
@@ -601,6 +620,31 @@ class NetworkOperationPolicy:
         )
 
 
+class NetworkJournalEntry(BaseModel):
+    """一次已落盘的生命周期边界；不保存计划正文或秘密。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sequence: int = Field(ge=0)
+    phase: NetworkGovernancePhase
+    idempotency_key: str = Field(pattern=r"^netop_[0-9a-f]{64}$")
+    plan_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    occurred_at: datetime
+    receipt_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    verification_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    path_evidence_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    stable_error_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_time(self) -> Self:
+        if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() != timedelta(0):
+            raise ValueError("生命周期 journal 时间必须使用 timezone-aware UTC")
+        return self
+
+
+LifecycleJournalEntry = NetworkJournalEntry
+
+
 class NetworkGovernanceRecord(BaseModel):
     """崩溃后可恢复且不含秘密的网络治理记录。"""
 
@@ -614,6 +658,39 @@ class NetworkGovernanceRecord(BaseModel):
     receipt: ProviderReceipt | None = None
     verification: VerificationResult | None = None
     updated_at: datetime
+    stable_error_code: str | None = Field(default=None, min_length=1, max_length=128)
+    path_evidence: DirectPathEvidence | None = None
+    path_selection: PathSelection | None = None
+    last_known_good_revision: int | None = Field(default=None, ge=1)
+    acknowledgement_delivered: bool = False
+    path_status_delivered: bool = False
+    journal: tuple[NetworkJournalEntry, ...] = Field(default=(), max_length=128)
+
+    @model_validator(mode="after")
+    def validate_lifecycle_bindings(self) -> Self:
+        if self.updated_at.tzinfo is None or self.updated_at.utcoffset() != timedelta(0):
+            raise ValueError("治理记录时间必须使用 timezone-aware UTC")
+        previous = -1
+        for entry in self.journal:
+            if entry.sequence != previous + 1:
+                raise ValueError("生命周期 journal 序号必须连续")
+            if (
+                entry.idempotency_key != self.idempotency_key
+                or entry.plan_hash != self.plan.plan_hash
+            ):
+                raise ValueError("生命周期 journal 必须绑定同一计划")
+            previous = entry.sequence
+        if self.path_evidence is not None:
+            if self.path_evidence.revision != self.plan.desired.revision:
+                raise ValueError("路径证据 revision 必须绑定计划")
+            if self.path_evidence.provider is not self.plan.desired.provider:
+                raise ValueError("路径证据 Provider 必须绑定计划")
+        if (
+            self.path_selection is not None
+            and self.path_selection.revision < self.plan.desired.revision
+        ):
+            raise ValueError("路径选择 revision 不得早于计划")
+        return self
 
 
 class SQLiteNetworkGovernanceStore:
@@ -687,7 +764,12 @@ class SQLiteNetworkGovernanceStore:
         rows = self._connection.execute(
             """
             SELECT payload FROM network_governance
-            WHERE json_extract(payload, '$.phase') IN ('applying', 'verifying')
+            WHERE json_extract(payload, '$.phase') IN (
+                'observing', 'planning', 'authorized', 'rechecking',
+                'applying', 'applied', 'verifying', 'provider_verified',
+                'path_verifying', 'path_reconciling', 'rolling_back',
+                'acknowledging', 'recovering'
+            )
             ORDER BY revision
             """
         ).fetchall()
@@ -730,6 +812,59 @@ class NetworkPathStatus(BaseModel):
     last_handshake_at: datetime | None = None
     last_probe_at: datetime | None = None
     stable_error_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class NetworkPathVerificationSource(Protocol):
+    """只接收结构化计划并返回脱敏 path evidence 的读取边界。"""
+
+    async def verify(self, plan: NetworkPlan, *, now: datetime) -> DirectPathEvidence: ...
+
+
+class NetworkPathController(Protocol):
+    """只消费 path evidence 的控制器边界，不持有 Provider 写权限。"""
+
+    @property
+    def selection(self) -> PathSelection: ...
+
+    async def reconcile(
+        self,
+        evidence: DirectPathEvidence,
+        *,
+        fallback: NetworkPathType = NetworkPathType.STATIC,
+    ) -> PathSelection: ...
+
+
+class NetworkPathStatusSink(Protocol):
+    """按固定幂等键接收脱敏 path status 的发布边界。"""
+
+    async def publish(self, status: NetworkPathStatus, *, idempotency_key: str) -> None: ...
+
+
+class NetworkOwnershipLedger(Protocol):
+    """崩溃恢复使用的只读所有权账本端口。"""
+
+    def get(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> object | None: ...
+
+
+class LifecycleCrashBoundary(StrEnum):
+    """fake 验收可注入的崩溃边界。"""
+
+    PLAN = "plan"
+    APPLY = "apply"
+    VERIFY = "verify"
+    ACK = "ack"
+
+
+class LifecycleInjectedCrash(RuntimeError):
+    """只用于隔离 fake 验收，不代表平台进程错误。"""
+
+
+class ManagedPathLifecycleError(RuntimeError):
+    """生命周期无法安全持久化或恢复时的稳定边界错误。"""
 
 
 class ManagedNetworkGovernanceWorkflow:
@@ -983,6 +1118,733 @@ class ManagedNetworkGovernanceWorkflow:
         except (ConnectionError, TimeoutError):
             # 控制面确认可稍后重放，不能反向决定本机 Provider 的正确性。
             return
+
+    @staticmethod
+    def _idempotency_key(plan: NetworkPlan) -> str:
+        digest = canonical_sha256(
+            {
+                "network_id": str(plan.desired.network_id),
+                "node_id": str(plan.desired.target_node_id),
+                "revision": plan.desired.revision,
+                "plan_hash": plan.plan_hash,
+            }
+        ).removeprefix("sha256:")
+        return f"netop_{digest}"
+
+    def _now(self) -> datetime:
+        now = self._clock()
+        if now.tzinfo is None:
+            raise ValueError("治理时钟必须包含时区")
+        return now.astimezone(UTC)
+
+
+_LIFECYCLE_UNSET = object()
+
+
+class ManagedPathLifecycle:
+    """串联授权、Provider 与 path controller 的单写者 fake/平台通用生命周期。"""
+
+    def __init__(
+        self,
+        provider: NetworkProvider,
+        policy: NetworkOperationPolicy,
+        store: SQLiteNetworkGovernanceStore,
+        acknowledgements: NetworkAcknowledgementSink | None,
+        *,
+        path_verifier: NetworkPathVerificationSource,
+        path_controller: NetworkPathController,
+        path_status_sink: NetworkPathStatusSink | None = None,
+        ledger: NetworkOwnershipLedger | None = None,
+        clock: Callable[[], datetime] | None = None,
+        commit_last_known_good: Callable[[SignedDesiredConfig], object] | None = None,
+        crash_after: LifecycleCrashBoundary | None = None,
+    ) -> None:
+        self._provider = provider
+        self._policy = policy
+        self._store = store
+        self._acknowledgements = acknowledgements
+        self._path_verifier = path_verifier
+        self._path_controller = path_controller
+        self._path_status_sink = path_status_sink
+        self._ledger = ledger
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._commit_last_known_good = commit_last_known_good
+        self._crash_after = crash_after
+        self._lock = asyncio.Lock()
+        policy.bind(store.authorization_repository)
+
+    async def reconcile(
+        self,
+        envelope: SignedDesiredConfig,
+        *,
+        action: NetworkAction,
+        ownership: ManagedResourceOwnership | None,
+        cancellation: ToolCancellationToken | None = None,
+    ) -> NetworkGovernanceRecord:
+        """执行一次受控生命周期；所有 Provider 写入都经过 apply 前二次授权读取。"""
+        if self._lock.locked():
+            raise RuntimeError("受管 path lifecycle 已在运行")
+        token = cancellation or ToolCancellationToken()
+        async with self._lock:
+            desired = envelope.config
+            existing = self._store.get(
+                desired.network_id,
+                desired.target_node_id,
+                desired.revision,
+            )
+            if existing is not None and existing.phase in {
+                NetworkGovernancePhase.VERIFIED,
+                NetworkGovernancePhase.PATH_DEGRADED,
+            }:
+                return await self._retry_sinks(existing)
+            if existing is not None and existing.phase is NetworkGovernancePhase.RECOVERY_REQUIRED:
+                return existing
+            if (
+                existing is not None
+                and existing.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
+            ):
+                decision = self._evaluate_authorization(existing.plan)
+                if decision is None:
+                    return await self._authorization_wait(
+                        existing,
+                        code="local_l3_authorization_storage_unavailable",
+                    )
+                if decision.action is not NetworkPolicyAction.EXECUTE:
+                    return await self._authorization_wait(existing, code=decision.code)
+                record = self._journal(
+                    existing,
+                    NetworkGovernancePhase.AUTHORIZED,
+                    authorization_id=decision.authorization_id,
+                    acknowledgement_delivered=False,
+                    path_status_delivered=False,
+                    stable_error_code=None,
+                )
+                self._maybe_crash(LifecycleCrashBoundary.PLAN)
+                if token.cancelled:
+                    return self._journal(
+                        record,
+                        NetworkGovernancePhase.CANCELLED,
+                        stable_error_code=NetworkErrorCode.CANCELLED.value,
+                    )
+                self._check_cancelled(token)
+                record = self._journal(record, NetworkGovernancePhase.RECHECKING)
+                rechecked = self._evaluate_authorization(record.plan)
+                if rechecked is None:
+                    return await self._authorization_wait(
+                        record,
+                        code="local_l3_authorization_storage_unavailable",
+                    )
+                if (
+                    rechecked.action is not NetworkPolicyAction.EXECUTE
+                    or rechecked.authorization_id != record.authorization_id
+                ):
+                    return await self._authorization_wait(record, code=rechecked.code)
+                return await self._apply_and_verify(record, token)
+            if existing is not None and existing.phase in {
+                NetworkGovernancePhase.OBSERVING,
+                NetworkGovernancePhase.PLANNING,
+                NetworkGovernancePhase.AUTHORIZED,
+                NetworkGovernancePhase.RECHECKING,
+                NetworkGovernancePhase.APPLYING,
+                NetworkGovernancePhase.APPLIED,
+                NetworkGovernancePhase.VERIFYING,
+                NetworkGovernancePhase.PROVIDER_VERIFIED,
+                NetworkGovernancePhase.PATH_VERIFYING,
+                NetworkGovernancePhase.PATH_RECONCILING,
+                NetworkGovernancePhase.ROLLING_BACK,
+                NetworkGovernancePhase.ACKNOWLEDGING,
+                NetworkGovernancePhase.RECOVERING,
+            }:
+                return await self._recover_record(existing, token)
+
+            self._check_cancelled(token)
+            observed = await self._provider.observe(desired.interface_name)
+            plan = await self._provider.plan(
+                action=action,
+                desired=desired,
+                observed=observed,
+                ownership=ownership,
+            )
+            record = NetworkGovernanceRecord(
+                envelope=envelope,
+                plan=plan,
+                phase=NetworkGovernancePhase.OBSERVING,
+                idempotency_key=self._idempotency_key(plan),
+                updated_at=self._now(),
+            )
+            record = self._journal(record, NetworkGovernancePhase.OBSERVING)
+            record = self._journal(record, NetworkGovernancePhase.PLANNING)
+            self._maybe_crash(LifecycleCrashBoundary.PLAN)
+
+            decision = self._evaluate_authorization(plan)
+            if decision is None:
+                return await self._authorization_wait(
+                    record,
+                    code="local_l3_authorization_storage_unavailable",
+                )
+            if decision.action is not NetworkPolicyAction.EXECUTE:
+                return await self._authorization_wait(record, code=decision.code)
+            record = self._journal(
+                record,
+                NetworkGovernancePhase.AUTHORIZED,
+                authorization_id=decision.authorization_id,
+                acknowledgement_delivered=False,
+                path_status_delivered=False,
+                stable_error_code=None,
+            )
+            self._check_cancelled(token)
+            record = self._journal(record, NetworkGovernancePhase.RECHECKING)
+            rechecked = self._evaluate_authorization(plan)
+            if rechecked is None:
+                return await self._authorization_wait(
+                    record,
+                    code="local_l3_authorization_storage_unavailable",
+                )
+            if (
+                rechecked.action is not NetworkPolicyAction.EXECUTE
+                or rechecked.authorization_id != record.authorization_id
+            ):
+                return await self._authorization_wait(record, code=rechecked.code)
+            return await self._apply_and_verify(record, token)
+
+    async def recover(
+        self,
+        cancellation: ToolCancellationToken | None = None,
+    ) -> tuple[NetworkGovernanceRecord, ...]:
+        """先读取授权、journal、账本和实时状态，再选择验证或回滚；绝不调用 apply。"""
+        if self._lock.locked():
+            raise RuntimeError("受管 path lifecycle 已在运行")
+        token = cancellation or ToolCancellationToken()
+        async with self._lock:
+            recoverable = self._store.list_recoverable()
+            results: list[NetworkGovernanceRecord] = []
+            for record in recoverable:
+                results.append(await self._recover_record(record, token))
+            return tuple(results)
+
+    async def _apply_and_verify(
+        self,
+        record: NetworkGovernanceRecord,
+        cancellation: ToolCancellationToken,
+    ) -> NetworkGovernanceRecord:
+        record = self._journal(record, NetworkGovernancePhase.APPLYING)
+        if cancellation.cancelled:
+            return self._journal(
+                record,
+                NetworkGovernancePhase.CANCELLED,
+                stable_error_code=NetworkErrorCode.CANCELLED.value,
+            )
+        try:
+            receipt = await self._provider.apply(
+                record.plan,
+                idempotency_key=record.idempotency_key,
+                cancellation=cancellation,
+            )
+        except asyncio.CancelledError:
+            self._journal(
+                record,
+                NetworkGovernancePhase.APPLYING,
+                stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+            )
+            raise
+        except TimeoutError:
+            self._journal(
+                record,
+                NetworkGovernancePhase.APPLYING,
+                stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+            )
+            raise
+        self._maybe_crash(LifecycleCrashBoundary.APPLY)
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.APPLIED,
+            receipt=receipt,
+            stable_error_code=(receipt.error.code.value if receipt.error else None),
+        )
+        if receipt.status is not ReceiptStatus.APPLIED:
+            return await self._rollback(record, receipt, cancellation=cancellation)
+
+        record = self._journal(record, NetworkGovernancePhase.VERIFYING)
+        verification = await self._provider.verify(record.plan)
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.PROVIDER_VERIFIED,
+            verification=verification,
+            stable_error_code=(verification.error.code.value if verification.error else None),
+        )
+        self._maybe_crash(LifecycleCrashBoundary.VERIFY)
+        if not verification.succeeded:
+            return await self._rollback(record, receipt, cancellation=cancellation)
+        return await self._verify_path(record)
+
+    async def _verify_path(self, record: NetworkGovernanceRecord) -> NetworkGovernanceRecord:
+        record = self._journal(record, NetworkGovernancePhase.PATH_VERIFYING)
+        try:
+            evidence = await self._path_verifier.verify(record.plan, now=self._now())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            degraded = self._degrade_path(record, "path_probe_failed")
+            return await degraded
+        if (
+            evidence.revision != record.plan.desired.revision
+            or evidence.provider is not record.plan.desired.provider
+        ):
+            return await self._degrade_path(record, "path_evidence_binding_mismatch")
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.PATH_RECONCILING,
+            path_evidence=evidence,
+            stable_error_code=(
+                evidence.stable_error_code.value if evidence.stable_error_code else None
+            ),
+        )
+        try:
+            selection = await self._path_controller.reconcile(
+                evidence,
+                fallback=NetworkPathType.STATIC,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return await self._degrade_path(record, "path_controller_failed")
+        if not evidence.verified:
+            return await self._degrade_path(
+                record,
+                evidence.stable_error_code.value
+                if evidence.stable_error_code is not None
+                else "path_verify_failed",
+                selection=selection,
+            )
+        committed = True
+        stable_error: str | None = None
+        if self._commit_last_known_good is not None:
+            try:
+                self._commit_last_known_good(record.envelope)
+            except Exception:
+                committed = False
+                stable_error = "last_known_good_checkpoint_failed"
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.ACKNOWLEDGING,
+            path_evidence=evidence,
+            path_selection=selection,
+            last_known_good_revision=(record.plan.desired.revision if committed else None),
+            stable_error_code=stable_error,
+        )
+        return await self._deliver_sinks(
+            record,
+            final_phase=NetworkGovernancePhase.VERIFIED,
+            acknowledgement_stage=AcknowledgementStage.VERIFIED,
+        )
+
+    async def _degrade_path(
+        self,
+        record: NetworkGovernanceRecord,
+        stable_error_code: str,
+        *,
+        selection: PathSelection | None = None,
+    ) -> NetworkGovernanceRecord:
+        chosen = selection
+        if chosen is None:
+            try:
+                current = self._path_controller.selection
+            except Exception:
+                current = None
+            if current is not None and current.revision >= record.plan.desired.revision:
+                chosen = current
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.PATH_DEGRADED,
+            path_selection=chosen,
+            stable_error_code=stable_error_code,
+        )
+        return await self._deliver_sinks(
+            record,
+            final_phase=NetworkGovernancePhase.PATH_DEGRADED,
+            acknowledgement_stage=AcknowledgementStage.APPLIED,
+        )
+
+    async def _rollback(
+        self,
+        record: NetworkGovernanceRecord,
+        receipt: ProviderReceipt,
+        *,
+        cancellation: ToolCancellationToken,
+    ) -> NetworkGovernanceRecord:
+        record = self._journal(record, NetworkGovernancePhase.ROLLING_BACK)
+        try:
+            rolled = await self._provider.rollback(
+                record.plan,
+                receipt,
+                cancellation=cancellation,
+            )
+        except asyncio.CancelledError:
+            raise
+        phase = NetworkGovernancePhase.MANUAL_INTERVENTION
+        stage = AcknowledgementStage.MANUAL_INTERVENTION
+        if rolled.status is ReceiptStatus.ROLLED_BACK:
+            phase = NetworkGovernancePhase.ROLLED_BACK
+            stage = AcknowledgementStage.ROLLED_BACK
+        elif rolled.error is not None and rolled.error.code is NetworkErrorCode.OWNERSHIP_CONFLICT:
+            phase = NetworkGovernancePhase.OWNERSHIP_CONFLICT
+            stage = AcknowledgementStage.OWNERSHIP_CONFLICT
+        record = self._journal(
+            record,
+            phase,
+            receipt=rolled,
+            stable_error_code=(rolled.error.code.value if rolled.error else None),
+        )
+        return await self._ack_only(record, stage=stage)
+
+    async def _recover_record(
+        self,
+        original: NetworkGovernanceRecord,
+        cancellation: ToolCancellationToken,
+    ) -> NetworkGovernanceRecord:
+        record = self._journal(original, NetworkGovernancePhase.RECOVERING)
+        decision = self._evaluate_authorization(record.plan)
+        if decision is None or (
+            decision.action is not NetworkPolicyAction.EXECUTE
+            or decision.authorization_id != record.authorization_id
+        ):
+            return self._journal(
+                record,
+                NetworkGovernancePhase.RECOVERY_REQUIRED,
+                stable_error_code=(
+                    "local_l3_authorization_storage_unavailable"
+                    if decision is None
+                    else decision.code
+                ),
+            )
+        try:
+            observed = await self._provider.observe(record.plan.desired.interface_name)
+        except Exception:
+            return self._journal(
+                record,
+                NetworkGovernancePhase.RECOVERY_REQUIRED,
+                stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+            )
+        if not self._ledger_matches(record.plan) or observed.ownership in {
+            OwnershipState.OBSERVED_USER,
+            OwnershipState.OWNERSHIP_CONFLICT,
+            OwnershipState.OWNERSHIP_UNKNOWN,
+        }:
+            return await self._ack_only(
+                self._journal(
+                    record,
+                    NetworkGovernancePhase.OWNERSHIP_CONFLICT,
+                    stable_error_code=NetworkErrorCode.OWNERSHIP_CONFLICT.value,
+                ),
+                stage=AcknowledgementStage.OWNERSHIP_CONFLICT,
+            )
+
+        if original.phase is NetworkGovernancePhase.ACKNOWLEDGING:
+            final = (
+                NetworkGovernancePhase.VERIFIED
+                if original.path_evidence is not None and original.path_evidence.verified
+                else NetworkGovernancePhase.PATH_DEGRADED
+            )
+            stage = (
+                AcknowledgementStage.VERIFIED
+                if final is NetworkGovernancePhase.VERIFIED
+                else AcknowledgementStage.APPLIED
+            )
+            return await self._deliver_sinks(
+                record,
+                final_phase=final,
+                acknowledgement_stage=stage,
+            )
+
+        receipt = record.receipt
+        if receipt is None:
+            if original.phase in {
+                NetworkGovernancePhase.OBSERVING,
+                NetworkGovernancePhase.PLANNING,
+                NetworkGovernancePhase.AUTHORIZED,
+                NetworkGovernancePhase.RECHECKING,
+            }:
+                verification = await self._provider.verify(record.plan)
+                return self._journal(
+                    record,
+                    NetworkGovernancePhase.RECOVERY_REQUIRED,
+                    verification=verification,
+                    stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+                )
+            try:
+                recovered = await self._provider.recover(cancellation=cancellation)
+            except Exception:
+                return self._journal(
+                    record,
+                    NetworkGovernancePhase.RECOVERY_REQUIRED,
+                    stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+                )
+            receipt = next(
+                (item for item in recovered if item.plan_hash == record.plan.plan_hash),
+                None,
+            )
+            if receipt is None:
+                return self._journal(
+                    record,
+                    NetworkGovernancePhase.RECOVERY_REQUIRED,
+                    stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+                )
+            record = self._journal(
+                record,
+                NetworkGovernancePhase.APPLIED,
+                receipt=receipt,
+                stable_error_code=(receipt.error.code.value if receipt.error else None),
+            )
+        if receipt.status is not ReceiptStatus.APPLIED:
+            terminal_phase = NetworkGovernancePhase.MANUAL_INTERVENTION
+            terminal_stage = AcknowledgementStage.MANUAL_INTERVENTION
+            if receipt.status is ReceiptStatus.ROLLED_BACK:
+                terminal_phase = NetworkGovernancePhase.ROLLED_BACK
+                terminal_stage = AcknowledgementStage.ROLLED_BACK
+            elif receipt.status is ReceiptStatus.CANCELLED:
+                terminal_phase = NetworkGovernancePhase.CANCELLED
+            return await self._ack_only(
+                self._journal(
+                    record,
+                    terminal_phase,
+                    stable_error_code=(receipt.error.code.value if receipt.error else None),
+                ),
+                stage=terminal_stage,
+            )
+        verification = await self._provider.verify(record.plan)
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.PROVIDER_VERIFIED,
+            verification=verification,
+            stable_error_code=(verification.error.code.value if verification.error else None),
+        )
+        if not verification.succeeded:
+            return await self._rollback(record, receipt, cancellation=cancellation)
+        return await self._verify_path(record)
+
+    async def _authorization_wait(
+        self,
+        record: NetworkGovernanceRecord,
+        *,
+        code: str,
+    ) -> NetworkGovernanceRecord:
+        record = self._journal(
+            record,
+            NetworkGovernancePhase.AWAITING_AUTHORIZATION,
+            authorization_id=None,
+            stable_error_code=code,
+        )
+        return await self._ack_only(
+            record,
+            stage=AcknowledgementStage.AWAITING_AUTHORIZATION,
+        )
+
+    async def _ack_only(
+        self,
+        record: NetworkGovernanceRecord,
+        *,
+        stage: AcknowledgementStage,
+    ) -> NetworkGovernanceRecord:
+        if record.acknowledgement_delivered:
+            return record
+        if self._acknowledgements is None:
+            return self._journal(
+                record,
+                record.phase,
+                acknowledgement_delivered=True,
+            )
+        try:
+            await self._acknowledgements.acknowledge(self._acknowledgement(record, stage))
+        except Exception:
+            return self._journal(record, record.phase, stable_error_code="ack_sink_failed")
+        return self._journal(
+            record,
+            record.phase,
+            acknowledgement_delivered=True,
+        )
+
+    async def _deliver_sinks(
+        self,
+        record: NetworkGovernanceRecord,
+        *,
+        final_phase: NetworkGovernancePhase,
+        acknowledgement_stage: AcknowledgementStage,
+    ) -> NetworkGovernanceRecord:
+        acknowledgement_was_pending = not record.acknowledgement_delivered
+        record = await self._ack_only(record, stage=acknowledgement_stage)
+        if not record.acknowledgement_delivered:
+            return self._journal(record, final_phase)
+        if acknowledgement_was_pending:
+            self._maybe_crash(LifecycleCrashBoundary.ACK)
+        if self._path_status_sink is None:
+            return self._journal(
+                record,
+                final_phase,
+                path_status_delivered=True,
+            )
+        if not record.path_status_delivered:
+            try:
+                await self._path_status_sink.publish(
+                    self._path_status(record),
+                    idempotency_key=record.idempotency_key,
+                )
+            except Exception:
+                return self._journal(record, final_phase, stable_error_code="path_sink_failed")
+            record = self._journal(
+                record,
+                final_phase,
+                path_status_delivered=True,
+            )
+        return record
+
+    async def _retry_sinks(self, record: NetworkGovernanceRecord) -> NetworkGovernanceRecord:
+        if record.acknowledgement_delivered and record.path_status_delivered:
+            return record
+        pending = self._journal(record, NetworkGovernancePhase.ACKNOWLEDGING)
+        stage = (
+            AcknowledgementStage.VERIFIED
+            if record.phase is NetworkGovernancePhase.VERIFIED
+            else AcknowledgementStage.APPLIED
+        )
+        return await self._deliver_sinks(
+            pending,
+            final_phase=record.phase,
+            acknowledgement_stage=stage,
+        )
+
+    def _evaluate_authorization(self, plan: NetworkPlan) -> NetworkPolicyDecision | None:
+        try:
+            return self._policy.evaluate(plan, at=self._now())
+        except NetworkAuthorizationStorageError:
+            return None
+
+    def _ledger_matches(self, plan: NetworkPlan) -> bool:
+        if self._ledger is None:
+            return True
+        entry = self._ledger.get(plan.desired.network_id, plan.desired.target_node_id)
+        if plan.action is NetworkAction.CREATE:
+            return True
+        ownership = getattr(entry, "ownership", None)
+        return ownership is not None and ownership == plan.ownership
+
+    def _journal(
+        self,
+        record: NetworkGovernanceRecord,
+        phase: NetworkGovernancePhase,
+        *,
+        authorization_id: AuthorizationId | None | object = _LIFECYCLE_UNSET,
+        receipt: ProviderReceipt | None | object = _LIFECYCLE_UNSET,
+        verification: VerificationResult | None | object = _LIFECYCLE_UNSET,
+        path_evidence: DirectPathEvidence | None | object = _LIFECYCLE_UNSET,
+        path_selection: PathSelection | None | object = _LIFECYCLE_UNSET,
+        last_known_good_revision: int | None | object = _LIFECYCLE_UNSET,
+        acknowledgement_delivered: bool | object = _LIFECYCLE_UNSET,
+        path_status_delivered: bool | object = _LIFECYCLE_UNSET,
+        stable_error_code: str | None | object = _LIFECYCLE_UNSET,
+    ) -> NetworkGovernanceRecord:
+        updates: dict[str, object] = {
+            "phase": phase,
+            "updated_at": self._now(),
+        }
+        for name, value in (
+            ("authorization_id", authorization_id),
+            ("receipt", receipt),
+            ("verification", verification),
+            ("path_evidence", path_evidence),
+            ("path_selection", path_selection),
+            ("last_known_good_revision", last_known_good_revision),
+            ("acknowledgement_delivered", acknowledgement_delivered),
+            ("path_status_delivered", path_status_delivered),
+            ("stable_error_code", stable_error_code),
+        ):
+            if value is not _LIFECYCLE_UNSET:
+                updates[name] = value
+        candidate = record.model_copy(update=updates)
+        entry = NetworkJournalEntry(
+            sequence=len(record.journal),
+            phase=phase,
+            idempotency_key=candidate.idempotency_key,
+            plan_hash=candidate.plan.plan_hash,
+            occurred_at=candidate.updated_at,
+            receipt_hash=(
+                canonical_sha256(candidate.receipt.model_dump(mode="json"))
+                if candidate.receipt is not None
+                else None
+            ),
+            verification_hash=(
+                canonical_sha256(candidate.verification.model_dump(mode="json"))
+                if candidate.verification is not None
+                else None
+            ),
+            path_evidence_hash=(
+                canonical_sha256(candidate.path_evidence.model_dump(mode="json"))
+                if candidate.path_evidence is not None
+                else None
+            ),
+            stable_error_code=candidate.stable_error_code,
+        )
+        result = candidate.model_copy(update={"journal": (*record.journal, entry)})
+        try:
+            self._store.put(result)
+        except Exception as exc:
+            raise ManagedPathLifecycleError("治理 lifecycle journal 持久化失败") from exc
+        return result
+
+    def _acknowledgement(
+        self,
+        record: NetworkGovernanceRecord,
+        stage: AcknowledgementStage,
+    ) -> NetworkAcknowledgement:
+        receipt_hash = (
+            canonical_sha256(record.receipt.model_dump(mode="json"))
+            if record.receipt is not None
+            else None
+        )
+        error = None
+        if record.stable_error_code is not None and stage is not AcknowledgementStage.VERIFIED:
+            error = NetworkError(
+                code=(
+                    NetworkErrorCode.RECOVERY_REQUIRED
+                    if record.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+                    else NetworkErrorCode.VERIFY_FAILED
+                ),
+                message="managed path lifecycle 未达到独立验证完成条件",
+                correlation_id=record.plan.plan_hash,
+            )
+        return NetworkAcknowledgement(
+            network_id=record.plan.desired.network_id,
+            node_id=record.plan.desired.target_node_id,
+            revision=record.plan.desired.revision,
+            stage=stage,
+            plan_hash=record.plan.plan_hash,
+            receipt_hash=receipt_hash,
+            error=error,
+            acknowledged_at=self._now(),
+        )
+
+    def _path_status(self, record: NetworkGovernanceRecord) -> NetworkPathStatus:
+        evidence = record.path_evidence
+        selection = record.path_selection
+        return NetworkPathStatus(
+            network_id=record.plan.desired.network_id,
+            node_id=record.plan.desired.target_node_id,
+            revision=record.plan.desired.revision,
+            path_type=(selection.path_type.value if selection is not None else "static"),
+            candidate_count=(evidence.candidate_count if evidence is not None else 0),
+            last_handshake_at=(evidence.last_handshake_at if evidence is not None else None),
+            last_probe_at=(evidence.observed_at if evidence is not None else None),
+            stable_error_code=record.stable_error_code,
+        )
+
+    def _maybe_crash(self, boundary: LifecycleCrashBoundary) -> None:
+        if self._crash_after is boundary:
+            self._crash_after = None
+            raise LifecycleInjectedCrash(f"fake lifecycle crash after {boundary.value}")
+
+    @staticmethod
+    def _check_cancelled(cancellation: ToolCancellationToken) -> None:
+        if cancellation.cancelled:
+            raise asyncio.CancelledError
 
     @staticmethod
     def _idempotency_key(plan: NetworkPlan) -> str:

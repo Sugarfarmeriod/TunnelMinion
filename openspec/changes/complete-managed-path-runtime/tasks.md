@@ -46,12 +46,18 @@
 
 ## 3. fake Provider 下的完整治理生命周期
 
-- [ ] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
-- [ ] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
-- [ ] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
-- [ ] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
-- [ ] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
-- [ ] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
+  - 证据：`ManagedPathLifecycle.reconcile` 串联授权、observe、plan、recheck、apply、Provider verify、path verify/controller 与 sinks；全量测试和 `tests/network/test_managed_path_lifecycle.py` 已验证顺序。
+- [x] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
+  - 证据：固定 `netop_` 幂等键、SQLite journal、单写者锁、取消安全点、LKG 条件以及 ack 先于 path status；生命周期顺序与重复 apply 测试通过。
+- [x] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
+  - 证据：fake 矩阵覆盖授权成功、apply success、`VERIFY_FAILURE`、path failure、`STEP_FAILURE`、rollback failure、ownership conflict 和 manual intervention。
+- [x] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
+  - 证据：plan/apply/verify/ack 四个注入崩溃边界均先核对授权、journal、ledger 与实时状态恢复；恢复断言 `apply_calls` 不再增加。
+- [x] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
+  - 证据：授权存储、Provider、probe、controller、LKG checkpoint、ack/path sink 及 pull/verify/pending 同步域分别故障时保持 fail-closed、static/pending/LKG 与只读边界。
+- [x] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：Ruff format/check、Pyright strict、全量 `pytest`（936 passed、5 skipped、100% statement+branch）、限定范围秘密/debug 扫描及 OpenSpec strict 均通过；本阶段仅使用隔离 fake，未宣称真实 Provider/A/B 完成。
 
 ## 4. 证据 TTL、刷新与真实状态投影
 
