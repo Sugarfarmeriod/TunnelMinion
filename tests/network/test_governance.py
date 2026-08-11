@@ -35,13 +35,16 @@ from tunnelminion.network.contracts import (
 from tunnelminion.network.fakes import FakeProviderBehavior, InMemoryNetworkProvider
 from tunnelminion.network.governance import (
     ManagedNetworkGovernanceWorkflow,
+    NetworkAuthorizationConflictError,
     NetworkAuthorizationGrant,
     NetworkAuthorizationScope,
+    NetworkAuthorizationStorageError,
     NetworkGovernancePhase,
     NetworkGovernanceRecord,
     NetworkOperationPolicy,
     NetworkPathStatus,
     NetworkPolicyAction,
+    SQLiteNetworkAuthorizationRepository,
     SQLiteNetworkGovernanceStore,
     redacted_path_status_payload,
 )
@@ -495,6 +498,7 @@ def test_scope_rejects_noncanonical_values_and_invalid_grant_times() -> None:
             revision=1,
             parent_revision=0,
             plan_hash=f"sha256:{'b' * 64}",
+            observed_fingerprint=f"sha256:{'c' * 64}",
         )
     valid = NetworkAuthorizationScope(
         network_id=NETWORK_ID,
@@ -512,6 +516,7 @@ def test_scope_rejects_noncanonical_values_and_invalid_grant_times() -> None:
         revision=1,
         parent_revision=0,
         plan_hash=f"sha256:{'b' * 64}",
+        observed_fingerprint=f"sha256:{'c' * 64}",
     )
     invalid_scopes = (
         {"allowed_host_routes": frozenset({"2001:0db8::2/128"})},
@@ -549,3 +554,349 @@ def test_scope_rejects_noncanonical_values_and_invalid_grant_times() -> None:
     )
     with pytest.raises(ValueError, match="秘密"):
         redacted_path_status_payload(secret_status)
+
+
+@pytest.mark.anyio
+async def test_authorization_repository_migrates_restarts_and_revokes_irreversibly(
+    tmp_path: Path,
+) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    governance, policy, store, _ = workflow(tmp_path, provider)
+    awaiting = await governance.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    grant = grant_for(awaiting)
+    policy.approve(grant, local_control=True)
+
+    # 新连接只从同一治理 SQLite 的授权表恢复，不依赖进程内状态。
+    restarted = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
+    assert restarted.list_grants(NETWORK_ID, NODE_A) == (grant,)
+    assert not hasattr(restarted.read_only, "approve")
+    assert (
+        NetworkOperationPolicy(restarted).evaluate(awaiting.plan, at=NOW).action
+        is NetworkPolicyAction.EXECUTE
+    )
+
+    revoked = restarted.revoke(
+        grant.authorization_id,
+        revoked_at=NOW + timedelta(seconds=1),
+        local_control=True,
+    )
+    assert revoked.revoked_at == NOW + timedelta(seconds=1)
+    assert (
+        NetworkOperationPolicy(restarted).evaluate(awaiting.plan, at=NOW).action
+        is NetworkPolicyAction.AWAIT_AUTHORIZATION
+    )
+    with pytest.raises(NetworkAuthorizationConflictError, match="不同授权范围"):
+        restarted.approve(grant, local_control=True)
+    with pytest.raises(NetworkAuthorizationConflictError, match="不可重新写入"):
+        restarted.revoke(
+            grant.authorization_id,
+            revoked_at=NOW + timedelta(seconds=2),
+            local_control=True,
+        )
+    assert (
+        SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3").get(
+            grant.authorization_id
+        )
+        == revoked
+    )
+    restarted.close()
+    assert store.authorization_repository.list_grants(NETWORK_ID, NODE_A) == (revoked,)
+
+
+@pytest.mark.anyio
+async def test_authorization_repository_rejects_scope_conflicts_and_corrupt_payload(
+    tmp_path: Path,
+) -> None:
+    envelope, _ = signed()
+    governance, policy, _, _ = workflow(tmp_path, InMemoryNetworkProvider(observation()))
+    awaiting = await governance.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    grant = grant_for(awaiting)
+    policy.approve(grant, local_control=True)
+    repository = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
+
+    conflicting = grant.model_copy(
+        update={
+            "scope": grant.scope.model_copy(update={"observed_fingerprint": f"sha256:{'f' * 64}"})
+        }
+    )
+    with pytest.raises(NetworkAuthorizationConflictError, match="不同授权范围"):
+        repository.approve(conflicting, local_control=True)
+
+    connection = sqlite3.connect(tmp_path / "governance.sqlite3")
+    connection.execute(
+        "UPDATE network_authorization_grants SET payload = ? WHERE authorization_id = ?",
+        ('{"private_key":"do-not-store"}', str(grant.authorization_id)),
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="秘密字段"):
+        repository.list_grants(NETWORK_ID, NODE_A)
+
+
+def test_authorization_repository_rejects_index_mismatch_and_read_failure(tmp_path: Path) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    repository = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
+    plan = asyncio.run(
+        provider.plan(
+            action=NetworkAction.CREATE,
+            desired=envelope.config,
+            observed=observation(),
+            ownership=None,
+        )
+    )
+    grant = NetworkAuthorizationGrant(
+        authorization_id=AuthorizationId.new(),
+        scope=NetworkAuthorizationScope.from_plan(plan, address_pool="10.203.0.0/24"),
+        approved_by="local-owner",
+        approved_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+    repository.approve(grant, local_control=True)
+    connection = sqlite3.connect(tmp_path / "governance.sqlite3")
+    connection.execute(
+        "UPDATE network_authorization_grants SET network_id = ? WHERE authorization_id = ?",
+        (f"network_{'b' * 32}", str(grant.authorization_id)),
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(NetworkAuthorizationConflictError, match="索引"):
+        repository.list_grants(NETWORK_ID, NODE_A)
+
+    repository.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="结构读取失败"):
+        repository.list_grants(NETWORK_ID, NODE_A)
+
+
+def test_authorization_repository_uses_store_read_port(tmp_path: Path) -> None:
+    store = SQLiteNetworkGovernanceStore(tmp_path / "store-reader.sqlite3")
+    assert store.list_grants(NETWORK_ID, NODE_A) == ()
+
+
+def test_authorization_repository_validation_and_defensive_fail_closed_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ValueError, match="路径或现有连接"):
+        SQLiteNetworkAuthorizationRepository()
+    connection = sqlite3.connect(":memory:")
+    with pytest.raises(ValueError, match="路径或现有连接"):
+        SQLiteNetworkAuthorizationRepository(tmp_path / "both.sqlite3", connection=connection)
+    connection.close()
+
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    plan = asyncio.run(
+        provider.plan(
+            action=NetworkAction.CREATE,
+            desired=envelope.config,
+            observed=observation(),
+            ownership=None,
+        )
+    )
+    grant = NetworkAuthorizationGrant(
+        authorization_id=AuthorizationId.new(),
+        scope=NetworkAuthorizationScope.from_plan(plan, address_pool="10.203.0.0/24"),
+        approved_by="local-owner",
+        approved_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+    repository = SQLiteNetworkAuthorizationRepository(":memory:")
+    assert repository.approve(grant, local_control=True) == grant
+    assert repository.approve(grant, local_control=True) == grant
+    assert repository.revoke(
+        grant.authorization_id,
+        revoked_at=NOW + timedelta(seconds=1),
+        local_control=True,
+    ).revoked_at == NOW + timedelta(seconds=1)
+    assert repository.revoke(
+        grant.authorization_id,
+        revoked_at=NOW + timedelta(seconds=1),
+        local_control=True,
+    ).revoked_at == NOW + timedelta(seconds=1)
+    with pytest.raises(NetworkAuthorizationStorageError, match="未找到"):
+        repository.revoke(AuthorizationId.new(), revoked_at=NOW, local_control=True)
+    with pytest.raises(ValueError, match="撤销时间"):
+        repository.revoke(
+            grant.authorization_id, revoked_at=NOW.replace(tzinfo=None), local_control=True
+        )
+    repository.assert_no_secret_material()
+    repository.close()
+    assert repository._owns_connection is True  # pyright: ignore[reportPrivateUsage]
+
+    store = SQLiteNetworkGovernanceStore(tmp_path / "shared.sqlite3")
+    store.authorization_repository.close()  # 共享连接由 store 所有，关闭这里是 no-op。
+    assert store.authorization_repository._owns_connection is False  # pyright: ignore[reportPrivateUsage]
+
+    policy = NetworkOperationPolicy()
+    with pytest.raises(NetworkAuthorizationStorageError, match="尚未绑定"):
+        policy.read_port()
+    first = SQLiteNetworkAuthorizationRepository(":memory:")
+    second = SQLiteNetworkAuthorizationRepository(":memory:")
+    policy.bind(first)
+    with pytest.raises(ValueError, match="多个"):
+        policy.bind(second)
+    first.close()
+    second.close()
+
+    # 解析层拒绝 JSON、秘密键、非对象、未知字段和非字符串行。
+    cases = (
+        ("{", "合法 JSON"),
+        ("[]", "格式不可验证"),
+        ('{"secret":"value"}', "秘密字段"),
+        ("{}", "payload 不可验证"),
+    )
+    for index, (payload, message) in enumerate(cases):
+        path = tmp_path / f"payload-{index}.sqlite3"
+        case_repo = SQLiteNetworkAuthorizationRepository(path)
+        case_repo.approve(
+            grant.model_copy(update={"authorization_id": AuthorizationId.new()}), local_control=True
+        )
+        case_connection = sqlite3.connect(path)
+        case_connection.execute("UPDATE network_authorization_grants SET payload = ?", (payload,))
+        case_connection.commit()
+        case_connection.close()
+        with pytest.raises(NetworkAuthorizationStorageError, match=message):
+            case_repo.list_grants(NETWORK_ID, NODE_A)
+        case_repo.close()
+
+    malformed = SQLiteNetworkAuthorizationRepository(tmp_path / "malformed.sqlite3")
+    malformed_grant = grant.model_copy(update={"authorization_id": AuthorizationId.new()})
+    malformed.approve(malformed_grant, local_control=True)
+    malformed_connection = sqlite3.connect(tmp_path / "malformed.sqlite3")
+    malformed_connection.execute(
+        "UPDATE network_authorization_grants SET payload = ?",
+        ('{"scope":{"secret_value":"x"}}',),
+    )
+    malformed_connection.commit()
+    malformed_connection.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="秘密字段"):
+        malformed.list_grants(NETWORK_ID, NODE_A)
+    malformed.close()
+
+    invalid_row = SQLiteNetworkAuthorizationRepository(tmp_path / "invalid-row.sqlite3")
+    invalid_grant = grant.model_copy(update={"authorization_id": AuthorizationId.new()})
+    invalid_row.approve(invalid_grant, local_control=True)
+    invalid_connection = sqlite3.connect(tmp_path / "invalid-row.sqlite3")
+    invalid_connection.execute(
+        "UPDATE network_authorization_grants SET payload = ?",
+        (sqlite3.Binary(b"not-text"),),
+    )
+    invalid_connection.commit()
+    invalid_connection.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="记录格式"):
+        invalid_row.list_grants(NETWORK_ID, NODE_A)
+    invalid_row.close()
+
+    bad_schema = SQLiteNetworkAuthorizationRepository(tmp_path / "bad-schema.sqlite3")
+    bad_schema._connection.execute(  # pyright: ignore[reportPrivateUsage]
+        "DROP TABLE network_authorization_grants"
+    )
+    bad_schema._connection.execute(  # pyright: ignore[reportPrivateUsage]
+        "CREATE TABLE network_authorization_grants (authorization_id TEXT PRIMARY KEY)"
+    )
+    with pytest.raises(NetworkAuthorizationStorageError, match="结构不可验证"):
+        bad_schema.list_grants(NETWORK_ID, NODE_A)
+    bad_schema.close()
+
+    invalid_grant = grant.model_copy(update={"approved_at": NOW.replace(tzinfo=None)})
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        NetworkAuthorizationGrant.model_validate(invalid_grant.model_dump())
+
+    constructor_bad_schema = tmp_path / "constructor-bad-schema.sqlite3"
+    constructor_connection = sqlite3.connect(constructor_bad_schema)
+    constructor_connection.execute(
+        "CREATE TABLE network_authorization_grants "
+        "(authorization_id TEXT, network_id TEXT, node_id TEXT, payload TEXT)"
+    )
+    constructor_connection.commit()
+    constructor_connection.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="结构不可验证"):
+        SQLiteNetworkAuthorizationRepository(constructor_bad_schema)
+
+    closed_connection = sqlite3.connect(":memory:")
+    closed_connection.close()
+    with pytest.raises(NetworkAuthorizationStorageError, match="迁移失败"):
+        SQLiteNetworkAuthorizationRepository(connection=closed_connection)
+
+    read_failure = SQLiteNetworkAuthorizationRepository(":memory:")
+    monkeypatch.setattr(read_failure, "_validate_schema", lambda: None)
+    read_failure._connection.close()  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(NetworkAuthorizationStorageError, match="记录读取失败"):
+        read_failure.list_grants(NETWORK_ID, NODE_A)
+
+    transaction_sql_failure = SQLiteNetworkAuthorizationRepository(":memory:")
+    transaction_sql_failure._connection.close()  # pyright: ignore[reportPrivateUsage]
+    with (
+        pytest.raises(NetworkAuthorizationStorageError, match="事务失败"),
+        transaction_sql_failure._transaction(),  # pyright: ignore[reportPrivateUsage]
+    ):
+        pass
+
+    transaction_repo = SQLiteNetworkAuthorizationRepository(":memory:")
+    with pytest.raises(RuntimeError, match="test transaction"), transaction_repo._transaction():  # pyright: ignore[reportPrivateUsage]
+        raise RuntimeError("test transaction")
+    transaction_repo.close()
+
+    duplicate = SQLiteNetworkAuthorizationRepository(tmp_path / "duplicate.sqlite3")
+    duplicate._connection.execute(  # pyright: ignore[reportPrivateUsage]
+        "DROP TABLE network_authorization_grants"
+    )
+    duplicate._connection.execute(  # pyright: ignore[reportPrivateUsage]
+        "CREATE TABLE network_authorization_grants "
+        "(authorization_id TEXT, network_id TEXT, node_id TEXT, payload TEXT)"
+    )
+    payload = grant.model_dump_json()
+    duplicate._connection.executemany(  # pyright: ignore[reportPrivateUsage]
+        "INSERT INTO network_authorization_grants VALUES (?, ?, ?, ?)",
+        [
+            (str(grant.authorization_id), str(NETWORK_ID), str(NODE_A), payload),
+            (str(grant.authorization_id), str(NETWORK_ID), str(NODE_A), payload),
+        ],
+    )
+    duplicate._connection.commit()  # pyright: ignore[reportPrivateUsage]
+    # 用 monkeypatch 保留冲突表的测试目的，绕过正常表结构的主键门禁。
+    monkeypatch.setattr(duplicate, "_validate_schema", lambda: None)
+    with pytest.raises(NetworkAuthorizationConflictError, match="重复"):
+        duplicate.list_grants(NETWORK_ID, NODE_A)
+    with pytest.raises(NetworkAuthorizationConflictError, match="冲突记录"):
+        duplicate.approve(grant, local_control=True)
+    with pytest.raises(NetworkAuthorizationConflictError, match="冲突记录"):
+        duplicate.revoke(grant.authorization_id, revoked_at=NOW, local_control=True)
+    duplicate.close()
+
+    compare_and_swap = SQLiteNetworkAuthorizationRepository(":memory:")
+    compare_and_swap.approve(grant, local_control=True)
+    original_safe_payload = (  # pyright: ignore[reportPrivateUsage]
+        SQLiteNetworkAuthorizationRepository._safe_payload  # pyright: ignore[reportPrivateUsage]
+    )
+
+    def mutate_before_update(value: NetworkAuthorizationGrant) -> str:
+        compare_and_swap._connection.execute(  # pyright: ignore[reportPrivateUsage]
+            "UPDATE network_authorization_grants SET payload = payload || ' ' "
+            "WHERE authorization_id = ?",
+            (str(value.authorization_id),),
+        )
+        return original_safe_payload(value)
+
+    monkeypatch.setattr(
+        SQLiteNetworkAuthorizationRepository,
+        "_safe_payload",
+        staticmethod(mutate_before_update),
+    )
+    with pytest.raises(NetworkAuthorizationConflictError, match="并发冲突"):
+        compare_and_swap.revoke(
+            grant.authorization_id,
+            revoked_at=NOW + timedelta(seconds=1),
+            local_control=True,
+        )
+    compare_and_swap.close()
