@@ -1,0 +1,38 @@
+{
+  "schema_version": "windows-local-product-operation-actions/v1",
+  "operation_id": "operation_11111111111111111111111111111111",
+  "allowed_actions": [
+    "approve",
+    "reject",
+    "cancel"
+  ],
+  "matrix": [
+    {
+      "action": "approve",
+      "available": true,
+      "confirmation_dialog": true,
+      "submitted": false,
+      "side_effect": "none (confirmation cancelled)"
+    },
+    {
+      "action": "reject",
+      "available": true,
+      "confirmation_dialog": true,
+      "submitted": false,
+      "side_effect": "none (confirmation cancelled)"
+    },
+    {
+      "action": "cancel",
+      "available": true,
+      "confirmation_dialog": true,
+      "submitted": false,
+      "side_effect": "none (confirmation cancelled)"
+    }
+  ],
+  "revoke": {
+    "available": false,
+    "reason": "fixture starts awaiting_authorization; server did not advertise revoke, so no revoke write was attempted"
+  },
+  "passed": true,
+  "generated_at": "2026-08-11T11:33:57.836Z"
+}

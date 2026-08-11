@@ -1,0 +1,372 @@
+{
+  "schema_version": "windows-local-product-browser-acceptance/v1",
+  "platform": "win32",
+  "architecture": "x64",
+  "browser": {
+    "engine": "chromium",
+    "version": "151.0.7922.34",
+    "headless": true
+  },
+  "base_url": "http://127.0.0.1:4175",
+  "fixture": {
+    "operation_id": "operation_11111111111111111111111111111111",
+    "node_id": "node_e70809d36e1446518c21ebf68d9cad61",
+    "data_dir": "isolated fixture data"
+  },
+  "latency_ms": {
+    "initial": [
+      376.13,
+      50.01,
+      44.75,
+      45.69,
+      46.6
+    ],
+    "refresh": [
+      59.83,
+      44.11,
+      43.47,
+      48.37,
+      45.85
+    ],
+    "initial_p50": 46.6,
+    "initial_p95": 376.13,
+    "refresh_p50": 45.85,
+    "refresh_p95": 59.83
+  },
+  "headers": {
+    "app": {
+      "cache-control": "no-store",
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      "x-content-type-options": "nosniff",
+      "content-type": "text/html; charset=utf-8"
+    },
+    "asset": {
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-security-policy": null,
+      "x-content-type-options": "nosniff",
+      "content-type": "application/javascript"
+    }
+  },
+  "flows": {
+    "operation": {
+      "allowed_buttons": [
+        "批准一次",
+        "拒绝",
+        "取消操作"
+      ],
+      "approve_dialog": true,
+      "reject_dialog": true,
+      "revoke_button": false
+    },
+    "memories": {
+      "home_loaded": true,
+      "lab_loaded": true,
+      "home_hidden_in_lab": true,
+      "initial_lab_count": 0
+    },
+    "settings": {
+      "settings_loaded": true,
+      "diagnostics_status": 200,
+      "diagnostics_content_type": "application/json; charset=utf-8",
+      "diagnostics_bytes": 2185,
+      "diagnostics_sha256": "11cd07863b47148cb115f24fc67b0b5052aa207f7cf924aa778cb8da78166e00",
+      "forbidden_keys": [],
+      "recovery_link": true
+    }
+  },
+  "responsive": {
+    "320_css_px": [
+      {
+        "route": "/app/overview",
+        "heading": "总览",
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/chat",
+        "heading": "聊天",
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/operations",
+        "heading": "操作",
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/memories",
+        "heading": "长期记忆",
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/settings",
+        "heading": "模型设置",
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "no_horizontal_overflow": true
+      }
+    ],
+    "640x360_css_equivalent_only": [
+      {
+        "route": "/app/overview",
+        "heading": "总览",
+        "scrollWidth": 640,
+        "clientWidth": 640,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/chat",
+        "heading": "聊天",
+        "scrollWidth": 640,
+        "clientWidth": 640,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/operations",
+        "heading": "操作",
+        "scrollWidth": 640,
+        "clientWidth": 640,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/memories",
+        "heading": "长期记忆",
+        "scrollWidth": 640,
+        "clientWidth": 640,
+        "no_horizontal_overflow": true
+      },
+      {
+        "route": "/app/settings",
+        "heading": "模型设置",
+        "scrollWidth": 640,
+        "clientWidth": 640,
+        "no_horizontal_overflow": true
+      }
+    ]
+  },
+  "storage": {
+    "local": [],
+    "session": [],
+    "indexedDB": []
+  },
+  "secret_indicators": [],
+  "limitations": [
+    "Playwright/Chromium does not provide a reliable Windows system zoom control in this harness; actual 200% OS/browser zoom was not claimed or simulated. The report includes a 640x360 CSS-layout probe only as a separate non-equivalent check."
+  ],
+  "checks": [
+    {
+      "name": "spa_entry_200",
+      "passed": true,
+      "detail": 200
+    },
+    {
+      "name": "spa_csp_strict",
+      "passed": true,
+      "detail": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    },
+    {
+      "name": "spa_no_store",
+      "passed": true,
+      "detail": "no-store"
+    },
+    {
+      "name": "spa_nosniff",
+      "passed": true,
+      "detail": "nosniff"
+    },
+    {
+      "name": "hashed_asset_immutable",
+      "passed": true,
+      "detail": {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-security-policy": null,
+        "x-content-type-options": "nosniff",
+        "content-type": "application/javascript"
+      }
+    },
+    {
+      "name": "hashed_asset_found",
+      "passed": true,
+      "detail": [
+        "/app-assets/assets/index-CA2h1kyX.js"
+      ]
+    },
+    {
+      "name": "overview_initial_operable",
+      "passed": true,
+      "detail": [
+        376.13,
+        50.01,
+        44.75,
+        45.69,
+        46.6
+      ]
+    },
+    {
+      "name": "overview_refresh_operable",
+      "passed": true,
+      "detail": [
+        59.83,
+        44.11,
+        43.47,
+        48.37,
+        45.85
+      ]
+    },
+    {
+      "name": "chat_new_thread_same_origin_write",
+      "passed": true,
+      "detail": 200
+    },
+    {
+      "name": "operation_detail_loaded",
+      "passed": true
+    },
+    {
+      "name": "operation_approve_confirmation",
+      "passed": true
+    },
+    {
+      "name": "operation_reject_confirmation",
+      "passed": true
+    },
+    {
+      "name": "operation_action_surface_reflects_server",
+      "passed": true,
+      "detail": [
+        "批准一次",
+        "拒绝",
+        "取消操作"
+      ]
+    },
+    {
+      "name": "memory_scope_isolation",
+      "passed": true,
+      "detail": {
+        "home_loaded": true,
+        "lab_loaded": true,
+        "home_hidden_in_lab": true,
+        "initial_lab_count": 0
+      }
+    },
+    {
+      "name": "settings_loaded",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_download_200",
+      "passed": true,
+      "detail": 200
+    },
+    {
+      "name": "diagnostics_no_secret_keys",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "ui_secret_scan",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "responsive_320_no_overflow",
+      "passed": true,
+      "detail": [
+        {
+          "route": "/app/overview",
+          "heading": "总览",
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/chat",
+          "heading": "聊天",
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/operations",
+          "heading": "操作",
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/memories",
+          "heading": "长期记忆",
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/settings",
+          "heading": "模型设置",
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "no_horizontal_overflow": true
+        }
+      ]
+    },
+    {
+      "name": "responsive_640x360_no_overflow",
+      "passed": true,
+      "detail": [
+        {
+          "route": "/app/overview",
+          "heading": "总览",
+          "scrollWidth": 640,
+          "clientWidth": 640,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/chat",
+          "heading": "聊天",
+          "scrollWidth": 640,
+          "clientWidth": 640,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/operations",
+          "heading": "操作",
+          "scrollWidth": 640,
+          "clientWidth": 640,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/memories",
+          "heading": "长期记忆",
+          "scrollWidth": 640,
+          "clientWidth": 640,
+          "no_horizontal_overflow": true
+        },
+        {
+          "route": "/app/settings",
+          "heading": "模型设置",
+          "scrollWidth": 640,
+          "clientWidth": 640,
+          "no_horizontal_overflow": true
+        }
+      ]
+    },
+    {
+      "name": "browser_storage_empty",
+      "passed": true,
+      "detail": {
+        "local": [],
+        "session": [],
+        "indexedDB": []
+      }
+    }
+  ],
+  "generated_at": "2026-08-11T11:28:29.744Z",
+  "passed": true,
+  "failed_checks": []
+}
