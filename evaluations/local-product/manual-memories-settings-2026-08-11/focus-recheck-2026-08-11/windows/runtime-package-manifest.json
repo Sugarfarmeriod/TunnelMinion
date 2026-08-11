@@ -1,0 +1,3330 @@
+{
+  "build": {
+    "builder": "PyInstaller 6.21.0 onedir",
+    "npm_lock_sha256": "b51a16238da68741bff3c6f44bf7efc839cb53d2191546dc613dca48c5f52c6e",
+    "python_lock_sha256": "c1fdaf45e6c10804ebe46fefbefd638b0e090463bf1a0ef1015bc7decbce3477",
+    "source_revision": "b8b9766e6f5f1c2ba00a733735ed63c3eb8e2da6",
+    "source_tree_sha256": "51feef70609e6f8627a9afd972939f5e55706b457dff39015710c5258f48a43a"
+  },
+  "candidate": {
+    "application_version": "0.1.0",
+    "architecture": "amd64",
+    "id": "tunnelminion-0-1-0-win32-amd64-51feef70609e-9a8a05a5d56d",
+    "layout": "onedir-freeze",
+    "platform": "win32",
+    "python_version": "3.11.15"
+  },
+  "entrypoint": "tunnelminion.exe",
+  "entrypoint_args": [],
+  "files": [
+    {
+      "path": "THIRD_PARTY_LICENSES.json",
+      "sha256": "d8960f2e18376f7bb9818916dcc851bdecf0dffc3a13b19f2f4ec77bd06de458",
+      "size": 48069,
+      "type": "license-evidence"
+    },
+    {
+      "path": "_internal/VCRUNTIME140.dll",
+      "sha256": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066",
+      "size": 124544,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/VCRUNTIME140_1.dll",
+      "sha256": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f",
+      "size": 49792,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_asyncio.pyd",
+      "sha256": "fd04e08d05347a6491ccadccd000b33beab1eb1deb9c85c4985d6229d0d83053",
+      "size": 53248,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_bz2.pyd",
+      "sha256": "5963c4395340011057cbbdca3ded0f58cf012fd9662bc0c7381494336ee5f276",
+      "size": 72704,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_cffi_backend.cp311-win_amd64.pyd",
+      "sha256": "9dcbe427f86795a5dfc19d74e9b5f3d0994ff0221b1a111877ed11eccd42e026",
+      "size": 179712,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_ctypes.pyd",
+      "sha256": "8547d4c7342a36211dc76483a765577155cbf0974e48a7b354bf862917cc025e",
+      "size": 119296,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_decimal.pyd",
+      "sha256": "019dda4d6f84e52953752da563ada0601a781fbef92b0f32527490b07c4ab60c",
+      "size": 244736,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_elementtree.pyd",
+      "sha256": "bdcb3de1423605dcc4858fc1683c871e66f934089d7214e56ce246b483c76949",
+      "size": 116736,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_hashlib.pyd",
+      "sha256": "e1a908c1af2668b443783da2d2d3782b4edb54f77f13c7b839c8dd9230d5da80",
+      "size": 53760,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_lzma.pyd",
+      "sha256": "5d1ed5d0d287b718a8589bc22b7279577630374de05061e75cbd090e305d8053",
+      "size": 152576,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_multiprocessing.pyd",
+      "sha256": "f71739bddd3130bdbccefcb0e220cb3501bcc482a020eaf84bfa514064dc1a2a",
+      "size": 22528,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_overlapped.pyd",
+      "sha256": "1512f7462f75a91e5a2ca6b11a58c566583f7cbc9b633325c244c23d284d7138",
+      "size": 39424,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_queue.pyd",
+      "sha256": "f837ef399d592710fd804fc617ee2477de5832239f1c5f58a29baae8d4091b40",
+      "size": 20480,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_socket.pyd",
+      "sha256": "aa28c01718d819a6b0c32b1a66a758200e3110947a4c17bdaacfeed512863a4e",
+      "size": 67584,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_sqlite3.pyd",
+      "sha256": "b1078625bf60b472d2d2c6de663b84eef5bbf24b0919db59f60705c731f0ce05",
+      "size": 109568,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_ssl.pyd",
+      "sha256": "d9753d2b5d90ec54af0c03c709f510d35be2d7b4fdef06a119695306864cd1bc",
+      "size": 166912,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_uuid.pyd",
+      "sha256": "715a9696b93a035de3ba074373303e634dbbd151c0b70d2662dfebfac7a7faf5",
+      "size": 13824,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/_zoneinfo.pyd",
+      "sha256": "b0ef92ddf339c0af1e7ee80012e28004e491c860ba0587445f8ab1ad8e501f38",
+      "size": 33792,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/ada92cb5d92a588d1b93__mypyc.cp311-win_amd64.pyd",
+      "sha256": "fc17eb621ecf2325e3c2d7501d3ee2c3848e3c7fec7027fda7c7fa1782874743",
+      "size": 221696,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-console-l1-1-0.dll",
+      "sha256": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-datetime-l1-1-0.dll",
+      "sha256": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
+      "size": 20952,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-debug-l1-1-0.dll",
+      "sha256": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-errorhandling-l1-1-0.dll",
+      "sha256": "13bc8b3f90da149030897b8f9f08d71e5d1561e3ae604472a82f58dab2b103f9",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-fibers-l1-1-0.dll",
+      "sha256": "bb2d740333afaea2a73a163f95fa102d018ccd68def28b6815a2be0696ab57db",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-file-l1-1-0.dll",
+      "sha256": "f353b6c2df7aadb457263a02bce59c44bbab55f98ae6509674cfbc3751f761b9",
+      "size": 25048,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-file-l1-2-0.dll",
+      "sha256": "03bd3217eae0ef68521b39556e7491292db540f615da873dd8da538693b81862",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-file-l2-1-0.dll",
+      "sha256": "f957a4c261506484b53534a9be8931c02ec1a349b3f431a858f8215cecfec3f7",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-handle-l1-1-0.dll",
+      "sha256": "625667ea50b2bd0bae1d6eb3c7e732e9e3a0dea21b2f9eac3a94c71c5e57f537",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-heap-l1-1-0.dll",
+      "sha256": "e36b72eafffffb09b3f3a615678a72d561b9469a09f3b4891aba9d809da937a5",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-interlocked-l1-1-0.dll",
+      "sha256": "fbb9032835d0d564f2f53bbc4192f8a732131b8a89f52f5ef3ff0daa2f71465f",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-libraryloader-l1-1-0.dll",
+      "sha256": "e9a3d7f8a08ab5bc94acb1ec1bffda90469fec3b7eecdf7cf5408f3e3682d527",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-localization-l1-2-0.dll",
+      "sha256": "e9539fce90ad8be582b25ab2d5645772c2a5fb195e602ecdbf12b980656e436a",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-memory-l1-1-0.dll",
+      "sha256": "ef77b3e4fdff944f92908b6feb9256a902588f0cf1c19eb9bf063bb6542abfff",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-namedpipe-l1-1-0.dll",
+      "sha256": "0bfedb0d28e41e70bf9e4da11e83f3a94c2191b5cd5dd45d9e9d439673b830ce",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-processenvironment-l1-1-0.dll",
+      "sha256": "25af1bc31c4a3fb9f1036c9aa51cb0ae8899c499b3eef4cf7281515c1ea27b47",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-processthreads-l1-1-0.dll",
+      "sha256": "0d22ce9d987efd6886a8de66a6a678c287d29b15963b4373f73d79dde42c9827",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-processthreads-l1-1-1.dll",
+      "sha256": "a8e2fc077d9a7d2faa85e1e6833047c90b22c6086487b98fc0e6a86b7bf8bf09",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-profile-l1-1-0.dll",
+      "sha256": "5e6ad9502c8411f29bc072efd08c4fcd09bc3367814269deda74a78536fb8375",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-rtlsupport-l1-1-0.dll",
+      "sha256": "40eb38d84dfd13c8a58211b8273c4b4965148742f08eb6fe8b0830392c37abc1",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-string-l1-1-0.dll",
+      "sha256": "285a481d7ba9859cc28bededd8f05a90bd648a34d66b8c797118920b40e15e4e",
+      "size": 20960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-synch-l1-1-0.dll",
+      "sha256": "e050e1bfbb75a278412380c912266225c3dee15031468dae2f6b77ff0617aa91",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-synch-l1-2-0.dll",
+      "sha256": "9dfd114e4182662a669a3b9054dd2a24d96dd66ed96a8b2ac05601928b2084d5",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-sysinfo-l1-1-0.dll",
+      "sha256": "45d4f1e398e4cc73fd1aaad80219d2a9d3205a228167c819eb6787d7b01fc186",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-timezone-l1-1-0.dll",
+      "sha256": "1627b921934053f1f7d2a19948aee06fac5db8ee8d4182e6f071718d0681f235",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-core-util-l1-1-0.dll",
+      "sha256": "2631cadce7f97b9a9e6df4e88f00f5a43ef73b070ee024ed71f0b447a387ff2f",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-conio-l1-1-0.dll",
+      "sha256": "966ddbf59e1d6c2a80b8abbf4a30d37475de097bf13fb72ba78684d65975cd97",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-convert-l1-1-0.dll",
+      "sha256": "14694879f9c3c52fbd7dde96bf5d67b9768b067c80d5567be55b37262e9dbd54",
+      "size": 25056,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-environment-l1-1-0.dll",
+      "sha256": "00f84c438aab40500a2f2df22c7a4ec147a50509c8d0cdac6a83e4269e387478",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-filesystem-l1-1-0.dll",
+      "sha256": "30bcf934cbcc9ed72ff364b6e352a70a9e2afa46eceadea5c47183cb46cfd16e",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-heap-l1-1-0.dll",
+      "sha256": "6c0e0d22b65329f4948fcf36c8048a54ccccbf6c05b330b2c1a686f3e686eed0",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-locale-l1-1-0.dll",
+      "sha256": "c048a3d7ab951dce1d6d3f5f497b50353f640a1787c6c65677a13c55c8e99983",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-math-l1-1-0.dll",
+      "sha256": "f7c5d7394643c95fe14c07773a8a206e74a28db125f9b3976f9e1c8c599f2af1",
+      "size": 29144,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-process-l1-1-0.dll",
+      "sha256": "4166a32551989f960dac7c0e296ffb28092f45f6539e7c450fa04bf17612be73",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-runtime-l1-1-0.dll",
+      "sha256": "315ded39d9e157cec05d83711c09858c23602857c9d8c88beef121c24c43be84",
+      "size": 25040,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-stdio-l1-1-0.dll",
+      "sha256": "3b59a50457f6b6eaa6d35e42722d4562e88bcd716bae113be1271ead0feb7af3",
+      "size": 25040,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-string-l1-1-0.dll",
+      "sha256": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
+      "size": 25040,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-time-l1-1-0.dll",
+      "sha256": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/api-ms-win-crt-utility-l1-1-0.dll",
+      "sha256": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
+      "size": 20944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/METADATA",
+      "sha256": "4cd40e690f23bf37cbcad34efd6758e062df1df07c86833f7e3ce95bf1fa38cc",
+      "size": 8754,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/RECORD",
+      "sha256": "6b0b326d4b4ee0fac27909ac7cbb066fc4bdf8e93d87031e27e770db059e5a04",
+      "size": 2742,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/WHEEL",
+      "sha256": "41c708c5adba6e097513ab8ccb9f1d7865a2fb469e22491a9e01dcc64da459fc",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/attrs-26.1.0.dist-info/licenses/LICENSE",
+      "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f",
+      "size": 1109,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/base_library.zip",
+      "sha256": "524c419d7e939b843ee904e83b06b71e9bd78802d561c9824f5f32947e528c16",
+      "size": 608395,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/certifi/cacert.pem",
+      "sha256": "bbc7e9c01d7551bb8a159b5dedd989b8ee3ce105aff522b68eb1b01bf854cab0",
+      "size": 234354,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/certifi/py.typed",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/charset_normalizer/cd.cp311-win_amd64.pyd",
+      "sha256": "0fb7f617fc9961bd11ea78666d0252a726f6f5c4ba0e2d432f965d1efc320169",
+      "size": 10752,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/charset_normalizer/md.cp311-win_amd64.pyd",
+      "sha256": "c5c39f8d3c18105b244a19518c4749e41f418e7dd5b1885b0c019e25e6c8b61e",
+      "size": 10752,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/METADATA",
+      "sha256": "194c9dd81d567f9081f026c7e401060fbafa7bc147c8e0a58b3668b40a64c031",
+      "size": 2621,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/RECORD",
+      "sha256": "f14e3990f101ef4a1dd09903eb3f859f233ec1d9bd9a00e4470f207568804d12",
+      "size": 1810,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/WHEEL",
+      "sha256": "1b68144734c4b66791f27add5d425f3620775585718a03d0f9b110ba3a4d88db",
+      "size": 82,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/click-8.4.2.dist-info/licenses/LICENSE.txt",
+      "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d",
+      "size": 1475,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/METADATA",
+      "sha256": "d4e345f82cb783877d73261f00303577cdf20d13229176c2d03a0a5603cb3ab5",
+      "size": 4343,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/RECORD",
+      "sha256": "621a0839b7d0f40cf16749fd93a19621b24fa03a4d73571c028b815643ac5424",
+      "size": 12272,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/WHEEL",
+      "sha256": "9efe56059dbb731c438c822ac4132a2b670e174db90f09059aa246a8bdd2a575",
+      "size": 96,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/licenses/LICENSE",
+      "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb",
+      "size": 197,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/licenses/LICENSE.APACHE",
+      "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe",
+      "size": 11360,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/licenses/LICENSE.BSD",
+      "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb",
+      "size": 1532,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/sboms/cryptography-rust.cyclonedx.json",
+      "sha256": "b3c1ee14948dbe807f42ebfa07b2719820d4bb5abe54b97d9c0ad501d8618028",
+      "size": 45629,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography-50.0.0.dist-info/sboms/sbom.json",
+      "sha256": "944f37dcc1c3f415199717dc9a0cbc927efba2c2e452ac900acdd6a5ab1381a6",
+      "size": 1223,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/cryptography/hazmat/bindings/_rust.pyd",
+      "sha256": "05fefb14b1cb1c90bcccce87e82d205f5f2396977bf911243972790ba2376849",
+      "size": 9935360,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/METADATA",
+      "sha256": "c49bc38e8c100c0ea3d0a865947a802c8bace444bc0d0f386141aa69d0429c7f",
+      "size": 4536,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/RECORD",
+      "sha256": "98a2a9bd181c2a626639810f857d03243c2beb641160afee9edf971883309595",
+      "size": 1780,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/WHEEL",
+      "sha256": "69e6228a0d35958183cc1812f07c565ce837b95eb51bd8a33acba9fa4f68d6c9",
+      "size": 91,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/licenses/LICENSE",
+      "sha256": "e2f7bb0557e7a381499f15baa7c1d776d83d6616599179d71d3109b8e39f7b25",
+      "size": 10278,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/importlib_metadata-9.0.0.dist-info/top_level.txt",
+      "sha256": "08eddf0fdcb29403625e4acca38a872d5fe6a972f6b02e4914a82dd725804fe0",
+      "size": 19,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jiter/jiter.cp311-win_amd64.pyd",
+      "sha256": "e5913c6bd6c3c9c9b6bfa61744c9425e76ebfd0cb4c0d0ebec66fd555d840217",
+      "size": 452608,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/METADATA",
+      "sha256": "05b189866ca98a96da3934bf6b83687ced3ff85325273b77e16b705f6d8b26d2",
+      "size": 7592,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/RECORD",
+      "sha256": "8a61569f6d984ff0de223f54bd049fa0918968f9a70c6625247b1b7b95dea884",
+      "size": 4095,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/WHEEL",
+      "sha256": "58b82a17209f9bf2804afe161f2632d0fde933f9bb2792fd936b2474a2e2ac2f",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/entry_points.txt",
+      "sha256": "bceeeb5f816cff1215272da99c0b4a8134b17e99e8cc0550d038c29a93319d61",
+      "size": 51,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema-4.26.0.dist-info/licenses/COPYING",
+      "sha256": "4f92a015a13c4d1a040bef018aa13430b4f1bc73b41b16bb846c346766de7439",
+      "size": 1057,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema/benchmarks/issue232/issue.json",
+      "sha256": "79a3ce663311bb9bbc4692abb00f6e93bb9c3d94b9b64286e03fe190e4d0dc79",
+      "size": 117105,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/metaschema.json",
+      "sha256": "7b761b3e121f0a0ca1ea2a0b8e2cc856bcf801604b8268d71bacaa202bc0c13b",
+      "size": 1785,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/applicator",
+      "sha256": "6895100e99726fbb107058512bbec3ecfd4b24e8fd2facee3e505ee72b0d4c31",
+      "size": 1860,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/content",
+      "sha256": "9b7d4f55a4e2fdb02c430068fdffabc732addce238da3f1df2690249c3353274",
+      "size": 517,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/core",
+      "sha256": "b5a2c4957f6495d0a5081f0409ebe8a14e4139acb203fc748471f8ede2af5b2c",
+      "size": 1531,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/format",
+      "sha256": "50ebbfe790611a849b8cc400a09c1d0e0fb6ab5c0d43a0f22201fd3625056bf4",
+      "size": 403,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/meta-data",
+      "sha256": "d47e2445dd6a82271a298d83cc6c6cb8d4ae1e15e0dc56becd37a163ecf01286",
+      "size": 892,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft201909/vocabularies/validation",
+      "sha256": "1e526c1d335a734805fc82cf5798c12b960ad7da2517c66cda5a1b09359c3c1c",
+      "size": 2834,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/metaschema.json",
+      "sha256": "41da76f5afb7ce062d248f762463a92f7ca47e4e0f905b224ba6afeef91ded0f",
+      "size": 2452,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/applicator",
+      "sha256": "c4a6e4147b91fef7fea6dc058cb1bf93402f7414b76578a8b16aaf1dad6aacef",
+      "size": 1659,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/content",
+      "sha256": "08343747764e4a5814262793cf4d652057a7913863c5950d43297e8e1fdac5b6",
+      "size": 519,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/core",
+      "sha256": "c2d12a8e4dd11d336dfc83a3f663aa4c69f0b49b3beb094ffeb25b5316f4803d",
+      "size": 1564,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/format-annotation",
+      "sha256": "abc775adfefd89d22358170d9bf93f4ebd2349563bbbedd60f02bef7c812bcc0",
+      "size": 448,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/format-assertion",
+      "sha256": "c52242b9a1bb786b26c3e82c7add428c31f9c96e575dce99e56ea5feaa6da20c",
+      "size": 445,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/meta-data",
+      "sha256": "8f76d6e14f41b9b92ef933b708cdc5144c8b5268651ad11918485fb1754f1c76",
+      "size": 892,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/unevaluated",
+      "sha256": "2dbfbcb73994b670b0976492adee1fffb46c21682784d2f5a4ca561f9e2d0cb4",
+      "size": 506,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft202012/vocabularies/validation",
+      "sha256": "7010a31e541f32d2be721e2de348df75c9b36876a3ed304877fc0abda1d37a58",
+      "size": 2834,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft3/metaschema.json",
+      "sha256": "2cf75f64436fb5be374a2eaa27ab8b7e1fd651c9b46daea6c67b02fd64e2458b",
+      "size": 2600,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft4/metaschema.json",
+      "sha256": "e1489d0b4755f02793302591d3fcb8f07b6893a82a94f24895f8e4edf11b82e2",
+      "size": 4357,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft6/metaschema.json",
+      "sha256": "c29dfce9f54835c3a06c03b3c5d5ec0eda77706568f9c4df7cfbc7566a51006d",
+      "size": 4437,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/jsonschema_specifications/schemas/draft7/metaschema.json",
+      "sha256": "3d5392088261606c559b603f385329c9f1ab45b5d667eb990687453b055d405e",
+      "size": 4819,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/METADATA",
+      "sha256": "bd54de98fede6dc3e1f3cd89b4e37c95d8842a523bdbb9e52ab40edff1837163",
+      "size": 21447,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/RECORD",
+      "sha256": "895953f9ef1db152cf283e04089d4f92ed9ae190edc4ebaa50eb4280455dab36",
+      "size": 3243,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/WHEEL",
+      "sha256": "ff309ddcdd65ebd02bc724dbf2bcc4a0ff53a5b61792a44548d383e4ebb19d3b",
+      "size": 91,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/entry_points.txt",
+      "sha256": "f226f273dcc7d924f52436475a54191c450fc7d9156977d5cbccf969fffa3949",
+      "size": 334,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/licenses/LICENSE",
+      "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d",
+      "size": 1076,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/keyring-25.7.0.dist-info/top_level.txt",
+      "sha256": "a218757647b6f3f35d48d919ea79154b020a90b2533b021f1309d72af6b7a648",
+      "size": 8,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/METADATA",
+      "sha256": "e33f6dfab2768fb04adf1a4f142485c6349c309136c98f2288cd9de0e36c2ba0",
+      "size": 6118,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/RECORD",
+      "sha256": "b271a5ce6290832a8a58a786bde7dee915566d64e6fd856285714835bc2095f5",
+      "size": 3799,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/WHEEL",
+      "sha256": "942926c567d0b1273d09f20295879abd37507845f6b683eab9f87d808df91100",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain-1.3.14.dist-info/licenses/LICENSE",
+      "sha256": "4ec67e4ca6e6721dba849b2ca82261597c86a61ee214bbf21416006b7b2d0478",
+      "size": 1067,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/langchain/py.typed",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/libcrypto-3-x64.dll",
+      "sha256": "66348c968f8df22da0975d0141dc027cd0539f84f90d3a40542dd510540c3928",
+      "size": 7986688,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/libffi-8.dll",
+      "sha256": "1fdb7354fdb82f624bc849d8a360e500264fb9ba7171ed5378195cf0b3191073",
+      "size": 28160,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/libssl-3-x64.dll",
+      "sha256": "ba74e7e2f65d82edad90cefeae8771c0a2ae1e026a20ba531b9732286ec1ae5e",
+      "size": 1581568,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/orjson/orjson.cp311-win_amd64.pyd",
+      "sha256": "14d528899d5bb54f217291cc98858bc6f3f1abdb5a156139f3241f95413df7fb",
+      "size": 223232,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/ormsgpack/ormsgpack.cp311-win_amd64.pyd",
+      "sha256": "3099b724d783c777d29a901c43a6b2a1558f0ceca64115cbced4c1bf15b6604a",
+      "size": 209408,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/psutil/_psutil_windows.pyd",
+      "sha256": "0035450801bd7d938e9e146c5ec28e619cb5a5f4a18cdc53ac7e9734c7f94f78",
+      "size": 70656,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/METADATA",
+      "sha256": "d1e56c3412492512fb6b59a9dfc25ab7af2a8204585cd7bca000513023133394",
+      "size": 109397,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/RECORD",
+      "sha256": "d0cbe0f34b294885175920bc8f2ece0b3ed6d9874347dc9cfb2caf4931329272",
+      "size": 9517,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/WHEEL",
+      "sha256": "41c708c5adba6e097513ab8ccb9f1d7865a2fb469e22491a9e01dcc64da459fc",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic-2.13.4.dist-info/licenses/LICENSE",
+      "sha256": "a9e186f3ca16b5eef84318e7a701721351a00cb7b8ae3a4394b67b49e3529ef3",
+      "size": 1129,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pydantic_core/_pydantic_core.cp311-win_amd64.pyd",
+      "sha256": "a0291ce64fc21ad1743626894f97c2e669bcac44226cd54897a661a1e5a147d0",
+      "size": 5240320,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pyexpat.pyd",
+      "sha256": "39c0002d3f27875a99d5e95b14896b7cb560bcd22af6acde27e2af82eea10f15",
+      "size": 203264,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/python3.dll",
+      "sha256": "52fa723f646402678f9fc53157dbe9de0a980bdcd74c293a8a6233c3dfd15e49",
+      "size": 55296,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/python311.dll",
+      "sha256": "e1b53c741751563eca9eac70378de5be36994adac8c27e8ec375971579e23b50",
+      "size": 5842944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/pywin32_system32/pywintypes311.dll",
+      "sha256": "dcc14a7ed85a324e357eab7db970d8db61387c8b5d6baa23283aabd8300c4e09",
+      "size": 135168,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/regex/_regex.cp311-win_amd64.pyd",
+      "sha256": "ff7c6fef5486f6284a4afc9a3722def8ba8b78ba649be7e33fbe4cfd8fae46a9",
+      "size": 726016,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/rpds/rpds.cp311-win_amd64.pyd",
+      "sha256": "3fbd6d9aa1ce4669506a91c4321bb751895dfa4e78efb6ed1151cea8c51b238f",
+      "size": 560128,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/select.pyd",
+      "sha256": "c578113c92d107288f347feb53aaf839e554f7b9aa1c5b44676b38cfc5872778",
+      "size": 18944,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/setuptools/_vendor/jaraco/text/Lorem ipsum.txt",
+      "sha256": "37fedcffbf73c4eb9f058f47677cb33203a436ff9390e4d38a8e01c9dad28e0b",
+      "size": 1335,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/sqlite3.dll",
+      "sha256": "ad5789a6ca5ebac7d7006ec0c897817c574bbf0cab8b386adb82d1ae6c7d6bbf",
+      "size": 1607680,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tiktoken/_tiktoken.cp311-win_amd64.pyd",
+      "sha256": "bb75e9970e743663c7dbf30d48cd27eb163f18395c31bdd48722514d9f566373",
+      "size": 2291712,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/METADATA",
+      "sha256": "453423fa9ee6f07cac202d4b48e73020b432acd6040afa944d1eef4690f0bfdb",
+      "size": 57356,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/RECORD",
+      "sha256": "4729c6a2833fb87bc5c031a0f8dace938b600c2e65a142c0e5676e0d094fc348",
+      "size": 3501,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/WHEEL",
+      "sha256": "2b6eb4118ce7cd7b09601406aa623c553c4476265836f0d9c16f5c061f7efcc0",
+      "size": 91,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/entry_points.txt",
+      "sha256": "45e2421fb522dd9ca1e8cd7a1383a1b19d6853b5ad31709f6eda3206118edbd6",
+      "size": 39,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/licenses/LICENCE",
+      "sha256": "fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de",
+      "size": 1985,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/scm_file_list.json",
+      "sha256": "0c5fca563ec84cd56b36304607b6b12a5f1f115971d91227f4f842d2d6afa2cd",
+      "size": 2946,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/scm_version.json",
+      "sha256": "e6b0e03453363fa921a4e11043cd6b90acf6b4efe343ebbb114f3c3cb1ae1d07",
+      "size": 161,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tqdm-4.68.4.dist-info/top_level.txt",
+      "sha256": "39601c331e6163fd80b5b14d558460477c53ab7081cd3aab6de45c6df8be2d48",
+      "size": 12,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/METADATA",
+      "sha256": "546de38c67570c529d468dda5802338b3517a139ec5497bfd27a0a599e056d2f",
+      "size": 2978,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/RECORD",
+      "sha256": "c1f9bd941186052705bdbd1b49dd1106ae9d7ee78966037a4fb155f6a88c1d34",
+      "size": 972,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/WHEEL",
+      "sha256": "ccec20e2307acd7da453dd7437e70c6b08e2bc3ead3bc3445af135da37b56d59",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/direct_url.json",
+      "sha256": "3211ac9393d9c7843b63c5d2d25861a54083c4467433d51865f6c2c0b00ba1cd",
+      "size": 96,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/entry_points.txt",
+      "sha256": "1779e09859ad96b9bf99a806aacccb673cba4dc3a442bfe96ef75e3120f47dde",
+      "size": 55,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/uv_build.json",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion-0.1.0.dist-info/uv_cache.json",
+      "sha256": "06f7e0e67e68c8aad3c954e00994ab1383010c2481aabefff99917865464c8ec",
+      "size": 193,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/tunnelminion/web/ui/assets/index-7Zp6Ac-c.css",
+      "sha256": "fb5c43b4c3f3d486ba1e5236ed512de42e5bd8c6bfe4288152a99d5e5898634b",
+      "size": 28879,
+      "type": "frontend"
+    },
+    {
+      "path": "_internal/tunnelminion/web/ui/assets/index-CUzEva7v.js",
+      "sha256": "b7d4be80fe373bd5def5c7d88cb3451fc78cbffa03af7dc29ed9daade8e02fcc",
+      "size": 475125,
+      "type": "frontend"
+    },
+    {
+      "path": "_internal/tunnelminion/web/ui/index.html",
+      "sha256": "491c9e28faa9117a0c2c0561d0ecb7dbffb7c38c598db19f437b25576b6043a4",
+      "size": 476,
+      "type": "frontend"
+    },
+    {
+      "path": "_internal/ucrtbase.dll",
+      "sha256": "c04daeba7e7c4b711d33993ab4c51a2e087f98f4211aea0dcb3a216656ba0ab7",
+      "size": 1122768,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/unicodedata.pyd",
+      "sha256": "70719ed7c2cc738f80d7a0d23d9f0955f8c3f10ffe55effa64b836ce6b5a765a",
+      "size": 1128960,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/METADATA",
+      "sha256": "66147856d30bbb6bed01c6ce3326d0f48d84ed5f286ac177633a1486b82eace5",
+      "size": 6852,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/RECORD",
+      "sha256": "4869c7ca2082c964b4e2bb8244deda15cfa069d93e4543d3a16eca6a63cbb81f",
+      "size": 3624,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/WHEEL",
+      "sha256": "41c708c5adba6e097513ab8ccb9f1d7865a2fb469e22491a9e01dcc64da459fc",
+      "size": 87,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/urllib3-2.7.0.dist-info/licenses/LICENSE.txt",
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+      "size": 1093,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/uuid_utils/_uuid_utils.cp311-win_amd64.pyd",
+      "sha256": "9a2a779d1d7d3cba213838e7a5a31c4880b5b44b812d8b8bded6b0c23012898d",
+      "size": 358400,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/INSTALLER",
+      "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9",
+      "size": 2,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/LICENSE",
+      "sha256": "0f44514998aca209d3482d10204a8adf2aa4296ff157a36a5c0922f2280632d3",
+      "size": 1538,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/METADATA",
+      "sha256": "841a67852caccd5d2772768f5fa9db1e9d2202e13bc7655d7e31cbcd09f3d789",
+      "size": 6996,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/RECORD",
+      "sha256": "048af2b1a47935020a916e3308e6de6d33e27b947145deddbe54159f4c9db47c",
+      "size": 4983,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/WHEEL",
+      "sha256": "94fc66f4cd3d755616674c0087466ed000c582eb925cb45799a5bc5fd2e0dab0",
+      "size": 101,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/entry_points.txt",
+      "sha256": "0e7867e1d9b912c23864c02c1e574617a0b005766b1979d1edc9cadbe5d1ef36",
+      "size": 51,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets-15.0.1.dist-info/top_level.txt",
+      "sha256": "08ca5d2a49712acbd980283296dc5458e1e26d95d9d6e60856971af71b10f079",
+      "size": 11,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/websockets/speedups.cp311-win_amd64.pyd",
+      "sha256": "cd975e265ec0959189992db097ac6fc452885b34434b53d3561d4ff2e696d66c",
+      "size": 11776,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/win32/_win32sysloader.pyd",
+      "sha256": "8ad2e21cd1a627fa36f082ce0b71f81c91f9d3825908a520072245a2545e1be1",
+      "size": 15872,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/win32/win32api.pyd",
+      "sha256": "cd9ec02d502dc1548233aa2efe9fcbf47e4677b28c169553f36194a50f55ff28",
+      "size": 138240,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/win32/win32cred.pyd",
+      "sha256": "ffa19c9922f39ba70119b2f66cb1403372b7654b0dfc0734817c1614bac8a5b5",
+      "size": 40448,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/win32/win32evtlog.pyd",
+      "sha256": "040263d1e6c36fe26df3742eba3a5b09ff1831d3820c95606dd83d33b4fec0a6",
+      "size": 75776,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/xxhash/_xxhash.cp311-win_amd64.pyd",
+      "sha256": "c92464fe8587c41312b0669796432d92d8e52cecf3a0537d5ad4c99ed38257b8",
+      "size": 60416,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/yaml/_yaml.cp311-win_amd64.pyd",
+      "sha256": "ee7df83fa5dca1467bfd841dc08189b10361f31700cf57a6aacddaf0c05706f4",
+      "size": 258560,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/zstandard/_cffi.cp311-win_amd64.pyd",
+      "sha256": "f6b7450a953cc6f0facd89992d1d15b22b94f78342a4cf59f15142f71f8dbe46",
+      "size": 667136,
+      "type": "runtime"
+    },
+    {
+      "path": "_internal/zstandard/backend_c.cp311-win_amd64.pyd",
+      "sha256": "35f7bfe8d1965fc33c090febd216a4ef5c3a8b22ce02a689226a3776cc295317",
+      "size": 524800,
+      "type": "runtime"
+    },
+    {
+      "path": "schemas/runtime-package-manifest-v1.schema.json",
+      "sha256": "a5737b34f8c25fa4d17f086a3729a6d4430f4f45714727c56cd57e4b984bec6e",
+      "size": 3822,
+      "type": "schema"
+    },
+    {
+      "path": "schemas/runtime-package-manifest-v2.schema.json",
+      "sha256": "77d4ce0a07ad2deb13b3760e26ef73edb8ab964ab88e044740e9050a1c9f64a2",
+      "size": 3927,
+      "type": "schema"
+    },
+    {
+      "path": "schemas/runtime-profile-v1.schema.json",
+      "sha256": "4438fe3f02391c18a58b4ebb310c5b540907b5ed251ba9703879148ca4df6591",
+      "size": 1630,
+      "type": "schema"
+    },
+    {
+      "path": "tunnelminion.exe",
+      "sha256": "ece2a0516fae4c208dc52683bfad59f6a039dd27713c7dc541ff49dd5a3dd453",
+      "size": 17545388,
+      "type": "entrypoint"
+    }
+  ],
+  "frontend": {
+    "file_count": 3,
+    "root": "_internal/tunnelminion/web/ui",
+    "sha256": "9a8a05a5d56d54e0ed64cda16a51d4cc81526d67a766e8d46a5423d961c06b22"
+  },
+  "licenses": [
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "annotated-doc",
+      "source": "installed-python-metadata",
+      "version": "0.0.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "annotated-types",
+      "source": "installed-python-metadata",
+      "version": "0.7.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "anyio",
+      "source": "installed-python-metadata",
+      "version": "4.14.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "attrs",
+      "source": "installed-python-metadata",
+      "version": "26.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "backports-tarfile",
+      "source": "installed-python-metadata",
+      "version": "1.2.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+      "name": "certifi",
+      "source": "installed-python-metadata",
+      "version": "2026.6.17"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT-0",
+      "name": "cffi",
+      "source": "installed-python-metadata",
+      "version": "2.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "charset-normalizer",
+      "source": "installed-python-metadata",
+      "version": "3.4.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "click",
+      "source": "installed-python-metadata",
+      "version": "8.4.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: BSD License",
+      "name": "colorama",
+      "source": "installed-python-metadata",
+      "version": "0.4.6"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0 OR BSD-3-Clause",
+      "name": "cryptography",
+      "source": "installed-python-metadata",
+      "version": "50.0.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Apache Software License",
+      "name": "distro",
+      "source": "installed-python-metadata",
+      "version": "1.9.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "fastapi",
+      "source": "installed-python-metadata",
+      "version": "0.139.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "h11",
+      "source": "installed-python-metadata",
+      "version": "0.16.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "httpcore",
+      "source": "installed-python-metadata",
+      "version": "1.0.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: BSD License",
+      "name": "httpx",
+      "source": "installed-python-metadata",
+      "version": "0.28.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "idna",
+      "source": "installed-python-metadata",
+      "version": "3.18"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "name": "importlib-metadata",
+      "source": "installed-python-metadata",
+      "version": "9.0.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "jaraco-classes",
+      "source": "installed-python-metadata",
+      "version": "3.4.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "jaraco-context",
+      "source": "installed-python-metadata",
+      "version": "6.1.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "jaraco-functools",
+      "source": "installed-python-metadata",
+      "version": "4.6.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "jiter",
+      "source": "installed-python-metadata",
+      "version": "0.16.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: BSD License",
+      "name": "jsonpatch",
+      "source": "installed-python-metadata",
+      "version": "1.33"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: BSD License",
+      "name": "jsonpointer",
+      "source": "installed-python-metadata",
+      "version": "3.1.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "jsonschema",
+      "source": "installed-python-metadata",
+      "version": "4.26.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "jsonschema-specifications",
+      "source": "installed-python-metadata",
+      "version": "2025.9.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "keyring",
+      "source": "installed-python-metadata",
+      "version": "25.7.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "langchain",
+      "source": "installed-python-metadata",
+      "version": "1.3.14"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "langchain-core",
+      "source": "installed-python-metadata",
+      "version": "1.4.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "langchain-openai",
+      "source": "installed-python-metadata",
+      "version": "1.3.5"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "langchain-protocol",
+      "source": "installed-python-metadata",
+      "version": "0.0.18"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "langgraph",
+      "source": "installed-python-metadata",
+      "version": "1.2.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "langgraph-checkpoint",
+      "source": "installed-python-metadata",
+      "version": "4.1.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "langgraph-prebuilt",
+      "source": "installed-python-metadata",
+      "version": "1.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "langgraph-sdk",
+      "source": "installed-python-metadata",
+      "version": "0.4.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "langsmith",
+      "source": "installed-python-metadata",
+      "version": "0.10.5"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "more-itertools",
+      "source": "installed-python-metadata",
+      "version": "11.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Apache Software License",
+      "name": "openai",
+      "source": "installed-python-metadata",
+      "version": "2.46.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MPL-2.0 AND (Apache-2.0 OR MIT)",
+      "name": "orjson",
+      "source": "installed-python-metadata",
+      "version": "3.11.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0 OR MIT",
+      "name": "ormsgpack",
+      "source": "installed-python-metadata",
+      "version": "1.12.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "name": "packaging",
+      "source": "installed-python-metadata",
+      "version": "26.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "platformdirs",
+      "source": "installed-python-metadata",
+      "version": "4.10.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "psutil",
+      "source": "installed-python-metadata",
+      "version": "7.2.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "pycparser",
+      "source": "installed-python-metadata",
+      "version": "3.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "pydantic",
+      "source": "installed-python-metadata",
+      "version": "2.13.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "pydantic-core",
+      "source": "installed-python-metadata",
+      "version": "2.46.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "pyjwt",
+      "source": "installed-python-metadata",
+      "version": "2.13.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "pywin32-ctypes",
+      "source": "installed-python-metadata",
+      "version": "0.2.3"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License",
+      "name": "pyyaml",
+      "source": "installed-python-metadata",
+      "version": "6.0.3"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "referencing",
+      "source": "installed-python-metadata",
+      "version": "0.37.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0 AND CNRI-Python",
+      "name": "regex",
+      "source": "installed-python-metadata",
+      "version": "2026.7.10"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Apache Software License",
+      "name": "requests",
+      "source": "installed-python-metadata",
+      "version": "2.34.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Apache Software License",
+      "name": "requests-toolbelt",
+      "source": "installed-python-metadata",
+      "version": "1.0.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "rpds-py",
+      "source": "installed-python-metadata",
+      "version": "2026.6.3"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: MIT License | OSI Approved :: Apache Software License",
+      "name": "sniffio",
+      "source": "installed-python-metadata",
+      "version": "1.3.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "starlette",
+      "source": "installed-python-metadata",
+      "version": "1.3.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: Apache Software License",
+      "name": "tenacity",
+      "source": "installed-python-metadata",
+      "version": "9.1.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT License Copyright (c) 2022 OpenAI, Shantanu Jain Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restrict",
+      "name": "tiktoken",
+      "source": "installed-python-metadata",
+      "version": "0.13.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MPL-2.0 AND MIT",
+      "name": "tqdm",
+      "source": "installed-python-metadata",
+      "version": "4.68.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "PSF-2.0",
+      "name": "typing-extensions",
+      "source": "installed-python-metadata",
+      "version": "4.16.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "typing-inspection",
+      "source": "installed-python-metadata",
+      "version": "0.4.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "urllib3",
+      "source": "installed-python-metadata",
+      "version": "2.7.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "uuid-utils",
+      "source": "installed-python-metadata",
+      "version": "0.17.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "uvicorn",
+      "source": "installed-python-metadata",
+      "version": "0.51.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "OSI Approved :: BSD License",
+      "name": "websockets",
+      "source": "installed-python-metadata",
+      "version": "15.0.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-2-Clause",
+      "name": "xxhash",
+      "source": "installed-python-metadata",
+      "version": "3.8.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "name": "zipp",
+      "source": "installed-python-metadata",
+      "version": "4.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "name": "zstandard",
+      "source": "installed-python-metadata",
+      "version": "0.25.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@adobe/css-tools",
+      "source": "frontend/package-lock.json",
+      "version": "4.5.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@asamuzakjp/css-color",
+      "source": "frontend/package-lock.json",
+      "version": "5.1.11"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@asamuzakjp/dom-selector",
+      "source": "frontend/package-lock.json",
+      "version": "7.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@asamuzakjp/generational-cache",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@asamuzakjp/nwsapi",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.9"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "@axe-core/playwright",
+      "source": "frontend/package-lock.json",
+      "version": "4.12.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@babel/code-frame",
+      "source": "frontend/package-lock.json",
+      "version": "7.29.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@babel/helper-validator-identifier",
+      "source": "frontend/package-lock.json",
+      "version": "7.29.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@babel/runtime",
+      "source": "frontend/package-lock.json",
+      "version": "7.29.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@bramus/specificity",
+      "source": "frontend/package-lock.json",
+      "version": "2.4.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT-0",
+      "name": "@csstools/color-helpers",
+      "source": "frontend/package-lock.json",
+      "version": "6.1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@csstools/css-calc",
+      "source": "frontend/package-lock.json",
+      "version": "3.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@csstools/css-color-parser",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@csstools/css-parser-algorithms",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT-0",
+      "name": "@csstools/css-syntax-patches-for-csstree",
+      "source": "frontend/package-lock.json",
+      "version": "1.1.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@csstools/css-tokenizer",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@exodus/bytes",
+      "source": "frontend/package-lock.json",
+      "version": "1.15.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@inquirer/ansi",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@inquirer/confirm",
+      "source": "frontend/package-lock.json",
+      "version": "6.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@inquirer/core",
+      "source": "frontend/package-lock.json",
+      "version": "11.2.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@inquirer/figures",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@inquirer/type",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.7"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@jridgewell/sourcemap-codec",
+      "source": "frontend/package-lock.json",
+      "version": "1.5.5"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@mswjs/interceptors",
+      "source": "frontend/package-lock.json",
+      "version": "0.41.9"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@open-draft/deferred-promise",
+      "source": "frontend/package-lock.json",
+      "version": "2.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@open-draft/deferred-promise",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@open-draft/logger",
+      "source": "frontend/package-lock.json",
+      "version": "0.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@open-draft/until",
+      "source": "frontend/package-lock.json",
+      "version": "2.1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@oxc-project/types",
+      "source": "frontend/package-lock.json",
+      "version": "0.143.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@playwright/test",
+      "source": "frontend/package-lock.json",
+      "version": "1.62.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-android-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-darwin-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-darwin-x64",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-freebsd-x64",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-arm-gnueabihf",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-arm64-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-arm64-musl",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-ppc64-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-s390x-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-x64-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-linux-x64-musl",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-openharmony-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-win32-arm64-msvc",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/binding-win32-x64-msvc",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@rolldown/pluginutils",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@standard-schema/spec",
+      "source": "frontend/package-lock.json",
+      "version": "1.1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@tanstack/query-core",
+      "source": "frontend/package-lock.json",
+      "version": "5.101.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@tanstack/react-query",
+      "source": "frontend/package-lock.json",
+      "version": "5.101.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@testing-library/dom",
+      "source": "frontend/package-lock.json",
+      "version": "10.4.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@testing-library/jest-dom",
+      "source": "frontend/package-lock.json",
+      "version": "6.9.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@testing-library/react",
+      "source": "frontend/package-lock.json",
+      "version": "16.3.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@testing-library/user-event",
+      "source": "frontend/package-lock.json",
+      "version": "14.6.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/aria-query",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/chai",
+      "source": "frontend/package-lock.json",
+      "version": "5.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/deep-eql",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/estree",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.9"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/node",
+      "source": "frontend/package-lock.json",
+      "version": "24.10.13"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/react",
+      "source": "frontend/package-lock.json",
+      "version": "19.2.14"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/react-dom",
+      "source": "frontend/package-lock.json",
+      "version": "19.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/set-cookie-parser",
+      "source": "frontend/package-lock.json",
+      "version": "2.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@types/statuses",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.6"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-aix-ppc64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-darwin-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-darwin-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-freebsd-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-freebsd-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-arm",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-loong64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-mips64el",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-ppc64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-riscv64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-s390x",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-linux-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-netbsd-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-netbsd-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-openbsd-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-openbsd-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-sunos-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-win32-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "@typescript/typescript-win32-x64",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitejs/plugin-react",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.5"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/expect",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/mocker",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/pretty-format",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/runner",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/snapshot",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/spy",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "@vitest/utils",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "ansi-regex",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "ansi-styles",
+      "source": "frontend/package-lock.json",
+      "version": "4.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "ansi-styles",
+      "source": "frontend/package-lock.json",
+      "version": "5.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "aria-query",
+      "source": "frontend/package-lock.json",
+      "version": "5.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "assertion-error",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "axe-core",
+      "source": "frontend/package-lock.json",
+      "version": "4.12.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "axe-core",
+      "source": "frontend/package-lock.json",
+      "version": "4.13.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "bidi-js",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "chai",
+      "source": "frontend/package-lock.json",
+      "version": "6.2.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "cli-width",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "cliui",
+      "source": "frontend/package-lock.json",
+      "version": "8.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "color-convert",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "color-name",
+      "source": "frontend/package-lock.json",
+      "version": "1.1.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "convert-source-map",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "cookie",
+      "source": "frontend/package-lock.json",
+      "version": "1.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "css-tree",
+      "source": "frontend/package-lock.json",
+      "version": "3.2.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "css.escape",
+      "source": "frontend/package-lock.json",
+      "version": "1.5.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "csstype",
+      "source": "frontend/package-lock.json",
+      "version": "3.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "data-urls",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "decimal.js",
+      "source": "frontend/package-lock.json",
+      "version": "10.6.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "dequal",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "detect-libc",
+      "source": "frontend/package-lock.json",
+      "version": "2.1.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "dom-accessibility-api",
+      "source": "frontend/package-lock.json",
+      "version": "0.5.16"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "dom-accessibility-api",
+      "source": "frontend/package-lock.json",
+      "version": "0.6.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "emoji-regex",
+      "source": "frontend/package-lock.json",
+      "version": "8.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "BSD-2-Clause",
+      "name": "entities",
+      "source": "frontend/package-lock.json",
+      "version": "8.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "es-module-lexer",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "escalade",
+      "source": "frontend/package-lock.json",
+      "version": "3.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "estree-walker",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "expect-type",
+      "source": "frontend/package-lock.json",
+      "version": "1.4.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fast-string-truncated-width",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fast-string-width",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fast-wrap-ansi",
+      "source": "frontend/package-lock.json",
+      "version": "0.2.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fdir",
+      "source": "frontend/package-lock.json",
+      "version": "6.5.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fsevents",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "fsevents",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "get-caller-file",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.5"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "graphql",
+      "source": "frontend/package-lock.json",
+      "version": "16.14.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "headers-polyfill",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "html-encoding-sniffer",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "indent-string",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "is-fullwidth-code-point",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "is-node-process",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "is-potential-custom-element-name",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "js-tokens",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "jsdom",
+      "source": "frontend/package-lock.json",
+      "version": "29.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-android-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-darwin-arm64",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-darwin-x64",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-freebsd-x64",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-linux-arm-gnueabihf",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-linux-arm64-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-linux-arm64-musl",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-linux-x64-gnu",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-linux-x64-musl",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-win32-arm64-msvc",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MPL-2.0",
+      "name": "lightningcss-win32-x64-msvc",
+      "source": "frontend/package-lock.json",
+      "version": "1.33.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "BlueOak-1.0.0",
+      "name": "lru-cache",
+      "source": "frontend/package-lock.json",
+      "version": "11.5.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "lz-string",
+      "source": "frontend/package-lock.json",
+      "version": "1.5.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "magic-string",
+      "source": "frontend/package-lock.json",
+      "version": "0.30.21"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "CC0-1.0",
+      "name": "mdn-data",
+      "source": "frontend/package-lock.json",
+      "version": "2.27.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "min-indent",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "msw",
+      "source": "frontend/package-lock.json",
+      "version": "2.15.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "mute-stream",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "nanoid",
+      "source": "frontend/package-lock.json",
+      "version": "3.3.18"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "obug",
+      "source": "frontend/package-lock.json",
+      "version": "2.1.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "outvariant",
+      "source": "frontend/package-lock.json",
+      "version": "1.4.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "parse5",
+      "source": "frontend/package-lock.json",
+      "version": "8.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "path-to-regexp",
+      "source": "frontend/package-lock.json",
+      "version": "6.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "pathe",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "picocolors",
+      "source": "frontend/package-lock.json",
+      "version": "1.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "picomatch",
+      "source": "frontend/package-lock.json",
+      "version": "4.0.5"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "playwright",
+      "source": "frontend/package-lock.json",
+      "version": "1.62.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "playwright-core",
+      "source": "frontend/package-lock.json",
+      "version": "1.62.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "postcss",
+      "source": "frontend/package-lock.json",
+      "version": "8.5.26"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "prettier",
+      "source": "frontend/package-lock.json",
+      "version": "3.8.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "pretty-format",
+      "source": "frontend/package-lock.json",
+      "version": "27.5.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "punycode",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "react",
+      "source": "frontend/package-lock.json",
+      "version": "19.2.8"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "react-dom",
+      "source": "frontend/package-lock.json",
+      "version": "19.2.8"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "react-is",
+      "source": "frontend/package-lock.json",
+      "version": "17.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "react-router",
+      "source": "frontend/package-lock.json",
+      "version": "7.18.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "react-router-dom",
+      "source": "frontend/package-lock.json",
+      "version": "7.18.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "redent",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "require-directory",
+      "source": "frontend/package-lock.json",
+      "version": "2.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "require-from-string",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "rettime",
+      "source": "frontend/package-lock.json",
+      "version": "0.11.11"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "rolldown",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "saxes",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "scheduler",
+      "source": "frontend/package-lock.json",
+      "version": "0.27.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "set-cookie-parser",
+      "source": "frontend/package-lock.json",
+      "version": "2.7.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "set-cookie-parser",
+      "source": "frontend/package-lock.json",
+      "version": "3.1.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "siginfo",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "signal-exit",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "BSD-3-Clause",
+      "name": "source-map-js",
+      "source": "frontend/package-lock.json",
+      "version": "1.2.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "stackback",
+      "source": "frontend/package-lock.json",
+      "version": "0.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "statuses",
+      "source": "frontend/package-lock.json",
+      "version": "2.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "std-env",
+      "source": "frontend/package-lock.json",
+      "version": "4.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "strict-event-emitter",
+      "source": "frontend/package-lock.json",
+      "version": "0.5.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "string-width",
+      "source": "frontend/package-lock.json",
+      "version": "4.2.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "strip-ansi",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "strip-indent",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "symbol-tree",
+      "source": "frontend/package-lock.json",
+      "version": "3.2.4"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tagged-tag",
+      "source": "frontend/package-lock.json",
+      "version": "1.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tinybench",
+      "source": "frontend/package-lock.json",
+      "version": "2.9.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tinyexec",
+      "source": "frontend/package-lock.json",
+      "version": "1.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tinyglobby",
+      "source": "frontend/package-lock.json",
+      "version": "0.2.17"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tinyrainbow",
+      "source": "frontend/package-lock.json",
+      "version": "3.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tldts",
+      "source": "frontend/package-lock.json",
+      "version": "7.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tldts-core",
+      "source": "frontend/package-lock.json",
+      "version": "7.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "BSD-3-Clause",
+      "name": "tough-cookie",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "tr46",
+      "source": "frontend/package-lock.json",
+      "version": "6.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "(MIT OR CC0-1.0)",
+      "name": "type-fest",
+      "source": "frontend/package-lock.json",
+      "version": "5.8.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "typescript",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "undici",
+      "source": "frontend/package-lock.json",
+      "version": "7.29.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "undici-types",
+      "source": "frontend/package-lock.json",
+      "version": "7.16.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "until-async",
+      "source": "frontend/package-lock.json",
+      "version": "3.0.2"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "vite",
+      "source": "frontend/package-lock.json",
+      "version": "8.2.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "vitest",
+      "source": "frontend/package-lock.json",
+      "version": "4.1.10"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "w3c-xmlserializer",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "BSD-2-Clause",
+      "name": "webidl-conversions",
+      "source": "frontend/package-lock.json",
+      "version": "8.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "whatwg-mimetype",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "whatwg-url",
+      "source": "frontend/package-lock.json",
+      "version": "16.0.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "why-is-node-running",
+      "source": "frontend/package-lock.json",
+      "version": "2.3.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "wrap-ansi",
+      "source": "frontend/package-lock.json",
+      "version": "7.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "name": "xml-name-validator",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "xmlchars",
+      "source": "frontend/package-lock.json",
+      "version": "2.2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "y18n",
+      "source": "frontend/package-lock.json",
+      "version": "5.0.8"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "yargs",
+      "source": "frontend/package-lock.json",
+      "version": "17.7.3"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "ISC",
+      "name": "yargs-parser",
+      "source": "frontend/package-lock.json",
+      "version": "21.1.1"
+    },
+    {
+      "ecosystem": "npm",
+      "license": "MIT",
+      "name": "zod",
+      "source": "frontend/package-lock.json",
+      "version": "4.4.3"
+    }
+  ],
+  "schema_version": "runtime-package-manifest/v2"
+}
