@@ -10,11 +10,11 @@
 
 - [x] 1.1 固定 Node.js 22.14.0、npm 10.9.2、`packageManager`/engines、`package-lock.json` 与 `npm ci`
 - [x] 1.2 以最小 spike 验证 React + TypeScript + Vite、FastAPI 同源路径、`/app/*` 深链刷新及无 Node.js 的离线 package 加载
-- [ ] 1.3 以包体积、可访问性、维护成本和许可证验证轻量自有 tokens 与少量无样式可访问 primitives；浏览器门禁固定 Chromium + WebKit
+- [x] 1.3 以包体积、可访问性、维护成本和许可证验证轻量自有 tokens 与少量无样式可访问 primitives；浏览器门禁固定 Chromium + WebKit
 - [x] 1.4 固定 `GET /api/resources/overview` 与 `GET /api/operations/{operation_id}` 的 Pydantic/OpenAPI schema、脱敏 fixture、未知枚举与稳定错误码矩阵
 - [x] 1.5 固定 Host authority 规范化、错误优先级、Origin/Fetch Metadata/`X-TunnelMinion-Request: same-origin` 威胁矩阵，并收集现有 CLI/测试客户端的真实方法、路径、Host 与端口作为兼容回归 corpus
-- [ ] 1.6 确认节点/服务首页首版是否加入搜索与排序；未获得新产品决定时固定采用小型家庭/实验室规模的分组列表
-- [ ] 1.7 运行 spike、依赖许可证/漏洞、生成物秘密、OpenSpec strict 和 Python 全量门禁，提交并推送工具链阶段
+- [x] 1.6 确认节点/服务首页首版是否加入搜索与排序；未获得新产品决定时固定采用小型家庭/实验室规模的分组列表
+- [x] 1.7 运行 spike、依赖许可证/漏洞、生成物秘密、OpenSpec strict 和 Python 全量门禁，提交并推送工具链阶段
 
 ## 2. Foundation、安全与静态交付
 
