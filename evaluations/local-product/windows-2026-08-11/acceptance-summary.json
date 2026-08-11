@@ -1,0 +1,574 @@
+{
+  "schema_version": "windows-local-product-acceptance/v1",
+  "platform": "Windows",
+  "source": {
+    "frontend_source_sha256": "89ae1db7f88aae95eeaeb19eb0d6ef8c1489e3d17ceb484f17e75c872c491f0e"
+  },
+  "package": {
+    "manifest_schema": "runtime-package-manifest/v2"
+  },
+  "commands": [
+    "python scripts/prepare_frontend_dist.py --skip-install",
+    "python scripts/build_runtime_package.py --output-root <isolated-temp> --manifest <evidence>/manifest.json --summary <evidence>/build-summary.json --source-revision d85c3288381d9e9d8fca74732a7aee4595574ade",
+    "python scripts/prepare_local_product_package_fixture.py --data-dir <isolated-temp>/fixture-root/data --allowed-root <isolated-temp>/fixture-root --platform windows",
+    "python scripts/run_runtime_package_clean_acceptance.py --package-root <isolated-package> --manifest <evidence>/manifest.json --schema schemas --forbid-path <repo> --check",
+    "Chromium headless + scripts/run_runtime_package_browser_server.py (direct packaged executable; no Vite, Node, source fallback, or external network)",
+    "npm run size:check --prefix frontend",
+    "python scripts/security_scan.py --root . --artifact build/frontend-dist --artifact evaluations/local-product/windows-2026-08-11",
+    "external ASCII/Latin-1 package and fixture secret scan (matched text never emitted)",
+    "pytest --no-cov --basetemp <writable-temp> [runtime package/fixture/browser tests]",
+    "npm test --prefix frontend -- --run",
+    "openspec validate improve-local-product-experience --strict --no-interactive"
+  ],
+  "acceptance": {
+    "clean_package": {
+      "schema_version": "runtime-package-clean-acceptance/v1",
+      "candidate": {
+        "application_version": "0.1.0",
+        "architecture": "amd64",
+        "id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+        "layout": "onedir-freeze",
+        "platform": "win32",
+        "python_version": "3.11.15"
+      },
+      "manifest_sha256": "75bfd3711ea44c0647bd53dd9f8eb44cd89b3d42c5d9a1542b35ae49e30db4e2",
+      "package_file_count": 213,
+      "package_size_bytes": 63785070,
+      "components": [
+        {
+          "component": "local-product",
+          "duration_ms": 3500,
+          "error_code": null,
+          "exit_code": null,
+          "health_status": 200,
+          "app_status": 200,
+          "node_available": false,
+          "source_environment_present": false,
+          "external_http_proxy_blocked": true,
+          "runtime_package": {
+            "kind": "standalone",
+            "version": "0.1.0",
+            "manifest_schema": "runtime-package-manifest/v2"
+          },
+          "passed": true
+        }
+      ],
+      "program_data_entries": [],
+      "source_entries": [],
+      "passed": true
+    },
+    "browser": {
+      "schema_version": "windows-local-product-browser-acceptance/v1",
+      "platform": "win32",
+      "architecture": "x64",
+      "browser": {
+        "engine": "chromium",
+        "version": "151.0.7922.34",
+        "headless": true
+      },
+      "base_url": "http://127.0.0.1:4175",
+      "fixture": {
+        "operation_id": "operation_11111111111111111111111111111111",
+        "node_id": "node_e70809d36e1446518c21ebf68d9cad61",
+        "data_dir": "isolated fixture data"
+      },
+      "latency_ms": {
+        "initial": [
+          376.13,
+          50.01,
+          44.75,
+          45.69,
+          46.6
+        ],
+        "refresh": [
+          59.83,
+          44.11,
+          43.47,
+          48.37,
+          45.85
+        ],
+        "initial_p50": 46.6,
+        "initial_p95": 376.13,
+        "refresh_p50": 45.85,
+        "refresh_p95": 59.83
+      },
+      "headers": {
+        "app": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+          "x-content-type-options": "nosniff",
+          "content-type": "text/html; charset=utf-8"
+        },
+        "asset": {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-security-policy": null,
+          "x-content-type-options": "nosniff",
+          "content-type": "application/javascript"
+        }
+      },
+      "flows": {
+        "operation": {
+          "allowed_buttons": [
+            "批准一次",
+            "拒绝",
+            "取消操作"
+          ],
+          "approve_dialog": true,
+          "reject_dialog": true,
+          "revoke_button": false
+        },
+        "memories": {
+          "home_loaded": true,
+          "lab_loaded": true,
+          "home_hidden_in_lab": true,
+          "initial_lab_count": 0
+        },
+        "settings": {
+          "settings_loaded": true,
+          "diagnostics_status": 200,
+          "diagnostics_content_type": "application/json; charset=utf-8",
+          "diagnostics_bytes": 2185,
+          "diagnostics_sha256": "11cd07863b47148cb115f24fc67b0b5052aa207f7cf924aa778cb8da78166e00",
+          "forbidden_keys": [],
+          "recovery_link": true
+        }
+      },
+      "responsive": {
+        "320_css_px": [
+          {
+            "route": "/app/overview",
+            "heading": "总览",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/chat",
+            "heading": "聊天",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/operations",
+            "heading": "操作",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/memories",
+            "heading": "长期记忆",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/settings",
+            "heading": "模型设置",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          }
+        ],
+        "640x360_css_equivalent_only": [
+          {
+            "route": "/app/overview",
+            "heading": "总览",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/chat",
+            "heading": "聊天",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/operations",
+            "heading": "操作",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/memories",
+            "heading": "长期记忆",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/settings",
+            "heading": "模型设置",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          }
+        ]
+      },
+      "storage": {
+        "local": [],
+        "session": [],
+        "indexedDB": []
+      },
+      "secret_indicators": [],
+      "limitations": [
+        "Playwright/Chromium does not provide a reliable Windows system zoom control in this harness; actual 200% OS/browser zoom was not claimed or simulated. The report includes a 640x360 CSS-layout probe only as a separate non-equivalent check."
+      ],
+      "checks": [
+        {
+          "name": "spa_entry_200",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "spa_csp_strict",
+          "passed": true,
+          "detail": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        },
+        {
+          "name": "spa_no_store",
+          "passed": true,
+          "detail": "no-store"
+        },
+        {
+          "name": "spa_nosniff",
+          "passed": true,
+          "detail": "nosniff"
+        },
+        {
+          "name": "hashed_asset_immutable",
+          "passed": true,
+          "detail": {
+            "cache-control": "public, max-age=31536000, immutable",
+            "content-security-policy": null,
+            "x-content-type-options": "nosniff",
+            "content-type": "application/javascript"
+          }
+        },
+        {
+          "name": "hashed_asset_found",
+          "passed": true,
+          "detail": [
+            "/app-assets/assets/index-CA2h1kyX.js"
+          ]
+        },
+        {
+          "name": "overview_initial_operable",
+          "passed": true,
+          "detail": [
+            376.13,
+            50.01,
+            44.75,
+            45.69,
+            46.6
+          ]
+        },
+        {
+          "name": "overview_refresh_operable",
+          "passed": true,
+          "detail": [
+            59.83,
+            44.11,
+            43.47,
+            48.37,
+            45.85
+          ]
+        },
+        {
+          "name": "chat_new_thread_same_origin_write",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "operation_detail_loaded",
+          "passed": true
+        },
+        {
+          "name": "operation_approve_confirmation",
+          "passed": true
+        },
+        {
+          "name": "operation_reject_confirmation",
+          "passed": true
+        },
+        {
+          "name": "operation_action_surface_reflects_server",
+          "passed": true,
+          "detail": [
+            "批准一次",
+            "拒绝",
+            "取消操作"
+          ]
+        },
+        {
+          "name": "memory_scope_isolation",
+          "passed": true,
+          "detail": {
+            "home_loaded": true,
+            "lab_loaded": true,
+            "home_hidden_in_lab": true,
+            "initial_lab_count": 0
+          }
+        },
+        {
+          "name": "settings_loaded",
+          "passed": true
+        },
+        {
+          "name": "diagnostics_download_200",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "diagnostics_no_secret_keys",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "ui_secret_scan",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "responsive_320_no_overflow",
+          "passed": true,
+          "detail": [
+            {
+              "route": "/app/overview",
+              "heading": "总览",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/chat",
+              "heading": "聊天",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/operations",
+              "heading": "操作",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/memories",
+              "heading": "长期记忆",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/settings",
+              "heading": "模型设置",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            }
+          ]
+        },
+        {
+          "name": "responsive_640x360_no_overflow",
+          "passed": true,
+          "detail": [
+            {
+              "route": "/app/overview",
+              "heading": "总览",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/chat",
+              "heading": "聊天",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/operations",
+              "heading": "操作",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/memories",
+              "heading": "长期记忆",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/settings",
+              "heading": "模型设置",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            }
+          ]
+        },
+        {
+          "name": "browser_storage_empty",
+          "passed": true,
+          "detail": {
+            "local": [],
+            "session": [],
+            "indexedDB": []
+          }
+        }
+      ],
+      "generated_at": "2026-08-11T11:28:29.744Z",
+      "passed": true,
+      "failed_checks": []
+    },
+    "operation_actions": {
+      "schema_version": "windows-local-product-operation-actions/v1",
+      "operation_id": "operation_11111111111111111111111111111111",
+      "allowed_actions": [
+        "approve",
+        "reject",
+        "cancel"
+      ],
+      "matrix": [
+        {
+          "action": "approve",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        },
+        {
+          "action": "reject",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        },
+        {
+          "action": "cancel",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        }
+      ],
+      "revoke": {
+        "available": false,
+        "reason": "fixture starts awaiting_authorization; server did not advertise revoke, so no revoke write was attempted"
+      },
+      "passed": true,
+      "generated_at": "2026-08-11T11:33:57.836Z"
+    },
+    "overview_degradation": {
+      "schema_version": "resource-overview/v1",
+      "http_status": 200,
+      "local": {
+        "runtime": "running",
+        "readiness": "ready",
+        "package_kind": "standalone",
+        "manifest_schema": "runtime-package-manifest/v2"
+      },
+      "model": {
+        "configured": false,
+        "status": "unconfigured",
+        "freshness": "not_applicable"
+      },
+      "coordinator": {
+        "configured": false,
+        "state": "unconfigured",
+        "freshness": "not_applicable"
+      },
+      "network_path": {
+        "configured": false,
+        "state": "unconfigured",
+        "handshake": "missing",
+        "route": "missing",
+        "probe": "missing",
+        "freshness": "not_applicable"
+      },
+      "nodes": [
+        {
+          "display_name": "本机",
+          "state": "local",
+          "service_count": 0,
+          "freshness": "live"
+        }
+      ],
+      "services": [],
+      "product_conclusion": "standalone 本机确定性页面可用；模型未配置、Coordinator 未配置、网络路径未配置/不可用时，页面仍返回结构化降级状态，不把这些外部条件当作启动前提。",
+      "generated_at": "2026-08-11T11:33:06.868Z",
+      "passed": true
+    },
+    "frontend_size": {
+      "schema_version": "windows-local-product-frontend-size/v1",
+      "files": [
+        {
+          "path": "assets/index-7Zp6Ac-c.css",
+          "bytes": 28879,
+          "gzip_bytes": 4524,
+          "sha256": "fb5c43b4c3f3d486ba1e5236ed512de42e5bd8c6bfe4288152a99d5e5898634b"
+        },
+        {
+          "path": "assets/index-CA2h1kyX.js",
+          "bytes": 473804,
+          "gzip_bytes": 140549,
+          "sha256": "68a462d7ed3c3fef61e0afd6e17d455d99a8b827adf6167e90b98bfbe1765343"
+        }
+      ],
+      "total_gzip_bytes": 145073,
+      "total_gzip_kib": 141.67,
+      "limit_bytes": 307200,
+      "passed": true,
+      "source": "build/frontend-dist",
+      "generated_at": "2026-08-11T11:29:16.577Z"
+    },
+    "package_secret_scan": {
+      "schema_version": "windows-local-product-secret-scan/v1",
+      "roots": [
+        "runtime package",
+        "isolated fixture data"
+      ],
+      "files_scanned": 218,
+      "bytes_scanned": 63953376,
+      "hits": [],
+      "passed": true,
+      "scanner": "ASCII/Latin-1 pattern scan; matched text never emitted",
+      "generated_at": "2026-08-11T11:30:07.363Z"
+    }
+  },
+  "test_results": {
+    "python_targeted": {
+      "passed": 30,
+      "skipped": 0,
+      "warnings": 1,
+      "note": "首轮默认 pytest 临时根目录权限不足，改用当前会话可写 basetemp 后通过；不是产品测试失败。"
+    },
+    "frontend_unit": {
+      "test_files": 14,
+      "passed": 85
+    },
+    "openspec_strict": "valid",
+    "repository_security_scan": "passed",
+    "external_package_scan": "passed"
+  },
+  "conclusions": [
+    "Windows amd64 standalone package relocated outside the repository and served real FastAPI routes successfully.",
+    "Overview first/refresh UI stayed operable; model, Coordinator, and network-path/peer evidence are explicit degraded states, not startup prerequisites.",
+    "Operation detail exposed and opened every action the fixture/server allowed (approve/reject/cancel); no write was submitted. Revoke was not advertised for the awaiting-authorization fixture and was not claimed.",
+    "Memory home/lab scope isolation, settings, redacted diagnostics download, 320 CSS px layout, CSP/cache/nosniff, empty browser storage, and secret scans passed."
+  ],
+  "uncovered": [
+    "Windows system/browser OS-level 200% zoom was not reliably controllable from this Chromium harness; no deviceScaleFactor substitution was used. A separate 640x360 CSS-layout probe passed.",
+    "This slice is headless Chromium; a human desktop GUI pass and customer firewall/WireGuard/Murus conditions were intentionally not used.",
+    "The repository Playwright package config could not start its uv webServer in this locked-down worktree because the project environment cache/lock was inaccessible; the direct server harness exercised the same real package and Chromium instead, and the limitation is recorded rather than hidden."
+  ],
+  "generated_at": "2026-08-11T11:34:44.609Z"
+}
