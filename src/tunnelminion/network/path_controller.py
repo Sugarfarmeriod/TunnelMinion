@@ -37,6 +37,9 @@ class DirectPathErrorCode(StrEnum):
     HOST_ROUTE_MISSING = "host_route_missing"
     TARGET_UNREACHABLE = "target_unreachable"
     REVISION_ROLLED_BACK = "revision_rolled_back"
+    PERMISSION_DENIED = "permission_denied"
+    UNSUPPORTED = "unsupported"
+    CANCELLED = "cancelled"
 
 
 class CandidateProbePolicy(BaseModel):
@@ -55,6 +58,8 @@ class CandidateProbePolicy(BaseModel):
     max_candidates: int = Field(default=4, ge=1, le=8)
     per_candidate_timeout_seconds: float = Field(default=1.0, gt=0, le=5)
     target_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    approved_ports: tuple[int, ...] = Field(default=(), max_length=32)
+    min_refresh_interval_seconds: float = Field(default=30.0, gt=0, le=3600)
     max_handshake_age_seconds: int = Field(default=180, ge=5, le=3600)
 
     @model_validator(mode="after")
@@ -63,6 +68,10 @@ class CandidateProbePolicy(BaseModel):
             network = ipaddress.ip_network(value, strict=True)
             if network.prefixlen == 0 or network.is_multicast:
                 raise ValueError("候选策略不能批准默认路由或组播网段")
+        if len(set(self.approved_ports)) != len(self.approved_ports):
+            raise ValueError("候选端口不得重复")
+        if any(not 1 <= port <= 65535 for port in self.approved_ports):
+            raise ValueError("候选端口必须位于有效端口范围")
         return self
 
 
@@ -78,15 +87,19 @@ class DirectPathEvidence(BaseModel):
         default=None,
         pattern=r"^sha256:[0-9a-f]{64}$",
     )
+    selected_candidate_source: CandidateSource | None = None
     endpoint_probe_at: datetime | None = None
     endpoint_probe_succeeded: bool = False
     last_handshake_at: datetime | None = None
+    handshake_probe_at: datetime | None = None
     handshake_fresh: bool = False
+    host_route_probe_at: datetime | None = None
     host_route_present: bool = False
     target_probe_at: datetime | None = None
     target_probe_succeeded: bool = False
     verified: bool
     stable_error_code: DirectPathErrorCode | None = None
+    source: str = Field(default="unknown", min_length=1, max_length=128)
     observed_at: datetime
 
     @model_validator(mode="after")
@@ -181,10 +194,13 @@ class DirectPathVerifier:
             selected_candidate_hash=(
                 canonical_sha256(selected.model_dump(mode="json")) if selected is not None else None
             ),
+            selected_candidate_source=selected.source if selected is not None else None,
             endpoint_probe_at=endpoint_probe_at,
             endpoint_probe_succeeded=selected is not None,
             last_handshake_at=last_handshake_at,
+            handshake_probe_at=current,
             handshake_fresh=handshake_fresh,
+            host_route_probe_at=current,
             host_route_present=route_present,
             target_probe_at=target_probe_at,
             target_probe_succeeded=target_succeeded,
@@ -196,6 +212,7 @@ class DirectPathVerifier:
                 route_present=route_present,
                 target_succeeded=target_succeeded,
             ),
+            source="structured-candidate",
             observed_at=current,
         )
 
@@ -212,6 +229,7 @@ class DirectPathVerifier:
             for item in candidates
             if item.source in self._policy.allowed_sources
             and item.expires_at.astimezone(UTC) > now
+            and (not self._policy.approved_ports or item.port in self._policy.approved_ports)
             and any(ipaddress.ip_address(item.host) in network for network in approved_networks)
         )
         ranked = sorted(

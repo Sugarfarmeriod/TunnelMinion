@@ -107,7 +107,13 @@ class FixedMacOSWireGuardCommands:
 
     async def show(self, interface_name: str, field: str) -> CommandResult:
         self.validate_runtime_interface(interface_name)
-        if field not in {"public-key", "peers", "allowed-ips", "latest-handshakes"}:
+        if field not in {
+            "public-key",
+            "peers",
+            "endpoints",
+            "allowed-ips",
+            "latest-handshakes",
+        }:
             raise ValueError("不允许的 WireGuard 观察字段")
         return await self._runner.run((str(self.paths.wg), "show", interface_name, field), 5)
 
@@ -115,8 +121,10 @@ class FixedMacOSWireGuardCommands:
         self.validate_runtime_interface(interface_name)
         return await self._runner.run((str(self.paths.ifconfig), interface_name), 5)
 
-    async def route_table(self) -> CommandResult:
-        return await self._runner.run((str(self.paths.netstat), "-rn", "-f", "inet"), 10)
+    async def route_table(self, family: str = "inet") -> CommandResult:
+        if family not in {"inet", "inet6"}:
+            raise ValueError("macOS route family 不受支持")
+        return await self._runner.run((str(self.paths.netstat), "-rn", "-f", family), 10)
 
     async def up(self, interface_name: str, config_path: Path) -> CommandResult:
         self._validate_managed_interface(interface_name)
@@ -167,9 +175,12 @@ class MacOSWireGuardObserver:
             return self._absent(interface_name)
 
         interface = await self._commands.inspect_interface(interface_name)
-        public, peers, allowed, handshakes, routes = await self._read_public_state(interface_name)
+        public, peers, endpoints, allowed, handshakes, routes = await self._read_public_state(
+            interface_name
+        )
         public_text = public.stdout.strip() if public.returncode == 0 else ""
         peer_values = _peer_values(peers.stdout if peers.returncode == 0 else "")
+        endpoint_values = _peer_values(endpoints.stdout if endpoints.returncode == 0 else "")
         allowed_values = _peer_values(allowed.stdout if allowed.returncode == 0 else "")
         handshake_values = _peer_values(handshakes.stdout if handshakes.returncode == 0 else "")
         return MacOSTunnelSnapshot(
@@ -182,6 +193,12 @@ class MacOSWireGuardObserver:
             peers=tuple(
                 MacOSPeerSnapshot(
                     public_key=key,
+                    endpoint_host=(
+                        parsed[0]
+                        if (parsed := parse_wireguard_endpoint(endpoint_values.get(key, ("",))[0]))
+                        else None
+                    ),
+                    endpoint_port=parsed[1] if parsed is not None else None,
                     allowed_host_routes=tuple(
                         route for route in allowed_values.get(key, ()) if _is_host_route(route)
                     ),
@@ -191,7 +208,8 @@ class MacOSWireGuardObserver:
                 )
                 for key in peer_values
             ),
-            host_routes=_parse_host_routes(routes.stdout, interface_name),
+            host_routes=_parse_host_routes(routes[0].stdout, interface_name)
+            + _parse_host_routes(routes[1].stdout, interface_name),
             public_key_hash=(
                 canonical_sha256({"public_key": public_text}) if public_text else None
             ),
@@ -199,7 +217,8 @@ class MacOSWireGuardObserver:
             observed_error_code=(
                 None
                 if all(
-                    item.returncode == 0 for item in (public, peers, allowed, handshakes, routes)
+                    item.returncode == 0
+                    for item in (public, peers, endpoints, allowed, handshakes, *routes)
                 )
                 else "permission_denied"
             ),
@@ -208,13 +227,24 @@ class MacOSWireGuardObserver:
     async def _read_public_state(
         self,
         interface_name: str,
-    ) -> tuple[CommandResult, CommandResult, CommandResult, CommandResult, CommandResult]:
+    ) -> tuple[
+        CommandResult,
+        CommandResult,
+        CommandResult,
+        CommandResult,
+        CommandResult,
+        tuple[CommandResult, CommandResult],
+    ]:
         public = await self._commands.show(interface_name, "public-key")
         peers = await self._commands.show(interface_name, "peers")
+        endpoints = await self._commands.show(interface_name, "endpoints")
         allowed = await self._commands.show(interface_name, "allowed-ips")
         handshakes = await self._commands.show(interface_name, "latest-handshakes")
-        routes = await self._commands.route_table()
-        return public, peers, allowed, handshakes, routes
+        route_results = (
+            await self._commands.route_table("inet"),
+            await self._commands.route_table("inet6"),
+        )
+        return public, peers, endpoints, allowed, handshakes, route_results
 
     @staticmethod
     def _absent(interface_name: str, error: str | None = None) -> MacOSTunnelSnapshot:
@@ -296,6 +326,28 @@ def _nonnegative_integer(value: str) -> int | None:
     except ValueError:
         return None
     return parsed if parsed >= 0 else None
+
+
+def parse_wireguard_endpoint(value: str) -> tuple[str, int] | None:
+    """解析官方 `wg show ... endpoints` 的 IP:port 行。"""
+    text = value.strip()
+    if not text or text in {"(none)", "<none>"}:
+        return None
+    if text.startswith("["):
+        closing = text.find("]:")
+        if closing < 0:
+            return None
+        host, raw_port = text[1:closing], text[closing + 2 :]
+    else:
+        if ":" not in text:
+            return None
+        host, raw_port = text.rsplit(":", maxsplit=1)
+    try:
+        ipaddress.ip_address(host)
+        port = int(raw_port)
+    except ValueError:
+        return None
+    return (host, port) if 1 <= port <= 65535 else None
 
 
 def macos_effective_uid() -> int:  # pragma: no cover - macOS 原生 API 薄封装

@@ -14,6 +14,7 @@ from tunnelminion.platforms.windows.managed_system import (
     WindowsPeerSnapshot,
     WindowsProviderPaths,
     WindowsWireGuardObserver,
+    parse_wireguard_endpoint,
     windows_is_administrator,
 )
 from tunnelminion.platforms.windows.models import (
@@ -117,10 +118,13 @@ def test_fixed_commands_reject_dynamic_fields_names_routes_and_paths(tmp_path: P
     asyncio.run(fixed.uninstall_tunnel("tmn-test-a"))
     asyncio.run(fixed.stop_tunnel("tmn-test-a"))
     asyncio.run(fixed.show("HomeMac", "peers"))
+    asyncio.run(fixed.show("HomeMac", "endpoints"))
     asyncio.run(fixed.query_service("HomeMac"))
     asyncio.run(fixed.query_route("10.203.0.2/32"))
+    asyncio.run(fixed.query_route("fd00::2/128"))
     asyncio.run(fixed.route_table())
     assert all(isinstance(command, tuple) for command in runner.commands)
+    assert (str(fixed.paths.route_exe), "print", "-6", "fd00::2") in runner.commands
     assert all("powershell" not in " ".join(command).lower() for command in runner.commands)
 
     with pytest.raises(ValueError, match="观察字段"):
@@ -188,6 +192,11 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
         stdout="peer-a\npeer-b\n",
         stderr="",
     )
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0,
+        stdout="peer-a\t[fd00::10]:51820\npeer-b\t10.203.0.3:51821\n",
+        stderr="",
+    )
     runner.results[(*prefix, "allowed-ips")] = CommandResult(
         returncode=0,
         stdout="peer-a\t10.203.0.2/32\npeer-b\t10.203.0.3/32\nmalformed\n",
@@ -219,6 +228,8 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
     assert snapshot.addresses == ("10.203.0.1/32", "fd00::1/128")
     assert snapshot.host_routes == ("10.203.0.2/32",)
     assert snapshot.peers[0].latest_handshake_epoch == 123
+    assert snapshot.peers[0].endpoint_host == "fd00::10"
+    assert snapshot.peers[0].endpoint_port == 51820
     assert snapshot.peers[1].latest_handshake_epoch is None
     assert snapshot.public_key_hash is not None
     assert snapshot.stable_interface_id == "windows:tmn-test-a"
@@ -242,3 +253,10 @@ def test_peer_snapshot_rejects_non_host_route() -> None:
             public_key="peer",
             allowed_host_routes=("10.203.0.0/24",),
         )
+
+
+def test_peer_snapshot_rejects_partial_endpoint_and_parser_is_fail_closed() -> None:
+    with pytest.raises(ValidationError, match="endpoint"):
+        WindowsPeerSnapshot(public_key="peer", endpoint_host="10.0.0.1")
+    for value in ("", "(none)", "<none>", "bad", "[fd00::1]", "10.0.0.1:not-port", "10.0.0.1:0"):
+        assert parse_wireguard_endpoint(value) is None

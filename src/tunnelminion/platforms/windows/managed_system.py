@@ -43,11 +43,17 @@ class WindowsPeerSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     public_key: str = Field(min_length=1, max_length=128)
+    endpoint_host: str | None = Field(default=None, min_length=1, max_length=255)
+    endpoint_port: int | None = Field(default=None, ge=1, le=65535)
     allowed_host_routes: tuple[str, ...] = Field(default=(), max_length=8)
     latest_handshake_epoch: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_routes(self) -> Self:
+        if (self.endpoint_host is None) != (self.endpoint_port is None):
+            raise ValueError("peer endpoint 必须同时包含地址和端口")
+        if self.endpoint_host is not None:
+            ipaddress.ip_address(self.endpoint_host)
         for route in self.allowed_host_routes:
             network = ipaddress.ip_network(route, strict=True)
             if network.prefixlen != network.max_prefixlen:
@@ -83,6 +89,8 @@ class WindowsTunnelSnapshot(BaseModel):
                 "peers": [
                     {
                         "public_key": peer.public_key,
+                        "endpoint_host": peer.endpoint_host,
+                        "endpoint_port": peer.endpoint_port,
                         "allowed_host_routes": peer.allowed_host_routes,
                     }
                     for peer in self.peers
@@ -167,7 +175,13 @@ class FixedWindowsWireGuardCommands:
 
     async def show(self, interface_name: str, field: str) -> CommandResult:
         self._validate_interface(interface_name, managed_only=False)
-        if field not in {"public-key", "peers", "allowed-ips", "latest-handshakes"}:
+        if field not in {
+            "public-key",
+            "peers",
+            "endpoints",
+            "allowed-ips",
+            "latest-handshakes",
+        }:
             raise ValueError("不允许的 WireGuard 观察字段")
         return await self._runner.run(
             (str(self.paths.wg_exe), "show", interface_name, field),
@@ -185,8 +199,14 @@ class FixedWindowsWireGuardCommands:
         network = ipaddress.ip_network(host_route, strict=True)
         if network.prefixlen != network.max_prefixlen:
             raise ValueError("只允许查询 host route")
+        family = "-6" if network.version == 6 else None
+        arguments = (
+            (str(self.paths.route_exe), "print", family, str(network.network_address))
+            if family is not None
+            else (str(self.paths.route_exe), "print", str(network.network_address))
+        )
         return await self._runner.run(
-            (str(self.paths.route_exe), "print", str(network.network_address)),
+            arguments,
             5,
         )
 
@@ -274,11 +294,18 @@ class WindowsWireGuardObserver:
             )
         public_key = await self._commands.show(interface_name, "public-key")
         peers_result = await self._commands.show(interface_name, "peers")
+        endpoints_result = await self._commands.show(interface_name, "endpoints")
         allowed_result = await self._commands.show(interface_name, "allowed-ips")
         handshake_result = await self._commands.show(interface_name, "latest-handshakes")
         if any(
             result.returncode != 0
-            for result in (public_key, peers_result, allowed_result, handshake_result)
+            for result in (
+                public_key,
+                peers_result,
+                endpoints_result,
+                allowed_result,
+                handshake_result,
+            )
         ):
             return WindowsTunnelSnapshot(
                 interface_name=interface_name,
@@ -290,6 +317,7 @@ class WindowsWireGuardObserver:
                 observed_error_code="wireguard_query_failed",
             )
         allowed = _parse_peer_values(allowed_result.stdout)
+        endpoints = _parse_peer_values(endpoints_result.stdout)
         handshakes = _parse_peer_values(handshake_result.stdout)
         peer_keys = tuple(
             line.strip() for line in peers_result.stdout.splitlines() if line.strip()
@@ -297,6 +325,12 @@ class WindowsWireGuardObserver:
         peers = tuple(
             WindowsPeerSnapshot(
                 public_key=key,
+                endpoint_host=(
+                    parsed[0]
+                    if (parsed := parse_wireguard_endpoint(endpoints.get(key, ("",))[0]))
+                    else None
+                ),
+                endpoint_port=parsed[1] if parsed is not None else None,
                 allowed_host_routes=tuple(
                     route.strip()
                     for route in (allowed.get(key, ("",))[0]).split(",")
@@ -358,6 +392,28 @@ def _nonnegative_integer(value: str) -> int | None:
     except ValueError:
         return None
     return parsed if parsed >= 0 else None
+
+
+def parse_wireguard_endpoint(value: str) -> tuple[str, int] | None:
+    """解析官方 `wg show ... endpoints` 的 IP:port 行，不接受主机名。"""
+    text = value.strip()
+    if not text or text in {"(none)", "<none>"}:
+        return None
+    if text.startswith("["):
+        closing = text.find("]:")
+        if closing < 0:
+            return None
+        host, raw_port = text[1:closing], text[closing + 2 :]
+    else:
+        if ":" not in text:
+            return None
+        host, raw_port = text.rsplit(":", maxsplit=1)
+    try:
+        ipaddress.ip_address(host)
+        port = int(raw_port)
+    except ValueError:
+        return None
+    return (host, port) if 1 <= port <= 65535 else None
 
 
 def windows_is_administrator(
