@@ -75,7 +75,7 @@
 - [x] 8.3 构建 Windows amd64 与 macOS arm64 package，验证相同 frontend dist 摘要及目标机无 Node、源码、网络仍可运行
 - [x] 8.4 React 默认入口发布时，以自动防删除契约保证原四页路径及 `/legacy/*` 别名在首发和紧随其后的版本继续存在，并演练只恢复默认 `/` 映射的回退；实际删除另建 change
 - [ ] 8.5 执行真实 A/B：总览、聊天、peer、审批、记忆和模型/Coordinator/peer 降级；不修改客户防火墙、WireGuard、路由、模型、秘密或自启动
-- [ ] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
+- [x] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
 - [ ] 8.7 最终发布前再次核对并按需更新主 FigJam，确认最后核对日期、当前/历史标记和仓库主图链接；额度不足可记录 blocker，但不得关闭 change 或合并最终发布 PR
 - [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、FigJam 与 OpenSpec strict 门禁，提交推送并创建最终 PR
 - [ ] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
