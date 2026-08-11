@@ -9,6 +9,31 @@ interface FixtureReceipt {
   operation_id: string;
 }
 
+async function expectDialogTabCycle(
+  page: import("@playwright/test").Page,
+  dialog: import("@playwright/test").Locator,
+  cancelName: string,
+  confirmName: string,
+) {
+  const cancel = dialog.getByRole("button", { name: cancelName });
+  const confirm = dialog.getByRole("button", { name: confirmName });
+
+  await expect(cancel).toBeFocused();
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Tab");
+  await expect(confirm).toBeFocused();
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Tab");
+  await expect(cancel).toBeFocused();
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirm).toBeFocused();
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Shift+Tab");
+  await expect(cancel).toBeFocused();
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+}
+
 function fixtureReceipt(): FixtureReceipt {
   const path = process.env.TUNNELMINION_PACKAGE_FIXTURE;
   if (path === undefined) {
@@ -56,6 +81,9 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   await approve.click();
   const operationDialog = page.getByRole("dialog", { name: "确认批准一次" });
   await expect(operationDialog).toContainText(fixture.operation_id);
+  await expect(
+    operationDialog.getByRole("button", { name: "返回检查详情" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(operationDialog).toBeHidden();
 
@@ -75,6 +103,13 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     .fill("总览优先显示家庭网络中的本机服务与证据时间");
   await page.getByRole("button", { name: "检查并确认修正" }).click();
   const memoryDialog = page.getByRole("dialog", { name: "确认修正长期记忆" });
+  await expectDialogTabCycle(page, memoryDialog, "取消", "确认修正一次");
+  await page.keyboard.press("Escape");
+  await expect(memoryDialog).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "检查并确认修正" }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "检查并确认修正" }).click();
   const reviseResponse = page.waitForResponse(
     (response) =>
       response.url().includes("/api/memories/") &&
@@ -95,6 +130,23 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   await expect(
     page.getByText("总览优先显示家庭网络中的本机服务与证据时间"),
   ).toBeHidden();
+
+  await page.goto("/app/settings");
+  await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+  await page
+    .getByLabel("OpenAI-compatible endpoint")
+    .fill("http://127.0.0.1:8080/v1");
+  await page.getByLabel("模型名称").fill("focus-trap-model");
+  await page.getByRole("button", { name: "检查并确认保存" }).click();
+  const settingsDialog = page.getByRole("dialog", {
+    name: "确认保存模型配置",
+  });
+  await expectDialogTabCycle(page, settingsDialog, "取消", "确认保存一次");
+  await page.keyboard.press("Escape");
+  await expect(settingsDialog).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "检查并确认保存" }),
+  ).toBeFocused();
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(

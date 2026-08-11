@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
 import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
+import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 
 import {
   deleteModelConfiguration,
@@ -48,14 +49,6 @@ function readableError(error: unknown): string {
   return "无法读取模型配置，请确认本机 TunnelMinion 仍在运行。";
 }
 
-function canReceiveRestoredFocus(target: HTMLElement | null): boolean {
-  return (
-    target !== null &&
-    target.isConnected &&
-    !target.matches(":disabled, [aria-disabled='true']")
-  );
-}
-
 function SettingsConfirmationDialog({
   title,
   description,
@@ -77,46 +70,13 @@ function SettingsConfirmationDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-    return () => {
-      const target = [returnFocus, fallbackFocus, safeFallbackFocus].find(
-        canReceiveRestoredFocus,
-      );
-      target?.focus();
-    };
-  }, [fallbackFocus, returnFocus, safeFallbackFocus]);
-
-  function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !busy) {
-      event.preventDefault();
-      onCancel();
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-    const controls = Array.from(
-      dialogRef.current?.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), [href], input:not([disabled])",
-      ) ?? [],
-    );
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (first === undefined || last === undefined) {
-      return;
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
+  const { dialogRef, handleKeyDown } = useDialogFocusTrap<HTMLDivElement>({
+    escapeDisabled: busy,
+    initialFocusRef: cancelRef,
+    onEscape: onCancel,
+    returnFocus: [returnFocus, fallbackFocus, safeFallbackFocus],
+  });
 
   return (
     <div className="settings-dialog-backdrop">
@@ -125,9 +85,10 @@ function SettingsConfirmationDialog({
         aria-labelledby="settings-confirm-title"
         aria-modal="true"
         className="settings-dialog"
-        onKeyDown={keepFocusInside}
+        onKeyDown={handleKeyDown}
         ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <h3 id="settings-confirm-title">{title}</h3>
         <div id="settings-confirm-description">{description}</div>
@@ -178,6 +139,7 @@ export function SettingsPage() {
   const [writing, setWriting] = useState(false);
   const [deleteUncertain, setDeleteUncertain] = useState(false);
   const refreshRef = useRef<HTMLButtonElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -225,7 +187,7 @@ export function SettingsPage() {
       kind: "save",
       input,
       secretAction,
-      returnFocus: document.activeElement as HTMLElement | null,
+      returnFocus: saveButtonRef.current,
     });
   }
 
@@ -529,7 +491,11 @@ export function SettingsPage() {
               </p>
             )}
             <div className="settings-actions">
-              <button disabled={writing || deleteUncertain} type="submit">
+              <button
+                disabled={writing || deleteUncertain}
+                ref={saveButtonRef}
+                type="submit"
+              >
                 检查并确认保存
               </button>
               <button

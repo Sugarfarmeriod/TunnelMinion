@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ActionConfirmationDialog } from "./ActionConfirmationDialog";
@@ -26,6 +26,7 @@ import "./operations.css";
 interface ConfirmationState {
   action: OperationAction;
   detail: OperationDetail;
+  returnFocus: HTMLElement | null;
 }
 
 type UnknownResultState = PendingOperationAction;
@@ -171,14 +172,13 @@ export function OperationDetailPage() {
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(
     null,
   );
-  const [returnFocusAction, setReturnFocusAction] =
-    useState<OperationAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [unknownResult, setUnknownResult] = useState<UnknownResultState | null>(
     null,
   );
+  const detailTitleRef = useRef<HTMLHeadingElement>(null);
 
   const query = useQuery({
     queryKey: operationQueryKeys.detail(operationId ?? "missing"),
@@ -186,22 +186,7 @@ export function OperationDetailPage() {
     enabled: operationId !== undefined && operationId.length > 0,
   });
 
-  useEffect(() => {
-    if (confirmation !== null || returnFocusAction === null) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      (
-        document.getElementById(`operation-action-${returnFocusAction}`) ??
-        document.getElementById("operation-detail-title")
-      )?.focus();
-      setReturnFocusAction(null);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [confirmation, returnFocusAction]);
-
-  function closeConfirmation(action: OperationAction) {
-    setReturnFocusAction(action);
+  function closeConfirmation() {
     setConfirmation(null);
   }
 
@@ -214,7 +199,10 @@ export function OperationDetailPage() {
     return latest;
   }
 
-  async function prepareAction(action: OperationAction) {
+  async function prepareAction(
+    action: OperationAction,
+    returnFocus: HTMLElement | null,
+  ) {
     if (preparingAction !== null || submitting || operationId === undefined) {
       return;
     }
@@ -229,7 +217,7 @@ export function OperationDetailPage() {
         );
         return;
       }
-      setConfirmation({ action, detail: latest });
+      setConfirmation({ action, detail: latest, returnFocus });
     } catch (error) {
       setActionError(
         `提交前无法复读最新详情：${readableOperationError(error as Error)} 未执行任何写请求。`,
@@ -287,7 +275,7 @@ export function OperationDetailPage() {
     const submittedDetail = confirmation.detail;
     try {
       await submitOperationAction(operationId, payload);
-      closeConfirmation(submittedAction);
+      closeConfirmation();
       try {
         await readLatest();
         setActionMessage(
@@ -299,7 +287,7 @@ export function OperationDetailPage() {
         );
       }
     } catch (error) {
-      closeConfirmation(submittedAction);
+      closeConfirmation();
       if (!isUnknownOperationWriteError(error)) {
         setActionError(
           `${readableOperationError(error as Error)}。服务端已明确拒绝且未执行请求；页面不会自动重放。`,
@@ -391,7 +379,7 @@ export function OperationDetailPage() {
       <header className="operation-detail-header">
         <div>
           <p className="eyebrow">服务端最新详情</p>
-          <h2 id="operation-detail-title" tabIndex={-1}>
+          <h2 id="operation-detail-title" ref={detailTitleRef} tabIndex={-1}>
             {detail.service_id}
           </h2>
           <p className="operation-id">operation {summary.operation_id}</p>
@@ -560,7 +548,9 @@ export function OperationDetailPage() {
                   preparingAction !== null || submitting || query.isRefetchError
                 }
                 type="button"
-                onClick={() => void prepareAction(action)}
+                onClick={(event) =>
+                  void prepareAction(action, event.currentTarget)
+                }
               >
                 {preparingAction === action
                   ? "正在复读详情……"
@@ -575,8 +565,11 @@ export function OperationDetailPage() {
         <ActionConfirmationDialog
           action={confirmation.action}
           detail={confirmation.detail}
+          fallbackFocus={detailTitleRef.current}
+          returnFocus={confirmation.returnFocus}
+          safeFallbackFocus={detailTitleRef.current}
           submitting={submitting}
-          onCancel={() => closeConfirmation(confirmation.action)}
+          onCancel={closeConfirmation}
           onConfirm={(payload) => void confirmAction(payload)}
         />
       )}

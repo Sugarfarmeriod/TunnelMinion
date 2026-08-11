@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import type { FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
+import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 
 import {
   clearMemoryScope,
@@ -80,14 +81,6 @@ function readableError(error: unknown): string {
   return "无法读取长期记忆，请确认本机 TunnelMinion 仍在运行。";
 }
 
-function canReceiveRestoredFocus(target: HTMLElement | null): boolean {
-  return (
-    target !== null &&
-    target.isConnected &&
-    !target.matches(":disabled, [aria-disabled='true']")
-  );
-}
-
 function ConfirmationDialog({
   title,
   description,
@@ -109,46 +102,13 @@ function ConfirmationDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-    return () => {
-      const target = [returnFocus, fallbackFocus, safeFallbackFocus].find(
-        canReceiveRestoredFocus,
-      );
-      target?.focus();
-    };
-  }, [fallbackFocus, returnFocus, safeFallbackFocus]);
-
-  function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !busy) {
-      event.preventDefault();
-      onCancel();
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-    const controls = Array.from(
-      dialogRef.current?.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled])",
-      ) ?? [],
-    );
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (first === undefined || last === undefined) {
-      return;
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
+  const { dialogRef, handleKeyDown } = useDialogFocusTrap<HTMLDivElement>({
+    escapeDisabled: busy,
+    initialFocusRef: cancelRef,
+    onEscape: onCancel,
+    returnFocus: [returnFocus, fallbackFocus, safeFallbackFocus],
+  });
 
   return (
     <div className="memory-dialog-backdrop">
@@ -157,9 +117,10 @@ function ConfirmationDialog({
         aria-labelledby="memory-confirm-title"
         aria-modal="true"
         className="memory-dialog"
-        onKeyDown={keepFocusInside}
+        onKeyDown={handleKeyDown}
         ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <h3 id="memory-confirm-title">{title}</h3>
         <div id="memory-confirm-description">{description}</div>
@@ -200,6 +161,7 @@ function MemoryEditor({
   onReview: (returnFocus: HTMLElement | null) => void;
 }) {
   const contentRef = useRef<HTMLTextAreaElement>(null);
+  const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -214,7 +176,7 @@ function MemoryEditor({
       return;
     }
     setValidationError(null);
-    onReview(document.activeElement as HTMLElement | null);
+    onReview(reviewButtonRef.current);
   }
 
   return (
@@ -254,7 +216,7 @@ function MemoryEditor({
         </p>
       )}
       <div className="memory-actions">
-        <button disabled={disabled} type="submit">
+        <button disabled={disabled} ref={reviewButtonRef} type="submit">
           检查并确认修正
         </button>
         <button disabled={disabled} onClick={onCancel} type="button">

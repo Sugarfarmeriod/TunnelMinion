@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { ApiError } from "../../api/client";
+import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 
 import {
   allowedToolNames,
@@ -58,6 +59,67 @@ const streamPhaseLabels: Record<RunEventState["phase"], string> = {
 
 type WriteAction = "create" | "delete" | "start" | "cancel" | null;
 
+function DeleteThreadConfirmationDialog({
+  busy,
+  fallbackFocus,
+  onCancel,
+  onConfirm,
+  returnFocus,
+  threadId,
+}: {
+  busy: boolean;
+  fallbackFocus: HTMLElement | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  returnFocus: HTMLElement | null;
+  threadId: string | null;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, handleKeyDown } = useDialogFocusTrap<HTMLElement>({
+    escapeDisabled: busy,
+    initialFocusRef: cancelRef,
+    onEscape: onCancel,
+    returnFocus: [returnFocus, fallbackFocus],
+  });
+
+  return (
+    <section
+      aria-describedby="delete-thread-description"
+      aria-labelledby="delete-thread-title"
+      aria-modal="true"
+      className="chat-confirmation"
+      ref={dialogRef}
+      role="alertdialog"
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+    >
+      <h4 id="delete-thread-title">确认删除这个线程？</h4>
+      <p id="delete-thread-description">
+        这会删除该线程、短期消息和所属运行；独立的长期记忆不会被删除。
+      </p>
+      <p className="chat-object-id">线程 ID：{threadId}</p>
+      <div className="chat-actions">
+        <button
+          disabled={busy}
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+        >
+          保留线程
+        </button>
+        <button
+          className="chat-button--danger"
+          disabled={busy}
+          type="button"
+          onClick={onConfirm}
+        >
+          {busy ? "正在删除……" : "确认删除"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export interface ChatPageProps {
   streamIdleTimeoutMs?: number;
   streamReconnectDelayMs?: number;
@@ -83,7 +145,7 @@ export function ChatPage({
   const selectedThreadRef = useRef<string | null>(null);
   const actionControllers = useRef(new Set<AbortController>());
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
-  const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null);
+  const threadsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const selectThread = useCallback((threadId: string | null) => {
     selectedThreadRef.current = threadId;
@@ -197,12 +259,6 @@ export function ChatPage({
     },
     [],
   );
-
-  useEffect(() => {
-    if (confirmingDelete) {
-      cancelDeleteButtonRef.current?.focus();
-    }
-  }, [confirmingDelete]);
 
   const onRunUpdate = useCallback((run: RunView) => {
     if (selectedThreadRef.current === run.thread_id) {
@@ -424,7 +480,6 @@ export function ChatPage({
 
   function closeDeleteConfirmation() {
     setConfirmingDelete(false);
-    window.setTimeout(() => deleteButtonRef.current?.focus(), 0);
   }
 
   return (
@@ -451,7 +506,9 @@ export function ChatPage({
       <div className="chat-layout">
         <aside aria-labelledby="chat-threads-title" className="chat-threads">
           <div className="chat-threads__heading">
-            <h3 id="chat-threads-title">线程</h3>
+            <h3 id="chat-threads-title" ref={threadsHeadingRef}>
+              线程
+            </h3>
             <button
               disabled={writeAction !== null}
               type="button"
@@ -495,35 +552,14 @@ export function ChatPage({
           </button>
 
           {confirmingDelete ? (
-            <section
-              aria-labelledby="delete-thread-title"
-              aria-describedby="delete-thread-description"
-              className="chat-confirmation"
-              role="alertdialog"
-            >
-              <h4 id="delete-thread-title">确认删除这个线程？</h4>
-              <p id="delete-thread-description">
-                这会删除该线程、短期消息和所属运行；独立的长期记忆不会被删除。
-              </p>
-              <p className="chat-object-id">线程 ID：{selectedThreadId}</p>
-              <div className="chat-actions">
-                <button
-                  ref={cancelDeleteButtonRef}
-                  type="button"
-                  onClick={closeDeleteConfirmation}
-                >
-                  保留线程
-                </button>
-                <button
-                  className="chat-button--danger"
-                  disabled={writeAction !== null}
-                  type="button"
-                  onClick={() => void handleDeleteThread()}
-                >
-                  {writeAction === "delete" ? "正在删除……" : "确认删除"}
-                </button>
-              </div>
-            </section>
+            <DeleteThreadConfirmationDialog
+              busy={writeAction !== null}
+              fallbackFocus={threadsHeadingRef.current}
+              onCancel={closeDeleteConfirmation}
+              onConfirm={() => void handleDeleteThread()}
+              returnFocus={deleteButtonRef.current}
+              threadId={selectedThreadId}
+            />
           ) : null}
         </aside>
 
@@ -638,6 +674,67 @@ function MessageItem({ message }: { message: ThreadMessage }) {
   );
 }
 
+function CancelRunConfirmationDialog({
+  busy,
+  fallbackFocus,
+  onCancel,
+  onConfirm,
+  returnFocus,
+  runId,
+}: {
+  busy: boolean;
+  fallbackFocus: HTMLElement | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  returnFocus: HTMLElement | null;
+  runId: string;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, handleKeyDown } = useDialogFocusTrap<HTMLElement>({
+    escapeDisabled: busy,
+    initialFocusRef: cancelRef,
+    onEscape: onCancel,
+    returnFocus: [returnFocus, fallbackFocus],
+  });
+
+  return (
+    <section
+      aria-describedby="cancel-run-description"
+      aria-labelledby="cancel-run-title"
+      aria-modal="true"
+      className="chat-confirmation"
+      ref={dialogRef}
+      role="alertdialog"
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+    >
+      <h4 id="cancel-run-title">确认取消这次运行？</h4>
+      <p id="cancel-run-description">
+        只会请求取消下面这一项运行；服务端终态仍可能是已完成。
+      </p>
+      <p className="chat-object-id">运行 ID：{runId}</p>
+      <div className="chat-actions">
+        <button
+          disabled={busy}
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+        >
+          返回运行
+        </button>
+        <button
+          className="chat-button--danger"
+          disabled={busy}
+          type="button"
+          onClick={onConfirm}
+        >
+          {busy ? "正在请求取消……" : "确认取消此运行"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 interface RunPanelProps {
   activeRun: RunView | null;
   effectiveStatus: RunStatus | null;
@@ -662,13 +759,7 @@ function RunPanel({
   onRefresh,
 }: RunPanelProps) {
   const requestCancelButtonRef = useRef<HTMLButtonElement>(null);
-  const dismissCancelButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (confirmingCancel) {
-      dismissCancelButtonRef.current?.focus();
-    }
-  }, [confirmingCancel]);
+  const runHeadingRef = useRef<HTMLHeadingElement>(null);
 
   if (activeRun === null || effectiveStatus === null) {
     return null;
@@ -690,7 +781,9 @@ function RunPanel({
     <section aria-labelledby="chat-run-title" className="chat-run">
       <div className="chat-run__heading">
         <div>
-          <h3 id="chat-run-title">当前运行</h3>
+          <h3 id="chat-run-title" ref={runHeadingRef}>
+            当前运行
+          </h3>
           <p className="chat-run__id">运行 ID：{activeRun.run_id}</p>
         </div>
         <span className={`chat-run-status chat-run-status--${effectiveStatus}`}>
@@ -722,41 +815,14 @@ function RunPanel({
         </button>
       ) : null}
       {effectiveStatus === "running" && confirmingCancel ? (
-        <section
-          aria-labelledby="cancel-run-title"
-          aria-describedby="cancel-run-description"
-          className="chat-confirmation"
-          role="alertdialog"
-        >
-          <h4 id="cancel-run-title">确认取消这次运行？</h4>
-          <p id="cancel-run-description">
-            只会请求取消下面这一项运行；服务端终态仍可能是已完成。
-          </p>
-          <p className="chat-object-id">运行 ID：{activeRun.run_id}</p>
-          <div className="chat-actions">
-            <button
-              ref={dismissCancelButtonRef}
-              type="button"
-              onClick={() => {
-                onDismissCancel();
-                window.setTimeout(
-                  () => requestCancelButtonRef.current?.focus(),
-                  0,
-                );
-              }}
-            >
-              返回运行
-            </button>
-            <button
-              className="chat-button--danger"
-              disabled={cancelling}
-              type="button"
-              onClick={onConfirmCancel}
-            >
-              {cancelling ? "正在请求取消……" : "确认取消此运行"}
-            </button>
-          </div>
-        </section>
+        <CancelRunConfirmationDialog
+          busy={cancelling}
+          fallbackFocus={runHeadingRef.current}
+          onCancel={onDismissCancel}
+          onConfirm={onConfirmCancel}
+          returnFocus={requestCancelButtonRef.current}
+          runId={activeRun.run_id}
+        />
       ) : null}
 
       {eventState.terminalReadFailed ? (
