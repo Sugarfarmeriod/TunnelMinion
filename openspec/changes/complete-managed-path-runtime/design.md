@@ -1,6 +1,6 @@
 ## Context
 
-归档 `2026-07-31-integrate-managed-node-runtime` 的任务 5.1–5.4 和 6.3 宣称 managed config 已进入治理、Provider 和路径状态，但现场代码存在清晰断点：`ManagedNetworkSynchronizer` 与 `ManagedNetworkSyncLoop` 明确只拉取、验签和保存 pending；`build_managed_network_sync_loop` 没有 Provider、治理或授权依赖；`network/path_controller.py` 只有 `PathProbe` 协议、`DirectPathVerifier` 和 `DirectPathController`，生产代码没有 `PathProbe` 实现或控制器实例。Windows/macOS 常规工厂因此只能暴露同步 checkpoint，不能提供真实 selection/evidence/authorization。
+归档 `2026-07-31-integrate-managed-node-runtime` 的任务 5.1–5.4 和 6.3 宣称 managed config 已进入治理、Provider 和路径状态，但现场代码存在清晰断点：`ManagedNetworkSynchronizer` 与 `ManagedNetworkSyncLoop` 明确只拉取、验签和保存 pending；`build_managed_network_sync_loop` 没有 Provider、治理或授权依赖；`network/path_controller.py` 只有 `PathProbe` 协议、`DirectPathVerifier` 和 `DirectPathController`，生产代码没有 `PathProbe` 实现或控制器实例。`NetworkOperationPolicy` 只在进程内保存 grant，`SQLiteNetworkGovernanceStore` 只保存执行记录，operation preauthorization 只覆盖 L2，因此仓库也没有可供 lifecycle 复用的持久 L3 授权来源。Windows/macOS 常规工厂只能暴露同步 checkpoint，不能提供真实 selection/evidence/authorization。
 
 PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache、overview 契约及 stale UI，但其任务 3.3 必须以本 change 的真实运行时状态为前置。`package-manual-node-runtime` 只能在合并后消费常规入口；Gateway 保持独立私网进程和监听器。当前 A/B 网络是用户已有环境，任何真实写验证都必须使用另行批准的隔离资源。
 
@@ -9,7 +9,7 @@ PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache�
 **Goals:**
 
 - 为 Windows/macOS 建立同契约的生产只读 `PathProbe`，只读取和有界探测，不修改防火墙、WireGuard、路由或端口转发。
-- 以单一、可恢复、单并发 lifecycle 串联同步、持久化授权读取、治理、Provider、独立验证、路径控制和脱敏状态发布。
+- 在现有网络治理 SQLite 数据库内建立唯一权威 L3 grant repository，并以单一、可恢复、单并发 lifecycle 串联同步、持久化授权读取、治理、Provider、独立验证、路径控制和脱敏状态发布。
 - 保证没有精确有效的本机 L3 授权时只进入 `awaiting-authorization`，不创建授权、不生成可执行写动作、不调用 Provider apply。
 - 将真实 selection/evidence/authorization/freshness 接入 Windows/macOS 常规本地入口，支持过期、刷新、降级和恢复。
 - 用 fake、批准的隔离资源和证据来源标签建立递进门禁，禁止用 fake、专用脚本或历史证据替代生产完成证明。
@@ -30,11 +30,17 @@ PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache�
 
 备选方案是直接把 Provider 注入 `ManagedNetworkSynchronizer`；否决原因是它会混合控制面重试与有副作用的恢复状态机，使同步重试可能隐式重放写操作。
 
-### 2. 授权只从既有持久化 L3 状态读取并精确绑定
+### 2. 在现有治理 SQLite 内建立唯一权威 L3 grant repository
 
-lifecycle 只接受既有本机持久化授权，并要求其绑定 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期。授权缺失、过期、撤销或不匹配时保存 pending，发布 `awaiting-authorization`，且在 Provider `apply` 前停止。启动、模型、对话、记忆、服务观察、Coordinator 响应和页面读取都不能创建或扩大授权。
+现有 `NetworkAuthorizationGrant` 与 `NetworkAuthorizationScope` 继续定义 L3 授权语义，但不再把进程内 `NetworkOperationPolicy` 当作持久事实来源。实现 SHALL 在 `SQLiteNetworkGovernanceStore` 使用的同一本机治理数据库内增加独立 `network_authorization_grants` 表，并通过单一 repository 管理 grant；不创建第二个授权数据库，也不从 `network_governance` 执行记录、内存 grant、signed desired config 或 operation L2 preauthorization 推断授权。
 
-备选方案是把 enrollment、signed desired config 或前端确认视作授权；否决原因是这些信号没有本机 L3 资源审批语义，会绕过现有治理边界。
+repository 的写端口只交给显式本机控制面，负责原子 approve 与 revoke；lifecycle、恢复流程和状态投影只持有只读查询端口。grant 以 `authorization_id` 为稳定身份，完整保留 network、node、revision、Provider、action、资源范围、计划摘要/观察指纹、批准时间、过期时间和撤销时间。相同 ID 不得被覆盖成不同 scope，撤销不可逆；所有时间使用 UTC。数据库缺表时只迁移为空仓库，旧执行记录和进程内 grant 不自动迁移。schema/payload 损坏、秘密字段、数据库读取失败或多条冲突记录一律 fail closed。
+
+`NetworkOperationPolicy` SHALL 改为该 repository 上的策略门面：approve/revoke 委派给本机控制面写端口，evaluate 通过只读端口查询并精确匹配，不再保留可作为授权事实的私有内存 grant 表。这样既有治理 workflow 与新 lifecycle 共享一套策略语义和一份持久事实，重启、撤销与崩溃恢复不会在两条路径上产生不同结论。
+
+lifecycle 只接受从该 repository 读出的精确有效授权，并要求其绑定 network、node、revision、Provider、资源范围、计划摘要/观察指纹和有效期。授权缺失、过期、撤销或不匹配时保存 pending，发布 `awaiting-authorization`，且在 Provider `apply` 前停止；崩溃恢复和 apply 前 recheck 必须重新读取同一 repository。启动、模型、对话、记忆、服务观察、Coordinator 响应和页面读取都不能持有写端口、创建或扩大授权。
+
+备选方案一是另建授权文件或第二个 SQLite；否决原因是会产生并行事实来源、跨存储提交和恢复歧义。备选方案二是把 enrollment、signed desired config、前端确认、执行记录或内存 grant 视作授权；否决原因是这些信号没有本机 L3 资源审批语义，且在重启、撤销和并发下无法形成唯一可审计事实。
 
 ### 3. 平台 PathProbe 是只读适配器，Provider verify 仍是写事务的完成门禁
 
@@ -66,6 +72,7 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 
 - [平台只读接口在权限不足或厂商版本间不一致] → 返回稳定 `permission_denied`/`unsupported` 并只降级 path evidence；本地页面、static peer、Coordinator cache 和 Gateway 独立运行。
 - [控制面 revision 与授权/观察在执行前变化] → plan 和授权绑定观察指纹，apply 前再次读取并 fail closed；不自动迁移授权。
+- [授权与执行记录共享 SQLite 可能增加锁竞争或扩大数据库故障域] → 使用独立表和短事务，授权读取失败单独映射为稳定 fail-closed 错误；不把授权复制到第二个存储规避锁竞争。
 - [probe 本身产生少量网络流量] → 固定候选来源、目标、超时、数量、最小刷新间隔和单并发；默认不进行任意服务扫描。
 - [证据 TTL 使短暂离线更快显示 stale] → 保留 last-known-good/static 但不称为当前 direct，成功刷新后自动恢复展示。
 - [跨平台工厂抽取可能触及活跃 UI change 的同一应用文件] → 本 change 先合并后由 `improve-local-product-experience` 基于该状态契约接线；同阶段应用工厂保持单一写 owner。
@@ -73,7 +80,7 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 
 ## Migration Plan
 
-1. 先引入状态 schema、授权只读端口、fake lifecycle 与迁移兼容读取；旧同步 checkpoint 仍可读取，但没有 path checkpoint 时公开状态为 `unconfigured`/`awaiting-authorization`，不得推断成功。
+1. 先在现有治理 SQLite 中创建空的 `network_authorization_grants` 表，接入本机控制面写端口与 lifecycle 只读端口；已有数据库不迁移执行记录或内存 grant，因而升级后默认无授权并 fail closed。旧同步 checkpoint 仍可读取，但没有 path checkpoint 时公开状态为 `unconfigured`/`awaiting-authorization`，不得推断成功。
 2. 增加 Windows/macOS 只读 probe 与真实观察门禁，不启用 Provider apply。
 3. 在隔离 fake 和批准资源上接入治理/Provider/recover，验证 failure/rollback/manual-intervention 后再开启常规入口装配。
 4. 以 feature flag 或显式 managed 配置启用新 lifecycle；失败时可回退为旧的 pull-only 同步，同时保留 pending 和 last-known-good，不删除任何用户资源。
@@ -81,6 +88,5 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 
 ## Open Questions
 
-- 现有本机 L3 授权 repository 的最终复用接口和持久化键需要在实现首个只读 spike 中确认；无论选用哪一现有存储，都必须满足精确绑定、过期、撤销和零秘密状态导出。
 - Windows 与 macOS 可获得的最新 handshake/route API 及最低权限矩阵需要分别用只读 spike 固定；不可用平台能力必须显式降级，不能用命令成功或旧证据代替。
 - 真实 A/B 的隔离接口名、地址、UDP 端口和批准窗口由执行前人工确认；本提案不预先占用或修改现有 `HomeMac`、B 手写配置、Gateway `8787` 或模型 `8082`。

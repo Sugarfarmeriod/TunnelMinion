@@ -6,7 +6,7 @@
   - 归属：本任务是阶段 0–1 的唯一 OpenSpec tasks 与 `src/tunnelminion/network/**` 主写者；阶段 1 不修改应用工厂。未来应用工厂接线必须先合并本 change 的状态契约，再由 `improve-local-product-experience` owner 串行 rebase/接线，禁止同阶段并写 `app.py`/`macos_app.py`。
 - [x] 0.3 只读盘点现有 L3 authorization/policy repository、Provider/governance/ledger/journal、sync checkpoint 和 path controller 接口，产出 network/node/revision/Provider/资源/计划摘要/观察指纹/有效期字段映射
   - 授权映射：`NetworkAuthorizationScope` 已绑定 network/node/provider/action、ownership resource/fingerprint、接口/地址池/host route/重叠路由/listen port/peer/relay、revision/parent revision 与 `plan_hash`；`NetworkAuthorizationGrant` 已绑定批准/过期/撤销时间并提供 `is_active`。
-  - 持久化缺口：`NetworkOperationPolicy` 仅保存进程内 grant；`SQLiteNetworkGovernanceStore` 保存执行记录而不保存授权；operation preauthorization 仅覆盖 L2。因此阶段 1 只新增 L3 grant 只读 Protocol/匹配器，不伪造不存在的持久 adapter。
+  - 持久化缺口与决策：`NetworkOperationPolicy` 仅保存进程内 grant；`SQLiteNetworkGovernanceStore` 保存执行记录而不保存授权；operation preauthorization 仅覆盖 L2。因此在现有网络治理 SQLite 内新增独立 `network_authorization_grants` 表和单一 repository，作为唯一 L3 授权事实来源；不新建第二个授权数据库，不从执行记录、内存 grant、signed config 或 L2 preauthorization 推断授权。
   - 执行映射：`NetworkProvider` 固定 observe/plan/apply/verify/rollback/recover；ledger 以 network/node 保存 provider、resource/stable interface、creation nonce、public key hash、parent revision、desired hash、system fingerprint；平台 journal 以幂等键保存逐步回执。
   - 同步/路径映射：sync checkpoint 保存 pending/applied/last-known-good revision 与退避；path verifier/controller 已包含 provider/revision、候选哈希、handshake/route/target 时间维度、阈值与 last-known-good，但没有生产 probe、授权 repository 或 path checkpoint。
 - [x] 0.4 固定 Windows/macOS 只读 handshake/route/probe 能力、最低权限、稳定错误、TTL、超时、候选数量和刷新间隔矩阵；未验证能力标记为 spike 假设
@@ -21,13 +21,13 @@
 - [x] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
 - [x] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
   - 证据：代码 HEAD `17a44c5` 将 owner/lock/load/secret scan/temp/replace/fsync 绑定可信目录句柄，移除路径型 SQLite 锁，并覆盖跨实例/进程 lease、真实 symlink/reparse、确定性目录替换 race、损坏恢复与元数据失败；远端 run `31336268697` 的 macOS job `93302528091`、Windows job `93302528124` 均全绿。
-- [ ] 1.3 为既有本机 L3 持久授权建立只读查询端口与精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
-  - 阻塞：截至 `origin/main@4648ba9`，正式授权只存在于进程内 `NetworkOperationPolicy`；`SQLiteNetworkGovernanceStore` 只保存执行记录，operation preauthorization 仅覆盖 L2。现有只读 Protocol 与精确匹配器已具备，但仓库没有可复用的持久 L3 grant repository，因此本任务保持未完成；不得用 memory fake 或新造第二套未规划存储冒充 adapter。
+- [ ] 1.3 在现有网络治理 SQLite 内实现唯一权威 L3 grant repository：独立授权表、本机控制面原子 approve/revoke、policy/lifecycle 只读查询、空库迁移、重启恢复、不可逆撤销、损坏/冲突/秘密/读取失败 fail-closed；将 `NetworkOperationPolicy` 改为 repository 策略门面并复用现有精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
+  - 规划约束：不得新建第二个授权数据库或并行事实来源；不得从 `network_governance` 执行记录、进程内 grant、signed desired config 或 operation L2 preauthorization 推断/迁移 L3 授权；普通消费者不得获得 repository 写端口。
 - [x] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
 - [x] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
   - 证据：可执行架构测试实际启动 FastAPI lifespan，并读取模型配置、对话、记忆、服务观察、managed node、Coordinator、network-path 与资源页面；L3 `approve`/`revoke` 和平台 Provider `apply` 均由一旦调用即失败的 trap 保护且调用数为零。阶段一 lifecycle 的并发 refresh 测试继续证明请求只合并到单次只读 refresher、候选 evidence 不提交且 Provider 调用数为零；不再使用消费者字符串清单或源码搜索替代运行证据。
-- [x] 1.6 运行状态 schema、授权门禁、持久化、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 证据：本地 Ruff/format、pyright、定向 `75 passed, 4 skipped`（`830` statements / `200` branches = 100%）、全量 `850 passed, 5 skipped`（`14,214` statements / `2,780` branches = 100%）、离线 8 scenarios/0 safety failures、secret scan 与 OpenSpec strict 均通过；远端 run `31336268697` 双平台完成相同 CI 门禁。阶段 1 代码与测试均为 Conventional Commits 并普通 push。
+- [ ] 1.6 运行状态 schema、授权 repository/门禁、迁移、重启、并发、损坏、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 既有证据：本地 Ruff/format、pyright、定向 `75 passed, 4 skipped`（`830` statements / `200` branches = 100%）、全量 `850 passed, 5 skipped`（`14,214` statements / `2,780` branches = 100%）、离线 8 scenarios/0 safety failures、secret scan 与 OpenSpec strict 均通过；远端 run `31336268697` 双平台完成当时范围的 CI 门禁。该证据不覆盖新明确的持久授权 repository，故本任务恢复为未完成，待 1.3 实现后重新运行并追加当前提交证据。
 
 ## 2. Windows/macOS 生产只读 PathProbe
 
