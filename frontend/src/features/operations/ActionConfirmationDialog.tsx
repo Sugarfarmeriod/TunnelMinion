@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
+import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { operationActionLabels } from "./operationPresentation";
 import type { OperationActionPayload } from "./operationsApi";
 import type { OperationAction, OperationDetail } from "./schemas";
@@ -8,6 +9,9 @@ interface ActionConfirmationDialogProps {
   action: OperationAction;
   detail: OperationDetail;
   submitting: boolean;
+  returnFocus: HTMLElement | null;
+  fallbackFocus: HTMLElement | null;
+  safeFallbackFocus: HTMLElement | null;
   onCancel: () => void;
   onConfirm: (payload: OperationActionPayload) => void;
 }
@@ -17,23 +21,23 @@ function localDateTimeValue(date: Date): string {
   return local.toISOString().slice(0, 16);
 }
 
-function focusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), input:not([disabled]), textarea:not([disabled])",
-    ),
-  );
-}
-
 export function ActionConfirmationDialog({
   action,
   detail,
   submitting,
+  returnFocus,
+  fallbackFocus,
+  safeFallbackFocus,
   onCancel,
   onConfirm,
 }: ActionConfirmationDialogProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, handleKeyDown } = useDialogFocusTrap<HTMLDivElement>({
+    escapeDisabled: submitting,
+    initialFocusRef: cancelRef,
+    onEscape: onCancel,
+    returnFocus: [returnFocus, fallbackFocus, safeFallbackFocus],
+  });
   const [reason, setReason] = useState("");
   const defaultExpiry = useMemo(
     () =>
@@ -43,34 +47,6 @@ export function ActionConfirmationDialog({
     [detail.duration_seconds],
   );
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !submitting) {
-      event.preventDefault();
-      onCancel();
-      return;
-    }
-    if (event.key !== "Tab" || dialogRef.current === null) {
-      return;
-    }
-    const controls = focusableElements(dialogRef.current);
-    if (controls.length === 0) {
-      return;
-    }
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -116,6 +92,7 @@ export function ActionConfirmationDialog({
         className="operation-dialog"
         role="dialog"
         onKeyDown={handleKeyDown}
+        tabIndex={-1}
       >
         <form onSubmit={handleSubmit}>
           <p className="eyebrow">对象明确确认</p>
