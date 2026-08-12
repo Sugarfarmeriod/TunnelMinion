@@ -49,6 +49,7 @@ from tunnelminion.network.path_status import (
     ManagedPathAuthorizationState,
     ManagedPathFreshness,
     ManagedPathStatus,
+    restore_managed_path_status_payload,
     source_category,
 )
 from tunnelminion.network.path_status import (
@@ -1800,7 +1801,11 @@ class SQLiteNetworkGovernanceStore:
         payload, stored_hash, stored_sequence = str(row[0]), str(row[1]), int(row[2])
         self._reject_secrets(payload)
         try:
-            status = ManagedPathStatus.model_validate_json(payload)
+            raw_payload_raw: object = json.loads(payload)
+            if not isinstance(raw_payload_raw, dict):
+                raise ValueError("path status payload 必须是 object")
+            raw_payload = cast(dict[str, object], raw_payload_raw)
+            status, schema_version = restore_managed_path_status_payload(payload)
         except Exception as exc:
             raise ManagedPathLifecycleError("path status schema 无法安全恢复") from exc
         if (
@@ -1808,9 +1813,34 @@ class SQLiteNetworkGovernanceStore:
             or status.node_id != node_id
             or status.revision != revision
             or status.journal_sequence != stored_sequence
-            or canonical_sha256(status.model_dump(mode="json")) != stored_hash
+            or canonical_sha256(raw_payload) != stored_hash
         ):
             raise ManagedPathLifecycleError("path status identity 或 hash 校验失败")
+        if schema_version == 1:
+            migrated_payload = status.model_dump_json()
+            migrated_hash = canonical_sha256(status.model_dump(mode="json"))
+            try:
+                with self._transaction():
+                    cursor = self._connection.execute(
+                        "UPDATE network_path_status SET payload=?, status_hash=? "
+                        "WHERE network_id=? AND node_id=? AND revision=? "
+                        "AND status_hash=? AND journal_sequence=?",
+                        (
+                            migrated_payload,
+                            migrated_hash,
+                            str(network_id),
+                            str(node_id),
+                            revision,
+                            stored_hash,
+                            stored_sequence,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ManagedPathLifecycleError("path status v1 迁移 CAS 冲突")
+            except ManagedPathLifecycleError:
+                raise
+            except sqlite3.Error as exc:
+                raise ManagedPathLifecycleError("path status v1 迁移失败") from exc
         return status
 
     def assert_no_secret_material(self) -> None:
@@ -2358,7 +2388,11 @@ class ManagedPathLifecycle:
             }:
                 if self._needs_path_retry(existing):
                     self._check_cancelled(token)
-                    return await self._verify_path(existing)
+                    return (
+                        existing
+                        if self._path_refresh_rate_limited(existing)
+                        else await self._verify_path(existing)
+                    )
                 return await self._retry_sinks(existing)
             if existing is not None and existing.phase in {
                 NetworkGovernancePhase.RECOVERY_REQUIRED,
@@ -2563,9 +2597,7 @@ class ManagedPathLifecycle:
             if record.verification is not None and not record.verification.succeeded:
                 return current
             now = self._now()
-            if record.last_refresh_attempt_at is not None and (
-                now - record.last_refresh_attempt_at < MANAGED_PATH_REFRESH_MIN_INTERVAL
-            ):
+            if self._path_refresh_rate_limited(record, now=now):
                 values = current.model_dump(mode="python")
                 values["stable_error_code"] = "path_refresh_rate_limited"
                 return ManagedPathStatus.model_validate(values)
@@ -3068,6 +3100,18 @@ class ManagedPathLifecycle:
             and record.path_selection.path_type is not NetworkPathType.DIRECT
         )
 
+    def _path_refresh_rate_limited(
+        self,
+        record: NetworkGovernanceRecord,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """所有 path 恢复入口共享持久化刷新尝试预算。"""
+        attempt = record.last_refresh_attempt_at
+        return attempt is not None and (
+            (self._now() if now is None else now) - attempt < MANAGED_PATH_REFRESH_MIN_INTERVAL
+        )
+
     async def _degrade_path(
         self,
         record: NetworkGovernanceRecord,
@@ -3181,6 +3225,8 @@ class ManagedPathLifecycle:
         original: NetworkGovernanceRecord,
         cancellation: ToolCancellationToken,
     ) -> NetworkGovernanceRecord:
+        if self._path_refresh_rate_limited(original):
+            return original
         claim_key = self._record_claim_key(original)
         if (
             self._store.has_active_apply_claim(
@@ -3280,13 +3326,25 @@ class ManagedPathLifecycle:
             )
 
         receipt = record.receipt
+        refresh_recovery = (
+            original.phase
+            in {
+                NetworkGovernancePhase.PATH_VERIFYING,
+                NetworkGovernancePhase.PATH_RECONCILING,
+            }
+            and original.last_refresh_attempt_at is not None
+        )
         if receipt is None:
-            if original.phase in {
-                NetworkGovernancePhase.OBSERVING,
-                NetworkGovernancePhase.PLANNING,
-                NetworkGovernancePhase.AUTHORIZED,
-                NetworkGovernancePhase.RECHECKING,
-            }:
+            if (
+                original.phase
+                in {
+                    NetworkGovernancePhase.OBSERVING,
+                    NetworkGovernancePhase.PLANNING,
+                    NetworkGovernancePhase.AUTHORIZED,
+                    NetworkGovernancePhase.RECHECKING,
+                }
+                or refresh_recovery
+            ):
                 try:
                     verification = await self._provider.verify(record.plan)
                 except asyncio.CancelledError:
@@ -3303,11 +3361,25 @@ class ManagedPathLifecycle:
                         NetworkGovernancePhase.RECOVERY_REQUIRED,
                         stable_error_code=NetworkErrorCode.JOURNAL_CONFLICT.value,
                     )
+                if refresh_recovery and verification.succeeded:
+                    record = self._journal(
+                        record,
+                        NetworkGovernancePhase.PROVIDER_VERIFIED,
+                        verification=verification,
+                        stable_error_code=(
+                            verification.error.code.value if verification.error else None
+                        ),
+                    )
+                    return await self._verify_path(record)
                 return self._journal(
                     record,
                     NetworkGovernancePhase.RECOVERY_REQUIRED,
                     verification=verification,
-                    stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
+                    stable_error_code=(
+                        verification.error.code.value
+                        if verification.error is not None
+                        else NetworkErrorCode.RECOVERY_REQUIRED.value
+                    ),
                 )
             try:
                 recovered = await self._provider.recover(cancellation=cancellation)

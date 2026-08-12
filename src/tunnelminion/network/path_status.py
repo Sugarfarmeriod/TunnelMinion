@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -17,7 +17,7 @@ from tunnelminion.network.path_controller import (
     PathSelection,
 )
 
-MANAGED_PATH_STATUS_SCHEMA_VERSION = 1
+MANAGED_PATH_STATUS_SCHEMA_VERSION = 2
 MANAGED_PATH_REFRESH_MIN_INTERVAL = timedelta(seconds=30)
 _HASH_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _ALLOWED_SOURCES = frozenset(
@@ -62,7 +62,7 @@ class ManagedPathStatus(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = MANAGED_PATH_STATUS_SCHEMA_VERSION
+    schema_version: Literal[2] = MANAGED_PATH_STATUS_SCHEMA_VERSION
     network_id: NetworkId
     node_id: NodeId
     revision: int = Field(ge=1)
@@ -271,6 +271,25 @@ class ManagedPathStatus(BaseModel):
         values = self.model_dump(mode="python")
         values.update({"freshness": freshness, "stable_error_code": stable_error})
         return type(self).model_validate(values)
+
+
+def restore_managed_path_status_payload(payload: str) -> tuple[ManagedPathStatus, int]:
+    """按显式版本恢复状态，并把旧版 v1 规范化为 v2。"""
+    parsed_raw: object = json.loads(payload)
+    if not isinstance(parsed_raw, dict):
+        raise ValueError("managed path status payload 必须是 object")
+    parsed = cast(dict[str, object], parsed_raw)
+    version = parsed.get("schema_version")
+    if type(version) is not int or version not in {1, MANAGED_PATH_STATUS_SCHEMA_VERSION}:
+        raise ValueError("managed path status schema 版本不受支持")
+    if version == 1:
+        if "last_refresh_attempt_at" in parsed:
+            raise ValueError("v1 managed path status 不得包含 v2 字段")
+        migrated = dict(parsed)
+        migrated["schema_version"] = MANAGED_PATH_STATUS_SCHEMA_VERSION
+        migrated["last_refresh_attempt_at"] = None
+        return ManagedPathStatus.model_validate(migrated), version
+    return ManagedPathStatus.model_validate(parsed), version
 
 
 def redacted_managed_path_status_payload(status: ManagedPathStatus) -> dict[str, object]:

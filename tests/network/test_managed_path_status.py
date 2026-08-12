@@ -22,6 +22,7 @@ from tests.network.test_managed_path_lifecycle import (
     FakePathController,
     FakePathVerifier,
     build,
+    create_recovery_ledger,
     grant_for,
     path_evidence,
 )
@@ -57,6 +58,7 @@ from tunnelminion.network.path_status import (
     MANAGED_PATH_REFRESH_MIN_INTERVAL,
     ManagedPathAuthorizationState,
     ManagedPathFreshness,
+    restore_managed_path_status_payload,
     source_category,
 )
 from tunnelminion.tools.contracts import ToolCancellationToken
@@ -98,6 +100,21 @@ class GatedPathVerifier(FakePathVerifier):
         if self.block:
             self.started.set()
             await self.release.wait()
+        return await super().verify(plan, now=now)
+
+
+class CancelOncePathVerifier(FakePathVerifier):
+    """仅取消下一次 probe，便于验证恢复预算而不改变 apply 结果。"""
+
+    def __init__(self, result: DirectPathEvidence) -> None:
+        super().__init__(result)
+        self.cancel_next = False
+
+    async def verify(self, plan: NetworkPlan, *, now: datetime) -> DirectPathEvidence:
+        if self.cancel_next:
+            self.cancel_next = False
+            self.calls += 1
+            raise asyncio.CancelledError
         return await super().verify(plan, now=now)
 
 
@@ -241,6 +258,22 @@ def _rewrite_status_row(database: Path, status: ManagedPathStatus) -> None:
     )
     connection.commit()
     connection.close()
+
+
+def _v1_status_payload(status: ManagedPathStatus) -> tuple[str, str]:
+    values = status.model_dump(mode="json")
+    values["schema_version"] = 1
+    values.pop("last_refresh_attempt_at")
+    payload = json.dumps(values, separators=(",", ":"), sort_keys=True)
+    return payload, canonical_sha256(values)
+
+
+def _insert_raw_status(store: SQLiteNetworkGovernanceStore, payload: str, status_hash: str) -> None:
+    store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "INSERT INTO network_path_status(network_id, node_id, revision, payload, "
+        "status_hash, journal_sequence) VALUES (?, ?, ?, ?, ?, ?)",
+        (str(NETWORK_ID), str(NODE_A), 1, payload, status_hash, 0),
+    )
 
 
 def real_controller() -> DirectPathController:
@@ -507,6 +540,74 @@ async def test_refresh_single_flight_survives_caller_cancellation(tmp_path: Path
 
 
 @pytest.mark.anyio
+async def test_cancelled_refresh_recovery_obeys_persisted_budget_across_restart(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock()
+    probe = CancelOncePathVerifier(path_evidence())
+    ledger = create_recovery_ledger()
+    lifecycle, policy, provider, _, _, _, _, store = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        ledger=ledger,
+        clock=clock,
+    )
+    envelope, _, direct = await authorized_lifecycle(lifecycle, policy)
+    assert direct.phase is NetworkGovernancePhase.VERIFIED
+    assert provider.apply_calls == 1
+
+    clock.value = NOW + timedelta(seconds=181)
+    probe.cancel_next = True
+    with pytest.raises(asyncio.CancelledError):
+        await lifecycle.refresh_path(
+            direct.plan.desired.network_id,
+            direct.plan.desired.target_node_id,
+            direct.plan.desired.revision,
+        )
+    calls_after_cancel = probe.calls
+    persisted = store.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert persisted is not None
+    assert persisted.last_refresh_attempt_at == clock.value
+
+    same_process = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert same_process.phase is NetworkGovernancePhase.PATH_VERIFYING
+    assert probe.calls == calls_after_cancel
+    assert provider.apply_calls == 1
+
+    restarted, _, restarted_provider, _, _, _, _, _ = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        ledger=ledger,
+        provider_override=provider,
+        clock=clock,
+    )
+    within_interval = await restarted.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert within_interval.phase is NetworkGovernancePhase.PATH_VERIFYING
+    assert probe.calls == calls_after_cancel
+    assert restarted_provider.apply_calls == 1
+
+    clock.value += MANAGED_PATH_REFRESH_MIN_INTERVAL
+    recovered = await restarted.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert recovered.phase is NetworkGovernancePhase.VERIFIED
+    assert probe.calls == calls_after_cancel + 1
+    assert restarted_provider.apply_calls == 1
+
+
+@pytest.mark.anyio
 async def test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_own_error(
     tmp_path: Path,
 ) -> None:
@@ -552,6 +653,76 @@ async def test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_o
     encoded = json.dumps(payload, sort_keys=True).lower()
     assert '"endpoint"' not in encoded
     assert "private_key" not in encoded
+
+
+@pytest.mark.anyio
+async def test_reconcile_retries_non_direct_path_without_refresh_attempt(
+    tmp_path: Path,
+) -> None:
+    initial = PathSelection(
+        path_type=NetworkPathType.STATIC,
+        provider=ProviderKind.WINDOWS,
+        revision=1,
+        candidate_count=0,
+        consecutive_failures=0,
+        consecutive_successes=0,
+        selected_at=NOW,
+        last_evidence_at=NOW,
+    )
+    path_controller = DirectPathController(
+        PathControllerPolicy(
+            consecutive_success_threshold=3,
+            consecutive_failure_threshold=3,
+            minimum_dwell_seconds=0,
+        ),
+        initial=initial,
+    )
+    lifecycle, policy, provider, _, _, probe, _, _ = build(
+        tmp_path,
+        path_controller=path_controller,
+    )
+    _, _, result = await authorized_lifecycle(lifecycle, policy)
+    assert result.phase is NetworkGovernancePhase.VERIFIED
+    assert result.path_selection is not None
+    assert result.path_selection.path_type is NetworkPathType.STATIC
+    assert result.last_refresh_attempt_at is None
+    assert probe.calls == 2
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
+async def test_reconcile_enters_unbudgeted_path_retry_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle, policy, _, _, _, _, _, _ = build(tmp_path)
+    envelope, _, result = await authorized_lifecycle(lifecycle, policy)
+    stored = lifecycle._store.get(NETWORK_ID, NODE_A, 1)  # type: ignore[reportPrivateUsage]
+    assert (
+        stored is not None
+        and stored.phase is NetworkGovernancePhase.VERIFIED
+        and stored.last_refresh_attempt_at is None
+    )
+    calls: list[NetworkGovernanceRecord] = []
+
+    async def fake_verify(record: NetworkGovernanceRecord) -> NetworkGovernanceRecord:
+        await asyncio.sleep(0)
+        calls.append(record)
+        return record
+
+    def always_retry(_: NetworkGovernanceRecord) -> bool:
+        return True
+
+    monkeypatch.setattr(lifecycle, "_needs_path_retry", always_retry)
+    monkeypatch.setattr(lifecycle, "_verify_path", fake_verify)
+    retried = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert result.phase is NetworkGovernancePhase.VERIFIED
+    assert calls == [result]
+    assert retried == result
 
 
 @pytest.mark.anyio
@@ -710,21 +881,142 @@ async def test_atomic_journal_failure_after_apply_recovers_without_provider_repl
     assert provider.apply_calls == 1
 
 
-def test_path_status_old_schema_and_hash_corruption_fail_closed(tmp_path: Path) -> None:
-    database = tmp_path / "governance.sqlite3"
-    repository = SQLiteNetworkAuthorizationRepository(database)
-    store = SQLiteNetworkGovernanceStore(database, authorization_repository=repository)
-    connection = sqlite3.connect(database)
-    connection.execute(
-        "INSERT INTO network_path_status("
-        "network_id, node_id, revision, payload, status_hash, journal_sequence) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (str(NETWORK_ID), str(NODE_A), 1, '{"schema_version":0}', "sha256:" + "0" * 64, 0),
+def test_path_status_v1_migration_verifies_raw_hash_and_is_atomic(tmp_path: Path) -> None:
+    source = _status_without_evidence()
+    v1_payload, v1_hash = _v1_status_payload(source)
+
+    with pytest.raises(ValueError, match="object"):
+        restore_managed_path_status_payload("[]")
+    with pytest.raises(ValueError, match="版本"):
+        restore_managed_path_status_payload('{"schema_version":99}')
+    v1_with_v2_field = json.loads(v1_payload)
+    v1_with_v2_field["last_refresh_attempt_at"] = None
+    with pytest.raises(ValueError, match="v2"):
+        restore_managed_path_status_payload(
+            json.dumps(v1_with_v2_field, separators=(",", ":"), sort_keys=True)
+        )
+
+    valid_database = tmp_path / "valid.sqlite3"
+    valid_store = SQLiteNetworkGovernanceStore(
+        valid_database,
+        authorization_repository=SQLiteNetworkAuthorizationRepository(valid_database),
     )
-    connection.commit()
-    connection.close()
-    with pytest.raises(ManagedPathLifecycleError, match=r"schema|hash"):
-        store.get_path_status(NETWORK_ID, NODE_A, 1)
+    _insert_raw_status(valid_store, v1_payload, v1_hash)
+    restored = valid_store.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert restored is not None
+    assert restored.schema_version == 2
+    assert restored.last_refresh_attempt_at is None
+    migrated = valid_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT payload, status_hash FROM network_path_status"
+    ).fetchone()
+    assert migrated is not None
+    assert json.loads(migrated[0])["schema_version"] == 2
+    assert migrated[1] == canonical_sha256(restored.model_dump(mode="json"))
+
+    invalid_database = tmp_path / "invalid.sqlite3"
+    invalid_store = SQLiteNetworkGovernanceStore(
+        invalid_database,
+        authorization_repository=SQLiteNetworkAuthorizationRepository(invalid_database),
+    )
+    _insert_raw_status(invalid_store, "[]", "sha256:" + "0" * 64)
+    with pytest.raises(ManagedPathLifecycleError, match="schema"):
+        invalid_store.get_path_status(NETWORK_ID, NODE_A, 1)
+
+    tampered_database = tmp_path / "tampered.sqlite3"
+    tampered_store = SQLiteNetworkGovernanceStore(
+        tampered_database,
+        authorization_repository=SQLiteNetworkAuthorizationRepository(tampered_database),
+    )
+    tampered_values = json.loads(v1_payload)
+    tampered_values["candidate_count"] = 1
+    _insert_raw_status(
+        tampered_store,
+        json.dumps(tampered_values, separators=(",", ":"), sort_keys=True),
+        v1_hash,
+    )
+    with pytest.raises(ManagedPathLifecycleError, match=r"schema|hash|identity"):
+        tampered_store.get_path_status(NETWORK_ID, NODE_A, 1)
+    untouched = tampered_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT payload, status_hash FROM network_path_status"
+    ).fetchone()
+    assert untouched == (
+        json.dumps(tampered_values, separators=(",", ":"), sort_keys=True),
+        v1_hash,
+    )
+
+    crash_database = tmp_path / "crash.sqlite3"
+    crash_store = SQLiteNetworkGovernanceStore(
+        crash_database,
+        authorization_repository=SQLiteNetworkAuthorizationRepository(crash_database),
+    )
+    _insert_raw_status(crash_store, v1_payload, v1_hash)
+    crash_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "CREATE TRIGGER fail_v1_migration BEFORE UPDATE OF payload ON network_path_status "
+        "BEGIN SELECT RAISE(ABORT, 'injected v1 migration failure'); END;"
+    )
+    with pytest.raises(ManagedPathLifecycleError, match="迁移失败"):
+        crash_store.get_path_status(NETWORK_ID, NODE_A, 1)
+    unchanged = crash_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT payload, status_hash FROM network_path_status"
+    ).fetchone()
+    assert unchanged == (v1_payload, v1_hash)
+    crash_store._connection.execute("DROP TRIGGER fail_v1_migration")  # type: ignore[reportPrivateUsage]
+    assert crash_store.get_path_status(NETWORK_ID, NODE_A, 1) is not None
+
+    cas_database = tmp_path / "cas.sqlite3"
+    cas_store = SQLiteNetworkGovernanceStore(
+        cas_database,
+        authorization_repository=SQLiteNetworkAuthorizationRepository(cas_database),
+    )
+    _insert_raw_status(cas_store, v1_payload, v1_hash)
+    cas_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "CREATE TRIGGER ignore_v1_migration BEFORE UPDATE OF payload ON network_path_status "
+        "BEGIN SELECT RAISE(IGNORE); END;"
+    )
+    with pytest.raises(ManagedPathLifecycleError, match="CAS 冲突"):
+        cas_store.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert cas_store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT payload, status_hash FROM network_path_status"
+    ).fetchone() == (v1_payload, v1_hash)
+
+
+@pytest.mark.anyio
+async def test_v1_path_status_restores_after_restart_without_apply_replay(tmp_path: Path) -> None:
+    clock = MutableClock()
+    probe = FakePathVerifier(path_evidence())
+    lifecycle, policy, provider, _, _, _, _, store = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        clock=clock,
+    )
+    envelope, _, result = await authorized_lifecycle(lifecycle, policy)
+    status = store.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert status is not None
+    v1_payload, v1_hash = _v1_status_payload(status)
+    store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "UPDATE network_path_status SET payload=?, status_hash=? "
+        "WHERE network_id=? AND node_id=? AND revision=?",
+        (v1_payload, v1_hash, str(NETWORK_ID), str(NODE_A), 1),
+    )
+
+    restarted, _, restarted_provider, _, _, _, _, _ = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        provider_override=provider,
+        clock=clock,
+    )
+    restored = restarted.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert restored is not None and restored.schema_version == 2
+    recovered = await restarted.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert recovered.phase is NetworkGovernancePhase.VERIFIED
+    assert restarted_provider.apply_calls == 1
+    assert result.phase is NetworkGovernancePhase.VERIFIED
 
 
 def test_managed_path_status_binding_and_freshness_matrix() -> None:
