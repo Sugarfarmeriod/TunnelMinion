@@ -118,6 +118,34 @@ async def test_fake_provider_enforces_create_and_managed_ownership() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("action", [NetworkAction.STOP, NetworkAction.REMOVE])
+async def test_fake_provider_normal_stop_and_remove_reach_absent_state(
+    action: NetworkAction,
+) -> None:
+    managed = observation(ownership_state=OwnershipState.MANAGED_OWNED)
+    provider = InMemoryNetworkProvider(managed)
+    plan = await provider.plan(
+        action=action,
+        desired=desired(revision=2, parent_revision=1),
+        observed=managed,
+        ownership=ownership(managed),
+    )
+
+    receipt = await provider.apply(
+        plan,
+        idempotency_key=KEY,
+        cancellation=ToolCancellationToken(),
+    )
+    verification = await provider.verify(plan)
+
+    assert receipt.status is ReceiptStatus.APPLIED
+    assert receipt.observation_after is not None
+    assert receipt.observation_after.ownership is OwnershipState.ABSENT
+    assert verification.succeeded
+    assert verification.observation.ownership is OwnershipState.ABSENT
+
+
+@pytest.mark.anyio
 async def test_create_plan_rejects_address_route_and_name_conflicts() -> None:
     provider = InMemoryNetworkProvider(observation())
     with pytest.raises(ValueError, match="现有地址冲突"):

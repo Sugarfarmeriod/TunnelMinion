@@ -2121,6 +2121,9 @@ class ManagedPathLifecycle:
                 NetworkGovernancePhase.VERIFIED,
                 NetworkGovernancePhase.PATH_DEGRADED,
             }:
+                if self._needs_path_retry(existing):
+                    self._check_cancelled(token)
+                    return await self._verify_path(existing)
                 return await self._retry_sinks(existing)
             if existing is not None and existing.phase in {
                 NetworkGovernancePhase.RECOVERY_REQUIRED,
@@ -2665,7 +2668,11 @@ class ManagedPathLifecycle:
         except Exception as exc:
             return await self._degrade_path(record, self._path_error_code(exc).value)
         if evidence.verified and (
-            selection.path_type is not NetworkPathType.DIRECT
+            selection.path_type
+            not in {
+                NetworkPathType.DIRECT,
+                NetworkPathType.STATIC,
+            }
             or selection.network_id != record.plan.desired.network_id
             or selection.node_id != record.plan.desired.target_node_id
             or selection.plan_hash != record.plan.plan_hash
@@ -2724,6 +2731,18 @@ class ManagedPathLifecycle:
             record,
             final_phase=NetworkGovernancePhase.VERIFIED,
             acknowledgement_stage=AcknowledgementStage.VERIFIED,
+        )
+
+    @staticmethod
+    def _needs_path_retry(record: NetworkGovernanceRecord) -> bool:
+        """在 Provider 已验证后继续推进 controller 的 direct hysteresis。"""
+        return (
+            record.verification is not None
+            and record.verification.succeeded
+            and record.path_evidence is not None
+            and record.path_evidence.verified
+            and record.path_selection is not None
+            and record.path_selection.path_type is not NetworkPathType.DIRECT
         )
 
     async def _degrade_path(
@@ -3115,6 +3134,8 @@ class ManagedPathLifecycle:
                     None if record.stable_error_code == "path_sink_failed" else _LIFECYCLE_UNSET
                 ),
             )
+        if record.phase is not final_phase:
+            return self._journal(record, final_phase)
         return record
 
     async def _retry_sinks(self, record: NetworkGovernanceRecord) -> NetworkGovernanceRecord:

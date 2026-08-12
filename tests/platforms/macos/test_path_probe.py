@@ -9,6 +9,7 @@ from typing import Any, TypedDict, TypeVar, cast
 
 import pytest
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     CandidateSource,
     EndpointCandidate,
@@ -29,6 +30,10 @@ T = TypeVar("T")
 
 
 class ProbeArgs(TypedDict):
+    network_id: NetworkId
+    node_id: NodeId
+    plan_hash: str
+    authorization_revision: int
     revision: int
     candidates: tuple[EndpointCandidate, ...]
     expected_host_route: str
@@ -48,7 +53,7 @@ def run(awaitable: Coroutine[Any, Any, T]) -> T:
 def policy() -> PathProbePolicy:
     return PathProbePolicy(
         approved_networks=("10.0.0.0/24", "fd00::/64"),
-        approved_ports=(51820,),
+        approved_ports=(51820, 8787),
     )
 
 
@@ -113,6 +118,10 @@ def make_probe(
 
 def args() -> ProbeArgs:
     return {
+        "network_id": NetworkId.new(),
+        "node_id": NodeId.new(),
+        "plan_hash": f"sha256:{'a' * 64}",
+        "authorization_revision": 1,
         "revision": 1,
         "candidates": (
             EndpointCandidate(

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from tests.agent.test_network_sync import NOW, signed
@@ -48,15 +49,18 @@ from tunnelminion.network.governance import (
     NetworkGovernancePhase,
     NetworkGovernanceRecord,
     NetworkJournalEntry,
+    NetworkPathController,
     NetworkPathStatus,
     NetworkPolicyAction,
     NetworkPolicyDecision,
     SQLiteNetworkGovernanceStore,
 )
 from tunnelminion.network.path_controller import (
+    DirectPathController,
     DirectPathErrorCode,
     DirectPathEvidence,
     NetworkPathType,
+    PathControllerPolicy,
     PathSelection,
 )
 from tunnelminion.tools.contracts import ToolCancellationToken
@@ -552,7 +556,7 @@ def build(
     behavior: FakeProviderBehavior = FakeProviderBehavior.SUCCESS,
     evidence: DirectPathEvidence | None = None,
     verifier: FakePathVerifier | None = None,
-    path_controller: FakePathController | None = None,
+    path_controller: NetworkPathController | None = None,
     ack: MemoryAcknowledgements | None = None,
     path_sink: MemoryPathSink | None = None,
     ledger: CountingLedger | None = None,
@@ -578,7 +582,8 @@ def build(
     acknowledgements = ack or MemoryAcknowledgements(order)
     sink = path_sink or MemoryPathSink(order)
     fake_verifier = verifier or FakePathVerifier(evidence or path_evidence())
-    fake_controller = path_controller or controller()
+    selected_controller = path_controller or controller()
+    fake_controller = cast(FakePathController, selected_controller)
     provider_type = (
         VerifyThenRollbackFailureProvider
         if behavior is FakeProviderBehavior.ROLLBACK_FAILURE
@@ -601,7 +606,7 @@ def build(
         store,
         None if without_ack_sink else acknowledgements,
         path_verifier=fake_verifier,
-        path_controller=fake_controller,
+        path_controller=selected_controller,
         path_status_sink=None if without_path_sink else sink,
         ledger=ledger,
         clock=clock or (lambda: NOW),
@@ -683,6 +688,97 @@ async def test_lifecycle_orders_all_boundaries_and_updates_last_known_good(tmp_p
         == result
     )
     assert store.get(NETWORK_ID, NODE_A, 1) == result
+
+
+@pytest.mark.anyio
+async def test_real_controller_static_hysteresis_retries_without_provider_replay(
+    tmp_path: Path,
+) -> None:
+    initial = PathSelection(
+        path_type=NetworkPathType.STATIC,
+        provider=ProviderKind.WINDOWS,
+        revision=1,
+        candidate_count=0,
+        consecutive_failures=0,
+        consecutive_successes=0,
+        selected_at=NOW - timedelta(seconds=31),
+        last_evidence_at=NOW - timedelta(seconds=31),
+    )
+    real_controller = DirectPathController(
+        PathControllerPolicy(),
+        initial=initial,
+    )
+    lifecycle, policy, provider, _, _, verifier, _, _ = build(
+        tmp_path,
+        path_controller=real_controller,
+    )
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+
+    first = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert first.phase is NetworkGovernancePhase.VERIFIED
+    assert first.path_selection is not None
+    assert first.path_selection.path_type is NetworkPathType.STATIC
+    assert first.stable_error_code is None
+    assert provider.apply_calls == 1
+    assert verifier.calls == 1
+
+    second = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert second.phase is NetworkGovernancePhase.VERIFIED
+    assert second.path_selection is not None
+    assert second.path_selection.path_type is NetworkPathType.DIRECT
+    assert provider.apply_calls == 1
+    assert verifier.calls == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", [NetworkAction.STOP, NetworkAction.REMOVE])
+async def test_normal_stop_and_remove_lifecycle_reach_verified_absent_state(
+    tmp_path: Path,
+    action: NetworkAction,
+) -> None:
+    provider = InMemoryNetworkProvider(observation(ownership_state=OwnershipState.MANAGED_OWNED))
+    observed = await provider.observe("tmn-test-a")
+    managed_ownership = ownership(observed)
+    lifecycle, policy, actual, _, _, _, _, _ = build(
+        tmp_path,
+        provider_override=provider,
+    )
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(
+        envelope,
+        action=action,
+        ownership=managed_ownership,
+    )
+    assert pending.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+
+    result = await lifecycle.reconcile(
+        envelope,
+        action=action,
+        ownership=managed_ownership,
+    )
+
+    assert result.phase is NetworkGovernancePhase.VERIFIED
+    assert result.receipt is not None
+    assert result.receipt.observation_after is not None
+    assert result.receipt.observation_after.ownership is OwnershipState.ABSENT
+    assert result.verification is not None and result.verification.succeeded
+    assert actual.apply_calls == 1
+    assert (await actual.observe("tmn-test-a")).ownership is OwnershipState.ABSENT
 
 
 @pytest.mark.anyio

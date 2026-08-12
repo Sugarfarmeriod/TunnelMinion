@@ -26,7 +26,7 @@ from tunnelminion.coordinator.contracts import (
     DirectoryNodeSummary,
     NodeStatus,
 )
-from tunnelminion.domain.identifiers import NodeId, ServiceId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.network.contracts import ProviderKind
 from tunnelminion.network.path_controller import (
@@ -141,7 +141,17 @@ def test_managed_node_resource_uses_only_supplied_redacted_status() -> None:
 def test_network_path_resource_is_redacted_and_explicit() -> None:
     registry = ToolRegistry()
     runtime = ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink())
+    network_id = NetworkId.new()
+    node_id = NodeId.new()
+    plan_hash = f"sha256:{'d' * 64}"
+    target_host_hash = f"sha256:{'b' * 64}"
+    route_identity_hash = f"sha256:{'c' * 64}"
+    expires_at = NOW + timedelta(minutes=3)
     selection = PathSelection(
+        network_id=network_id,
+        node_id=node_id,
+        plan_hash=plan_hash,
+        authorization_revision=2,
         path_type=NetworkPathType.DIRECT,
         provider=ProviderKind.WINDOWS,
         revision=2,
@@ -151,10 +161,21 @@ def test_network_path_resource_is_redacted_and_explicit() -> None:
         consecutive_successes=2,
         selected_at=NOW,
         last_evidence_at=NOW,
+        target_host_hash=target_host_hash,
+        target_port=8787,
+        route_identity_hash=route_identity_hash,
+        expires_at=expires_at,
     )
     evidence = DirectPathEvidence(
+        network_id=network_id,
+        node_id=node_id,
+        plan_hash=plan_hash,
+        authorization_revision=2,
         provider=ProviderKind.WINDOWS,
         revision=2,
+        target_host_hash=target_host_hash,
+        target_port=8787,
+        route_identity_hash=route_identity_hash,
         candidate_count=2,
         selected_candidate_hash=f"sha256:{'a' * 64}",
         endpoint_probe_at=NOW,
@@ -166,12 +187,13 @@ def test_network_path_resource_is_redacted_and_explicit() -> None:
         target_probe_succeeded=True,
         verified=True,
         observed_at=NOW,
+        expires_at=expires_at,
     )
     app = FastAPI()
     app.include_router(
         create_resource_router(
             runtime,
-            NodeId.new(),
+            node_id,
             path_selection=lambda: selection,
             path_evidence=lambda: evidence,
             path_authorization=lambda: "authorized-l3",

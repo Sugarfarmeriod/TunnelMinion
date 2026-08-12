@@ -204,7 +204,11 @@ class InMemoryNetworkProvider:
             return receipt
 
         step_receipts = tuple(self._step_receipt(step) for step in plan.steps)
-        self._observation = self._applied_observation(plan)
+        self._observation = (
+            self._stopped_observation(plan)
+            if plan.action in {NetworkAction.STOP, NetworkAction.REMOVE}
+            else self._applied_observation(plan)
+        )
         receipt = ProviderReceipt(
             idempotency_key=idempotency_key,
             plan_hash=plan.plan_hash,
@@ -257,7 +261,7 @@ class InMemoryNetworkProvider:
         expected_address = plan.desired.address
         succeeded = (
             self._observation.ownership is OwnershipState.ABSENT
-            if plan.action is NetworkAction.STOP
+            if plan.action in {NetworkAction.STOP, NetworkAction.REMOVE}
             else self._observation.ownership is OwnershipState.MANAGED_OWNED
             and expected_address in self._observation.addresses
         )
