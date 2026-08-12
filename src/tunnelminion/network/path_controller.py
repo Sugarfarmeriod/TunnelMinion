@@ -449,6 +449,12 @@ class DirectPathController:
     def selection(self) -> PathSelection:
         return self._selection
 
+    def restore(self, selection: PathSelection) -> None:
+        """从同一 revision 的脱敏 checkpoint 恢复 hysteresis 游标。"""
+        if selection.revision < self._selection.revision:
+            raise ValueError("持久化路径选择 revision 不得倒退")
+        self._selection = PathSelection.model_validate(selection.model_dump(mode="python"))
+
     async def reconcile(
         self,
         evidence: DirectPathEvidence,

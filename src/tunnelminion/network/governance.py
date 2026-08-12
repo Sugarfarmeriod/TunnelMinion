@@ -44,6 +44,16 @@ from tunnelminion.network.path_controller import (
     NetworkPathType,
     PathSelection,
 )
+from tunnelminion.network.path_status import (
+    MANAGED_PATH_REFRESH_MIN_INTERVAL,
+    ManagedPathAuthorizationState,
+    ManagedPathFreshness,
+    ManagedPathStatus,
+    source_category,
+)
+from tunnelminion.network.path_status import (
+    redacted_managed_path_status_payload as _redacted_managed_path_status_payload,
+)
 from tunnelminion.network.provider import NetworkProvider
 from tunnelminion.tools.contracts import ToolCancellationToken
 
@@ -1271,6 +1281,7 @@ class NetworkGovernanceRecord(BaseModel):
     last_known_good_revision: int | None = Field(default=None, ge=1)
     acknowledgement_delivered: bool = False
     path_status_delivered: bool = False
+    managed_path_status_delivered: bool = False
     journal_start_sequence: int = Field(default=0, ge=0)
     journal_previous_hash: str = Field(
         default="sha256:" + "0" * 64,
@@ -1403,6 +1414,19 @@ class SQLiteNetworkGovernanceStore:
             """
         )
         self._ensure_governance_columns()
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS network_path_status (
+                network_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                status_hash TEXT NOT NULL,
+                journal_sequence INTEGER NOT NULL,
+                PRIMARY KEY (network_id, node_id, revision)
+            )
+            """
+        )
         self._records: dict[tuple[str, str, int], NetworkGovernanceRecord] = {}
         self._provider_journal: NetworkProviderJournal | None = None
         self._authorization_repository = authorization_repository
@@ -1643,8 +1667,88 @@ class SQLiteNetworkGovernanceStore:
                 records.append(restored)
         return tuple(records)
 
+    def put_path_status(self, status: ManagedPathStatus) -> None:
+        """以 journal sequence CAS 保存严格脱敏的 path status。"""
+        validated = ManagedPathStatus.model_validate_json(status.model_dump_json())
+        payload = validated.model_dump_json()
+        self._reject_secrets(payload)
+        key = (str(validated.network_id), str(validated.node_id), validated.revision)
+        status_hash = canonical_sha256(validated.model_dump(mode="json"))
+        with self._transaction():
+            current = self._connection.execute(
+                "SELECT status_hash, journal_sequence FROM network_path_status "
+                "WHERE network_id=? AND node_id=? AND revision=?",
+                key,
+            ).fetchone()
+            if current is None:
+                self._connection.execute(
+                    "INSERT INTO network_path_status("
+                    "network_id, node_id, revision, payload, status_hash, journal_sequence) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (*key, payload, status_hash, validated.journal_sequence),
+                )
+            else:
+                current_hash, current_sequence = str(current[0]), int(current[1])
+                if current_hash == status_hash and current_sequence == validated.journal_sequence:
+                    return
+                if validated.journal_sequence <= current_sequence:
+                    raise NetworkAuthorizationConflictError(
+                        "path status journal sequence 冲突或倒退"
+                    )
+                cursor = self._connection.execute(
+                    "UPDATE network_path_status SET payload=?, status_hash=?, "
+                    "journal_sequence=? WHERE network_id=? AND node_id=? AND revision=? "
+                    "AND status_hash=? AND journal_sequence=?",
+                    (
+                        payload,
+                        status_hash,
+                        validated.journal_sequence,
+                        *key,
+                        current_hash,
+                        current_sequence,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise NetworkAuthorizationConflictError("path status CAS 更新失败")
+
+    def get_path_status(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+    ) -> ManagedPathStatus | None:
+        """读取并重新验证脱敏 path status；旧/损坏 schema 一律拒绝。"""
+        try:
+            row = self._connection.execute(
+                "SELECT payload, status_hash, journal_sequence FROM network_path_status "
+                "WHERE network_id=? AND node_id=? AND revision=?",
+                (str(network_id), str(node_id), revision),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise ManagedPathLifecycleError("path status schema 不受支持") from exc
+        if row is None:
+            return None
+        payload, stored_hash, stored_sequence = str(row[0]), str(row[1]), int(row[2])
+        self._reject_secrets(payload)
+        try:
+            status = ManagedPathStatus.model_validate_json(payload)
+        except Exception as exc:
+            raise ManagedPathLifecycleError("path status schema 无法安全恢复") from exc
+        if (
+            status.network_id != network_id
+            or status.node_id != node_id
+            or status.revision != revision
+            or status.journal_sequence != stored_sequence
+            or canonical_sha256(status.model_dump(mode="json")) != stored_hash
+        ):
+            raise ManagedPathLifecycleError("path status identity 或 hash 校验失败")
+        return status
+
     def assert_no_secret_material(self) -> None:
         rows = self._connection.execute("SELECT payload FROM network_governance").fetchall()
+        for row in rows:
+            self._reject_secrets(row[0])
+        rows = self._connection.execute("SELECT payload FROM network_path_status").fetchall()
         for row in rows:
             self._reject_secrets(row[0])
 
@@ -1700,6 +1804,7 @@ class SQLiteNetworkGovernanceStore:
             "last_known_good_revision": record.last_known_good_revision,
             "acknowledgement_delivered": record.acknowledgement_delivered,
             "path_status_delivered": record.path_status_delivered,
+            "managed_path_status_delivered": record.managed_path_status_delivered,
             "journal_start_sequence": record.journal_start_sequence,
             "journal_previous_hash": record.journal_previous_hash,
             "journal": [entry.model_dump(mode="json") for entry in record.journal],
@@ -1850,6 +1955,7 @@ class SQLiteNetworkGovernanceStore:
             last_known_good_revision=cast(int | None, parsed.get("last_known_good_revision")),
             acknowledgement_delivered=bool(parsed.get("acknowledgement_delivered", False)),
             path_status_delivered=bool(parsed.get("path_status_delivered", False)),
+            managed_path_status_delivered=bool(parsed.get("managed_path_status_delivered", False)),
             journal_start_sequence=int(cast(int, parsed.get("journal_start_sequence", 0))),
             journal_previous_hash=str(parsed["journal_previous_hash"]),
             journal=journal,
@@ -1938,6 +2044,17 @@ class NetworkPathStatusSink(Protocol):
     async def publish(self, status: NetworkPathStatus, *, idempotency_key: str) -> None: ...
 
 
+class ManagedPathStatusSink(Protocol):
+    """接收完整但脱敏的 selection/evidence/freshness 状态投影。"""
+
+    async def publish(
+        self,
+        status: ManagedPathStatus,
+        *,
+        idempotency_key: str,
+    ) -> None: ...
+
+
 class NetworkOwnershipLedger(Protocol):
     """崩溃恢复使用的只读所有权账本端口。"""
 
@@ -1978,6 +2095,7 @@ class ManagedNetworkGovernanceWorkflow:
         path_verifier: NetworkPathVerificationSource,
         path_controller: NetworkPathController,
         path_status_sink: NetworkPathStatusSink | None = None,
+        managed_path_status_sink: ManagedPathStatusSink | None = None,
         ledger: NetworkOwnershipLedger | None = None,
         clock: Callable[[], datetime] | None = None,
         commit_last_known_good: Callable[[SignedDesiredConfig], object] | None = None,
@@ -1992,6 +2110,7 @@ class ManagedNetworkGovernanceWorkflow:
             path_verifier=path_verifier,
             path_controller=path_controller,
             path_status_sink=path_status_sink,
+            managed_path_status_sink=managed_path_status_sink,
             ledger=ledger,
             clock=clock,
             commit_last_known_good=commit_last_known_good,
@@ -2023,6 +2142,31 @@ class ManagedNetworkGovernanceWorkflow:
         """保留旧返回形状，但恢复动作仍完全委托给唯一 lifecycle。"""
         records = await self._lifecycle.recover()
         return tuple(record.receipt for record in records if record.receipt is not None)
+
+    def get_path_status(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+    ) -> ManagedPathStatus | None:
+        """委托唯一 lifecycle 的只读状态投影。"""
+        return self._lifecycle.get_path_status(network_id, node_id, revision)
+
+    async def refresh_path(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+        *,
+        cancellation: ToolCancellationToken | None = None,
+    ) -> ManagedPathStatus | None:
+        """委托唯一 lifecycle 的只读刷新。"""
+        return await self._lifecycle.refresh_path(
+            network_id,
+            node_id,
+            revision,
+            cancellation=cancellation,
+        )
 
     async def emergency_stop(
         self,
@@ -2065,6 +2209,7 @@ class ManagedPathLifecycle:
         path_verifier: NetworkPathVerificationSource,
         path_controller: NetworkPathController,
         path_status_sink: NetworkPathStatusSink | None = None,
+        managed_path_status_sink: ManagedPathStatusSink | None = None,
         ledger: NetworkOwnershipLedger | None = None,
         clock: Callable[[], datetime] | None = None,
         commit_last_known_good: Callable[[SignedDesiredConfig], object] | None = None,
@@ -2080,12 +2225,17 @@ class ManagedPathLifecycle:
         self._path_verifier = path_verifier
         self._path_controller = path_controller
         self._path_status_sink = path_status_sink
+        self._managed_path_status_sink = managed_path_status_sink
         self._ledger = ledger
         self._clock = clock or (lambda: datetime.now(UTC))
         self._commit_last_known_good = commit_last_known_good
         self._crash_after = crash_after
         self._apply_lease_seconds = apply_lease_seconds
         self._lock = asyncio.Lock()
+        self._path_refresh_tasks: dict[
+            tuple[str, str, int], asyncio.Task[ManagedPathStatus | None]
+        ] = {}
+        self._path_refresh_tasks_lock = asyncio.Lock()
         self._local_claims: dict[tuple[str, str, int], NetworkApplyClaim] = {}
         policy.bind(store.authorization_read_port)
         store.bind_provider_journal(provider)
@@ -2117,6 +2267,8 @@ class ManagedPathLifecycle:
                 raise NetworkAuthorizationConflictError(
                     "同一 revision 的 envelope/plan/action/ownership 发生冲突"
                 )
+            if existing is not None:
+                existing = self._restore_persisted_path_state(existing)
             if existing is not None and existing.phase in {
                 NetworkGovernancePhase.VERIFIED,
                 NetworkGovernancePhase.PATH_DEGRADED,
@@ -2256,6 +2408,82 @@ class ManagedPathLifecycle:
             ):
                 return await self._authorization_wait(record, code=rechecked.code)
             return await self._apply_and_verify(record, token)
+
+    def get_path_status(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+    ) -> ManagedPathStatus | None:
+        """只读投影当前 path freshness；不触发授权、plan、Provider 或 probe。"""
+        record = self._store.get(network_id, node_id, revision)
+        persisted = self._store.get_path_status(network_id, node_id, revision)
+        if persisted is not None:
+            if record is not None and (
+                persisted.plan_hash != record.plan.plan_hash
+                or persisted.provider is not record.plan.desired.provider
+                or persisted.journal_sequence
+                != (record.journal[-1].sequence if record.journal else 0)
+            ):
+                raise ManagedPathLifecycleError("path status 与治理 record 绑定冲突")
+            return persisted.at(self._now())
+        if record is None:
+            return None
+        return self._status_from_record(record).at(self._now())
+
+    async def refresh_path(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+        *,
+        cancellation: ToolCancellationToken | None = None,
+    ) -> ManagedPathStatus | None:
+        """合并同一 path 的只读刷新；永不调用 Provider plan/apply。"""
+        key = (str(network_id), str(node_id), revision)
+        async with self._path_refresh_tasks_lock:
+            task = self._path_refresh_tasks.get(key)
+            if task is None or task.done():
+                token = cancellation or ToolCancellationToken()
+                task = asyncio.create_task(
+                    self._refresh_path_once(network_id, node_id, revision, token)
+                )
+                self._path_refresh_tasks[key] = task
+
+                def discard(completed: asyncio.Task[ManagedPathStatus | None]) -> None:
+                    if self._path_refresh_tasks.get(key) is completed:
+                        self._path_refresh_tasks.pop(key, None)
+
+                task.add_done_callback(discard)
+        return await asyncio.shield(task)
+
+    async def _refresh_path_once(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+        revision: int,
+        cancellation: ToolCancellationToken,
+    ) -> ManagedPathStatus | None:
+        async with self._lock:
+            self._check_cancelled(cancellation)
+            record = self._store.get(network_id, node_id, revision)
+            persisted = self._store.get_path_status(network_id, node_id, revision)
+            if record is None:
+                return persisted.at(self._now()) if persisted is not None else None
+            record = self._restore_persisted_path_state(record)
+            current = self._status_from_record(record).at(self._now())
+            if record.verification is None or not record.verification.succeeded:
+                return current
+            if current.observed_at is not None and (
+                self._now() - current.observed_at < MANAGED_PATH_REFRESH_MIN_INTERVAL
+            ):
+                values = current.model_dump(mode="python")
+                values["stable_error_code"] = "path_refresh_rate_limited"
+                return ManagedPathStatus.model_validate(values)
+            self._check_cancelled(cancellation)
+            refreshed = await self._verify_path(record)
+            self._check_cancelled(cancellation)
+            return self._status_from_record(refreshed).at(self._now())
 
     async def recover(
         self,
@@ -2654,6 +2882,7 @@ class ManagedPathLifecycle:
             record,
             NetworkGovernancePhase.PATH_RECONCILING,
             path_evidence=evidence,
+            path_selection=None,
             stable_error_code=(
                 evidence.stable_error_code.value if evidence.stable_error_code else None
             ),
@@ -3112,34 +3341,64 @@ class ManagedPathLifecycle:
             return self._journal(record, final_phase)
         if acknowledgement_was_pending:
             self._maybe_crash(LifecycleCrashBoundary.ACK)
-        if self._path_status_sink is None:
-            return self._journal(
+        if self._path_status_sink is None and not record.path_status_delivered:
+            record = self._journal(
                 record,
                 final_phase,
                 path_status_delivered=True,
             )
-        if not record.path_status_delivered:
+        elif self._path_status_sink is not None and not record.path_status_delivered:
             try:
                 await self._path_status_sink.publish(
                     self._path_status(record),
                     idempotency_key=record.idempotency_key,
                 )
             except Exception:
-                return self._journal(record, final_phase, stable_error_code="path_sink_failed")
-            record = self._journal(
-                record,
-                final_phase,
-                path_status_delivered=True,
-                stable_error_code=(
-                    None if record.stable_error_code == "path_sink_failed" else _LIFECYCLE_UNSET
-                ),
-            )
+                record = self._journal(record, final_phase, stable_error_code="path_sink_failed")
+            else:
+                record = self._journal(
+                    record,
+                    final_phase,
+                    path_status_delivered=True,
+                    stable_error_code=(
+                        None if record.stable_error_code == "path_sink_failed" else _LIFECYCLE_UNSET
+                    ),
+                )
+        elif (
+            self._managed_path_status_sink is not None and not record.managed_path_status_delivered
+        ):
+            try:
+                await self._managed_path_status_sink.publish(
+                    self._managed_path_status(record),
+                    idempotency_key=record.idempotency_key,
+                )
+            except Exception:
+                record = self._journal(
+                    record,
+                    final_phase,
+                    stable_error_code="managed_path_status_sink_failed",
+                )
+            else:
+                record = self._journal(
+                    record,
+                    final_phase,
+                    managed_path_status_delivered=True,
+                    stable_error_code=(
+                        None
+                        if record.stable_error_code == "managed_path_status_sink_failed"
+                        else _LIFECYCLE_UNSET
+                    ),
+                )
         if record.phase is not final_phase:
             return self._journal(record, final_phase)
         return record
 
     async def _retry_sinks(self, record: NetworkGovernanceRecord) -> NetworkGovernanceRecord:
-        if record.acknowledgement_delivered and record.path_status_delivered:
+        if (
+            record.acknowledgement_delivered
+            and record.path_status_delivered
+            and (self._managed_path_status_sink is None or record.managed_path_status_delivered)
+        ):
             return record
         pending = self._journal(record, NetworkGovernancePhase.ACKNOWLEDGING)
         stage = (
@@ -3216,6 +3475,99 @@ class ManagedPathLifecycle:
             return True
         return plan.ownership is not None and ownership == plan.ownership
 
+    def _restore_persisted_path_state(
+        self,
+        record: NetworkGovernanceRecord,
+    ) -> NetworkGovernanceRecord:
+        """恢复 controller 游标和治理记录中的脱敏 path 摘要。"""
+        status = self._store.get_path_status(
+            record.plan.desired.network_id,
+            record.plan.desired.target_node_id,
+            record.plan.desired.revision,
+        )
+        if status is None:
+            return record
+        tail_sequence = record.journal[-1].sequence if record.journal else 0
+        if status.journal_sequence != tail_sequence:
+            raise ManagedPathLifecycleError("path status journal 与治理 record 不一致")
+        if (
+            status.plan_hash != record.plan.plan_hash
+            or status.provider is not record.plan.desired.provider
+        ):
+            raise ManagedPathLifecycleError("path status 与治理计划绑定冲突")
+        if status.selection is not None:
+            restore = getattr(self._path_controller, "restore", None)
+            if callable(restore):
+                try:
+                    restore(status.selection)
+                except Exception as exc:
+                    raise ManagedPathLifecycleError("path controller checkpoint 恢复失败") from exc
+        updates: dict[str, object] = {}
+        if record.path_evidence is None and status.evidence is not None:
+            updates["path_evidence"] = status.evidence
+        if record.path_selection is None and status.selection is not None:
+            updates["path_selection"] = status.selection
+        if not updates:
+            return record
+        return _validated_record_update(record, updates)
+
+    def _status_from_record(self, record: NetworkGovernanceRecord) -> ManagedPathStatus:
+        """把治理 record 投影为可持久化、不可重放的 path status。"""
+        evidence = record.path_evidence
+        selection = record.path_selection
+        if record.authorization_id is not None:
+            authorization_state = ManagedPathAuthorizationState.AUTHORIZED
+            authorization_id = record.authorization_id
+        elif record.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION:
+            authorization_state = ManagedPathAuthorizationState.AWAITING_AUTHORIZATION
+            authorization_id = None
+        else:
+            authorization_state = ManagedPathAuthorizationState.UNKNOWN
+            authorization_id = None
+        stable_error = record.stable_error_code
+        if (
+            evidence is not None
+            and not evidence.verified
+            and evidence.stable_error_code is not None
+        ):
+            stable_error = evidence.stable_error_code.value
+        if evidence is not None and evidence.verified and evidence.expires_at <= record.updated_at:
+            stable_error = stable_error or "path_evidence_stale"
+        freshness = ManagedPathFreshness.UNVERIFIED
+        if evidence is not None and evidence.verified:
+            freshness = (
+                ManagedPathFreshness.FRESH
+                if evidence.expires_at > record.updated_at
+                else ManagedPathFreshness.STALE
+            )
+        return ManagedPathStatus(
+            network_id=record.plan.desired.network_id,
+            node_id=record.plan.desired.target_node_id,
+            revision=record.plan.desired.revision,
+            plan_hash=record.plan.plan_hash,
+            authorization_revision=record.plan.desired.revision,
+            provider=record.plan.desired.provider,
+            authorization_state=authorization_state,
+            authorization_id=authorization_id,
+            path_type=(selection.path_type if selection is not None else NetworkPathType.STATIC),
+            selection=selection,
+            evidence=evidence,
+            source=(source_category(evidence.source) if evidence is not None else "none"),
+            freshness=freshness,
+            candidate_count=(evidence.candidate_count if evidence is not None else 0),
+            last_known_good_revision=(
+                record.last_known_good_revision
+                if record.last_known_good_revision is not None
+                else (selection.last_known_good_revision if selection is not None else None)
+            ),
+            observed_at=(evidence.observed_at if evidence is not None else None),
+            refreshed_at=(evidence.observed_at if evidence is not None else None),
+            expires_at=(evidence.expires_at if evidence is not None else None),
+            stable_error_code=stable_error,
+            journal_sequence=(record.journal[-1].sequence if record.journal else 0),
+            updated_at=record.updated_at,
+        )
+
     def _journal(
         self,
         record: NetworkGovernanceRecord,
@@ -3229,6 +3581,7 @@ class ManagedPathLifecycle:
         last_known_good_revision: int | None | object = _LIFECYCLE_UNSET,
         acknowledgement_delivered: bool | object = _LIFECYCLE_UNSET,
         path_status_delivered: bool | object = _LIFECYCLE_UNSET,
+        managed_path_status_delivered: bool | object = _LIFECYCLE_UNSET,
         stable_error_code: str | None | object = _LIFECYCLE_UNSET,
     ) -> NetworkGovernanceRecord:
         updates: dict[str, object] = {
@@ -3244,6 +3597,7 @@ class ManagedPathLifecycle:
             ("last_known_good_revision", last_known_good_revision),
             ("acknowledgement_delivered", acknowledgement_delivered),
             ("path_status_delivered", path_status_delivered),
+            ("managed_path_status_delivered", managed_path_status_delivered),
             ("stable_error_code", stable_error_code),
         ):
             if value is not _LIFECYCLE_UNSET:
@@ -3307,6 +3661,7 @@ class ManagedPathLifecycle:
         )
         try:
             self._store.put(result)
+            self._store.put_path_status(self._status_from_record(result))
         except Exception as exc:
             raise ManagedPathLifecycleError("治理 lifecycle journal 持久化失败") from exc
         return result
@@ -3358,6 +3713,10 @@ class ManagedPathLifecycle:
             stable_error_code=record.stable_error_code,
         )
 
+    def _managed_path_status(self, record: NetworkGovernanceRecord) -> ManagedPathStatus:
+        """构造给新 status sink 的严格脱敏投影。"""
+        return self._status_from_record(record).at(self._now())
+
     def _maybe_crash(self, boundary: LifecycleCrashBoundary) -> None:
         if self._crash_after is boundary:
             self._crash_after = None
@@ -3394,3 +3753,8 @@ def redacted_path_status_payload(status: NetworkPathStatus) -> dict[str, object]
     if any(fragment in encoded.lower() for fragment in _SECRET_FRAGMENTS):
         raise ValueError("路径状态包含秘密")
     return payload
+
+
+def redacted_managed_path_status_payload(status: ManagedPathStatus) -> dict[str, object]:
+    """导出新 status schema 的固定脱敏字段。"""
+    return _redacted_managed_path_status_payload(status)

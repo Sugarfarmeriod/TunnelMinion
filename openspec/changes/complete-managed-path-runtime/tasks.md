@@ -61,12 +61,18 @@
 
 ## 4. 证据 TTL、刷新与真实状态投影
 
-- [ ] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
-- [ ] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
-- [ ] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
-- [ ] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
-- [ ] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
-- [ ] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
+  - 证据：`network_path_status` 以 network/node/revision、journal sequence、plan/provider 绑定持久化脱敏 selection/evidence；`_restore_persisted_path_state` 在重启时恢复 controller checkpoint，旧 revision、journal、计划或 controller 恢复异常均 fail closed。`test_persisted_real_controller_state_projects_stale_and_restores` 使用真实 `DirectPathController`（连续两次成功阈值）验证首次 STATIC、随后 DIRECT、重启仍恢复 DIRECT，且 `Provider.apply_calls` 保持 1；controller 定向测试覆盖失败阈值、fallback 和 rollback callback 边界。
+- [x] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
+  - 证据：`ManagedPathStatus.at()` 在 TTL 边界将 evidence 投影为 `stale` 并保留 `expires_at` 与 last-known-good revision；`test_persisted_real_controller_state_projects_stale_and_restores` 和 `test_stale_readonly_refresh_recovers_fresh_without_provider_apply_and_rate_replays` 验证过期、成功只读刷新后 fresh direct、旧证据时间不被读操作延长。
+- [x] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
+  - 证据：`refresh_path` 按 network/node/revision single-flight 并以 shield 保持共享刷新；`test_refresh_single_flight_survives_caller_cancellation`、`test_refresh_completion_does_not_remove_replacement_task` 和 `test_stale_readonly_refresh_recovers_fresh_without_provider_apply_and_rate_replays` 覆盖取消、并发替换、30 秒速率预算，所有刷新断言 Provider apply 仍为 1，GET/refresh 不调用 plan/apply。
+- [x] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
+  - 证据：新增版本化 `ManagedPathStatus` schema 与 `ManagedPathStatusSink`，严格绑定 network/node/plan/revision/authorization/provider、selection target hash/port/route identity、source、freshness、TTL 和 stable error；`test_managed_path_status_binding_and_freshness_matrix`、`test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_own_error` 覆盖字段绑定、sink 幂等投影和错误清除；redacted payload 与 SQLite secret scan 拒绝 endpoint、路由正文、desired config、签名和密钥。
+- [x] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
+  - 证据：`test_managed_path_status_binding_and_freshness_matrix` 覆盖 UTC/TTL/绑定拒绝；`test_persisted_real_controller_state_projects_stale_and_restores` 覆盖重启；`test_path_status_old_schema_and_hash_corruption_fail_closed`、`test_restart_path_checkpoint_mismatches_fail_closed` 覆盖旧 schema、hash/journal/计划/checkpoint 损坏；`test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_own_error` 覆盖刷新失败、sink 失败重试和本地 LKG；全量限定范围秘密/UTF-8 扫描通过，未保存完整配置或秘密。
+- [x] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：network 定向 `251 passed, 4 skipped`，governance `1519/1519` statements、`502/502` branches，path controller `278/278`、`76/76`，path status `130/130`、`70/70`，均 100%；完整 `scripts/quality.py all` 通过 Ruff、Pyright strict、`1016 passed, 5 skipped`，全仓 `16163/16163` statements 与 `3466/3466` branches 均 100%；`openspec validate complete-managed-path-runtime --strict` 通过。以上证据仅证明隔离 fake/只读状态生命周期，不宣称真实 Provider、平台现场或 A/B 完成。
 
 ## 5. Windows/macOS 常规应用单一装配
 
