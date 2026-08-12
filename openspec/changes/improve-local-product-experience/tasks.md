@@ -5,7 +5,8 @@
 - [x] 0.3 固定四张 legacy 页面、现有 API/OpenAPI、CSP、Windows/macOS package、关键用户流、压缩体积与加载/刷新延迟基线，fixture 不得读取秘密
   - 证据：`evaluations/baselines/local-product-interface-v1.json` 固定四页及别名响应、双平台一致 OpenAPI、legacy/生产 SPA CSP 与缓存、双平台 package、关键流程、`145073` bytes（`141.67 KiB`）gzip 及 Windows Chromium/macOS WebKit 加载与刷新延迟；`tests/evaluation/test_local_product_interface_baseline.py` 使用一旦读取密钥就失败的 trap，并逐项复核摘要和证据来源。
 - [x] 0.4 确认 `package-manual-node-runtime` 相关运行包分支栈已进入 `main`；在此之前只允许 package 只读审计和 clean-room harness，不复制第二套 builder
-- [ ] 0.5 每个阶段提交前复核 ownership、`git status`、diff、生成物和秘密范围；跨 owner 修改由 integration owner 串行合入
+- [x] 0.5 每个阶段提交前复核 ownership、`git status`、diff、生成物和秘密范围；跨 owner 修改由 integration owner 串行合入
+  - 证据（2026-08-12）：本阶段提交前确认当前工作树、暂存 diff、生成物与 secret scan；只写入本 change 的 6 个规划/文档文件，未读取或修改 `docs/questions/`，PR #59 工作树与 tasks 保持隔离。
 
 ## 1. 契约与工具链 spike
 
@@ -63,11 +64,13 @@
 - [x] 6.2 仅在 `frontend/src/features/settings` 实现模型、Coordinator、runtime、版本和可选诊断来源的脱敏状态；秘密只走现有受限配置流程且不得回显
 - [x] 6.3 实现诊断导出入口和大白话恢复步骤；没有 Murus、日志权限或厂商 VPN CLI 时核心功能仍可用
 - [x] 6.4 覆盖作用域隔离、删除竞态、错误修正、秘密字段、诊断脱敏、无模型清理、键盘与屏幕阅读状态提示
-- [ ] 6.5 运行前后端全量门禁与 Windows/macOS 人工验收，提交并推送 Memories/Settings 阶段
+- [x] 6.5 运行前后端全量门禁与 Windows/macOS 人工验收，提交并推送 Memories/Settings 阶段
+  - 证据：`evaluations/local-product/windows-2026-08-11/acceptance-summary.json`、`evaluations/local-product/macos-2026-08-11/acceptance-summary.json` 与 `evaluations/local-product/manual-memories-settings-2026-08-11/focus-recheck-2026-08-11/manual-focus-acceptance-receipt.md` 均记录双平台正式离线包、真实 FastAPI、浏览器焦点/降级/记忆/设置验收；当前 head 的本地 Python 1036 passed/6 skipped、前端 89 unit + 36 E2E、供应链/构建门禁及 GitHub Actions run `31581658274` 八项全绿。
 
 ## 7. 串行整合与浏览器质量门禁
 
-- [ ] 7.1 integration owner 按 Overview → Chat → Operations → Memories/Settings 串行整合；每次整合后运行完整 Python、TypeScript、React 和浏览器门禁
+- [x] 7.1 integration owner 按 Overview → Chat → Operations → Memories/Settings 串行整合；每次整合后运行完整 Python、TypeScript、React 和浏览器门禁
+  - 证据：当前分支的既有阶段提交和任务证据保持 Overview → Chat → Operations → Memories/Settings 顺序；本次 integration owner 复核最终合并范围后重跑 Python、TypeScript、React、Chromium/WebKit、package、供应链、OpenSpec strict 与 Mermaid 门禁，远端 head CI 八项全绿。
 - [x] 7.2 Windows Chromium 与 macOS WebKit 覆盖 SPA 深链、CSP、缓存头、SSE、browser storage、写请求防护和关键流程
 - [x] 7.3 axe serious/critical 为 0；1280×720、320 CSS px、200% zoom 下总览、operation detail/确认框、chat、memory、settings 均可操作
 - [x] 7.4 供应链覆盖 npm/Python 全依赖漏洞与许可证，扫描 dist/source map/package staging 秘密；后续初始 JS+CSS gzip 增长超过 10% 必须说明
