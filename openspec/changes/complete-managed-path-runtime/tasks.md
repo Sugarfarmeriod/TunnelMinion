@@ -21,22 +21,28 @@
 - [x] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
 - [x] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
   - 证据：代码 HEAD `17a44c5` 将 owner/lock/load/secret scan/temp/replace/fsync 绑定可信目录句柄，移除路径型 SQLite 锁，并覆盖跨实例/进程 lease、真实 symlink/reparse、确定性目录替换 race、损坏恢复与元数据失败；远端 run `31336268697` 的 macOS job `93302528091`、Windows job `93302528124` 均全绿。
-- [ ] 1.3 在现有网络治理 SQLite 内实现唯一权威 L3 grant repository：独立授权表、本机控制面原子 approve/revoke、policy/lifecycle 只读查询、空库迁移、重启恢复、不可逆撤销、损坏/冲突/秘密/读取失败 fail-closed；将 `NetworkOperationPolicy` 改为 repository 策略门面并复用现有精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
+- [x] 1.3 在现有网络治理 SQLite 内实现唯一权威 L3 grant repository：独立授权表、本机控制面原子 approve/revoke、policy/lifecycle 只读查询、空库迁移、重启恢复、不可逆撤销、损坏/冲突/秘密/读取失败 fail-closed；将 `NetworkOperationPolicy` 改为 repository 策略门面并复用现有精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
   - 规划约束：不得新建第二个授权数据库或并行事实来源；不得从 `network_governance` 执行记录、进程内 grant、signed desired config 或 operation L2 preauthorization 推断/迁移 L3 授权；普通消费者不得获得 repository 写端口。
 - [x] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
 - [x] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
   - 证据：可执行架构测试实际启动 FastAPI lifespan，并读取模型配置、对话、记忆、服务观察、managed node、Coordinator、network-path 与资源页面；L3 `approve`/`revoke` 和平台 Provider `apply` 均由一旦调用即失败的 trap 保护且调用数为零。阶段一 lifecycle 的并发 refresh 测试继续证明请求只合并到单次只读 refresher、候选 evidence 不提交且 Provider 调用数为零；不再使用消费者字符串清单或源码搜索替代运行证据。
-- [ ] 1.6 运行状态 schema、授权 repository/门禁、迁移、重启、并发、损坏、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 既有证据：本地 Ruff/format、pyright、定向 `75 passed, 4 skipped`（`830` statements / `200` branches = 100%）、全量 `850 passed, 5 skipped`（`14,214` statements / `2,780` branches = 100%）、离线 8 scenarios/0 safety failures、secret scan 与 OpenSpec strict 均通过；远端 run `31336268697` 双平台完成当时范围的 CI 门禁。该证据不覆盖新明确的持久授权 repository，故本任务恢复为未完成，待 1.3 实现后重新运行并追加当前提交证据。
+- [x] 1.6 运行状态 schema、授权 repository/门禁、迁移、重启、并发、损坏、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前证据：Ruff format/check、Pyright strict、全量 `856 passed, 5 skipped`（`14,411` statements / `2,838` branches = 100%）、授权仓储迁移/重启/撤销不可逆/并发冲突/损坏/秘密与读取失败定向覆盖、`openspec validate complete-managed-path-runtime --strict` 均通过；本阶段未触碰 `docs/questions/`、平台探针、应用工厂、CI 或 Provider 写入。
 
 ## 2. Windows/macOS 生产只读 PathProbe
 
-- [ ] 2.1 先用受控 fixture 固定 `PathProbe` 共用契约：候选来源/网段/端口过滤、单并发、超时、取消、最小刷新间隔和四维证据时间
-- [ ] 2.2 实现 Windows 只读 endpoint/handshake/精确 host route/target probe 适配，权限不足或工具缺失只返回稳定降级且不提权、不执行任意命令
-- [ ] 2.3 实现 macOS 同契约只读适配，明确官方/受支持读取边界，不调用 Murus、防火墙写接口、route 写命令或 WireGuard 配置命令
-- [ ] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、旧 handshake、route 缺失、target timeout、权限拒绝和取消矩阵
+- [x] 2.1 先用受控 fixture 固定 `PathProbe` 共用契约：候选来源/网段/端口过滤、单并发、超时、取消、最小刷新间隔和四维证据时间
+  - 证据：`src/tunnelminion/network/path_probe.py` 固定候选上限 4、单候选 1s、target 2s、`min_refresh_interval_seconds` 精确固定为 30s（小于或大于 30s 均 fail closed）、单并发锁、取消传播和 endpoint/handshake/host-route/target 四维时间；`tests/network/test_path_probe.py` 以受控时钟推进刷新窗口并覆盖拒绝短间隔。
+- [x] 2.2 实现 Windows 只读 endpoint/handshake/精确 host route/target probe 适配，权限不足或工具缺失只返回稳定降级且不提权、不执行任意命令
+  - 证据：`WindowsPathProbe` 仅消费固定参数的 `wg show` 与 `route.exe print` 只读观察器；`windows_route_contains_exact_host` 只解析 `Active Routes` 的固定表头和实际路由行，IPv4 要求 destination=目标、netmask=`255.255.255.255` 且 Interface 匹配目标接口地址，IPv6 要求 destination 恰为 `/128` 且 If 匹配只读 `if_nametoindex` 结果；标题、gateway 中的同地址、宽前缀、持久表、格式错误、非目标接口或接口不确定均 fail closed。受控 route.exe 格式 fixture 覆盖 IPv4/IPv6 正例与负例，并将权限、能力缺失和读取失败稳定映射。
+- [x] 2.3 实现 macOS 同契约只读适配，明确官方/受支持读取边界，不调用 Murus、防火墙写接口、route 写命令或 WireGuard 配置命令
+  - 证据：`MacOSPathProbe` 仅消费固定参数的 `wg show` 与 `netstat -rn -f inet|inet6` 只读观察器，覆盖双地址族精确 host route，稳定降级且不含 Murus、防火墙、route 写入或 WireGuard 配置调用；平台定向测试覆盖相同失败边界。
+- [x] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、旧 handshake、route 缺失、target timeout、权限拒绝和取消矩阵
+  - 证据：网络 fixture 覆盖恶意/对话来源、批准网段和端口过滤、过期与超预算候选、IPv4/IPv6 endpoint、旧 handshake、精确 route 缺失、target 超时、权限/unsupported、取消、缓存刷新和并发；Windows/macOS fixture 另覆盖平台错误映射。
 - [ ] 2.5 在 Windows/macOS 只读环境保存探测前后网络不变性与来源证据；无法现场验证的平台保持对应真实门禁未完成，不用 fixture 代替
+  - 现场门禁未完成：当前执行环境未同时提供可批准的 Windows/macOS 隔离资源与现场验证条件；本阶段未调用真实 PathProbe 或客户网络接口，受控 fixture 未被当作生产能力或现场证据。
 - [ ] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 质量门禁已执行并通过：全量 `912 passed, 5 skipped`、statement + branch coverage `100.00%`、Ruff、Pyright strict、限定范围秘密扫描和 OpenSpec strict 均通过；但本任务按要求保持未完成：2.5 的双平台真实只读前后不变性与来源证据缺失，因此不将本地测试、fixture 或代码门禁外推为阶段完成。
 
 ## 3. fake Provider 下的完整治理生命周期
 

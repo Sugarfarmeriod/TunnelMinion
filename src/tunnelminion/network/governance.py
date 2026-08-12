@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, Self
+from typing import Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -39,6 +41,18 @@ _SECRET_FRAGMENTS = (
     "preshared_key",
     "authorization:",
     "bearer ",
+)
+_GRANT_SECRET_KEY_FRAGMENTS = (
+    "accesstoken",
+    "assertion",
+    "credential",
+    "password",
+    "privatekey",
+    "presharedkey",
+    "refresh",
+    "secret",
+    "signature",
+    "token",
 )
 
 
@@ -86,6 +100,7 @@ class NetworkAuthorizationScope(BaseModel):
     revision: int = Field(ge=1)
     parent_revision: int = Field(ge=0)
     plan_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    observed_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_scope(self) -> Self:
@@ -138,6 +153,7 @@ class NetworkAuthorizationScope(BaseModel):
             revision=plan.desired.revision,
             parent_revision=plan.desired.parent_revision,
             plan_hash=plan.plan_hash,
+            observed_fingerprint=plan.observed_fingerprint,
         )
 
     def matches(self, plan: NetworkPlan) -> bool:
@@ -171,6 +187,7 @@ class NetworkAuthorizationScope(BaseModel):
             and desired.revision == self.revision
             and desired.parent_revision == self.parent_revision
             and plan.plan_hash == self.plan_hash
+            and plan.observed_fingerprint == self.observed_fingerprint
         )
 
 
@@ -201,6 +218,316 @@ class NetworkAuthorizationGrant(BaseModel):
         return self.revoked_at is None and self.approved_at <= at < self.expires_at
 
 
+class NetworkAuthorizationStorageError(ValueError):
+    """授权仓储无法证明记录可信时使用的稳定 fail-closed 错误。"""
+
+    code = "local_l3_authorization_storage_unavailable"
+
+
+class NetworkAuthorizationConflictError(NetworkAuthorizationStorageError):
+    """稳定授权 ID 已经绑定另一份不可覆盖的授权范围。"""
+
+    code = "local_l3_authorization_conflict"
+
+
+class NetworkAuthorizationReadPort(Protocol):
+    """供 policy/lifecycle 使用的只读授权端口。"""
+
+    def list_grants(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> tuple[NetworkAuthorizationGrant, ...]: ...
+
+
+class SQLiteNetworkAuthorizationReadPort:
+    """不暴露 approve/revoke 的 SQLite 只读视图。"""
+
+    def __init__(self, repository: SQLiteNetworkAuthorizationRepository) -> None:
+        self._repository = repository
+
+    def list_grants(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> tuple[NetworkAuthorizationGrant, ...]:
+        return self._repository.list_grants(network_id, node_id)
+
+
+class SQLiteNetworkAuthorizationRepository:
+    """现有网络治理 SQLite 中唯一权威的 L3 授权仓储。"""
+
+    _TABLE = "network_authorization_grants"
+    _COLUMNS = frozenset({"authorization_id", "network_id", "node_id", "payload"})
+
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        if (path is None) == (connection is None):
+            raise ValueError("授权仓储必须提供数据库路径或现有连接")
+        self._owns_connection = connection is None
+        if connection is None:
+            assert path is not None
+            if str(path) != ":memory:":
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+            self._connection = sqlite3.connect(path, timeout=5)
+        else:
+            self._connection = connection
+        self._migrate()
+
+    @property
+    def read_only(self) -> NetworkAuthorizationReadPort:
+        """返回只读端口，避免消费者拿到写方法。"""
+        return SQLiteNetworkAuthorizationReadPort(self)
+
+    def approve(
+        self,
+        grant: NetworkAuthorizationGrant,
+        *,
+        local_control: bool,
+    ) -> NetworkAuthorizationGrant:
+        """由本机控制面原子保存一次不可覆盖的授权。"""
+        if not local_control:
+            raise PermissionError("L3 网络授权只能由目标节点本地控制面创建")
+        payload = self._safe_payload(grant)
+        authorization_id = str(grant.authorization_id)
+        try:
+            with self._transaction():
+                rows = self._connection.execute(
+                    f"SELECT authorization_id, network_id, node_id, payload FROM {self._TABLE} "
+                    "WHERE authorization_id = ?",
+                    (authorization_id,),
+                ).fetchall()
+                if rows:
+                    if len(rows) != 1:
+                        raise NetworkAuthorizationConflictError("授权 ID 存在冲突记录")
+                    existing = self._decode_row(rows[0])
+                    if existing != grant:
+                        raise NetworkAuthorizationConflictError("授权 ID 已绑定不同授权范围")
+                    return existing
+                self._connection.execute(
+                    f"INSERT INTO {self._TABLE}(authorization_id, network_id, node_id, payload) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        authorization_id,
+                        str(grant.scope.network_id),
+                        str(grant.scope.node_id),
+                        payload,
+                    ),
+                )
+                return grant
+        except NetworkAuthorizationStorageError:
+            raise
+
+    def revoke(
+        self,
+        authorization_id: AuthorizationId,
+        *,
+        revoked_at: datetime,
+        local_control: bool,
+    ) -> NetworkAuthorizationGrant:
+        """由本机控制面原子撤销；撤销后的 ID 永不恢复或换绑。"""
+        if not local_control:
+            raise PermissionError("L3 网络授权只能由目标节点本地控制面撤销")
+        if revoked_at.tzinfo is None or revoked_at.utcoffset() != timedelta(0):
+            raise ValueError("撤销时间必须使用 timezone-aware UTC")
+        key = str(authorization_id)
+        try:
+            with self._transaction():
+                rows = self._connection.execute(
+                    f"SELECT authorization_id, network_id, node_id, payload FROM {self._TABLE} "
+                    "WHERE authorization_id = ?",
+                    (key,),
+                ).fetchall()
+                if len(rows) == 0:
+                    raise NetworkAuthorizationStorageError("未找到本机 L3 授权")
+                if len(rows) != 1:
+                    raise NetworkAuthorizationConflictError("授权 ID 存在冲突记录")
+                existing = self._decode_row(rows[0])
+                if existing.revoked_at is not None:
+                    if existing.revoked_at == revoked_at:
+                        return existing
+                    raise NetworkAuthorizationConflictError("已撤销授权不可重新写入")
+                revoked = existing.model_copy(update={"revoked_at": revoked_at})
+                payload = self._safe_payload(revoked)
+                cursor = self._connection.execute(
+                    f"UPDATE {self._TABLE} SET payload = ? "
+                    "WHERE authorization_id = ? AND payload = ?",
+                    (payload, key, existing.model_dump_json()),
+                )
+                if cursor.rowcount != 1:
+                    raise NetworkAuthorizationConflictError("授权撤销发生并发冲突")
+                return revoked
+        except NetworkAuthorizationStorageError:
+            raise
+
+    def list_grants(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> tuple[NetworkAuthorizationGrant, ...]:
+        """读取并验证整个授权表，再返回目标 network/node 的记录。"""
+        return tuple(
+            grant
+            for grant in self._read_all()
+            if grant.scope.network_id == network_id and grant.scope.node_id == node_id
+        )
+
+    def get(self, authorization_id: AuthorizationId) -> NetworkAuthorizationGrant | None:
+        """读取单个授权；表中任一冲突记录都会使读取 fail closed。"""
+        return next(
+            (grant for grant in self._read_all() if grant.authorization_id == authorization_id),
+            None,
+        )
+
+    def assert_no_secret_material(self) -> None:
+        """扫描并验证整个授权表，禁止秘密或无法解析的 payload。"""
+        self._read_all()
+
+    def close(self) -> None:
+        if self._owns_connection:
+            self._connection.close()
+
+    def _migrate(self) -> None:
+        try:
+            with self._connection:
+                self._connection.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {self._TABLE} (
+                        authorization_id TEXT NOT NULL PRIMARY KEY,
+                        network_id TEXT NOT NULL,
+                        node_id TEXT NOT NULL,
+                        payload TEXT NOT NULL
+                    )
+                    """
+                )
+                self._connection.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{self._TABLE}_scope "
+                    f"ON {self._TABLE}(network_id, node_id)"
+                )
+            self._validate_schema()
+        except NetworkAuthorizationStorageError:
+            raise
+        except sqlite3.Error as exc:
+            raise NetworkAuthorizationStorageError("授权表迁移失败") from exc
+
+    def _validate_schema(self) -> None:
+        try:
+            rows = self._connection.execute(f"PRAGMA table_info({self._TABLE})").fetchall()
+        except sqlite3.Error as exc:
+            raise NetworkAuthorizationStorageError("授权表结构读取失败") from exc
+        metadata = {
+            str(row[1]): (str(row[2]).upper(), int(row[3]), int(row[5]))
+            for row in rows
+            if len(row) >= 6
+        }
+        if frozenset(metadata) != self._COLUMNS:
+            raise NetworkAuthorizationStorageError("授权表结构不可验证")
+        for name, (declared_type, not_null, primary_key) in metadata.items():
+            expected_primary_key = 1 if name == "authorization_id" else 0
+            if declared_type != "TEXT" or not_null != 1 or primary_key != expected_primary_key:
+                raise NetworkAuthorizationStorageError("授权表结构不可验证")
+
+    def _read_all(self) -> tuple[NetworkAuthorizationGrant, ...]:
+        self._validate_schema()
+        try:
+            rows = self._connection.execute(
+                f"SELECT authorization_id, network_id, node_id, payload "
+                f"FROM {self._TABLE} ORDER BY authorization_id"
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise NetworkAuthorizationStorageError("授权记录读取失败") from exc
+        seen: set[str] = set()
+        grants: list[NetworkAuthorizationGrant] = []
+        for row in rows:
+            grant = self._decode_row(row)
+            key = str(grant.authorization_id)
+            if key in seen:
+                raise NetworkAuthorizationConflictError("授权表存在重复授权 ID")
+            seen.add(key)
+            grants.append(grant)
+        return tuple(grants)
+
+    @staticmethod
+    def _safe_payload(grant: NetworkAuthorizationGrant) -> str:
+        payload = grant.model_dump_json()
+        SQLiteNetworkAuthorizationRepository._reject_secret_payload(payload)
+        return payload
+
+    @staticmethod
+    def _reject_secret_payload(payload: str) -> None:
+        try:
+            decoded_raw: object = json.loads(payload)
+        except (TypeError, ValueError) as exc:
+            raise NetworkAuthorizationStorageError("授权 payload 不是合法 JSON") from exc
+        if not isinstance(decoded_raw, dict):
+            raise NetworkAuthorizationStorageError("授权 payload 格式不可验证")
+        decoded = cast(dict[str, object], decoded_raw)
+        lowered = payload.casefold()
+        if any(fragment in lowered for fragment in _SECRET_FRAGMENTS):
+            raise NetworkAuthorizationStorageError("授权存储检测到禁止的秘密字段")
+
+        def walk(value: object) -> None:
+            if isinstance(value, dict):
+                for key, item in cast(dict[object, object], value).items():
+                    compact = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+                    if any(fragment in compact for fragment in _GRANT_SECRET_KEY_FRAGMENTS):
+                        raise NetworkAuthorizationStorageError("授权存储检测到禁止的秘密字段")
+                    walk(item)
+            elif isinstance(value, list):
+                for item in cast(list[object], value):
+                    walk(item)
+
+        walk(decoded)
+
+    @classmethod
+    def _decode_row(cls, row: tuple[object, ...]) -> NetworkAuthorizationGrant:
+        if len(row) != 4 or not all(isinstance(value, str) for value in row):
+            raise NetworkAuthorizationStorageError("授权记录格式不可验证")
+        authorization_id, network_id, node_id, payload = row
+        assert isinstance(authorization_id, str)
+        assert isinstance(network_id, str)
+        assert isinstance(node_id, str)
+        assert isinstance(payload, str)
+        cls._reject_secret_payload(payload)
+        try:
+            grant = NetworkAuthorizationGrant.model_validate_json(payload)
+            if (
+                str(grant.authorization_id) != authorization_id
+                or str(grant.scope.network_id) != network_id
+                or str(grant.scope.node_id) != node_id
+            ):
+                raise NetworkAuthorizationConflictError("授权索引与 payload 不一致")
+            return grant
+        except NetworkAuthorizationStorageError:
+            raise
+        except Exception as exc:
+            raise NetworkAuthorizationStorageError("授权记录 payload 不可验证") from exc
+
+    @contextmanager
+    def _transaction(self) -> Generator[None, None, None]:
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            yield
+            self._connection.commit()
+        except NetworkAuthorizationStorageError:
+            self._rollback()
+            raise
+        except sqlite3.Error as exc:
+            self._rollback()
+            raise NetworkAuthorizationStorageError("授权事务失败") from exc
+        except Exception:
+            self._rollback()
+            raise
+
+    def _rollback(self) -> None:
+        with suppress(sqlite3.Error):
+            self._connection.rollback()
+
+
 class NetworkPolicyDecision(BaseModel):
     """供资源页和审计展示的脱敏策略结果。"""
 
@@ -214,8 +541,25 @@ class NetworkPolicyDecision(BaseModel):
 class NetworkOperationPolicy:
     """独立于模型、prompt 和普通 Tool Gateway 的 L3 授权表。"""
 
-    def __init__(self) -> None:
-        self._grants: dict[str, NetworkAuthorizationGrant] = {}
+    def __init__(
+        self,
+        repository: SQLiteNetworkAuthorizationRepository | None = None,
+    ) -> None:
+        self._repository = repository
+
+    def bind(self, repository: SQLiteNetworkAuthorizationRepository) -> None:
+        """将策略门面绑定到治理 store 的唯一授权仓储。"""
+        if self._repository is not None and self._repository is not repository:
+            raise ValueError("网络策略不得绑定多个授权仓储")
+        self._repository = repository
+
+    def read_port(self) -> NetworkAuthorizationReadPort:
+        return self._require_repository().read_only
+
+    def _require_repository(self) -> SQLiteNetworkAuthorizationRepository:
+        if self._repository is None:
+            raise NetworkAuthorizationStorageError("网络策略尚未绑定授权仓储")
+        return self._repository
 
     def approve(
         self,
@@ -223,10 +567,7 @@ class NetworkOperationPolicy:
         *,
         local_control: bool,
     ) -> NetworkAuthorizationGrant:
-        if not local_control:
-            raise PermissionError("L3 网络授权只能由目标节点本地控制面创建")
-        self._grants[str(grant.authorization_id)] = grant
-        return grant
+        return self._require_repository().approve(grant, local_control=local_control)
 
     def revoke(
         self,
@@ -235,32 +576,28 @@ class NetworkOperationPolicy:
         revoked_at: datetime,
         local_control: bool,
     ) -> NetworkAuthorizationGrant:
-        if not local_control:
-            raise PermissionError("L3 网络授权只能由目标节点本地控制面撤销")
-        grant = self._grants[str(authorization_id)]
-        revoked = grant.model_copy(update={"revoked_at": revoked_at})
-        NetworkAuthorizationGrant.model_validate(revoked.model_dump())
-        self._grants[str(authorization_id)] = revoked
-        return revoked
+        return self._require_repository().revoke(
+            authorization_id,
+            revoked_at=revoked_at,
+            local_control=local_control,
+        )
 
     def evaluate(self, plan: NetworkPlan, *, at: datetime) -> NetworkPolicyDecision:
-        matching = next(
-            (
-                grant
-                for grant in self._grants.values()
-                if grant.is_active(at=at) and grant.scope.matches(plan)
-            ),
-            None,
+        # 与阶段一 lifecycle 共用同一个只读精确 matcher，避免两套授权语义。
+        from tunnelminion.network.managed_path_runtime import (
+            ReadOnlyNetworkAuthorizationMatcher,
         )
-        if matching is None:
+
+        match = ReadOnlyNetworkAuthorizationMatcher(self.read_port()).evaluate(plan, at=at)
+        if match.authorization_id is None:
             return NetworkPolicyDecision(
                 action=NetworkPolicyAction.AWAIT_AUTHORIZATION,
-                code="local_l3_approval_required",
+                code=match.code.value,
             )
         return NetworkPolicyDecision(
             action=NetworkPolicyAction.EXECUTE,
             code="local_l3_scope_matched",
-            authorization_id=matching.authorization_id,
+            authorization_id=match.authorization_id,
         )
 
 
@@ -296,6 +633,22 @@ class SQLiteNetworkGovernanceStore:
             )
             """
         )
+        self._authorization_repository = SQLiteNetworkAuthorizationRepository(
+            connection=self._connection
+        )
+
+    @property
+    def authorization_repository(self) -> SQLiteNetworkAuthorizationRepository:
+        """同一本治理数据库中的唯一 L3 授权仓储。"""
+        return self._authorization_repository
+
+    def list_grants(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> tuple[NetworkAuthorizationGrant, ...]:
+        """兼容只读 matcher 的查询入口，不暴露授权写方法。"""
+        return self._authorization_repository.list_grants(network_id, node_id)
 
     def put(self, record: NetworkGovernanceRecord) -> None:
         desired = record.plan.desired
@@ -399,6 +752,7 @@ class ManagedNetworkGovernanceWorkflow:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._commit_last_known_good = commit_last_known_good
         self._lock = asyncio.Lock()
+        policy.bind(store.authorization_repository)
 
     async def reconcile(
         self,
