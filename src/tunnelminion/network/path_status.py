@@ -81,6 +81,7 @@ class ManagedPathStatus(BaseModel):
     observed_at: datetime | None = None
     refreshed_at: datetime | None = None
     expires_at: datetime | None = None
+    last_refresh_attempt_at: datetime | None = None
     stable_error_code: str | None = Field(default=None, min_length=1, max_length=128)
     journal_sequence: int = Field(ge=0)
     updated_at: datetime
@@ -91,10 +92,16 @@ class ManagedPathStatus(BaseModel):
             self.observed_at,
             self.refreshed_at,
             self.expires_at,
+            self.last_refresh_attempt_at,
             self.updated_at,
         ):
             if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
                 raise ValueError("managed path status 时间必须使用 timezone-aware UTC")
+        if (
+            self.last_refresh_attempt_at is not None
+            and self.last_refresh_attempt_at > self.updated_at
+        ):
+            raise ValueError("path refresh attempt 不得来自 updated_at 之后")
         if self.authorization_state is ManagedPathAuthorizationState.AUTHORIZED:
             if self.authorization_id is None:
                 raise ValueError("authorized status 必须绑定 authorization id")
@@ -104,6 +111,8 @@ class ManagedPathStatus(BaseModel):
             raise ValueError("status authorization revision 必须精确绑定 revision")
         if self.source not in _ALLOWED_SOURCES:
             raise ValueError("status source 不在固定来源类别中")
+        if self.selection is not None and self.path_type is not self.selection.path_type:
+            raise ValueError("status path type 必须与 selection 一致")
         if self.evidence is None:
             if self.source != "none":
                 raise ValueError("没有 evidence 时 source 必须为 none")
@@ -112,6 +121,8 @@ class ManagedPathStatus(BaseModel):
                 for value in (self.observed_at, self.refreshed_at, self.expires_at)
             ):
                 raise ValueError("没有 evidence 时不得声明 evidence 时间")
+            if self.freshness is not ManagedPathFreshness.UNVERIFIED:
+                raise ValueError("没有 evidence 时 freshness 必须为 unverified")
         else:
             if (
                 self.evidence.network_id != self.network_id
@@ -132,6 +143,22 @@ class ManagedPathStatus(BaseModel):
                 raise ValueError("status evidence 时间摘要不一致")
             if self.candidate_count != self.evidence.candidate_count:
                 raise ValueError("status candidate count 与 evidence 不一致")
+            if (
+                self.observed_at is None
+                or self.refreshed_at is None
+                or self.expires_at is None
+                or self.observed_at > self.refreshed_at
+                or self.refreshed_at > self.updated_at
+            ):
+                raise ValueError("status evidence 时间线不一致")
+            if self.freshness is ManagedPathFreshness.FRESH and (
+                not self.evidence.verified or self.expires_at <= self.updated_at
+            ):
+                raise ValueError("fresh status evidence 必须晚于 updated_at 过期")
+            if self.freshness is ManagedPathFreshness.STALE and self.evidence.verified is False:
+                raise ValueError("失败 evidence 不得投影为 stale")
+            if self.evidence.verified and self.freshness is ManagedPathFreshness.UNVERIFIED:
+                raise ValueError("成功 evidence 不得投影为 unverified")
         if self.selection is not None:
             if self.selection.revision != self.revision:
                 raise ValueError("status selection revision 绑定冲突")
@@ -164,19 +191,63 @@ class ManagedPathStatus(BaseModel):
                 or self.selection.expires_at != self.evidence.expires_at
             ):
                 raise ValueError("status direct selection 与 evidence 绑定冲突")
-        if self.freshness is ManagedPathFreshness.FRESH and (
-            self.evidence is None or not self.evidence.verified
-        ):
-            raise ValueError("fresh status 必须绑定成功的 path evidence")
+        if self.path_type is NetworkPathType.DIRECT:
+            if self.selection is None or self.evidence is None:
+                raise ValueError("direct status 必须绑定 selection 与 evidence")
+            if not self.evidence.verified or not self._direct_binding_is_valid():
+                raise ValueError("direct status 的 selection/evidence 绑定不可验证")
         return self
+
+    def _direct_binding_is_valid(self) -> bool:
+        """检查 direct 当前选择是否仍完整绑定本状态的实时证据。"""
+        if self.selection is None or not isinstance(self.evidence, DirectPathEvidence):
+            return False
+        selection = self.selection
+        return (
+            self.path_type is NetworkPathType.DIRECT
+            and getattr(selection, "path_type", None) is NetworkPathType.DIRECT
+            and getattr(selection, "network_id", None) == self.network_id
+            and getattr(selection, "node_id", None) == self.node_id
+            and getattr(selection, "revision", None) == self.revision
+            and getattr(selection, "plan_hash", None) == self.plan_hash
+            and getattr(selection, "authorization_revision", None) == self.authorization_revision
+            and getattr(selection, "provider", None) is self.provider
+            and getattr(selection, "target_host_hash", None) == self.evidence.target_host_hash
+            and getattr(selection, "target_port", None) == self.evidence.target_port
+            and getattr(selection, "route_identity_hash", None) == self.evidence.route_identity_hash
+            and getattr(selection, "expires_at", None) == self.evidence.expires_at
+            and getattr(selection, "last_evidence_at", None) == self.evidence.observed_at
+            and self.evidence.network_id == self.network_id
+            and self.evidence.node_id == self.node_id
+            and self.evidence.revision == self.revision
+            and self.evidence.plan_hash == self.plan_hash
+            and self.evidence.authorization_revision == self.authorization_revision
+            and self.evidence.provider is self.provider
+        )
 
     @property
     def currently_usable(self) -> bool:
         """只有新鲜状态才可被消费者当作当前路径事实。"""
 
+        try:
+            self.validate_binding()  # type: ignore[reportCallIssue]
+        except (AttributeError, TypeError, ValueError):
+            return False
         return (
             self.freshness is ManagedPathFreshness.FRESH
             and self.path_type is not NetworkPathType.OFFLINE
+            and isinstance(self.evidence, DirectPathEvidence)
+            and self.evidence.verified
+            and self.expires_at is not None
+            and self.expires_at > self.updated_at
+            and self.observed_at is not None
+            and self.refreshed_at is not None
+            and self.observed_at <= self.refreshed_at <= self.updated_at
+            and (
+                self.selection is None
+                or getattr(self.selection, "path_type", None) is self.path_type
+            )
+            and (self.path_type is not NetworkPathType.DIRECT or self._direct_binding_is_valid())
         )
 
     def at(self, now: datetime) -> Self:

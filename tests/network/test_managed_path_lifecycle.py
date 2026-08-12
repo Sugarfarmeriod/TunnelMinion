@@ -1935,6 +1935,13 @@ async def test_record_validator_store_boundary_and_clock_are_fail_closed(tmp_pat
     policy.approve(grant_for(pending), capability=policy.local_control_capability())
     result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     base = result.model_dump(mode="json")
+    status = store.get_path_status(NETWORK_ID, NODE_A, 2)
+    assert status is not None
+    with pytest.raises(NetworkAuthorizationConflictError, match="path status"):
+        store.put_journal_step(
+            result,
+            status.model_copy(update={"journal_sequence": status.journal_sequence + 1}),
+        )
 
     with sqlite3.connect(store.path) as connection:
         stored_payload = str(
@@ -1966,6 +1973,22 @@ async def test_record_validator_store_boundary_and_clock_are_fail_closed(tmp_pat
     with pytest.raises(ValueError):
         NetworkGovernanceRecord.model_validate(naive)
 
+    refresh_after = result.model_dump(mode="json")
+    refresh_after["last_refresh_attempt_at"] = (
+        result.updated_at + timedelta(seconds=1)
+    ).isoformat()
+    with pytest.raises(ValueError, match="updated_at"):
+        NetworkGovernanceRecord.model_validate(refresh_after)
+    invalid_refresh_record = result.model_copy(
+        update={"last_refresh_attempt_at": result.updated_at + timedelta(seconds=1)}
+    )
+    with pytest.raises(ValueError, match="updated_at"):
+        invalid_refresh_record.validate_lifecycle_bindings()  # type: ignore[reportCallIssue]
+    refresh_naive = result.model_dump(mode="json")
+    refresh_naive["last_refresh_attempt_at"] = NOW.replace(tzinfo=None).isoformat()
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        NetworkGovernanceRecord.model_validate(refresh_naive)
+
     gap = result.model_dump(mode="json")
     gap["journal"][1]["sequence"] = 7
     with pytest.raises(ValueError):
@@ -1994,10 +2017,10 @@ async def test_record_validator_store_boundary_and_clock_are_fail_closed(tmp_pat
     with pytest.raises(ValueError):
         NetworkGovernanceRecord.model_validate(selection_revision)
 
-    def fail_put(_: NetworkGovernanceRecord) -> None:
+    def fail_put(_: NetworkGovernanceRecord, _status: object) -> None:
         raise OSError("fake journal store unavailable")
 
-    store.put = fail_put  # type: ignore[method-assign]
+    store.put_journal_step = fail_put  # type: ignore[method-assign]
     with pytest.raises(ManagedPathLifecycleError):
         lifecycle._journal(  # type: ignore[reportPrivateUsage]
             result,

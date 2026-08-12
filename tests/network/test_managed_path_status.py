@@ -54,10 +54,12 @@ from tunnelminion.network.path_controller import (
     PathSelection,
 )
 from tunnelminion.network.path_status import (
+    MANAGED_PATH_REFRESH_MIN_INTERVAL,
     ManagedPathAuthorizationState,
     ManagedPathFreshness,
     source_category,
 )
+from tunnelminion.tools.contracts import ToolCancellationToken
 
 
 class MutableClock:
@@ -383,6 +385,93 @@ async def test_stale_readonly_refresh_recovers_fresh_without_provider_apply_and_
 
 
 @pytest.mark.anyio
+async def test_failed_refresh_consumes_persisted_attempt_budget_without_provider_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = MutableClock()
+    probe = FakePathVerifier(path_evidence())
+    lifecycle, policy, provider, _, _, _, _, store = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        clock=clock,
+    )
+    _, _, direct = await authorized_lifecycle(lifecycle, policy)
+    assert not lifecycle._managed_path_status_pending(direct)  # type: ignore[reportPrivateUsage]
+    stored_record = store.get(NETWORK_ID, NODE_A, 1)
+    assert stored_record is not None and stored_record.verification is not None
+    failed_verification = stored_record.verification.model_copy(update={"succeeded": False})
+    blocked_record = stored_record.model_copy(update={"verification": failed_verification})
+
+    def get_blocked_record(*_args: object) -> NetworkGovernanceRecord:
+        return blocked_record
+
+    monkeypatch.setattr(store, "get", get_blocked_record)
+    blocked = await lifecycle._refresh_path_once(  # type: ignore[reportPrivateUsage]
+        NETWORK_ID,
+        NODE_A,
+        1,
+        ToolCancellationToken(),
+    )
+    assert blocked is not None
+    monkeypatch.undo()
+    before_probe = probe.calls
+    clock.value = NOW + timedelta(seconds=181)
+    probe.error = TimeoutError("fake target timeout")
+
+    failed = await lifecycle.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert failed is not None
+    assert failed.stable_error_code == "timeout"
+    assert failed.last_refresh_attempt_at == clock.value
+    assert probe.calls == before_probe + 1
+    assert provider.apply_calls == 1
+    persisted = lifecycle.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert persisted is not None
+    assert persisted.last_refresh_attempt_at == clock.value
+
+    limited = await lifecycle.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert limited is not None
+    assert limited.stable_error_code == "path_refresh_rate_limited"
+    assert limited.last_refresh_attempt_at == clock.value
+    assert probe.calls == before_probe + 1
+    assert provider.apply_calls == 1
+    direct_limited = await lifecycle._refresh_path_once(  # type: ignore[reportPrivateUsage]
+        NETWORK_ID,
+        NODE_A,
+        1,
+        ToolCancellationToken(),
+    )
+    assert direct_limited is not None
+    assert direct_limited.stable_error_code == "path_refresh_rate_limited"
+
+    restarted, _, _, _, _, _, _, _ = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        provider_override=provider,
+        clock=clock,
+    )
+    restarted_status = restarted.get_path_status(NETWORK_ID, NODE_A, 1)
+    assert restarted_status is not None
+    assert restarted_status.last_refresh_attempt_at == clock.value
+    restarted_limited = await restarted.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert restarted_limited is not None
+    assert restarted_limited.stable_error_code == "path_refresh_rate_limited"
+    assert probe.calls == before_probe + 1
+    assert provider.apply_calls == 1
+
+    clock.value += MANAGED_PATH_REFRESH_MIN_INTERVAL
+    retried = await restarted.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert retried is not None
+    assert retried.stable_error_code == "timeout"
+    assert retried.last_refresh_attempt_at == clock.value
+    assert probe.calls == before_probe + 2
+    assert provider.apply_calls == 1
+    assert direct.plan.plan_hash == retried.plan_hash
+
+
+@pytest.mark.anyio
 async def test_refresh_single_flight_survives_caller_cancellation(tmp_path: Path) -> None:
     clock = MutableClock()
     base = path_evidence()
@@ -445,6 +534,8 @@ async def test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_o
     assert retried.stable_error_code is None
     assert provider.apply_calls == 1
     assert len(sink.items) == 1
+    assert sink.items[-1][0].stable_error_code is None
+    assert sink.items[-1][0].freshness is ManagedPathFreshness.FRESH
 
     clock.value = NOW + timedelta(seconds=181)
     probe.error = TimeoutError("fake target timeout")
@@ -461,6 +552,162 @@ async def test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_o
     encoded = json.dumps(payload, sort_keys=True).lower()
     assert '"endpoint"' not in encoded
     assert "private_key" not in encoded
+
+
+@pytest.mark.anyio
+async def test_refresh_redelivers_new_managed_status_and_retries_independent_sink_failure(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock()
+    probe = FakePathVerifier(path_evidence())
+    sink = RecordingManagedPathSink()
+    lifecycle, policy, provider, _, _, _, _, _ = build(
+        tmp_path,
+        verifier=probe,
+        path_controller=real_controller(),
+        managed_status_sink=sink,
+        clock=clock,
+    )
+    _, _, direct = await authorized_lifecycle(lifecycle, policy)
+    assert sink.items
+    assert not lifecycle._managed_path_status_pending(direct)  # type: ignore[reportPrivateUsage]
+    pending_hash = direct.model_copy(
+        update={"managed_path_status_delivery_hash": f"sha256:{'0' * 64}"}
+    )
+    assert lifecycle._managed_path_status_pending(pending_hash)  # type: ignore[reportPrivateUsage]
+    initial_sink_count = len(sink.items)
+    initial = sink.items[-1][0]
+    assert initial.evidence is not None
+
+    clock.value = NOW + timedelta(seconds=181)
+    refreshed = await lifecycle.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert refreshed is not None
+    assert len(sink.items) == initial_sink_count + 1
+    published = sink.items[-1][0]
+    assert published.evidence is not None
+    assert published.observed_at == refreshed.observed_at
+    assert published.evidence == refreshed.evidence
+    assert published.observed_at != initial.observed_at
+    assert provider.apply_calls == 1
+
+    clock.value += timedelta(seconds=31)
+    sink.fail = True
+    failed = await lifecycle.refresh_path(NETWORK_ID, NODE_A, 1)
+    assert failed is not None
+    assert failed.stable_error_code == "managed_path_status_sink_failed"
+    assert len(sink.items) == initial_sink_count + 1
+    assert provider.apply_calls == 1
+
+    sink.fail = False
+    retried = await lifecycle.reconcile(
+        direct.envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert retried.managed_path_status_delivered
+    assert retried.managed_path_status_delivery_hash is not None
+    assert retried.stable_error_code is None
+    assert len(sink.items) == initial_sink_count + 2
+    retry_payload = sink.items[-1][0]
+    assert retry_payload.stable_error_code is None
+    assert retry_payload.observed_at == failed.observed_at
+    assert retry_payload.evidence == failed.evidence
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
+async def test_journal_and_path_status_are_atomic_across_retry_and_recovery(
+    tmp_path: Path,
+) -> None:
+    lifecycle, policy, provider, _, _, _, _, store = build(tmp_path)
+    envelope, _ = signed()
+    store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "CREATE TRIGGER fail_path_status_insert BEFORE INSERT ON network_path_status "
+        "BEGIN SELECT RAISE(ABORT, 'injected path status insert failure'); END;"
+    )
+    with pytest.raises(ManagedPathLifecycleError, match="journal 持久化失败"):
+        await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    assert store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT COUNT(*) FROM network_governance"
+    ).fetchone() == (0,)
+    assert store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "SELECT COUNT(*) FROM network_path_status"
+    ).fetchone() == (0,)
+    store._connection.execute("DROP TRIGGER fail_path_status_insert")  # type: ignore[reportPrivateUsage]
+
+    pending = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert pending.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "CREATE TRIGGER fail_path_status_update BEFORE UPDATE OF payload "
+        "ON network_path_status BEGIN SELECT RAISE(ABORT, "
+        "'injected path status update failure'); END;"
+    )
+    with pytest.raises(ManagedPathLifecycleError, match="journal 持久化失败"):
+        await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    unchanged = store.get(NETWORK_ID, NODE_A, 1)
+    assert unchanged is not None
+    assert unchanged.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
+    assert provider.apply_calls == 0
+    store._connection.execute("DROP TRIGGER fail_path_status_update")  # type: ignore[reportPrivateUsage]
+
+    recovered = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert recovered.phase is NetworkGovernancePhase.VERIFIED
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
+async def test_atomic_journal_failure_after_apply_recovers_without_provider_replay(
+    tmp_path: Path,
+) -> None:
+    lifecycle, policy, provider, _, _, _, _, store = build(
+        tmp_path,
+        path_controller=real_controller(),
+    )
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    first = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert first.phase is NetworkGovernancePhase.VERIFIED
+    assert first.path_selection is not None
+    assert first.path_selection.path_type is NetworkPathType.STATIC
+    assert provider.apply_calls == 1
+
+    store._connection.execute(  # type: ignore[reportPrivateUsage]
+        "CREATE TRIGGER fail_path_status_retry BEFORE UPDATE OF payload "
+        "ON network_path_status BEGIN SELECT RAISE(ABORT, 'injected recovery failure'); END;"
+    )
+    with pytest.raises(ManagedPathLifecycleError, match="journal 持久化失败"):
+        await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    unchanged = store.get(NETWORK_ID, NODE_A, 1)
+    assert unchanged is not None
+    assert unchanged.phase is NetworkGovernancePhase.VERIFIED
+    assert provider.apply_calls == 1
+    store._connection.execute("DROP TRIGGER fail_path_status_retry")  # type: ignore[reportPrivateUsage]
+
+    recovered = await lifecycle.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert recovered.phase is NetworkGovernancePhase.VERIFIED
+    assert provider.apply_calls == 1
 
 
 def test_path_status_old_schema_and_hash_corruption_fail_closed(tmp_path: Path) -> None:
@@ -499,6 +746,37 @@ def test_managed_path_status_binding_and_freshness_matrix() -> None:
         selection=_direct_selection(evidence),
     )
     assert direct.currently_usable
+    with pytest.raises(ValueError, match="updated_at"):
+        direct.model_copy(
+            update={"last_refresh_attempt_at": NOW + timedelta(seconds=1)}
+        ).validate_binding()  # type: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="status evidence"):
+        direct.model_copy(
+            update={"updated_at": evidence.observed_at - timedelta(seconds=1)}
+        ).validate_binding()  # type: ignore[reportCallIssue]
+    with pytest.raises(ValueError):
+        failed_for_stale = _status_from_evidence(
+            path_evidence(
+                verified=False,
+                error=DirectPathErrorCode.TARGET_UNREACHABLE,
+            )
+        ).model_copy(update={"freshness": ManagedPathFreshness.STALE})
+        failed_for_stale.validate_binding()  # type: ignore[reportCallIssue]
+    with pytest.raises(ValueError):
+        successful_as_unverified = direct.model_copy(
+            update={"freshness": ManagedPathFreshness.UNVERIFIED}
+        )
+        successful_as_unverified.validate_binding()  # type: ignore[reportCallIssue]
+    with pytest.raises(ValueError):
+        _status_from_evidence(
+            evidence,
+            path_type=NetworkPathType.DIRECT,
+            selection=_direct_selection(
+                evidence,
+                last_evidence_at=evidence.observed_at - timedelta(seconds=1),
+            ),
+        )
+    assert not direct.model_copy(update={"selection": None})._direct_binding_is_valid()  # type: ignore[reportPrivateUsage]
     stale = direct.at(evidence.expires_at)
     assert stale.freshness is ManagedPathFreshness.STALE
     assert stale.stable_error_code == "path_evidence_stale"
@@ -576,6 +854,37 @@ def test_managed_path_status_binding_and_freshness_matrix() -> None:
                 path_type=NetworkPathType.DIRECT,
                 selection=selection,
             )
+    invalid_authorization_selection = _direct_selection(evidence).model_copy(
+        update={"authorization_revision": 2}
+    )
+    with pytest.raises(ValueError):
+        _status_from_evidence(
+            evidence,
+            path_type=NetworkPathType.DIRECT,
+            selection=invalid_authorization_selection,
+        )
+    with pytest.raises(ValueError):
+        direct.model_copy(update={"selection": invalid_authorization_selection}).validate_binding()  # type: ignore[reportCallIssue]
+    with pytest.raises(ValueError):
+        _status_from_evidence(
+            evidence,
+            path_type=NetworkPathType.DIRECT,
+            selection=_direct_selection(evidence, authorization_revision=2),
+        )
+    with pytest.raises((ValidationError, ValueError), match=r"path type|direct"):
+        _status_from_evidence(
+            evidence,
+            path_type=NetworkPathType.DIRECT,
+            selection=_static_selection(),
+        )
+    with pytest.raises((ValidationError, ValueError), match=r"path type|direct"):
+        _status_from_evidence(
+            evidence,
+            path_type=NetworkPathType.STATIC,
+            selection=_direct_selection(evidence),
+        )
+    with pytest.raises((ValidationError, ValueError), match=r"selection|evidence"):
+        _status_from_evidence(evidence, path_type=NetworkPathType.DIRECT, selection=None)
     with pytest.raises((ValidationError, ValueError)):
         _status_from_evidence(
             failed_evidence,
@@ -584,6 +893,32 @@ def test_managed_path_status_binding_and_freshness_matrix() -> None:
         )
     with pytest.raises((ValidationError, ValueError)):
         _status_from_evidence(failed_evidence, freshness=ManagedPathFreshness.FRESH)
+    with pytest.raises((ValidationError, ValueError), match=r"过期|fresh"):
+        _status_from_evidence(
+            evidence,
+            freshness=ManagedPathFreshness.FRESH,
+            updated_at=evidence.expires_at,
+        )
+    with pytest.raises((ValidationError, ValueError), match=r"时间摘要|时间线"):
+        _status_from_evidence(
+            evidence,
+            refreshed_at=evidence.observed_at - timedelta(seconds=1),
+        )
+
+    expired_constructed = direct.model_copy(
+        update={
+            "freshness": ManagedPathFreshness.FRESH,
+            "updated_at": evidence.expires_at,
+        }
+    )
+    assert not expired_constructed.currently_usable
+    contradictory_constructed = direct.model_copy(
+        update={
+            "path_type": NetworkPathType.STATIC,
+            "selection": _direct_selection(evidence),
+        }
+    )
+    assert not contradictory_constructed.currently_usable
 
     def forbidden_model_dump(**_: object) -> dict[str, str]:
         return {"endpoint": "forbidden"}

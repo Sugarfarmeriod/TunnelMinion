@@ -1279,9 +1279,14 @@ class NetworkGovernanceRecord(BaseModel):
     path_evidence: DirectPathEvidence | None = None
     path_selection: PathSelection | None = None
     last_known_good_revision: int | None = Field(default=None, ge=1)
+    last_refresh_attempt_at: datetime | None = None
     acknowledgement_delivered: bool = False
     path_status_delivered: bool = False
     managed_path_status_delivered: bool = False
+    managed_path_status_delivery_hash: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
     journal_start_sequence: int = Field(default=0, ge=0)
     journal_previous_hash: str = Field(
         default="sha256:" + "0" * 64,
@@ -1293,6 +1298,14 @@ class NetworkGovernanceRecord(BaseModel):
     def validate_lifecycle_bindings(self) -> Self:
         if self.updated_at.tzinfo is None or self.updated_at.utcoffset() != timedelta(0):
             raise ValueError("治理记录时间必须使用 timezone-aware UTC")
+        if self.last_refresh_attempt_at is not None:
+            if (
+                self.last_refresh_attempt_at.tzinfo is None
+                or self.last_refresh_attempt_at.utcoffset() != timedelta(0)
+            ):
+                raise ValueError("refresh attempt 时间必须使用 timezone-aware UTC")
+            if self.last_refresh_attempt_at > self.updated_at:
+                raise ValueError("refresh attempt 不得来自 updated_at 之后")
         previous = self.journal_start_sequence - 1
         previous_hash = self.journal_previous_hash
         for entry in self.journal:
@@ -1541,76 +1554,24 @@ class SQLiteNetworkGovernanceStore:
         return self._authorization_repository.list_grants(network_id, node_id)
 
     def put(self, record: NetworkGovernanceRecord) -> None:
-        validated = NetworkGovernanceRecord.model_validate_json(record.model_dump_json())
-        desired = validated.plan.desired
-        payload = self._safe_payload(validated)
-        self._reject_secrets(payload)
-        identity_hash = self._identity_hash(validated)
-        tail_sequence = validated.journal[-1].sequence if validated.journal else -1
-        tail_hash = (
-            validated.journal[-1].entry_hash
-            if validated.journal
-            else validated.journal_previous_hash
-        )
-        key = (str(desired.network_id), str(desired.target_node_id), desired.revision)
+        prepared = self._prepare_record(record)
         with self._transaction():
-            current = self._connection.execute(
-                "SELECT payload, identity_hash, journal_hash FROM network_governance "
-                "WHERE network_id=? AND node_id=? AND revision=?",
-                key,
-            ).fetchone()
-            if current is None:
-                self._connection.execute(
-                    """INSERT INTO network_governance(
-                        network_id, node_id, revision, payload, identity_hash,
-                        plan_hash, idempotency_key, journal_sequence, journal_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        *key,
-                        payload,
-                        identity_hash,
-                        validated.plan.plan_hash,
-                        validated.idempotency_key,
-                        tail_sequence,
-                        tail_hash,
-                    ),
-                )
-            else:
-                current_payload, current_identity, current_tail_hash = current
-                if str(current_identity) != identity_hash:
-                    raise NetworkAuthorizationConflictError(
-                        "同一 revision 的 envelope/plan/action/ownership 发生冲突"
-                    )
-                if str(current_payload) == payload:
-                    self._records[key] = validated
-                    return
-                incoming_previous_hash = (
-                    validated.journal[-1].previous_hash
-                    if validated.journal
-                    else validated.journal_previous_hash
-                )
-                if str(current_tail_hash) != incoming_previous_hash:
-                    raise NetworkAuthorizationConflictError("治理 journal CAS 版本发生冲突")
-                cursor = self._connection.execute(
-                    """UPDATE network_governance SET payload=?, identity_hash=?, plan_hash=?,
-                        idempotency_key=?, journal_sequence=?, journal_hash=?
-                        WHERE network_id=? AND node_id=? AND revision=?
-                        AND identity_hash=? AND journal_hash=?""",
-                    (
-                        payload,
-                        identity_hash,
-                        validated.plan.plan_hash,
-                        validated.idempotency_key,
-                        tail_sequence,
-                        tail_hash,
-                        *key,
-                        identity_hash,
-                        str(current_tail_hash),
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise NetworkAuthorizationConflictError("治理 journal CAS 更新失败")
-        self._records[key] = validated
+            self._put_record_in_transaction(prepared)
+        self._records[prepared[3]] = prepared[0]
+
+    def put_journal_step(
+        self,
+        record: NetworkGovernanceRecord,
+        status: ManagedPathStatus,
+    ) -> None:
+        """在同一 SQLite 事务中提交治理 journal 与 path status。"""
+        prepared_record = self._prepare_record(record)
+        prepared_status = self._prepare_path_status(status)
+        self._validate_journal_step_binding(prepared_record[0], prepared_status[0])
+        with self._transaction():
+            self._put_record_in_transaction(prepared_record)
+            self._put_path_status_in_transaction(prepared_status)
+        self._records[prepared_record[3]] = prepared_record[0]
 
     def get(
         self,
@@ -1669,47 +1630,155 @@ class SQLiteNetworkGovernanceStore:
 
     def put_path_status(self, status: ManagedPathStatus) -> None:
         """以 journal sequence CAS 保存严格脱敏的 path status。"""
+        prepared = self._prepare_path_status(status)
+        with self._transaction():
+            self._put_path_status_in_transaction(prepared)
+
+    def _prepare_record(
+        self,
+        record: NetworkGovernanceRecord,
+    ) -> tuple[NetworkGovernanceRecord, str, str, tuple[str, str, int], int, str]:
+        validated = NetworkGovernanceRecord.model_validate_json(record.model_dump_json())
+        desired = validated.plan.desired
+        payload = self._safe_payload(validated)
+        self._reject_secrets(payload)
+        identity_hash = self._identity_hash(validated)
+        tail_sequence = validated.journal[-1].sequence if validated.journal else -1
+        tail_hash = (
+            validated.journal[-1].entry_hash
+            if validated.journal
+            else validated.journal_previous_hash
+        )
+        key = (str(desired.network_id), str(desired.target_node_id), desired.revision)
+        return validated, payload, identity_hash, key, tail_sequence, tail_hash
+
+    def _put_record_in_transaction(
+        self,
+        prepared: tuple[NetworkGovernanceRecord, str, str, tuple[str, str, int], int, str],
+    ) -> None:
+        validated, payload, identity_hash, key, tail_sequence, tail_hash = prepared
+        current = self._connection.execute(
+            "SELECT payload, identity_hash, journal_hash FROM network_governance "
+            "WHERE network_id=? AND node_id=? AND revision=?",
+            key,
+        ).fetchone()
+        if current is None:
+            self._connection.execute(
+                """INSERT INTO network_governance(
+                    network_id, node_id, revision, payload, identity_hash,
+                    plan_hash, idempotency_key, journal_sequence, journal_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    *key,
+                    payload,
+                    identity_hash,
+                    validated.plan.plan_hash,
+                    validated.idempotency_key,
+                    tail_sequence,
+                    tail_hash,
+                ),
+            )
+            return
+        current_payload, current_identity, current_tail_hash = current
+        if str(current_identity) != identity_hash:
+            raise NetworkAuthorizationConflictError(
+                "同一 revision 的 envelope/plan/action/ownership 发生冲突"
+            )
+        if str(current_payload) == payload:
+            return
+        incoming_previous_hash = (
+            validated.journal[-1].previous_hash
+            if validated.journal
+            else validated.journal_previous_hash
+        )
+        if str(current_tail_hash) != incoming_previous_hash:
+            raise NetworkAuthorizationConflictError("治理 journal CAS 版本发生冲突")
+        cursor = self._connection.execute(
+            """UPDATE network_governance SET payload=?, identity_hash=?, plan_hash=?,
+                idempotency_key=?, journal_sequence=?, journal_hash=?
+                WHERE network_id=? AND node_id=? AND revision=?
+                AND identity_hash=? AND journal_hash=?""",
+            (
+                payload,
+                identity_hash,
+                validated.plan.plan_hash,
+                validated.idempotency_key,
+                tail_sequence,
+                tail_hash,
+                *key,
+                identity_hash,
+                str(current_tail_hash),
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise NetworkAuthorizationConflictError("治理 journal CAS 更新失败")
+
+    def _prepare_path_status(
+        self,
+        status: ManagedPathStatus,
+    ) -> tuple[ManagedPathStatus, str, tuple[str, str, int], str]:
         validated = ManagedPathStatus.model_validate_json(status.model_dump_json())
         payload = validated.model_dump_json()
         self._reject_secrets(payload)
         key = (str(validated.network_id), str(validated.node_id), validated.revision)
         status_hash = canonical_sha256(validated.model_dump(mode="json"))
-        with self._transaction():
-            current = self._connection.execute(
-                "SELECT status_hash, journal_sequence FROM network_path_status "
-                "WHERE network_id=? AND node_id=? AND revision=?",
-                key,
-            ).fetchone()
-            if current is None:
-                self._connection.execute(
-                    "INSERT INTO network_path_status("
-                    "network_id, node_id, revision, payload, status_hash, journal_sequence) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (*key, payload, status_hash, validated.journal_sequence),
-                )
-            else:
-                current_hash, current_sequence = str(current[0]), int(current[1])
-                if current_hash == status_hash and current_sequence == validated.journal_sequence:
-                    return
-                if validated.journal_sequence <= current_sequence:
-                    raise NetworkAuthorizationConflictError(
-                        "path status journal sequence 冲突或倒退"
-                    )
-                cursor = self._connection.execute(
-                    "UPDATE network_path_status SET payload=?, status_hash=?, "
-                    "journal_sequence=? WHERE network_id=? AND node_id=? AND revision=? "
-                    "AND status_hash=? AND journal_sequence=?",
-                    (
-                        payload,
-                        status_hash,
-                        validated.journal_sequence,
-                        *key,
-                        current_hash,
-                        current_sequence,
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise NetworkAuthorizationConflictError("path status CAS 更新失败")
+        return validated, payload, key, status_hash
+
+    def _put_path_status_in_transaction(
+        self,
+        prepared: tuple[ManagedPathStatus, str, tuple[str, str, int], str],
+    ) -> None:
+        validated, payload, key, status_hash = prepared
+        current = self._connection.execute(
+            "SELECT status_hash, journal_sequence FROM network_path_status "
+            "WHERE network_id=? AND node_id=? AND revision=?",
+            key,
+        ).fetchone()
+        if current is None:
+            self._connection.execute(
+                "INSERT INTO network_path_status("
+                "network_id, node_id, revision, payload, status_hash, journal_sequence) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (*key, payload, status_hash, validated.journal_sequence),
+            )
+            return
+        current_hash, current_sequence = str(current[0]), int(current[1])
+        if current_hash == status_hash and current_sequence == validated.journal_sequence:
+            return
+        if validated.journal_sequence <= current_sequence:
+            raise NetworkAuthorizationConflictError("path status journal sequence 冲突或倒退")
+        cursor = self._connection.execute(
+            "UPDATE network_path_status SET payload=?, status_hash=?, "
+            "journal_sequence=? WHERE network_id=? AND node_id=? AND revision=? "
+            "AND status_hash=? AND journal_sequence=?",
+            (
+                payload,
+                status_hash,
+                validated.journal_sequence,
+                *key,
+                current_hash,
+                current_sequence,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise NetworkAuthorizationConflictError("path status CAS 更新失败")
+
+    @staticmethod
+    def _validate_journal_step_binding(
+        record: NetworkGovernanceRecord,
+        status: ManagedPathStatus,
+    ) -> None:
+        desired = record.plan.desired
+        expected_sequence = record.journal[-1].sequence if record.journal else 0
+        if (
+            status.network_id != desired.network_id
+            or status.node_id != desired.target_node_id
+            or status.revision != desired.revision
+            or status.plan_hash != record.plan.plan_hash
+            or status.provider is not desired.provider
+            or status.journal_sequence != expected_sequence
+        ):
+            raise NetworkAuthorizationConflictError("治理 journal 与 path status 绑定冲突")
 
     def get_path_status(
         self,
@@ -1802,9 +1871,15 @@ class SQLiteNetworkGovernanceStore:
             "path_evidence": self._path_evidence_summary(record.path_evidence),
             "path_selection": self._path_selection_summary(record.path_selection),
             "last_known_good_revision": record.last_known_good_revision,
+            "last_refresh_attempt_at": (
+                record.last_refresh_attempt_at.isoformat()
+                if record.last_refresh_attempt_at is not None
+                else None
+            ),
             "acknowledgement_delivered": record.acknowledgement_delivered,
             "path_status_delivered": record.path_status_delivered,
             "managed_path_status_delivered": record.managed_path_status_delivered,
+            "managed_path_status_delivery_hash": record.managed_path_status_delivery_hash,
             "journal_start_sequence": record.journal_start_sequence,
             "journal_previous_hash": record.journal_previous_hash,
             "journal": [entry.model_dump(mode="json") for entry in record.journal],
@@ -1953,9 +2028,17 @@ class SQLiteNetworkGovernanceStore:
             updated_at=datetime.fromisoformat(str(parsed["updated_at"])),
             stable_error_code=cast(str | None, parsed.get("stable_error_code")),
             last_known_good_revision=cast(int | None, parsed.get("last_known_good_revision")),
+            last_refresh_attempt_at=cast(
+                datetime | None,
+                parsed.get("last_refresh_attempt_at"),
+            ),
             acknowledgement_delivered=bool(parsed.get("acknowledgement_delivered", False)),
             path_status_delivered=bool(parsed.get("path_status_delivered", False)),
             managed_path_status_delivered=bool(parsed.get("managed_path_status_delivered", False)),
+            managed_path_status_delivery_hash=cast(
+                str | None,
+                parsed.get("managed_path_status_delivery_hash"),
+            ),
             journal_start_sequence=int(cast(int, parsed.get("journal_start_sequence", 0))),
             journal_previous_hash=str(parsed["journal_previous_hash"]),
             journal=journal,
@@ -2472,15 +2555,26 @@ class ManagedPathLifecycle:
                 return persisted.at(self._now()) if persisted is not None else None
             record = self._restore_persisted_path_state(record)
             current = self._status_from_record(record).at(self._now())
-            if record.verification is None or not record.verification.succeeded:
+            if record.phase not in {
+                NetworkGovernancePhase.VERIFIED,
+                NetworkGovernancePhase.PATH_DEGRADED,
+            }:
                 return current
-            if current.observed_at is not None and (
-                self._now() - current.observed_at < MANAGED_PATH_REFRESH_MIN_INTERVAL
+            if record.verification is not None and not record.verification.succeeded:
+                return current
+            now = self._now()
+            if record.last_refresh_attempt_at is not None and (
+                now - record.last_refresh_attempt_at < MANAGED_PATH_REFRESH_MIN_INTERVAL
             ):
                 values = current.model_dump(mode="python")
                 values["stable_error_code"] = "path_refresh_rate_limited"
                 return ManagedPathStatus.model_validate(values)
             self._check_cancelled(cancellation)
+            record = self._journal(
+                record,
+                record.phase,
+                last_refresh_attempt_at=now,
+            )
             refreshed = await self._verify_path(record)
             self._check_cancelled(cancellation)
             return self._status_from_record(refreshed).at(self._now())
@@ -3364,12 +3458,12 @@ class ManagedPathLifecycle:
                         None if record.stable_error_code == "path_sink_failed" else _LIFECYCLE_UNSET
                     ),
                 )
-        elif (
-            self._managed_path_status_sink is not None and not record.managed_path_status_delivered
-        ):
+        if self._managed_path_status_sink is not None and self._managed_path_status_pending(record):
+            status = self._managed_path_status_for_delivery(record)
+            delivery_hash = self._managed_path_status_delivery_hash(status)
             try:
                 await self._managed_path_status_sink.publish(
-                    self._managed_path_status(record),
+                    status,
                     idempotency_key=record.idempotency_key,
                 )
             except Exception:
@@ -3383,6 +3477,7 @@ class ManagedPathLifecycle:
                     record,
                     final_phase,
                     managed_path_status_delivered=True,
+                    managed_path_status_delivery_hash=delivery_hash,
                     stable_error_code=(
                         None
                         if record.stable_error_code == "managed_path_status_sink_failed"
@@ -3397,7 +3492,10 @@ class ManagedPathLifecycle:
         if (
             record.acknowledgement_delivered
             and record.path_status_delivered
-            and (self._managed_path_status_sink is None or record.managed_path_status_delivered)
+            and (
+                self._managed_path_status_sink is None
+                or not self._managed_path_status_pending(record)
+            )
         ):
             return record
         pending = self._journal(record, NetworkGovernancePhase.ACKNOWLEDGING)
@@ -3563,6 +3661,7 @@ class ManagedPathLifecycle:
             observed_at=(evidence.observed_at if evidence is not None else None),
             refreshed_at=(evidence.observed_at if evidence is not None else None),
             expires_at=(evidence.expires_at if evidence is not None else None),
+            last_refresh_attempt_at=record.last_refresh_attempt_at,
             stable_error_code=stable_error,
             journal_sequence=(record.journal[-1].sequence if record.journal else 0),
             updated_at=record.updated_at,
@@ -3579,9 +3678,11 @@ class ManagedPathLifecycle:
         path_evidence: DirectPathEvidence | None | object = _LIFECYCLE_UNSET,
         path_selection: PathSelection | None | object = _LIFECYCLE_UNSET,
         last_known_good_revision: int | None | object = _LIFECYCLE_UNSET,
+        last_refresh_attempt_at: datetime | None | object = _LIFECYCLE_UNSET,
         acknowledgement_delivered: bool | object = _LIFECYCLE_UNSET,
         path_status_delivered: bool | object = _LIFECYCLE_UNSET,
         managed_path_status_delivered: bool | object = _LIFECYCLE_UNSET,
+        managed_path_status_delivery_hash: str | None | object = _LIFECYCLE_UNSET,
         stable_error_code: str | None | object = _LIFECYCLE_UNSET,
     ) -> NetworkGovernanceRecord:
         updates: dict[str, object] = {
@@ -3595,9 +3696,11 @@ class ManagedPathLifecycle:
             ("path_evidence", path_evidence),
             ("path_selection", path_selection),
             ("last_known_good_revision", last_known_good_revision),
+            ("last_refresh_attempt_at", last_refresh_attempt_at),
             ("acknowledgement_delivered", acknowledgement_delivered),
             ("path_status_delivered", path_status_delivered),
             ("managed_path_status_delivered", managed_path_status_delivered),
+            ("managed_path_status_delivery_hash", managed_path_status_delivery_hash),
             ("stable_error_code", stable_error_code),
         ):
             if value is not _LIFECYCLE_UNSET:
@@ -3660,8 +3763,7 @@ class ManagedPathLifecycle:
             },
         )
         try:
-            self._store.put(result)
-            self._store.put_path_status(self._status_from_record(result))
+            self._store.put_journal_step(result, self._status_from_record(result))
         except Exception as exc:
             raise ManagedPathLifecycleError("治理 lifecycle journal 持久化失败") from exc
         return result
@@ -3716,6 +3818,33 @@ class ManagedPathLifecycle:
     def _managed_path_status(self, record: NetworkGovernanceRecord) -> ManagedPathStatus:
         """构造给新 status sink 的严格脱敏投影。"""
         return self._status_from_record(record).at(self._now())
+
+    def _managed_path_status_for_delivery(
+        self,
+        record: NetworkGovernanceRecord,
+    ) -> ManagedPathStatus:
+        """构造递送快照；只清除 managed sink 自己留下的失败码。"""
+        if record.stable_error_code == "managed_path_status_sink_failed":
+            record = _validated_record_update(record, {"stable_error_code": None})
+        return self._managed_path_status(record)
+
+    @staticmethod
+    def _managed_path_status_delivery_hash(status: ManagedPathStatus) -> str:
+        """以公开语义字段形成递送 CAS，排除内部 journal/更新时间。"""
+        payload = status.model_dump(mode="json")
+        payload.pop("journal_sequence", None)
+        payload.pop("updated_at", None)
+        return canonical_sha256(payload)
+
+    def _managed_path_status_pending(self, record: NetworkGovernanceRecord) -> bool:
+        if self._managed_path_status_sink is None:
+            return False
+        status = self._managed_path_status_for_delivery(record)
+        expected = self._managed_path_status_delivery_hash(status)
+        return (
+            not record.managed_path_status_delivered
+            or record.managed_path_status_delivery_hash != expected
+        )
 
     def _maybe_crash(self, boundary: LifecycleCrashBoundary) -> None:
         if self._crash_after is boundary:

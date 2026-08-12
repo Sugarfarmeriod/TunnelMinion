@@ -620,12 +620,12 @@ async def test_claim_and_governance_store_cas_fail_closed(tmp_path: Path) -> Non
     record = store.get(NETWORK_ID, NODE_A, 1)
     assert record is not None
     captured: list[NetworkGovernanceRecord] = []
-    original_put = store.put
+    original_put_journal_step = store.put_journal_step
 
-    def capture(candidate: NetworkGovernanceRecord) -> None:
+    def capture(candidate: NetworkGovernanceRecord, _status: object) -> None:
         captured.append(candidate)
 
-    store.put = capture  # type: ignore[method-assign]
+    store.put_journal_step = capture  # type: ignore[method-assign]
     try:
         candidate = lifecycle._journal(  # type: ignore[reportPrivateUsage]
             record,
@@ -633,7 +633,7 @@ async def test_claim_and_governance_store_cas_fail_closed(tmp_path: Path) -> Non
             stable_error_code=NetworkErrorCode.RECOVERY_REQUIRED.value,
         )
     finally:
-        store.put = original_put  # type: ignore[method-assign]
+        store.put_journal_step = original_put_journal_step  # type: ignore[method-assign]
     assert captured == [candidate]
 
     original_store_connection = store._connection  # type: ignore[reportPrivateUsage]
