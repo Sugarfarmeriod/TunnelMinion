@@ -1,0 +1,872 @@
+{
+  "schema_version": "windows-local-product-acceptance/v1",
+  "platform": "Windows",
+  "source": {
+    "frontend_source_sha256": "89ae1db7f88aae95eeaeb19eb0d6ef8c1489e3d17ceb484f17e75c872c491f0e"
+  },
+  "package": {
+    "manifest_schema": "runtime-package-manifest/v2"
+  },
+  "commands": [
+    "python scripts/prepare_frontend_dist.py --skip-install",
+    "python scripts/build_runtime_package.py --output-root <isolated-temp> --manifest <evidence>/manifest.json --summary <evidence>/build-summary.json --source-revision d85c3288381d9e9d8fca74732a7aee4595574ade",
+    "python scripts/prepare_local_product_package_fixture.py --data-dir <isolated-temp>/fixture-root/data --allowed-root <isolated-temp>/fixture-root --platform windows",
+    "python scripts/run_runtime_package_clean_acceptance.py --package-root <isolated-package> --manifest <evidence>/manifest.json --schema schemas --forbid-path <repo> --check",
+    "Chromium headless + scripts/run_runtime_package_browser_server.py (direct packaged executable; no Vite, Node, source fallback, or external network)",
+    "npm run size:check --prefix frontend",
+    "python scripts/security_scan.py --root . --artifact build/frontend-dist --artifact evaluations/local-product/windows-2026-08-11",
+    "external ASCII/Latin-1 package and fixture secret scan (matched text never emitted)",
+    "pytest --no-cov --basetemp <writable-temp> [runtime package/fixture/browser tests]",
+    "npm test --prefix frontend -- --run",
+    "openspec validate improve-local-product-experience --strict --no-interactive",
+    "fresh fixture + real Chromium UI approve once; capture request headers, response, latest detail, SQLite table deltas and isolated data boundary"
+  ],
+  "acceptance": {
+    "clean_package": {
+      "schema_version": "runtime-package-clean-acceptance/v1",
+      "candidate": {
+        "application_version": "0.1.0",
+        "architecture": "amd64",
+        "id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+        "layout": "onedir-freeze",
+        "platform": "win32",
+        "python_version": "3.11.15"
+      },
+      "manifest_sha256": "75bfd3711ea44c0647bd53dd9f8eb44cd89b3d42c5d9a1542b35ae49e30db4e2",
+      "package_file_count": 213,
+      "package_size_bytes": 63785070,
+      "components": [
+        {
+          "component": "local-product",
+          "duration_ms": 3500,
+          "error_code": null,
+          "exit_code": null,
+          "health_status": 200,
+          "app_status": 200,
+          "node_available": false,
+          "source_environment_present": false,
+          "external_http_proxy_blocked": true,
+          "runtime_package": {
+            "kind": "standalone",
+            "version": "0.1.0",
+            "manifest_schema": "runtime-package-manifest/v2"
+          },
+          "passed": true
+        }
+      ],
+      "program_data_entries": [],
+      "source_entries": [],
+      "passed": true
+    },
+    "browser": {
+      "schema_version": "windows-local-product-browser-acceptance/v1",
+      "platform": "win32",
+      "architecture": "x64",
+      "browser": {
+        "engine": "chromium",
+        "version": "151.0.7922.34",
+        "headless": true
+      },
+      "base_url": "http://127.0.0.1:4175",
+      "fixture": {
+        "operation_id": "operation_11111111111111111111111111111111",
+        "node_id": "node_e70809d36e1446518c21ebf68d9cad61",
+        "data_dir": "isolated fixture data"
+      },
+      "latency_ms": {
+        "initial": [
+          376.13,
+          50.01,
+          44.75,
+          45.69,
+          46.6
+        ],
+        "refresh": [
+          59.83,
+          44.11,
+          43.47,
+          48.37,
+          45.85
+        ],
+        "initial_p50": 46.6,
+        "initial_p95": 376.13,
+        "refresh_p50": 45.85,
+        "refresh_p95": 59.83
+      },
+      "headers": {
+        "app": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+          "x-content-type-options": "nosniff",
+          "content-type": "text/html; charset=utf-8"
+        },
+        "asset": {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-security-policy": null,
+          "x-content-type-options": "nosniff",
+          "content-type": "application/javascript"
+        }
+      },
+      "flows": {
+        "operation": {
+          "allowed_buttons": [
+            "批准一次",
+            "拒绝",
+            "取消操作"
+          ],
+          "approve_dialog": true,
+          "reject_dialog": true,
+          "revoke_button": false
+        },
+        "memories": {
+          "home_loaded": true,
+          "lab_loaded": true,
+          "home_hidden_in_lab": true,
+          "initial_lab_count": 0
+        },
+        "settings": {
+          "settings_loaded": true,
+          "diagnostics_status": 200,
+          "diagnostics_content_type": "application/json; charset=utf-8",
+          "diagnostics_bytes": 2185,
+          "diagnostics_sha256": "11cd07863b47148cb115f24fc67b0b5052aa207f7cf924aa778cb8da78166e00",
+          "forbidden_keys": [],
+          "recovery_link": true
+        }
+      },
+      "responsive": {
+        "320_css_px": [
+          {
+            "route": "/app/overview",
+            "heading": "总览",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/chat",
+            "heading": "聊天",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/operations",
+            "heading": "操作",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/memories",
+            "heading": "长期记忆",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/settings",
+            "heading": "模型设置",
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "no_horizontal_overflow": true
+          }
+        ],
+        "640x360_css_equivalent_only": [
+          {
+            "route": "/app/overview",
+            "heading": "总览",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/chat",
+            "heading": "聊天",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/operations",
+            "heading": "操作",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/memories",
+            "heading": "长期记忆",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          },
+          {
+            "route": "/app/settings",
+            "heading": "模型设置",
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "no_horizontal_overflow": true
+          }
+        ]
+      },
+      "storage": {
+        "local": [],
+        "session": [],
+        "indexedDB": []
+      },
+      "secret_indicators": [],
+      "limitations": [
+        "Playwright/Chromium does not provide a reliable Windows system zoom control in this harness; actual 200% OS/browser zoom was not claimed or simulated. The report includes a 640x360 CSS-layout probe only as a separate non-equivalent check."
+      ],
+      "checks": [
+        {
+          "name": "spa_entry_200",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "spa_csp_strict",
+          "passed": true,
+          "detail": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        },
+        {
+          "name": "spa_no_store",
+          "passed": true,
+          "detail": "no-store"
+        },
+        {
+          "name": "spa_nosniff",
+          "passed": true,
+          "detail": "nosniff"
+        },
+        {
+          "name": "hashed_asset_immutable",
+          "passed": true,
+          "detail": {
+            "cache-control": "public, max-age=31536000, immutable",
+            "content-security-policy": null,
+            "x-content-type-options": "nosniff",
+            "content-type": "application/javascript"
+          }
+        },
+        {
+          "name": "hashed_asset_found",
+          "passed": true,
+          "detail": [
+            "/app-assets/assets/index-CA2h1kyX.js"
+          ]
+        },
+        {
+          "name": "overview_initial_operable",
+          "passed": true,
+          "detail": [
+            376.13,
+            50.01,
+            44.75,
+            45.69,
+            46.6
+          ]
+        },
+        {
+          "name": "overview_refresh_operable",
+          "passed": true,
+          "detail": [
+            59.83,
+            44.11,
+            43.47,
+            48.37,
+            45.85
+          ]
+        },
+        {
+          "name": "chat_new_thread_same_origin_write",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "operation_detail_loaded",
+          "passed": true
+        },
+        {
+          "name": "operation_approve_confirmation",
+          "passed": true
+        },
+        {
+          "name": "operation_reject_confirmation",
+          "passed": true
+        },
+        {
+          "name": "operation_action_surface_reflects_server",
+          "passed": true,
+          "detail": [
+            "批准一次",
+            "拒绝",
+            "取消操作"
+          ]
+        },
+        {
+          "name": "memory_scope_isolation",
+          "passed": true,
+          "detail": {
+            "home_loaded": true,
+            "lab_loaded": true,
+            "home_hidden_in_lab": true,
+            "initial_lab_count": 0
+          }
+        },
+        {
+          "name": "settings_loaded",
+          "passed": true
+        },
+        {
+          "name": "diagnostics_download_200",
+          "passed": true,
+          "detail": 200
+        },
+        {
+          "name": "diagnostics_no_secret_keys",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "ui_secret_scan",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "responsive_320_no_overflow",
+          "passed": true,
+          "detail": [
+            {
+              "route": "/app/overview",
+              "heading": "总览",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/chat",
+              "heading": "聊天",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/operations",
+              "heading": "操作",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/memories",
+              "heading": "长期记忆",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/settings",
+              "heading": "模型设置",
+              "scrollWidth": 320,
+              "clientWidth": 320,
+              "no_horizontal_overflow": true
+            }
+          ]
+        },
+        {
+          "name": "responsive_640x360_no_overflow",
+          "passed": true,
+          "detail": [
+            {
+              "route": "/app/overview",
+              "heading": "总览",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/chat",
+              "heading": "聊天",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/operations",
+              "heading": "操作",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/memories",
+              "heading": "长期记忆",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            },
+            {
+              "route": "/app/settings",
+              "heading": "模型设置",
+              "scrollWidth": 640,
+              "clientWidth": 640,
+              "no_horizontal_overflow": true
+            }
+          ]
+        },
+        {
+          "name": "browser_storage_empty",
+          "passed": true,
+          "detail": {
+            "local": [],
+            "session": [],
+            "indexedDB": []
+          }
+        }
+      ],
+      "generated_at": "2026-08-11T11:28:29.744Z",
+      "passed": true,
+      "failed_checks": []
+    },
+    "operation_actions": {
+      "schema_version": "windows-local-product-operation-actions/v1",
+      "operation_id": "operation_11111111111111111111111111111111",
+      "allowed_actions": [
+        "approve",
+        "reject",
+        "cancel"
+      ],
+      "matrix": [
+        {
+          "action": "approve",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        },
+        {
+          "action": "reject",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        },
+        {
+          "action": "cancel",
+          "available": true,
+          "confirmation_dialog": true,
+          "submitted": false,
+          "side_effect": "none (confirmation cancelled)"
+        }
+      ],
+      "revoke": {
+        "available": false,
+        "reason": "fixture starts awaiting_authorization; server did not advertise revoke, so no revoke write was attempted"
+      },
+      "passed": true,
+      "generated_at": "2026-08-11T11:33:57.836Z"
+    },
+    "overview_degradation": {
+      "schema_version": "resource-overview/v1",
+      "http_status": 200,
+      "local": {
+        "runtime": "running",
+        "readiness": "ready",
+        "package_kind": "standalone",
+        "manifest_schema": "runtime-package-manifest/v2"
+      },
+      "model": {
+        "configured": false,
+        "status": "unconfigured",
+        "freshness": "not_applicable"
+      },
+      "coordinator": {
+        "configured": false,
+        "state": "unconfigured",
+        "freshness": "not_applicable"
+      },
+      "network_path": {
+        "configured": false,
+        "state": "unconfigured",
+        "handshake": "missing",
+        "route": "missing",
+        "probe": "missing",
+        "freshness": "not_applicable"
+      },
+      "nodes": [
+        {
+          "display_name": "本机",
+          "state": "local",
+          "service_count": 0,
+          "freshness": "live"
+        }
+      ],
+      "services": [],
+      "product_conclusion": "standalone 本机确定性页面可用；模型未配置、Coordinator 未配置、网络路径未配置/不可用时，页面仍返回结构化降级状态，不把这些外部条件当作启动前提。",
+      "generated_at": "2026-08-11T11:33:06.868Z",
+      "passed": true
+    },
+    "frontend_size": {
+      "schema_version": "windows-local-product-frontend-size/v1",
+      "files": [
+        {
+          "path": "assets/index-7Zp6Ac-c.css",
+          "bytes": 28879,
+          "gzip_bytes": 4524,
+          "sha256": "fb5c43b4c3f3d486ba1e5236ed512de42e5bd8c6bfe4288152a99d5e5898634b"
+        },
+        {
+          "path": "assets/index-CA2h1kyX.js",
+          "bytes": 473804,
+          "gzip_bytes": 140549,
+          "sha256": "68a462d7ed3c3fef61e0afd6e17d455d99a8b827adf6167e90b98bfbe1765343"
+        }
+      ],
+      "total_gzip_bytes": 145073,
+      "total_gzip_kib": 141.67,
+      "limit_bytes": 307200,
+      "passed": true,
+      "source": "build/frontend-dist",
+      "generated_at": "2026-08-11T11:29:16.577Z"
+    },
+    "package_secret_scan": {
+      "schema_version": "windows-local-product-secret-scan/v1",
+      "roots": [
+        "runtime package",
+        "isolated fixture data"
+      ],
+      "files_scanned": 218,
+      "bytes_scanned": 63953376,
+      "hits": [],
+      "passed": true,
+      "scanner": "ASCII/Latin-1 pattern scan; matched text never emitted",
+      "generated_at": "2026-08-11T11:30:07.363Z"
+    },
+    "operation_approve_safety": {
+      "schema_version": "windows-local-product-operation-approve-safety/v1",
+      "source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+      "package_id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+      "platform": "windows",
+      "browser": {
+        "engine": "chromium",
+        "headless": true,
+        "version": "151.0.7922.34"
+      },
+      "fixture": {
+        "operation_id": "operation_11111111111111111111111111111111",
+        "data_root": "isolated temporary fixture; no user data/keyring"
+      },
+      "static_call_chain_proof": [
+        {
+          "path": "src/tunnelminion/web/operations.py",
+          "lines": "291-341",
+          "claim": "approve validates expiry/current state then calls AuthorizationService.approve_once(local_control=True); no workflow or adapter is called."
+        },
+        {
+          "path": "src/tunnelminion/operation/policy.py",
+          "lines": "233-265",
+          "claim": "approve_once only creates an authorization, transitions awaiting_authorization to authorized, and calls OperationStore.put."
+        },
+        {
+          "path": "src/tunnelminion/app.py",
+          "lines": "166-176",
+          "claim": "Windows OperationControlService is constructed without lifecycle; revoke/execution lifecycle is not connected to this local approval route."
+        },
+        {
+          "path": "src/tunnelminion/operation/workflow.py",
+          "lines": "174-224",
+          "claim": "The separate execute_authorized path is where evidence read, access-token secret write, adapter.create and verification begin; approve does not call it."
+        },
+        {
+          "path": "scripts/prepare_local_product_package_fixture.py",
+          "lines": "49-57,208-232",
+          "claim": "Fixture rejects secret-store get/set/delete during construction, allows only node-id/runtime.sqlite3, and scans fixture files."
+        },
+        {
+          "path": "scripts/run_runtime_package_clean_acceptance.py",
+          "lines": "85-107",
+          "claim": "Packaged process has no source/Node injection and external HTTP proxies point to a dead loopback port."
+        },
+        {
+          "path": "frontend/src/api/client.ts",
+          "lines": "42-56",
+          "claim": "Unsafe browser writes set X-TunnelMinion-Request: same-origin and use same-origin credentials."
+        },
+        {
+          "path": "frontend/src/features/operations/OperationDetailPage.tsx",
+          "lines": "confirmAction",
+          "claim": "After submit the UI closes the dialog and performs one GET refresh; no automatic POST replay is present."
+        }
+      ],
+      "preconditions": {
+        "baseline_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "3e7bb22a58e9c118f306bfe9cef36b3aadcb9e17f3002cc30096bc02e12c80fe"
+          }
+        ],
+        "before_approval_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          }
+        ],
+        "before_operation_db": {
+          "counts": {
+            "checkpoints": 0,
+            "long_term_memories": 2,
+            "operation_authorizations": 0,
+            "operation_cleanups": 0,
+            "operation_leases": 0,
+            "operation_preauthorizations": 0,
+            "operation_resources": 0,
+            "operation_transitions": 2,
+            "operation_verifications": 0,
+            "operations": 1,
+            "tool_artifacts": 0
+          },
+          "tables": [
+            "checkpoints",
+            "long_term_memories",
+            "operation_authorizations",
+            "operation_cleanups",
+            "operation_leases",
+            "operation_preauthorizations",
+            "operation_resources",
+            "operation_transitions",
+            "operation_verifications",
+            "operations",
+            "tool_artifacts"
+          ]
+        },
+        "package_server_host": "127.0.0.1",
+        "external_proxy_policy": "127.0.0.1:9 blackhole",
+        "no_model_or_coordinator_fixture": true
+      },
+      "ui_submission": {
+        "approve_dialog_opened": true,
+        "expiry_input": "2026-08-11T19:55",
+        "submitted_once": true,
+        "request_count": 1,
+        "request": {
+          "method": "POST",
+          "url": "http://127.0.0.1:4179/api/operations/operation_11111111111111111111111111111111/approve",
+          "headers": {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-tunnelminion-request": "same-origin"
+          },
+          "post_data": {
+            "operator": "target-local-user",
+            "expires_at": "2026-08-11T11:55:00.000Z"
+          }
+        },
+        "response": {
+          "status": 200,
+          "operation_id": "operation_11111111111111111111111111111111",
+          "status_value": "authorized",
+          "authorization_basis": "目标节点本地用户逐次批准"
+        },
+        "latest_detail_http_status": 200,
+        "latest_detail": {
+          "state": "authorized",
+          "allowed_actions": [
+            "cancel"
+          ]
+        },
+        "ui_success_message_seen": true
+      },
+      "isolated_side_effects": {
+        "before_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          }
+        ],
+        "after_files": [
+          {
+            "path": "node-id",
+            "size": 37,
+            "sha256": "129b1ba06a49cb006be2709f8afc8cc6a1376ebcb171b39163d35f28db63cf08"
+          },
+          {
+            "path": "runtime/logs/local.log",
+            "size": 333,
+            "sha256": "c1b0d9e56e2e8c316800ddc82fe0e203e39103d25d67b39271c849a7170a3611"
+          },
+          {
+            "path": "runtime.sqlite3",
+            "size": 135168,
+            "sha256": "d256a0d771c5fbd874e3c68380e6857a9ce49fbcbcbb1315f1b997558ecdc7d3"
+          },
+          {
+            "path": "runtime.sqlite3-shm",
+            "size": 32768,
+            "sha256": "be6efd9a2d4c1f5a6262061aebd2ee09a3ceaa49ec413eebef492da8e99726c8"
+          },
+          {
+            "path": "runtime.sqlite3-wal",
+            "size": 32992,
+            "sha256": "cc41ec27448942ad1feab07b7783785ef19b96e5877cd8c47f7e577e937f9b07"
+          }
+        ],
+        "new_files": [
+          "runtime.sqlite3-shm",
+          "runtime.sqlite3-wal"
+        ],
+        "changed_files": [],
+        "unexpected_data_entries": [],
+        "after_operation_db": {
+          "counts": {
+            "checkpoints": 0,
+            "long_term_memories": 2,
+            "operation_authorizations": 1,
+            "operation_cleanups": 0,
+            "operation_leases": 0,
+            "operation_preauthorizations": 0,
+            "operation_resources": 0,
+            "operation_transitions": 3,
+            "operation_verifications": 0,
+            "operations": 1,
+            "tool_artifacts": 0
+          },
+          "tables": [
+            "checkpoints",
+            "long_term_memories",
+            "operation_authorizations",
+            "operation_cleanups",
+            "operation_leases",
+            "operation_preauthorizations",
+            "operation_resources",
+            "operation_transitions",
+            "operation_verifications",
+            "operations",
+            "tool_artifacts"
+          ]
+        },
+        "no_execution_artifacts": true,
+        "no_model_secret_firewall_wireguard_startup_files": true,
+        "allowed_sqlite_sidecars": [
+          "runtime.sqlite3-shm",
+          "runtime.sqlite3-wal"
+        ],
+        "new_files_are_sqlite_sidecars": true,
+        "data_boundary_conclusion": "only the expected SQLite WAL/SHM sidecars appeared after the approval; no model, keyring, firewall, WireGuard, route or startup files"
+      },
+      "process_network_observation": {
+        "before_tasks": [],
+        "after_tasks": [],
+        "before_network": {
+          "available": false,
+          "pids": [],
+          "lines": [],
+          "non_loopback": []
+        },
+        "after_network": {
+          "available": false,
+          "pids": [],
+          "lines": [],
+          "non_loopback": []
+        },
+        "package_process_network_observation_available": false,
+        "non_loopback_package_endpoints_after": [],
+        "external_endpoint_observed": false
+      },
+      "browser_storage_after": {
+        "local": [],
+        "session": [],
+        "indexedDB": []
+      },
+      "no_secret_output": true,
+      "no_replay": true,
+      "no_external_side_effect": true,
+      "passed": true,
+      "generated_at": "2026-08-11T11:50:16.448Z",
+      "limitations": [
+        "Windows tasklist/netstat did not expose the frozen package PID in this managed session; no external endpoint is inferred from that empty snapshot. The safety conclusion instead rests on the static approve call chain, dead external proxy environment, absence of execution tables/resources and closed data boundary."
+      ],
+      "network_observation_conclusion": "unavailable_due_to_managed_process_snapshot_permissions; not used as sole proof"
+    },
+    "operation_approve_secret_scan": {
+      "schema_version": "windows-local-product-operation-approve-secret-scan/v1",
+      "files_scanned": 218,
+      "bytes_scanned": 63986368,
+      "hits": [],
+      "passed": true,
+      "scanner": "ASCII/Latin-1 patterns; matched text never emitted",
+      "generated_at": "2026-08-11T11:51:16.936Z"
+    }
+  },
+  "test_results": {
+    "python_targeted": {
+      "passed": 30,
+      "skipped": 0,
+      "warnings": 1,
+      "note": "首轮默认 pytest 临时根目录权限不足，改用当前会话可写 basetemp 后通过；不是产品测试失败。"
+    },
+    "frontend_unit": {
+      "test_files": 14,
+      "passed": 85
+    },
+    "openspec_strict": "valid",
+    "repository_security_scan": "passed",
+    "external_package_scan": "passed",
+    "operation_approve_safety": {
+      "passed": true,
+      "request_count": 1,
+      "http_status": 200,
+      "latest_state": "authorized",
+      "no_execution_artifacts": true,
+      "note": "tasklist/netstat PID snapshot unavailable; static call-chain and local DB/file evidence are explicit"
+    },
+    "operation_approve_secret_scan": "passed",
+    "operation_approve_targeted": {
+      "passed": 17,
+      "warnings": 1,
+      "tests": "tests/web/test_operation_control.py + tests/evaluation/test_runtime_package_browser_server.py"
+    },
+    "openspec_strict_supplement": "valid"
+  },
+  "conclusions": [
+    "Windows amd64 standalone package relocated outside the repository and served real FastAPI routes successfully.",
+    "Overview first/refresh UI stayed operable; model, Coordinator, and network-path/peer evidence are explicit degraded states, not startup prerequisites.",
+    "Memory home/lab scope isolation, settings, redacted diagnostics download, 320 CSS px layout, CSP/cache/nosniff, empty browser storage, and secret scans passed.",
+    "真实 Windows Chromium 提交了一次批准：POST 只发 1 次并返回 authorized；最新详情只允许 cancel，SQLite 有授权和状态转移但无 lease/resource/verification/cleanup，证明未进入执行器。"
+  ],
+  "uncovered": [
+    "Windows system/browser OS-level 200% zoom was not reliably controllable from this Chromium harness; no deviceScaleFactor substitution was used. A separate 640x360 CSS-layout probe passed.",
+    "This slice is headless Chromium; a human desktop GUI pass and customer firewall/WireGuard/Murus conditions were intentionally not used.",
+    "The repository Playwright package config could not start its uv webServer in this locked-down worktree because the project environment cache/lock was inaccessible; the direct server harness exercised the same real package and Chromium instead, and the limitation is recorded rather than hidden."
+  ],
+  "generated_at": "2026-08-11T11:52:36.865Z"
+}

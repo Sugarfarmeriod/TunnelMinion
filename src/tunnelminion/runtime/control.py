@@ -33,7 +33,6 @@ from tunnelminion.runtime.profile import (
 )
 
 _PACKAGE_MANIFEST_FILE = "runtime-package-manifest.json"
-_PACKAGE_SCHEMA_FILE = "runtime-package-manifest-v1.schema.json"
 _PROFILE_SCHEMA_FILE = "runtime-profile-v1.schema.json"
 
 
@@ -172,7 +171,7 @@ def build_runtime_preflight() -> RuntimePreflight:
         return RuntimePreflight(
             program,
             manifest,
-            schema_dir / _PACKAGE_SCHEMA_FILE,
+            schema_dir,
             schema_dir / _PROFILE_SCHEMA_FILE,
         )
     source_root = Path(__file__).resolve().parents[3]

@@ -9,6 +9,118 @@ permissions:
   contents: read
 
 jobs:
+  frontend-quality:
+    name: React / 质量与生产构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: 从锁文件安装前端依赖
+        run: npm --prefix frontend ci
+
+      - name: 运行前端质量门禁
+        run: |
+          npm --prefix frontend run format:check
+          npm --prefix frontend run typecheck
+          npm --prefix frontend test
+          npm --prefix frontend run test:supply-chain
+          python scripts/prepare_frontend_dist.py --root . --skip-install
+          npm --prefix frontend run size:check
+
+      - name: 验证 wheel 收集同一份前端产物
+        run: |
+          uv build --wheel --out-dir build/wheel
+          python -c "from pathlib import Path; from scripts.prepare_frontend_dist import verify_wheel_frontend; verify_wheel_frontend(Path('.'), next(Path('build/wheel').glob('*.whl')))"
+
+      - name: 生成 npm 漏洞与许可证证据
+        run: npm --prefix frontend run supply-chain:check
+
+      - name: 暂存并扫描被忽略的前端产物
+        if: always()
+        run: |
+          python -c "from pathlib import Path; from scripts.prepare_frontend_dist import verify_frontend_dist; verify_frontend_dist(Path('.'))"
+          python scripts/security_scan.py --root . --artifact frontend/dist --artifact build/frontend-dist
+
+      - name: 上传前端供应链证据
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: supply-chain-frontend
+          path: build/supply-chain/*.json
+          if-no-files-found: error
+
+      - name: 上传唯一前端构建物
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: |
+            build/frontend-dist
+            build/frontend-dist-receipt.json
+          if-no-files-found: error
+
+  frontend-browser:
+    name: React / ${{ matrix.os }} / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            browser: chromium
+          - os: macos-latest
+            browser: webkit
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: 安装 Python
+        run: uv python install 3.11
+
+      - name: 同步锁定的后端环境
+        run: uv sync --locked --all-groups
+
+      - name: 从锁文件安装前端依赖
+        run: npm --prefix frontend ci
+
+      - name: 构建生产前端
+        run: npm --prefix frontend run build
+
+      - name: 安装锁定的浏览器
+        working-directory: frontend
+        run: npx playwright install ${{ matrix.browser }}
+
+      - name: 运行真实浏览器门禁
+        working-directory: frontend
+        run: npx playwright test --project=${{ matrix.browser }}
+
   quality:
     name: Python 3.11 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -42,3 +154,194 @@ jobs:
 
       - name: 扫描仓库与评估材料中的秘密
         run: uv run python scripts/security_scan.py --root .
+
+      - name: 生成 Python 漏洞与许可证证据
+        if: always()
+        run: >-
+          uv run python scripts/dependency_evidence.py
+          --root .
+          --output-dir build/supply-chain/${{ runner.os }}
+
+      - name: 上传 Python 供应链证据
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: supply-chain-python-${{ runner.os }}
+          path: build/supply-chain/${{ runner.os }}/*.json
+          if-no-files-found: error
+
+  runtime-package:
+    name: 运行包 / ${{ matrix.target }}
+    needs: frontend-quality
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-amd64
+            runner: windows-2025
+            browser: chromium
+            fixture-platform: windows
+          - target: macos-arm64
+            runner: macos-15
+            browser: webkit
+            fixture-platform: macos
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: 安装 Python
+        run: uv python install 3.11
+
+      - name: 同步锁定的打包环境
+        run: uv sync --locked --all-groups
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 从锁文件安装正式包浏览器依赖
+        run: npm --prefix frontend ci
+
+      - name: 安装正式包验收浏览器
+        working-directory: frontend
+        run: npx playwright install ${{ matrix.browser }}
+
+      - name: 下载唯一前端构建物
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: build
+
+      - name: 验证前端回执
+        run: >-
+          uv run python -c
+          "from pathlib import Path; from scripts.prepare_frontend_dist import verify_frontend_dist; verify_frontend_dist(Path('.'))"
+
+      - name: 构建原生正式运行包
+        run: >-
+          uv run python scripts/build_runtime_package.py
+          --output-root "${{ runner.temp }}/runtime-output"
+          --manifest "${{ runner.temp }}/runtime-evidence/manifest.json"
+          --summary "${{ runner.temp }}/runtime-evidence/build-summary.json"
+
+      - name: 暂存可扫描运行包
+        run: >-
+          uv run python scripts/stage_runtime_package_ci.py
+          --output-root "${{ runner.temp }}/runtime-output"
+          --manifest "${{ runner.temp }}/runtime-evidence/manifest.json"
+          --summary "${{ runner.temp }}/runtime-evidence/build-summary.json"
+          --destination "build/runtime-package-staging/${{ matrix.target }}"
+
+      - name: 扫描正式运行包中的秘密
+        run: >-
+          uv run python scripts/security_scan.py
+          --root .
+          --artifact "build/runtime-package-staging/${{ matrix.target }}"
+
+      - name: 生成隔离且无秘密的正式包 A/B 夹具
+        run: >-
+          uv run python scripts/prepare_local_product_package_fixture.py
+          --data-dir "${{ runner.temp }}/package-browser/data"
+          --allowed-root "${{ runner.temp }}/package-browser"
+          --platform "${{ matrix.fixture-platform }}"
+          --output "build/runtime-package-staging/${{ matrix.target }}/package-fixture.json"
+
+      - name: 在正式包中走通真实 React 产品流程
+        working-directory: frontend
+        env:
+          TUNNELMINION_PACKAGE_BROWSER: ${{ matrix.browser }}
+          TUNNELMINION_PACKAGE_ROOT: ${{ github.workspace }}/build/runtime-package-staging/${{ matrix.target }}/package
+          TUNNELMINION_PACKAGE_MANIFEST: ${{ github.workspace }}/build/runtime-package-staging/${{ matrix.target }}/manifest.json
+          TUNNELMINION_PACKAGE_SCHEMA: ${{ github.workspace }}/schemas
+          TUNNELMINION_PACKAGE_DATA_DIR: ${{ runner.temp }}/package-browser/data
+          TUNNELMINION_PACKAGE_FIXTURE: ${{ github.workspace }}/build/runtime-package-staging/${{ matrix.target }}/package-fixture.json
+        run: npm run test:e2e:package
+
+      - name: 脱离源码执行本机产品验收
+        env:
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: 127.0.0.1,localhost
+        run: >-
+          uv run --offline python scripts/run_runtime_package_clean_acceptance.py
+          --package-root "build/runtime-package-staging/${{ matrix.target }}/package"
+          --manifest "build/runtime-package-staging/${{ matrix.target }}/manifest.json"
+          --schema schemas
+          --forbid-path "${{ github.workspace }}"
+          --output "build/runtime-package-staging/${{ matrix.target }}/clean-acceptance.json"
+          --check
+
+      - name: 封装运行包并保留可执行权限
+        run: >-
+          tar -cf "build/runtime-package-staging/${{ matrix.target }}/runtime-package.tar"
+          -C "build/runtime-package-staging/${{ matrix.target }}" package
+
+      - name: 上传原生运行包
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-package-${{ matrix.target }}
+          path: build/runtime-package-staging/${{ matrix.target }}/runtime-package.tar
+          if-no-files-found: error
+
+      - name: 上传运行包验收证据
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-package-evidence-${{ matrix.target }}
+          path: |
+            build/runtime-package-staging/${{ matrix.target }}/manifest.json
+            build/runtime-package-staging/${{ matrix.target }}/build-summary.json
+            build/runtime-package-staging/${{ matrix.target }}/clean-acceptance.json
+            build/runtime-package-staging/${{ matrix.target }}/package-fixture.json
+          if-no-files-found: error
+
+  runtime-package-matrix:
+    name: 运行包 / 双平台一致性
+    needs: [frontend-quality, runtime-package]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: 下载唯一前端回执
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: build/frontend-evidence
+
+      - name: 下载双平台验收证据
+        uses: actions/download-artifact@v8
+        with:
+          pattern: runtime-package-evidence-*
+          path: build/runtime-package-evidence
+
+      - name: 汇总并校验双平台运行包
+        run: >-
+          python scripts/verify_runtime_package_matrix.py
+          --evidence-root build/runtime-package-evidence
+          --frontend-receipt build/frontend-evidence/frontend-dist-receipt.json
+          --output build/runtime-package-matrix-summary.json
+
+      - name: 上传双平台汇总证据
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-package-matrix-summary
+          path: build/runtime-package-matrix-summary.json
+          if-no-files-found: error

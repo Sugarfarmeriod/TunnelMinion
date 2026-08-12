@@ -7,20 +7,26 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Protocol
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tunnelminion.domain.identifiers import AuthorizationId, NodeId, OperationId
+from tunnelminion.domain.identifiers import AuthorizationId, NodeId, OperationId, ResourceId
 from tunnelminion.operation.contracts import (
+    CleanupRecord,
+    CleanupResult,
     OperationRecord,
     OperationStatus,
     OperationStore,
     OperationSummary,
     Preauthorization,
     PreauthorizationStore,
+    ResourceOwnership,
+    VerificationRecord,
+    VerificationResult,
 )
 from tunnelminion.operation.policy import AuthorizationService
 
@@ -43,12 +49,121 @@ class OperationLifecycle(Protocol):
     async def revoke(self, operation_id: OperationId, *, at: datetime) -> OperationRecord: ...
 
 
+class OperationAction(StrEnum):
+    """详情页可按当前服务端事实提交的状态变更动作。"""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    CANCEL = "cancel"
+    REVOKE = "revoke"
+
+
+class OwnedResourceView(BaseModel):
+    """可向本机用户展示的自有资源；省略进程号和所有权指纹。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_id: ResourceId
+    kind: str
+    bind_host: str
+    bind_port: int
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, resource: ResourceOwnership) -> OwnedResourceView:
+        return cls(
+            resource_id=resource.resource_id,
+            kind=_safe_text(resource.kind),
+            bind_host=_safe_text(resource.bind_host),
+            bind_port=resource.bind_port,
+            created_at=resource.created_at,
+        )
+
+
+class VerificationSummaryView(BaseModel):
+    """请求节点沿真实路径产生的脱敏验证摘要。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    verifier_node_id: NodeId
+    result: VerificationResult
+    status_code: int | None
+    evidence_summary: str
+    verified_at: datetime
+
+    @classmethod
+    def from_record(cls, verification: VerificationRecord) -> VerificationSummaryView:
+        return cls(
+            verifier_node_id=verification.verifier_node_id,
+            result=verification.result,
+            status_code=verification.status_code,
+            evidence_summary=_safe_text(verification.evidence_summary),
+            verified_at=verification.verified_at,
+        )
+
+
+class CleanupRecordView(BaseModel):
+    """资源清理结果；人工动作由详情顶层单独表达。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result: CleanupResult
+    reason: str
+    completed_at: datetime
+
+    @classmethod
+    def from_record(cls, cleanup: CleanupRecord) -> CleanupRecordView:
+        return cls(
+            result=cleanup.result,
+            reason=_safe_text(cleanup.reason),
+            completed_at=cleanup.completed_at,
+        )
+
+
+_BASE_ALLOWED_ACTIONS: dict[OperationStatus, tuple[OperationAction, ...]] = {
+    OperationStatus.PLANNED: (OperationAction.CANCEL,),
+    OperationStatus.AWAITING_AUTHORIZATION: (
+        OperationAction.APPROVE,
+        OperationAction.REJECT,
+        OperationAction.CANCEL,
+    ),
+    OperationStatus.AUTHORIZED: (OperationAction.CANCEL,),
+}
+
+
+def _allowed_actions(
+    state: OperationStatus,
+    *,
+    revoke_available: bool,
+) -> tuple[OperationAction, ...]:
+    """按当前状态和实际装配能力返回动作提示；最终裁决仍在写端点。"""
+    if state is OperationStatus.SUCCEEDED and revoke_available:
+        return (OperationAction.REVOKE,)
+    return _BASE_ALLOWED_ACTIONS.get(state, ())
+
+
+def _safe_summary(record: OperationRecord) -> OperationSummary:
+    """在详情边界再次过滤摘要中的自由文本。"""
+    summary = OperationSummary.from_record(record)
+    authorization_basis = (
+        _safe_text(summary.authorization_basis) if summary.authorization_basis is not None else None
+    )
+    error = (
+        summary.error.model_copy(update={"message": _safe_text(summary.error.message)})
+        if summary.error is not None
+        else None
+    )
+    return summary.model_copy(update={"authorization_basis": authorization_basis, "error": error})
+
+
 class OperationDetailView(BaseModel):
     """本地页面需要的完整计划视图，不包含访问凭据和远端正文。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     summary: OperationSummary
+    state: OperationStatus
+    allowed_actions: tuple[OperationAction, ...]
     service_id: str
     service_endpoint: str
     service_process_or_container: str
@@ -59,13 +174,27 @@ class OperationDetailView(BaseModel):
     rollback_method: str
     duration_seconds: int
     created_at: datetime
+    owned_resources: tuple[OwnedResourceView, ...]
+    verification_summaries: tuple[VerificationSummaryView, ...]
+    cleanup_record: CleanupRecordView | None
+    manual_action: str | None
     transitions: tuple[dict[str, str], ...]
 
     @classmethod
-    def from_record(cls, record: OperationRecord) -> OperationDetailView:
+    def from_record(
+        cls,
+        record: OperationRecord,
+        *,
+        revoke_available: bool = False,
+    ) -> OperationDetailView:
         plan = record.plan
         return cls(
-            summary=OperationSummary.from_record(record),
+            summary=_safe_summary(record),
+            state=record.status,
+            allowed_actions=_allowed_actions(
+                record.status,
+                revoke_available=revoke_available,
+            ),
             service_id=_safe_text(plan.service.service_id),
             service_endpoint=f"{plan.service.scheme}://{plan.service.host}:{plan.service.port}",
             service_process_or_container=_safe_text(plan.service.process_or_container),
@@ -76,6 +205,20 @@ class OperationDetailView(BaseModel):
             rollback_method=_safe_text(plan.rollback_method),
             duration_seconds=plan.access_scope.duration_seconds,
             created_at=plan.created_at,
+            owned_resources=tuple(OwnedResourceView.from_record(item) for item in record.resources),
+            verification_summaries=tuple(
+                VerificationSummaryView.from_record(item) for item in record.verifications
+            ),
+            cleanup_record=(
+                CleanupRecordView.from_record(record.cleanup)
+                if record.cleanup is not None
+                else None
+            ),
+            manual_action=(
+                _safe_text(record.cleanup.manual_action)
+                if record.cleanup is not None and record.cleanup.manual_action is not None
+                else None
+            ),
             transitions=tuple(
                 {
                     "from_status": (
@@ -172,7 +315,10 @@ class OperationControlService:
         record = self.operations.get(operation_id)
         if record is None:
             raise KeyError("operation_not_found")
-        return OperationDetailView.from_record(record)
+        return OperationDetailView.from_record(
+            record,
+            revoke_available=self.lifecycle is not None,
+        )
 
     def approve(self, operation_id: OperationId, payload: ApproveInput) -> OperationSummary:
         now = self.clock()
@@ -293,7 +439,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 </form>
 <div id="preauthorizations"></div></section>
 <script>
-const api=async(path,options)=>{const r=await fetch(path,options);if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()};
+const api=async(path,options={})=>{const method=(options.method||'GET').toUpperCase();const headers=new Headers(options.headers||{});if(!['GET','HEAD','OPTIONS','TRACE'].includes(method))headers.set('X-TunnelMinion-Request','same-origin');const r=await fetch(path,{...options,headers});if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()};
 const text=(tag,value,cls)=>{const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=String(value??'—');return e};
 const stateText={executing:'正在创建入口，尚未成功',verifying:'入口已创建，正在等待请求节点验证',succeeded:'请求节点验证通过',rolling_back:'正在回滚',rolled_back:'已回滚',expiring:'正在到期清理',expired:'已到期并清理',cleanup_failed:'清理失败，需要人工处理'};
 const add=(grid,label,value)=>{grid.append(text('div',label,'label'),text('div',value))};
@@ -419,4 +565,10 @@ def create_operation_router(service: OperationControlService) -> APIRouter:
         methods=["POST"],
     )
     router.add_api_route("/operations", page, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route(
+        "/legacy/operations",
+        page,
+        methods=["GET"],
+        response_class=HTMLResponse,
+    )
     return router

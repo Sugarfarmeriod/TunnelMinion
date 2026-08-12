@@ -1,0 +1,112 @@
+{
+  "schema_version": "macos-local-product-operation-approve-safety/v1",
+  "generated_at": "2026-08-11T11:56:47Z",
+  "source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+  "package_id": "tunnelminion-0-1-0-darwin-arm64-5afef13e6cd6-5fbb7ce67838",
+  "platform": "macos-arm64",
+  "browser": "Playwright WebKit 26.5 (webkit-2336)",
+  "fixture": {
+    "operation_id": "operation_11111111111111111111111111111111",
+    "data_root": "isolated temporary fixture; no user data or keyring access",
+    "contains_secrets": false
+  },
+  "safety_basis": [
+    "approve route only calls AuthorizationService.approve_once and OperationStore.put",
+    "execution, adapter create, access-token write, verification and cleanup live on the separate execute_authorized path",
+    "standalone local application does not attach an execution lifecycle to this approval route",
+    "external HTTP proxies were not required and no customer firewall, WireGuard, route, model, secret or startup setting was changed"
+  ],
+  "before_operation_db": {
+    "operation_authorizations": 0,
+    "operation_transitions": 2,
+    "operation_leases": 0,
+    "operation_resources": 0,
+    "operation_verifications": 0,
+    "operation_cleanups": 0
+  },
+  "ui_submission": {
+    "approve_dialog_opened": true,
+    "submitted_once": true,
+    "request_count": 1,
+    "request": {
+      "method": "POST",
+      "url": "http://127.0.0.1:4179/api/operations/operation_11111111111111111111111111111111/approve",
+      "headers": {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-tunnelminion-request": "same-origin"
+      },
+      "post_data": {
+        "operator": "target-local-user",
+        "expires_at": "2026-08-11T12:10:00.000Z"
+      }
+    },
+    "response": {
+      "status": 200,
+      "operation_id": "operation_11111111111111111111111111111111",
+      "status_value": "authorized"
+    },
+    "latest_detail_http_status": 200,
+    "latest_detail": {
+      "state": "authorized",
+      "allowed_actions": [
+        "cancel"
+      ]
+    },
+    "success_message_seen": true,
+    "browser_storage_after": {
+      "local": [],
+      "session": [],
+      "databases": []
+    },
+    "screenshot": "operation-approve-submitted.png"
+  },
+  "after_operation_db": {
+    "operation_authorizations": 1,
+    "operation_transitions": 3,
+    "operation_leases": 0,
+    "operation_resources": 0,
+    "operation_verifications": 0,
+    "operation_cleanups": 0
+  },
+  "isolated_data_files_after": [
+    {
+      "path": "node-id",
+      "size": 37,
+      "sha256": "36bd56f135f403d5c71aa5a7b7897b86ae7d8194eb0cd02112cd1fd0e9becfaa"
+    },
+    {
+      "path": "runtime.sqlite3",
+      "size": 135168,
+      "sha256": "d8637d3308059f89a6b8b0b38e457b4b0bb1f2be736ecb7a72cf98e6dcf13429"
+    },
+    {
+      "path": "runtime.sqlite3-shm",
+      "size": 32768,
+      "sha256": "fde4df4b1f1117abc2049a93dbf47bf014fd9f9114df75066a6755cc83d58594"
+    },
+    {
+      "path": "runtime.sqlite3-wal",
+      "size": 32992,
+      "sha256": "1ce66f9ee5cab70af23701fc80d54f41ded1f212b0336d80df9a5643d0d68954"
+    }
+  ],
+  "secret_scan": {
+    "roots": [
+      "runtime package",
+      "isolated approval fixture data"
+    ],
+    "files_scanned": 147,
+    "bytes_scanned": 62201673,
+    "hits": [],
+    "passed": true,
+    "matched_text_emitted": false
+  },
+  "conclusion": {
+    "no_replay": true,
+    "no_execution_artifacts": true,
+    "no_external_side_effect": true,
+    "no_secret_output": true,
+    "passed": true
+  }
+}

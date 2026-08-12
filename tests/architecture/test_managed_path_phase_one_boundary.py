@@ -111,7 +111,7 @@ def test_real_local_consumers_cannot_create_authorization_or_apply_provider(
     monkeypatch.setattr(KeyringSecretStore, "get", no_secret)
 
     bundle = build_windows_application(tmp_path / "local-app")
-    with TestClient(bundle.app) as raw_client:
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as raw_client:
         client = cast(ApiClient, raw_client)
         assert client.get("/api/model-config").status_code == 200
         assert client.post("/api/threads").status_code == 200

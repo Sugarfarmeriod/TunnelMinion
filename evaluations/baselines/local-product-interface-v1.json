@@ -1,0 +1,118 @@
+{
+  "schema_version": "local-product-interface-baseline/v1",
+  "accepted_at": "2026-08-11T12:15:00Z",
+  "product_source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+  "fixture_policy": {
+    "isolated_temporary_data": true,
+    "secret_store_reads_allowed": false,
+    "customer_network_changes_allowed": false
+  },
+  "legacy_pages": [
+    {
+      "route": "/chat",
+      "alias": "/legacy/chat",
+      "status": 200,
+      "bytes": 3609,
+      "sha256": "4c868e94f4078ae9cc6b2cf54bf1b87a1e5b0f99cf6d0edf1d26d1a6c3aa474b",
+      "content_security_policy": null
+    },
+    {
+      "route": "/resources",
+      "alias": "/legacy/resources",
+      "status": 200,
+      "bytes": 1087,
+      "sha256": "b5ee931ea7d0d97cb3493e13d08643f3150972ffabc932cce9eda2986b1d6ce6",
+      "content_security_policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    },
+    {
+      "route": "/operations",
+      "alias": "/legacy/operations",
+      "status": 200,
+      "bytes": 7730,
+      "sha256": "d22089be1599f6fc5ac6ec3cd1e05fe3b560e5226f93abb2a9137224551282d6",
+      "content_security_policy": null
+    },
+    {
+      "route": "/memories",
+      "alias": "/legacy/memories",
+      "status": 200,
+      "bytes": 2429,
+      "sha256": "296a3477dc12831bf8534dd32123071e3146718dc62ad1aa19ab6f149ecfdf8f",
+      "content_security_policy": null
+    }
+  ],
+  "openapi": {
+    "canonical_json_bytes": 65709,
+    "sha256": "8c601632bd016608c3d7ddf9a6c7cf5719afc792380d7dcaa01c96d1fd3f8ea9",
+    "critical_paths": [
+      "/api/resources/overview",
+      "/api/operations/{value}",
+      "/api/threads",
+      "/api/runs/{value}/events",
+      "/api/memories",
+      "/api/diagnostics/export",
+      "/app/{route_path}",
+      "/app-assets/{asset_path}"
+    ]
+  },
+  "production_spa": {
+    "content_security_policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "index_cache_control": "no-store",
+    "hashed_asset_cache_control": "public, max-age=31536000, immutable"
+  },
+  "packages": {
+    "windows_amd64": {
+      "acceptance_summary": "evaluations/local-product/windows-2026-08-11/acceptance-summary.json",
+      "acceptance_summary_sha256": "97af16b35786317acd6a3a1be14c3f30edb7f1d72dd6dbe37266ea383389e8e9",
+      "manifest": "evaluations/local-product/windows-2026-08-11/manifest.json",
+      "manifest_sha256": "8d6b8b1c8b378ccc8bf10ab9a6ce0a4a4ae25539c52c30aaafb25a4a644cbc33",
+      "package_id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+      "clean_acceptance_passed": true
+    },
+    "macos_arm64": {
+      "acceptance_summary": "evaluations/local-product/macos-2026-08-11/acceptance-summary.json",
+      "acceptance_summary_sha256": "d7458048ff8900f2260a069047ff7e2c0416a7fbbafc00ee337d59d117e38b69",
+      "manifest": "evaluations/local-product/macos-2026-08-11/manifest.json",
+      "manifest_sha256": "6a8eef1b944e71325aca48b927ee528fca33f011e248a73364c2d877f6e9f11a",
+      "package_id": "tunnelminion-0-1-0-darwin-arm64-5afef13e6cd6-5fbb7ce67838",
+      "clean_acceptance_passed": true
+    }
+  },
+  "key_flows": [
+    "overview",
+    "chat_same_origin_thread_create",
+    "operation_detail_and_single_approval",
+    "memory_scope_isolation_and_revision",
+    "settings_and_redacted_diagnostics"
+  ],
+  "initial_bundle": {
+    "gzip_bytes": 145073,
+    "gzip_kib": 141.67,
+    "absolute_limit_bytes": 307200,
+    "evidence": "evaluations/local-product/windows-2026-08-11/frontend-size.json"
+  },
+  "overview_latency_ms": {
+    "windows_chromium": {
+      "initial_p50": 46.6,
+      "initial_p95": 376.13,
+      "refresh_p50": 45.85,
+      "refresh_p95": 59.83
+    },
+    "macos_webkit": {
+      "initial_p50": 567,
+      "initial_p95": 779,
+      "refresh_p50": 34,
+      "refresh_p95": 44
+    }
+  },
+  "secret_evidence": {
+    "windows_package_and_fixture_hits": 0,
+    "macos_package_and_fixture_hits": 0,
+    "browser_storage_entries": 0
+  },
+  "limitations": [
+    "Legacy 页面基线记录其当前响应；只有 resources 页面当前自带 legacy CSP，其他三页的 null 不是生产 React CSP 放宽证明。",
+    "Windows 与 macOS 本地验收包来自不同构建来源，本基线不把两份 manifest 的 frontend digest 当作跨平台同构证明；跨平台同构由独立 CI 一致性门禁负责。",
+    "WebKit 自动化不冒充系统 Safari 人工验收。"
+  ]
+}

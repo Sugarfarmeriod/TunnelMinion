@@ -1,0 +1,35 @@
+{
+  "schema_version": "local-product-package-fixture/v1",
+  "platform": "windows",
+  "node_id": "node_15467758826e40cfad90bc7a85b9c7fa",
+  "operation_id": "operation_11111111111111111111111111111111",
+  "memory_scopes": [
+    {
+      "user": "acceptance-user",
+      "network": "home",
+      "node_id": "node_15467758826e40cfad90bc7a85b9c7fa",
+      "task_type": "local-conversation",
+      "security_scope": "read-only-agent"
+    },
+    {
+      "user": "acceptance-user",
+      "network": "lab",
+      "node_id": "node_15467758826e40cfad90bc7a85b9c7fa",
+      "task_type": "local-conversation",
+      "security_scope": "read-only-agent"
+    }
+  ],
+  "files": [
+    {
+      "path": "node-id",
+      "sha256": "63f701986998382f9e8e18abed24c782a82bab31276c1dba889dbe00503d13db",
+      "size": 37
+    },
+    {
+      "path": "runtime.sqlite3",
+      "sha256": "63dd6e63472a3e0c2ac41ea2a2b73f6fe7bb30de06a65dbf9b1f60d320573263",
+      "size": 135168
+    }
+  ],
+  "contains_secrets": false
+}

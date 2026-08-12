@@ -1,0 +1,18 @@
+{
+  "application_version": "0.1.0",
+  "architecture": "amd64",
+  "file_count": 213,
+  "frontend_dist_sha256": "3deb73e5af4227b6cbb06aa88aacbc9bf94b1e8cf7841a838674b74a037bd833",
+  "frontend_file_count": 3,
+  "license_count": 289,
+  "manifest_sha256": "75bfd3711ea44c0647bd53dd9f8eb44cd89b3d42c5d9a1542b35ae49e30db4e2",
+  "npm_lock_sha256": "45837509b715f6e42d1068d82988c8afe8ebc3851a1ffafe07463294b2c12cc1",
+  "package_id": "tunnelminion-0-1-0-win32-amd64-c20f76d37293-3deb73e5af42",
+  "platform": "win32",
+  "python_lock_sha256": "c1fdaf45e6c10804ebe46fefbefd638b0e090463bf1a0ef1015bc7decbce3477",
+  "schema_version": "runtime-package-build/v1",
+  "size_bytes": 63785070,
+  "source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+  "source_tree_sha256": "c20f76d372931abcd10711fbd78cc04c80cf51802f999ec8aeef97fa46c74f89",
+  "unknown_license_count": 0
+}

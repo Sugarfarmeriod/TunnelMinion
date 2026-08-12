@@ -1,0 +1,35 @@
+{
+  "schema_version": "local-product-package-fixture/v1",
+  "platform": "macos",
+  "node_id": "node_3717b44dddde412ea7747d4b2e18fe12",
+  "operation_id": "operation_11111111111111111111111111111111",
+  "memory_scopes": [
+    {
+      "user": "acceptance-user",
+      "network": "home",
+      "node_id": "node_3717b44dddde412ea7747d4b2e18fe12",
+      "task_type": "local-conversation",
+      "security_scope": "read-only-agent"
+    },
+    {
+      "user": "acceptance-user",
+      "network": "lab",
+      "node_id": "node_3717b44dddde412ea7747d4b2e18fe12",
+      "task_type": "local-conversation",
+      "security_scope": "read-only-agent"
+    }
+  ],
+  "files": [
+    {
+      "path": "node-id",
+      "sha256": "5aec7dd8539fb88669724c91d2d81a5f8dca954f796af74f95c82b9165fe8d39",
+      "size": 37
+    },
+    {
+      "path": "runtime.sqlite3",
+      "sha256": "3a3a86707ab2798835942b3dc59f56409f684c06f2c2fbb971ce84983479fb45",
+      "size": 135168
+    }
+  ],
+  "contains_secrets": false
+}

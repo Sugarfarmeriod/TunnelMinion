@@ -91,6 +91,8 @@ def test_memory_api_rejections_and_page(tmp_path: Path) -> None:
     assert "长期记忆" in page.text
     assert "保存修正" in page.text
     assert "清空此作用域" in page.text
+    assert "X-TunnelMinion-Request" in page.text
+    assert web.get("/legacy/memories").text == page.text
 
     rejected = web.post(
         "/api/memories/confirm",

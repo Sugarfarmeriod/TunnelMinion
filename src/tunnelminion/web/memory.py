@@ -21,7 +21,7 @@ _MEMORY_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <h1>长期记忆</h1><p>这里只显示用户明确确认过的稳定事实和偏好。实时状态请重新运行工具获取。</p>
 <label>用户 <input id="user" value="local-user"></label><label>网络 <input id="network" value="home"></label><label>节点 ID <input id="node" placeholder="node_..."></label>
 <button onclick="loadMemories()">查看</button><button onclick="clearScope()">清空此作用域</button><div id="items"></div>
-<script>async function api(path,options){const r=await fetch(path,options);if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
+<script>async function api(path,options={}){const method=(options.method||'GET').toUpperCase();const headers=new Headers(options.headers||{});if(!['GET','HEAD','OPTIONS','TRACE'].includes(method))headers.set('X-TunnelMinion-Request','same-origin');const r=await fetch(path,{...options,headers});if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
 function query(){return new URLSearchParams({user:document.getElementById('user').value,network:document.getElementById('network').value,node_id:document.getElementById('node').value})}
 async function loadMemories(){const values=await api('/api/memories?'+query());const root=document.getElementById('items');root.innerHTML='';for(const m of values){const box=document.createElement('div');box.className='memory';const text=document.createElement('input');text.value=m.content;text.size=70;const source=document.createElement('input');source.value=m.source;source.size=35;const save=document.createElement('button');save.textContent='保存修正';save.onclick=async()=>{await api('/api/memories/'+m.memory_id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({content:text.value,source:source.value})});loadMemories()};const remove=document.createElement('button');remove.textContent='删除';remove.onclick=async()=>{await api('/api/memories/'+m.memory_id,{method:'DELETE'});loadMemories()};box.append(document.createTextNode(m.kind+' · '+m.updated_at+' '),text,source,save,remove);root.appendChild(box)}}
 async function clearScope(){await api('/api/memories/scope?'+query(),{method:'DELETE'});loadMemories()}</script></body></html>"""
@@ -95,6 +95,12 @@ def create_memory_router(service: LongTermMemoryService) -> APIRouter:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     router.add_api_route("/memories", memory_page, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route(
+        "/legacy/memories",
+        memory_page,
+        methods=["GET"],
+        response_class=HTMLResponse,
+    )
     router.add_api_route("/api/memories", list_memories, methods=["GET"])
     router.add_api_route("/api/memories/confirm", confirm_memory, methods=["POST"])
     router.add_api_route("/api/memories/scope", clear_scope, methods=["DELETE"])

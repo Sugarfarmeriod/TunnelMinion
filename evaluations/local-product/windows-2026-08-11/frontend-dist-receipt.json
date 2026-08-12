@@ -1,0 +1,7 @@
+{
+  "dist_sha256": "3deb73e5af4227b6cbb06aa88aacbc9bf94b1e8cf7841a838674b74a037bd833",
+  "file_count": 3,
+  "npm_lock_sha256": "45837509b715f6e42d1068d82988c8afe8ebc3851a1ffafe07463294b2c12cc1",
+  "schema": "tunnelminion/frontend-dist-receipt/v1",
+  "source_sha256": "89ae1db7f88aae95eeaeb19eb0d6ef8c1489e3d17ceb484f17e75c872c491f0e"
+}

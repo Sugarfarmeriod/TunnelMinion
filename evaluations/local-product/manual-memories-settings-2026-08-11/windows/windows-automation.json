@@ -1,0 +1,209 @@
+{
+  "schema": "manual-memories-settings-automation/v1",
+  "source_revision": "d5eee8a4628214fa3ce1a58c937f69b7dc741e0e",
+  "platform": "windows",
+  "browser": {
+    "engine": "Chromium",
+    "version": "151.0.7922.34"
+  },
+  "runtime": {
+    "mode": "source-fastapi-staged-frontend",
+    "base_url": "http://127.0.0.1:4174",
+    "fixture": {
+      "node_id": "node_e7681b537c854b6eb227fe76ea3699e3",
+      "scopes": [
+        "acceptance-user/home",
+        "acceptance-user/lab"
+      ],
+      "contains_secrets": false
+    }
+  },
+  "screenshots": [
+    {
+      "file": "windows-memories-home.png",
+      "sha256": "d9eeeba58c6de74ce466e5769b11f0aa18a8531a30398c49ab2d8493022119d1",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-lab.png",
+      "sha256": "ebfcd1d554565e73cef86a6713f36bcf6ae5f1abf5842d2d8afa2387642b4dfc",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-revise-dialog.png",
+      "sha256": "3694b69f1b9bf1936987793afdf4a647efb69101cca1e5ce450a098f7de5723b",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-home-revised.png",
+      "sha256": "40ba520a6bfac68e53d2ba2191bb78bdf8cdba0222b1643075d7db86530e8322",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-delete-dialog.png",
+      "sha256": "afc877f098d89a45370557f6506dac6727a0f8e2b1bc172d4502f3cf343146ed",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-lab-empty.png",
+      "sha256": "2ea196659ab4fee98ee6a1cfb2304b9d3337ce3d361f69b1337b9354334bfcb3",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-clear-dialog.png",
+      "sha256": "401a322b13e89bf9c54f784c15e8b4e7ec948cc06847c855fa6f0115aa36b1fa",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-home-empty.png",
+      "sha256": "902db46229ea7fd63d148339832ed5c0f33801db608b0f01f5eb532808c10037",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-error.png",
+      "sha256": "e67cf00cc30ed184f5985e8b0a2edac44678a035aa6e9a0fe6d3cb08c1670324",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-settings-unconfigured.png",
+      "sha256": "f397027d885d31681603294e290a8ec1548f632d9804547763533b744550b8ce",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-settings-error.png",
+      "sha256": "8a068b88f0dd22b4f486af89df6354f736e7c61c793db14e857355345225435f",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "windows-settings-320.png",
+      "sha256": "6bc06e842c97e483cfd7775643a176a54f8d325344b1d9635d9336496e73e5eb",
+      "width": 320,
+      "height": 720
+    },
+    {
+      "file": "windows-memories-200pct-equivalent.png",
+      "sha256": "af141b734a718ba0c9073af1f1bc3b1c07c87fe14cd27e6bf1aca68f3e135d16",
+      "width": 640,
+      "height": 360
+    }
+  ],
+  "checks": {
+    "memories": {
+      "homeScope": "用户“acceptance-user” / 网络“home” / 节点“node_e7681b537c854b6eb227fe76ea3699e3”",
+      "homeVisible": true,
+      "labVisible": true,
+      "homeHiddenInLab": true,
+      "reviseDialogAria": {
+        "role": "dialog",
+        "modal": "true",
+        "labelledBy": "memory-confirm-title",
+        "describedBy": "memory-confirm-description"
+      },
+      "focusInitial": {
+        "tag": "BUTTON",
+        "role": null,
+        "name": null,
+        "text": "取消"
+      },
+      "focusAfterTab": {
+        "tag": "BUTTON",
+        "role": null,
+        "name": null,
+        "text": "确认修正一次"
+      },
+      "focusAfterWrap": {
+        "tag": "BUTTON",
+        "role": null,
+        "name": null,
+        "text": "取消"
+      },
+      "focusAfterReverseTab": {
+        "tag": "BUTTON",
+        "role": null,
+        "name": null,
+        "text": "确认修正一次"
+      },
+      "reviseNotice": true,
+      "labEmptyAfterDelete": true,
+      "clearScopeText": "确认清空精确作用域将清空：用户“acceptance-user” / 网络“home” / 节点“node_e7681b537c854b6eb227fe76ea3699e3”其他作用域和聊天线程不会被删除。取消确认清空一次",
+      "homeEmptyAfterClear": true,
+      "ariaAfterClear": [
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "服务端已用 204 明确确认：这个精确作用域已经清空。"
+        },
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "这个精确作用域还没有长期记忆。"
+        }
+      ],
+      "errorRole": "现在读不到长期记忆隔离验收故障：长期记忆暂时不可读取（memory_store_unavailable）重新读取"
+    },
+    "settings": {
+      "unconfiguredFallback": true,
+      "diagnosticsLink": "/api/diagnostics/export",
+      "aria": [
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "还没有模型配置。聊天的新 AI run 暂不可用，但长期记忆和确定性资源仍可管理。"
+        }
+      ],
+      "errorRole": "现在读不到模型配置隔离验收故障：模型配置暂时不可读取（model_configuration_unavailable）重新读取",
+      "narrow320": {
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "bodyScrollWidth": 320,
+        "noHorizontalOverflow": true
+      },
+      "zoomEquivalent": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "bodyScrollWidth": 640,
+        "noHorizontalOverflow": true
+      }
+    },
+    "browserStorage": [
+      {
+        "page": "memories-home",
+        "local": [],
+        "session": [],
+        "databases": []
+      },
+      {
+        "page": "settings-unconfigured",
+        "local": [],
+        "session": [],
+        "databases": []
+      }
+    ],
+    "diagnostics": {
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "containsForbiddenTokenPattern": false,
+      "containsFullChatMarker": false,
+      "byteLength": 2156
+    }
+  },
+  "manual_visual_review_required": true,
+  "real_safari_or_screen_reader": "not_run; browser ARIA evidence only"
+}
