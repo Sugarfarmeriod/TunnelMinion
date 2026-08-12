@@ -83,6 +83,7 @@
 - [x] 8.4 React 默认入口发布时，以自动防删除契约保证原四页路径及 `/legacy/*` 别名在首发和紧随其后的版本继续存在，并演练只恢复默认 `/` 映射的回退；实际删除另建 change
 - [ ] 8.5 执行真实 A/B：总览、聊天、peer、审批、记忆和模型/Coordinator/peer 降级；不修改客户防火墙、WireGuard、路由、模型、秘密或自启动
 - [x] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
-- [ ] 8.7 最终发布前再次只读核对自部署 Penpot 的 `主图 A/B/C` 与 `TunnelMinion 架构总图`，确认页面名/ID、最后核对日期、当前/历史标记、导出结果和仓库主图/摘要链接；仅由 integration owner 在归属明确时按需更新，不猜测 URL，Figma 仅标注历史且不影响合并
+- [x] 8.7 最终发布前再次只读核对自部署 Penpot 的 `主图 A/B/C` 与 `TunnelMinion 架构总图`，确认页面名/ID、最后核对日期、当前/历史标记、导出结果和仓库主图/摘要链接；仅由 integration owner 在归属明确时按需更新，不猜测 URL，Figma 仅标注历史且不影响合并
+  - 证据（2026-08-12 第二次只读核对）：Penpot 页面清单仍包含 `TunnelMinion 架构总图`（`0efd9b42-439e-81c1-8008-783cf6466603`）及当前 `主图 A/B/C`（`3a9efb1a-235c-80d9-8008-7842023907bb`、`3a9efb1a-235c-80d9-8008-784202398c77`、`3a9efb1a-235c-80d9-8008-78420239cfc3`）；三张主图对应 board ID 仍为 `3a9efb1a-235c-80d9-8008-78424c387137`、`3a9efb1a-235c-80d9-8008-784296a69eec`、`3a9efb1a-235c-80d9-8008-7842e73658dd`，只读 PNG 导出成功（410600、379172、564948 bytes）。仓库 Mermaid/SVG/摘要证据仍通过离线校验；未修改外部 Penpot 图纸、未猜测 URL，Figma 仅为历史 provenance。
 - [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、Penpot 页面/导出证据与 OpenSpec strict 门禁，确认离线 SVG/摘要可审计，提交推送并创建最终 PR；Figma/FigJam 不再作为当前门禁
 - [ ] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
