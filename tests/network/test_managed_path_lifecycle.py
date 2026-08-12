@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -10,7 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 from tests.agent.test_network_sync import NOW, signed
-from tests.network.factories import NETWORK_ID, NODE_A, observation, ownership
+from tests.network.control_harness import (
+    NetworkOperationPolicy,
+    SQLiteNetworkAuthorizationRepository,
+)
+from tests.network.factories import NETWORK_ID, NODE_A, NODE_B, observation, ownership
 
 from tunnelminion.domain.identifiers import AuthorizationId
 from tunnelminion.network.contracts import (
@@ -35,13 +40,14 @@ from tunnelminion.network.governance import (
     LifecycleInjectedCrash,
     ManagedPathLifecycle,
     ManagedPathLifecycleError,
+    NetworkApplyClaimConflictError,
+    NetworkAuthorizationConflictError,
     NetworkAuthorizationGrant,
     NetworkAuthorizationScope,
     NetworkAuthorizationStorageError,
     NetworkGovernancePhase,
     NetworkGovernanceRecord,
     NetworkJournalEntry,
-    NetworkOperationPolicy,
     NetworkPathStatus,
     NetworkPolicyAction,
     NetworkPolicyDecision,
@@ -99,8 +105,17 @@ class FakePathVerifier:
         if self.error is not None:
             raise self.error
         assert self.result is not None
-        return self.result.model_copy(
-            update={"revision": plan.desired.revision, "observed_at": now}
+        return DirectPathEvidence.model_validate(
+            {
+                **self.result.model_dump(mode="python"),
+                "network_id": plan.desired.network_id,
+                "node_id": plan.desired.target_node_id,
+                "plan_hash": plan.plan_hash,
+                "authorization_revision": plan.desired.revision,
+                "revision": plan.desired.revision,
+                "observed_at": now,
+                "expires_at": now + timedelta(seconds=self.result.freshness_ttl_seconds),
+            }
         )
 
 
@@ -125,11 +140,20 @@ class FakePathController:
         self.calls += 1
         if self.error is not None:
             raise self.error
-        self._selection = self._selection.model_copy(
-            update={
+        self._selection = PathSelection.model_validate(
+            {
+                **self._selection.model_dump(mode="python"),
+                "network_id": evidence.network_id,
+                "node_id": evidence.node_id,
+                "plan_hash": evidence.plan_hash,
+                "authorization_revision": evidence.authorization_revision,
                 "provider": evidence.provider,
                 "revision": evidence.revision,
                 "path_type": NetworkPathType.DIRECT if evidence.verified else fallback,
+                "target_host_hash": evidence.target_host_hash,
+                "target_port": evidence.target_port,
+                "route_identity_hash": evidence.route_identity_hash,
+                "expires_at": evidence.expires_at,
                 "last_evidence_at": evidence.observed_at,
                 "stable_error_code": evidence.stable_error_code,
             }
@@ -160,6 +184,62 @@ class VerifyThenRollbackFailureProvider(InMemoryNetworkProvider):
         result = await super().verify(plan)
         self.behavior = FakeProviderBehavior.ROLLBACK_FAILURE
         return result
+
+
+class MismatchedReceiptProvider(InMemoryNetworkProvider):
+    """返回字段自洽但不绑定当前 lifecycle 的 fake receipt。"""
+
+    async def apply(
+        self,
+        plan: NetworkPlan,
+        *,
+        idempotency_key: str,
+        cancellation: ToolCancellationToken,
+    ) -> ProviderReceipt:
+        receipt = await super().apply(
+            plan,
+            idempotency_key=idempotency_key,
+            cancellation=cancellation,
+        )
+        return ProviderReceipt.model_validate(
+            {
+                **receipt.model_dump(mode="python"),
+                "idempotency_key": f"netop_{'f' * 64}",
+            }
+        )
+
+
+class MismatchedVerificationProvider(InMemoryNetworkProvider):
+    """返回字段自洽但 plan hash 不同的 fake verification。"""
+
+    async def verify(self, plan: NetworkPlan) -> VerificationResult:
+        verification = await super().verify(plan)
+        return VerificationResult.model_validate(
+            {
+                **verification.model_dump(mode="python"),
+                "plan_hash": f"sha256:{'f' * 64}",
+            }
+        )
+
+
+class MismatchedRecoveryReceiptProvider(InMemoryNetworkProvider):
+    """恢复查询返回错误 idempotency 绑定的 fake receipt。"""
+
+    async def recover(
+        self,
+        *,
+        cancellation: ToolCancellationToken,
+    ) -> tuple[ProviderReceipt, ...]:
+        receipts = await super().recover(cancellation=cancellation)
+        return tuple(
+            ProviderReceipt.model_validate(
+                {
+                    **receipt.model_dump(mode="python"),
+                    "idempotency_key": f"netop_{'e' * 64}",
+                }
+            )
+            for receipt in receipts
+        )
 
 
 class StorageFailurePolicy(NetworkOperationPolicy):
@@ -385,10 +465,21 @@ class CountingLedger:
     def __init__(self, entry: object | None = None) -> None:
         self.calls = 0
         self.entry = entry
+        self.keys: list[tuple[object, object]] = []
 
     def get(self, network_id: object, node_id: object) -> object | None:
         self.calls += 1
+        self.keys.append((network_id, node_id))
         return self.entry
+
+
+def create_recovery_ledger() -> CountingLedger:
+    """构造已知受管资源账本，供 CREATE 崩溃恢复 fake 使用。"""
+    return CountingLedger(
+        SimpleNamespace(
+            ownership=ownership(observation(ownership_state=OwnershipState.MANAGED_OWNED))
+        )
+    )
 
 
 def path_evidence(
@@ -399,8 +490,15 @@ def path_evidence(
     """构造不含 endpoint 正文的四维 fake evidence。"""
     failed = error is not None or not verified
     return DirectPathEvidence(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        plan_hash=f"sha256:{'a' * 64}",
+        authorization_revision=1,
         provider=ProviderKind.WINDOWS,
         revision=1,
+        target_host_hash=f"sha256:{'b' * 64}",
+        target_port=51820,
+        route_identity_hash=f"sha256:{'c' * 64}",
         candidate_count=1,
         selected_candidate_hash=f"sha256:{'a' * 64}" if not failed else None,
         endpoint_probe_at=NOW,
@@ -416,6 +514,7 @@ def path_evidence(
         stable_error_code=None if verified else (error or DirectPathErrorCode.TARGET_UNREACHABLE),
         source="fake",
         observed_at=NOW,
+        expires_at=NOW + timedelta(seconds=180),
     )
 
 
@@ -464,6 +563,7 @@ def build(
     crash_after: LifecycleCrashBoundary | None = None,
     commit_last_known_good: Callable[[object], object] | None = None,
     clock: Callable[[], datetime] | None = None,
+    apply_lease_seconds: int = 30,
 ) -> tuple[
     ManagedPathLifecycle,
     NetworkOperationPolicy,
@@ -486,7 +586,15 @@ def build(
     )
     provider = provider_override or provider_type(observation(), behavior=behavior)
     policy = policy or NetworkOperationPolicy()
-    store = SQLiteNetworkGovernanceStore(tmp_path / "governance.sqlite3")
+    database = tmp_path / "governance.sqlite3"
+    repository = SQLiteNetworkAuthorizationRepository(database)
+    store = SQLiteNetworkGovernanceStore(
+        database,
+        authorization_repository=repository,
+    )
+    attach_writer = getattr(policy, "attach_writer", None)
+    if callable(attach_writer):
+        attach_writer(repository)
     lifecycle = ManagedPathLifecycle(
         provider,
         policy,
@@ -499,6 +607,7 @@ def build(
         clock=clock or (lambda: NOW),
         commit_last_known_good=commit_last_known_good,
         crash_after=crash_after,
+        apply_lease_seconds=apply_lease_seconds,
     )
     return (
         lifecycle,
@@ -524,7 +633,7 @@ async def authorize(
     pending = await lifecycle.reconcile(envelope, action=action, ownership=None)
     assert pending.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
     assert provider.apply_calls == 0
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     return await lifecycle.reconcile(envelope, action=action, ownership=None)
 
 
@@ -625,6 +734,52 @@ async def test_provider_failure_matrix_is_explicit(
 
 
 @pytest.mark.anyio
+async def test_provider_receipt_and_verification_bindings_fail_closed_without_lkg(
+    tmp_path: Path,
+) -> None:
+    committed: list[object] = []
+    receipt_lifecycle, receipt_policy, receipt_provider, _, _, _, _, _ = build(
+        tmp_path / "receipt",
+        provider_override=MismatchedReceiptProvider(observation()),
+        commit_last_known_good=committed.append,
+    )
+    receipt_result = await authorize(receipt_lifecycle, receipt_policy, receipt_provider)
+    assert receipt_result.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+    assert receipt_result.stable_error_code == NetworkErrorCode.JOURNAL_CONFLICT.value
+    assert receipt_result.last_known_good_revision is None
+    assert committed == []
+
+    verification_lifecycle, verification_policy, verification_provider, _, _, _, _, _ = build(
+        tmp_path / "verification",
+        provider_override=MismatchedVerificationProvider(observation()),
+        commit_last_known_good=committed.append,
+    )
+    verification_result = await authorize(
+        verification_lifecycle,
+        verification_policy,
+        verification_provider,
+    )
+    assert verification_result.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+    assert verification_result.stable_error_code == NetworkErrorCode.JOURNAL_CONFLICT.value
+    assert verification_result.last_known_good_revision is None
+    assert committed == []
+
+    recovery_provider = MismatchedRecoveryReceiptProvider(observation())
+    envelope, _, recovery_policy, recovery_provider, recovery_store = await crash_after_apply(
+        tmp_path / "recovery",
+        recovery_provider,
+    )
+    recovered = await recover_one(
+        envelope,
+        recovery_policy,
+        recovery_provider,
+        recovery_store,
+    )
+    assert recovered.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+    assert recovery_provider.apply_calls == 1
+
+
+@pytest.mark.anyio
 async def test_apply_is_zero_without_grant_and_recheck_blocks_revocation(tmp_path: Path) -> None:
     lifecycle, policy, provider, _, _, _, _, store = build(tmp_path)
     envelope, _ = signed()
@@ -633,12 +788,44 @@ async def test_apply_is_zero_without_grant_and_recheck_blocks_revocation(tmp_pat
     assert provider.apply_calls == 0
 
     grant = grant_for(pending)
-    policy.approve(grant, local_control=True)
-    policy.revoke(grant.authorization_id, revoked_at=NOW, local_control=True)
+    policy.approve(grant, capability=policy.local_control_capability())
+    policy.revoke(
+        grant.authorization_id,
+        revoked_at=NOW,
+        capability=policy.local_control_capability(),
+    )
     blocked = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert blocked.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
     assert provider.apply_calls == 0
     assert store.get(NETWORK_ID, NODE_A, 1) == blocked
+
+
+@pytest.mark.anyio
+async def test_revoke_injected_between_claim_and_assert_blocks_provider_apply(
+    tmp_path: Path,
+) -> None:
+    lifecycle, policy, provider, _, _, _, _, store = build(tmp_path / "claim-revoke")
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    grant = grant_for(pending)
+    policy.approve(grant, capability=policy.local_control_capability())
+    other = SQLiteNetworkAuthorizationRepository(tmp_path / "claim-revoke" / "governance.sqlite3")
+    original_assert = store.assert_apply_claim
+
+    def revoke_before_assert(claim: object, *, now: datetime) -> None:
+        other.revoke(
+            grant.authorization_id,
+            revoked_at=NOW,
+            capability=other.authorization_capability(),
+        )
+        original_assert(claim, now=now)  # type: ignore[arg-type]
+
+    store.assert_apply_claim = revoke_before_assert  # type: ignore[method-assign]
+    result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    assert result.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+    assert result.stable_error_code == NetworkErrorCode.CLAIM_CONFLICT.value
+    assert provider.apply_calls == 0
+    other.close()
 
 
 @pytest.mark.anyio
@@ -665,7 +852,7 @@ async def test_authorization_storage_failures_remain_pending_and_never_apply(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    retry_policy.approve(grant_for(pending), local_control=True)
+    retry_policy.approve(grant_for(pending), capability=retry_policy.local_control_capability())
     blocked = await retry_lifecycle.reconcile(
         envelope,
         action=NetworkAction.CREATE,
@@ -684,7 +871,9 @@ async def test_authorization_storage_failures_remain_pending_and_never_apply(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    mismatch_policy.approve(grant_for(mismatch_pending), local_control=True)
+    mismatch_policy.approve(
+        grant_for(mismatch_pending), capability=mismatch_policy.local_control_capability()
+    )
     mismatched = await mismatch_lifecycle.reconcile(
         envelope,
         action=NetworkAction.CREATE,
@@ -699,7 +888,7 @@ async def test_concurrency_and_cancel_safe_point_do_not_duplicate_apply(tmp_path
     lifecycle, policy, provider, _, _, _, _, _ = build(tmp_path)
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     gate = asyncio.Event()
     original = provider.apply
 
@@ -732,7 +921,9 @@ async def test_concurrency_and_cancel_safe_point_do_not_duplicate_apply(tmp_path
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    cancelled_policy.approve(grant_for(cancelled_pending), local_control=True)
+    cancelled_policy.approve(
+        grant_for(cancelled_pending), capability=cancelled_policy.local_control_capability()
+    )
     token = ToolCancellationToken()
     token.cancel()
     cancelled = await cancelled_lifecycle.reconcile(
@@ -746,6 +937,144 @@ async def test_concurrency_and_cancel_safe_point_do_not_duplicate_apply(tmp_path
 
 
 @pytest.mark.anyio
+async def test_two_lifecycles_shared_sqlite_claim_have_one_provider_apply(
+    tmp_path: Path,
+) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    database = tmp_path / "shared-lifecycle.sqlite3"
+    first_policy = NetworkOperationPolicy()
+    first_repository = SQLiteNetworkAuthorizationRepository(database)
+    first_store = SQLiteNetworkGovernanceStore(
+        database,
+        authorization_repository=first_repository,
+    )
+    first_policy.attach_writer(first_repository)
+    first = ManagedPathLifecycle(
+        provider,
+        first_policy,
+        first_store,
+        MemoryAcknowledgements([]),
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+    )
+    pending = await first.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    grant = grant_for(pending)
+    first_policy.approve(
+        grant,
+        capability=first_policy.local_control_capability(),
+    )
+
+    second_policy = NetworkOperationPolicy()
+    second_repository = SQLiteNetworkAuthorizationRepository(database)
+    second_store = SQLiteNetworkGovernanceStore(
+        database,
+        authorization_repository=second_repository,
+    )
+    second_policy.attach_writer(second_repository)
+    second = ManagedPathLifecycle(
+        provider,
+        second_policy,
+        second_store,
+        MemoryAcknowledgements([]),
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+    )
+    gate = asyncio.Event()
+    started = asyncio.Event()
+    original_apply = provider.apply
+
+    async def blocked_apply(
+        plan: NetworkPlan,
+        *,
+        idempotency_key: str,
+        cancellation: ToolCancellationToken,
+    ) -> ProviderReceipt:
+        started.set()
+        await gate.wait()
+        return await original_apply(
+            plan,
+            idempotency_key=idempotency_key,
+            cancellation=cancellation,
+        )
+
+    provider.apply = blocked_apply  # type: ignore[method-assign]
+    first_task = asyncio.create_task(
+        first.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    )
+    await started.wait()
+    with pytest.raises(NetworkApplyClaimConflictError, match="活动 apply claim"):
+        second_repository.revoke(
+            grant.authorization_id,
+            revoked_at=NOW + timedelta(seconds=1),
+            capability=second_repository.authorization_capability(),
+        )
+    second_result = await second.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    assert second_result.phase is NetworkGovernancePhase.APPLYING
+    assert provider.apply_calls == 0
+    gate.set()
+    first_result = await first_task
+    assert first_result.phase is NetworkGovernancePhase.VERIFIED
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
+async def test_renewal_conflict_during_long_apply_forces_recovery_without_lkg(
+    tmp_path: Path,
+) -> None:
+    committed: list[object] = []
+    lifecycle, policy, provider, _, _, _, _, store = build(
+        tmp_path,
+        commit_last_known_good=committed.append,
+        apply_lease_seconds=1,
+    )
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_apply = provider.apply
+
+    async def long_apply(
+        plan: NetworkPlan,
+        *,
+        idempotency_key: str,
+        cancellation: ToolCancellationToken,
+    ) -> ProviderReceipt:
+        started.set()
+        await release.wait()
+        return await original_apply(
+            plan,
+            idempotency_key=idempotency_key,
+            cancellation=cancellation,
+        )
+
+    provider.apply = long_apply  # type: ignore[method-assign]
+
+    def conflicting_renewal(*args: object, **kwargs: object) -> object:
+        raise NetworkApplyClaimConflictError("fake grant version conflict")
+
+    store.renew_apply_claim = conflicting_renewal  # type: ignore[method-assign]
+    task = asyncio.create_task(
+        lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    )
+    await started.wait()
+    await asyncio.sleep(0.45)
+    release.set()
+    result = await task
+    assert result.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+    assert result.last_known_good_revision is None
+    assert committed == []
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
 async def test_uncertain_apply_and_rollback_cancellation_are_not_replayed(tmp_path: Path) -> None:
     cancelling_provider = CancelApplyProvider(observation())
     lifecycle, policy, provider, _, _, _, _, _ = build(
@@ -754,7 +1083,7 @@ async def test_uncertain_apply_and_rollback_cancellation_are_not_replayed(tmp_pa
     )
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     with pytest.raises(asyncio.CancelledError):
         await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert provider.apply_calls == 1
@@ -769,7 +1098,9 @@ async def test_uncertain_apply_and_rollback_cancellation_are_not_replayed(tmp_pa
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    rollback_policy.approve(grant_for(rollback_pending), local_control=True)
+    rollback_policy.approve(
+        grant_for(rollback_pending), capability=rollback_policy.local_control_capability()
+    )
     with pytest.raises(asyncio.CancelledError):
         await rollback_lifecycle.reconcile(
             envelope,
@@ -794,10 +1125,14 @@ async def test_crash_boundaries_recover_without_replaying_apply(
     tmp_path: Path,
     boundary: LifecycleCrashBoundary,
 ) -> None:
-    lifecycle, policy, provider, ack, sink, _, _, store = build(tmp_path)
+    recovery_ledger = create_recovery_ledger()
+    lifecycle, policy, provider, ack, sink, _, _, store = build(
+        tmp_path,
+        ledger=recovery_ledger,
+    )
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     # 重建对象共享同一 SQLite、授权事实、Provider 与 fake sinks。
     crashing = ManagedPathLifecycle(
         provider,
@@ -809,6 +1144,7 @@ async def test_crash_boundaries_recover_without_replaying_apply(
         path_status_sink=sink,
         clock=lambda: NOW,
         crash_after=boundary,
+        ledger=recovery_ledger,
     )
     with pytest.raises(LifecycleInjectedCrash):
         await crashing.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
@@ -822,6 +1158,7 @@ async def test_crash_boundaries_recover_without_replaying_apply(
         path_controller=controller(),
         path_status_sink=sink,
         clock=lambda: NOW,
+        ledger=recovery_ledger,
     )
     recovered = await recovered_lifecycle.recover()
     assert provider.apply_calls == calls_before
@@ -833,15 +1170,19 @@ async def test_crash_boundaries_recover_without_replaying_apply(
             action=NetworkAction.CREATE,
             ownership=None,
         )
-        assert held.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
+        assert held.phase is NetworkGovernancePhase.MANUAL_INTERVENTION
 
 
 @pytest.mark.anyio
 async def test_reconcile_existing_incomplete_journal_uses_recovery_path(tmp_path: Path) -> None:
-    lifecycle, policy, provider, ack, sink, _, _, store = build(tmp_path)
+    recovery_ledger = create_recovery_ledger()
+    lifecycle, policy, provider, ack, sink, _, _, store = build(
+        tmp_path,
+        ledger=recovery_ledger,
+    )
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     crashing = ManagedPathLifecycle(
         provider,
         policy,
@@ -852,6 +1193,7 @@ async def test_reconcile_existing_incomplete_journal_uses_recovery_path(tmp_path
         path_status_sink=sink,
         clock=lambda: NOW,
         crash_after=LifecycleCrashBoundary.APPLY,
+        ledger=recovery_ledger,
     )
     with pytest.raises(LifecycleInjectedCrash):
         await crashing.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
@@ -865,6 +1207,7 @@ async def test_reconcile_existing_incomplete_journal_uses_recovery_path(tmp_path
         path_controller=controller(),
         path_status_sink=sink,
         clock=lambda: NOW,
+        ledger=recovery_ledger,
     ).reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert provider.apply_calls == calls_before
     assert recovered.phase in {
@@ -882,15 +1225,20 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
         tmp_path,
     )
     sink.fail = True
-    result = await authorize(lifecycle, policy, provider)
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert result.phase is NetworkGovernancePhase.VERIFIED
     assert result.path_status_delivered is False
+    assert result.stable_error_code == "path_sink_failed"
     assert provider.apply_calls == 1
     assert acknowledgements.items
 
     sink.fail = False
-    retried = await lifecycle.reconcile(signed()[0], action=NetworkAction.CREATE, ownership=None)
+    retried = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert retried.phase is NetworkGovernancePhase.VERIFIED
+    assert retried.stable_error_code is None
     assert provider.apply_calls == 1
 
     controller_fake = controller()
@@ -915,7 +1263,7 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
     )
     assert controller_result.phase is NetworkGovernancePhase.PATH_DEGRADED
     assert controller_provider.rollback_calls == 0
-    assert controller_sink.items[0][0].stable_error_code == "path_controller_failed"
+    assert controller_sink.items[0][0].stable_error_code == "path_unavailable"
 
     def checkpoint_failure(_: object) -> None:
         raise OSError("fake checkpoint unavailable")
@@ -941,7 +1289,7 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
     probe_result = await authorize(probe_lifecycle, probe_policy, probe_provider)
     assert probe_result.phase is NetworkGovernancePhase.PATH_DEGRADED
     assert probe_provider.rollback_calls == 0
-    assert probe_sink.items[0][0].stable_error_code == "path_probe_failed"
+    assert probe_sink.items[0][0].stable_error_code == "timeout"
     retried_probe = await probe_lifecycle._verify_path(  # type: ignore[reportPrivateUsage]
         probe_result
     )
@@ -953,18 +1301,19 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
             verifier=CancelledPathVerifier(),
         )
     )
+    cancelled_probe_envelope, _ = signed()
     cancelled_probe_pending = await cancelled_probe_lifecycle.reconcile(
-        signed()[0],
+        cancelled_probe_envelope,
         action=NetworkAction.CREATE,
         ownership=None,
     )
     cancelled_probe_policy.approve(
         grant_for(cancelled_probe_pending),
-        local_control=True,
+        capability=cancelled_probe_policy.local_control_capability(),
     )
     with pytest.raises(asyncio.CancelledError):
         await cancelled_probe_lifecycle.reconcile(
-            signed()[0],
+            cancelled_probe_envelope,
             action=NetworkAction.CREATE,
             ownership=None,
         )
@@ -990,7 +1339,7 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
     broken_result = await authorize(broken_lifecycle, broken_policy, broken_provider)
     assert broken_result.phase is NetworkGovernancePhase.PATH_DEGRADED
     assert broken_result.path_selection is None
-    assert broken_sink.items[0][0].stable_error_code == "path_controller_failed"
+    assert broken_sink.items[0][0].stable_error_code == "path_unavailable"
 
     cancelled_controller = controller()
     cancelled_controller.error = asyncio.CancelledError()
@@ -998,15 +1347,18 @@ async def test_independent_probe_controller_checkpoint_and_sink_failures_are_loc
         tmp_path / "controller-cancel",
         path_controller=cancelled_controller,
     )
+    cancelled_controller_envelope, _ = signed()
     cancelled_pending = await cancelled_lifecycle.reconcile(
-        signed()[0],
+        cancelled_controller_envelope,
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    cancelled_policy.approve(grant_for(cancelled_pending), local_control=True)
+    cancelled_policy.approve(
+        grant_for(cancelled_pending), capability=cancelled_policy.local_control_capability()
+    )
     with pytest.raises(asyncio.CancelledError):
         await cancelled_lifecycle.reconcile(
-            signed()[0],
+            cancelled_controller_envelope,
             action=NetworkAction.CREATE,
             ownership=None,
         )
@@ -1034,17 +1386,24 @@ async def test_ack_failure_prevents_path_publish_but_retry_never_applies_again(
         path_sink=sink,
     )
     ack.fail = True
-    result = await authorize(lifecycle, policy, provider)
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert result.phase is NetworkGovernancePhase.VERIFIED
     assert result.last_known_good_revision == 1
+    assert result.stable_error_code == "ack_sink_failed"
     assert order == ["ack", "ack"]
     assert not sink.items
 
     ack.fail = False
-    retried = await lifecycle.reconcile(signed()[0], action=NetworkAction.CREATE, ownership=None)
+    retried = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert retried.phase is NetworkGovernancePhase.VERIFIED
+    assert retried.stable_error_code is None
     assert provider.apply_calls == 1
     assert order == ["ack", "ack", "ack", "path"]
+    assert ack.items[-1].idempotency_key == retried.idempotency_key
+    assert sink.items[0][1] == retried.idempotency_key
 
 
 @pytest.mark.anyio
@@ -1055,7 +1414,7 @@ async def test_ownership_ledger_is_read_during_recovery_and_no_secret_is_journal
     lifecycle, policy, provider, _, _, _, _, store = build(tmp_path, ledger=ledger)
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     crashing = ManagedPathLifecycle(
         provider,
         policy,
@@ -1090,16 +1449,83 @@ async def test_ownership_ledger_is_read_during_recovery_and_no_secret_is_journal
 
 
 @pytest.mark.anyio
+async def test_create_recovery_without_ledger_is_manual_before_live_provider_read(
+    tmp_path: Path,
+) -> None:
+    _, _, policy, provider, store = await crash_after_apply(
+        tmp_path,
+        InMemoryNetworkProvider(observation()),
+    )
+    observe_calls_before_recovery = provider.observe_calls
+    recovered = await ManagedPathLifecycle(
+        provider,
+        policy,
+        store,
+        None,
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+    ).recover()
+    assert recovered[0].phase is NetworkGovernancePhase.MANUAL_INTERVENTION
+    assert provider.observe_calls == observe_calls_before_recovery
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
+async def test_recovery_ledger_lookup_is_bound_to_record_network_and_node(
+    tmp_path: Path,
+) -> None:
+    provider = InMemoryNetworkProvider(observation())
+    lifecycle, policy, _, _, _, _, _, store = build(
+        tmp_path,
+        provider_override=provider,
+    )
+    envelope, _ = signed(target_node_id=NODE_B)
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    crashing = ManagedPathLifecycle(
+        provider,
+        policy,
+        store,
+        None,
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+        crash_after=LifecycleCrashBoundary.APPLY,
+    )
+    with pytest.raises(LifecycleInjectedCrash):
+        await crashing.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    before_observe = provider.observe_calls
+    wrong_node_ledger = create_recovery_ledger()
+    recovered = await ManagedPathLifecycle(
+        provider,
+        policy,
+        store,
+        None,
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+        ledger=wrong_node_ledger,
+    ).recover()
+    assert recovered[0].phase is NetworkGovernancePhase.MANUAL_INTERVENTION
+    assert wrong_node_ledger.keys == [(NETWORK_ID, NODE_B)]
+    assert provider.observe_calls == before_observe
+    assert provider.apply_calls == 1
+
+
+@pytest.mark.anyio
 async def test_provider_response_loss_is_recovered_by_query_not_apply_replay(
     tmp_path: Path,
 ) -> None:
+    recovery_ledger = create_recovery_ledger()
     lifecycle, policy, provider, _, _, _, _, store = build(
         tmp_path,
         behavior=FakeProviderBehavior.RESPONSE_LOST,
+        ledger=recovery_ledger,
     )
     envelope, _ = signed()
     pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    policy.approve(grant_for(pending), local_control=True)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     with pytest.raises(TimeoutError):
         await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     calls_before = provider.apply_calls
@@ -1111,6 +1537,7 @@ async def test_provider_response_loss_is_recovered_by_query_not_apply_replay(
         path_verifier=FakePathVerifier(path_evidence()),
         path_controller=controller(),
         clock=lambda: NOW,
+        ledger=recovery_ledger,
     ).recover()
     assert provider.apply_calls == calls_before
     assert recovered
@@ -1148,7 +1575,7 @@ async def crash_after_apply(
     )
     assert pending.phase is NetworkGovernancePhase.AWAITING_AUTHORIZATION
     grant = grant_for(pending)
-    policy.approve(grant, local_control=True)
+    policy.approve(grant, capability=policy.local_control_capability())
     crashing = ManagedPathLifecycle(
         actual_provider,
         policy,
@@ -1173,6 +1600,10 @@ async def recover_one(
     *,
     ledger: CountingLedger | None = None,
 ) -> NetworkGovernanceRecord:
+    if ledger is None:
+        saved = store.get(NETWORK_ID, NODE_A, 1)
+        if saved is not None and saved.plan.action is NetworkAction.CREATE:
+            ledger = create_recovery_ledger()
     lifecycle = ManagedPathLifecycle(
         provider,
         policy,
@@ -1190,11 +1621,10 @@ async def recover_one(
 
 @pytest.mark.anyio
 async def test_fresh_preapproved_path_and_apply_cancellation_safe_point(tmp_path: Path) -> None:
-    lifecycle, _, provider, _, _, _, _, _ = build(
-        tmp_path / "preapproved",
-        policy=AlwaysAuthorizedPolicy(),
-    )
+    lifecycle, policy, provider, _, _, _, _, _ = build(tmp_path / "preapproved")
     envelope, _ = signed(revision=2, parent_revision=1)
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     assert result.phase is NetworkGovernancePhase.VERIFIED
     assert provider.apply_calls == 1
@@ -1209,7 +1639,7 @@ async def test_fresh_preapproved_path_and_apply_cancellation_safe_point(tmp_path
         ownership=None,
     )
     grant = grant_for(pending)
-    pending_policy.approve(grant, local_control=True)
+    pending_policy.approve(grant, capability=pending_policy.local_control_capability())
     authorized = pending_lifecycle._journal(  # type: ignore[reportPrivateUsage]
         pending,
         NetworkGovernancePhase.AUTHORIZED,
@@ -1327,7 +1757,11 @@ async def test_recovery_matrix_checks_auth_live_state_and_never_replays_apply(
         tmp_path / "revoked",
         revoked_provider,
     )
-    policy.revoke(grant.authorization_id, revoked_at=NOW, local_control=True)
+    policy.revoke(
+        grant.authorization_id,
+        revoked_at=NOW,
+        capability=policy.local_control_capability(),
+    )
     recovered = await recover_one(envelope, policy, provider, store)
     assert recovered.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
     held = await ManagedPathLifecycle(
@@ -1396,13 +1830,37 @@ async def test_recovery_reads_non_create_ledger_and_detects_ownership_mismatch(
 
 @pytest.mark.anyio
 async def test_record_validator_store_boundary_and_clock_are_fail_closed(tmp_path: Path) -> None:
-    lifecycle, _, _, _, _, _, _, store = build(
-        tmp_path / "validator",
-        policy=AlwaysAuthorizedPolicy(),
-    )
+    lifecycle, policy, _, _, _, _, _, store = build(tmp_path / "validator")
     envelope, _ = signed(revision=2, parent_revision=1)
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
     result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     base = result.model_dump(mode="json")
+
+    with sqlite3.connect(store.path) as connection:
+        stored_payload = str(
+            connection.execute(
+                "SELECT payload FROM network_governance "
+                "WHERE network_id=? AND node_id=? AND revision=?",
+                (str(NETWORK_ID), str(NODE_A), 2),
+            ).fetchone()[0]
+        ).lower()
+    assert '"signature"' not in stored_payload
+    assert '"endpoint"' not in stored_payload
+    assert '"allowed_host_routes"' not in stored_payload
+    assert '"peers"' not in stored_payload
+    assert envelope.signature.lower() not in stored_payload
+    assert envelope.config.interface_name.lower() not in stored_payload
+
+    conflicting_envelope, _ = signed(revision=2, parent_revision=1)
+    conflicting_record = NetworkGovernanceRecord.model_validate(
+        {
+            **result.model_dump(mode="python"),
+            "envelope": conflicting_envelope,
+        }
+    )
+    with pytest.raises(NetworkAuthorizationConflictError, match="同一 revision"):
+        store.put(conflicting_record)
 
     naive = result.model_dump(mode="json")
     naive["updated_at"] = NOW.replace(tzinfo=None).isoformat()
@@ -1457,10 +1915,60 @@ async def test_record_validator_store_boundary_and_clock_are_fail_closed(tmp_pat
         await bad_clock.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
 
 
+@pytest.mark.anyio
+async def test_journal_compacts_at_128_with_hash_chain_and_restarts_from_provider_journal(
+    tmp_path: Path,
+) -> None:
+    lifecycle, policy, provider, _, _, _, _, _ = build(tmp_path / "journal")
+    envelope, _ = signed()
+    pending = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    policy.approve(grant_for(pending), capability=policy.local_control_capability())
+    result = await lifecycle.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
+    for _ in range(130):
+        result = lifecycle._journal(  # type: ignore[reportPrivateUsage]
+            result,
+            NetworkGovernancePhase.ACKNOWLEDGING,
+        )
+    assert len(result.journal) == 128
+    assert result.journal_start_sequence > 0
+    assert result.journal[0].sequence == result.journal_start_sequence
+    assert result.journal[0].previous_hash == result.journal_previous_hash
+
+    journal_database = tmp_path / "journal" / "governance.sqlite3"
+    reloaded_policy = NetworkOperationPolicy()
+    reloaded_repository = SQLiteNetworkAuthorizationRepository(journal_database)
+    reloaded_store = SQLiteNetworkGovernanceStore(
+        journal_database,
+        authorization_repository=reloaded_repository,
+    )
+    reloaded_policy.attach_writer(reloaded_repository)
+    reloaded_lifecycle = ManagedPathLifecycle(
+        provider,
+        reloaded_policy,
+        reloaded_store,
+        None,
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        clock=lambda: NOW,
+    )
+    restored = reloaded_store.get(NETWORK_ID, NODE_A, 1)
+    assert restored is not None
+    assert len(restored.journal) == 128
+    assert restored.journal[-1].entry_hash == result.journal[-1].entry_hash
+    assert reloaded_lifecycle is not None
+
+    tampered_payload = result.model_dump(mode="json")
+    tampered_payload["journal"][-1]["stable_error_code"] = "tampered"
+    with pytest.raises(ValueError):
+        NetworkGovernanceRecord.model_validate(tampered_payload)
+
+
 def test_lifecycle_contract_rejects_non_utc_journal_time() -> None:
     with pytest.raises(ValueError, match="UTC"):
         NetworkJournalEntry(
             sequence=0,
+            previous_hash=f"sha256:{'0' * 64}",
+            entry_hash=f"sha256:{'0' * 64}",
             phase=NetworkGovernancePhase.PLANNING,
             idempotency_key=f"netop_{'a' * 64}",
             plan_hash=f"sha256:{'b' * 64}",

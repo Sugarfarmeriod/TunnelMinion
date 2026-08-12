@@ -47,17 +47,17 @@
 ## 3. fake Provider 下的完整治理生命周期
 
 - [x] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
-  - 证据：`ManagedPathLifecycle.reconcile` 串联授权、observe、plan、recheck、apply、Provider verify、path verify/controller 与 sinks；全量测试和 `tests/network/test_managed_path_lifecycle.py` 已验证顺序。
+  - 证据：`ManagedPathLifecycle.reconcile` 串联授权、observe、plan、recheck、apply、Provider verify、path verify/controller 与 sinks；网络定向 `234 passed, 4 skipped`，全量测试通过。
 - [x] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
-  - 证据：固定 `netop_` 幂等键、SQLite journal、单写者锁、取消安全点、LKG 条件以及 ack 先于 path status；生命周期顺序与重复 apply 测试通过。
+  - 证据：固定 `netop_` 幂等键、SQLite journal、单写者锁、fencing/lease 续租与取消安全点、LKG 条件以及 ack 先于 path status；网络定向覆盖重复 apply、revoke/claim 冲突、response-lost 和长 apply 恢复。
 - [x] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
-  - 证据：fake 矩阵覆盖授权成功、apply success、`VERIFY_FAILURE`、path failure、`STEP_FAILURE`、rollback failure、ownership conflict 和 manual intervention。
+  - 证据：隔离 fake 矩阵覆盖授权成功、apply success、`VERIFY_FAILURE`、path failure、`STEP_FAILURE`、rollback failure、ownership conflict 和 `manual_intervention`；无有效 L3 grant、普通 refresh 及伪造 capability 均断言 `Provider.apply=0`。
 - [x] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
-  - 证据：plan/apply/verify/ack 四个注入崩溃边界均先核对授权、journal、ledger 与实时状态恢复；恢复断言 `apply_calls` 不再增加。
+  - 证据：plan/apply/verify/ack 四个注入崩溃边界均先核对授权、journal、ledger 与实时状态恢复；恢复断言 `apply_calls` 不再增加，并覆盖不确定写结果只查询/恢复、缺失/冲突 ledger fail-closed。
 - [x] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
-  - 证据：授权存储、Provider、probe、controller、LKG checkpoint、ack/path sink 及 pull/verify/pending 同步域分别故障时保持 fail-closed、static/pending/LKG 与只读边界。
+  - 证据：授权存储、Provider、probe、controller、LKG checkpoint、ack/path sink 及 pull/verify/pending 同步域分别故障时保持 fail-closed、static/pending/LKG 与只读边界；路径证据严格绑定 network/node/provider/revision/plan/target/TTL。
 - [x] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
-  - 证据：Ruff format/check、Pyright strict、全量 `pytest`（936 passed、5 skipped、100% statement+branch）、限定范围秘密/debug 扫描及 OpenSpec strict 均通过；本阶段仅使用隔离 fake，未宣称真实 Provider/A/B 完成。
+  - 证据：Ruff format/check、Pyright strict、全量 `pytest`（999 passed、5 skipped、0 failed，`15873/15873` statement、`3330/3330` branch、0 partial）、网络定向（234 passed、4 skipped）、限定范围秘密/debug/UTF-8 扫描及 OpenSpec strict 均通过；本阶段仅使用隔离 fake，未宣称真实 Provider/A/B 完成。
 
 ## 4. 证据 TTL、刷新与真实状态投影
 
@@ -91,6 +91,6 @@
 - [ ] 7.1 只有阶段 1–6 门禁和双端隔离资源批准完成后，才用 Windows/macOS 常规入口执行真实 A/B authorization → lifecycle → selection/evidence → TTL stale → refresh recovery
 - [ ] 7.2 覆盖 Coordinator 离线、模型缺失、单端 probe 失败、sink 失败、重启恢复和 static fallback；证明本地只读功能与独立 Gateway 继续工作
 - [ ] 7.3 保存 A/B 证据 provenance 与前后不变性；专用脚本、旧归档证据、fake、PR #44 Coordinator/cache 或 stale UI 均不得替代本轮常规入口结果
-- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、FigJam 或 tasks；向 package change 只交付已合并常规入口能力
+- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、LPE 的 Penpot 外部图纸/图纸交付或 tasks；向 package change 只交付已合并常规入口能力
 - [ ] 7.5 运行全量质量、架构、安全、秘密、双平台真实门禁和 `openspec validate complete-managed-path-runtime --strict`，核对所有证据来自当前提交且未把降级成功计为生产成功
 - [ ] 7.6 检查最终 `git status`/diff/生成物/秘密与任务勾选范围，以 Conventional Commit 提交并普通 push，创建面向 `main` 的 Draft PR；合并后再同步主规格和归档 change
