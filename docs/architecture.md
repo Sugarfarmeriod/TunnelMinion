@@ -1,8 +1,23 @@
 # TunnelMinion 架构
 
 本文描述当前实现，而不是未来设想。面向项目所有者的非技术解释见
-[《从零理解 TunnelMinion》](guide/从零理解-tunnelminion.md)，可编辑的全景图与框架启用时机见
-[FigJam](https://www.figma.com/board/8KODvoNqXZsLCHKO0J4nbU)。
+[《从零理解 TunnelMinion》](guide/从零理解-tunnelminion.md)。当前可编辑的全景图与框架启用时机
+以自部署 Penpot 当前连接文件为准；本页同时链接仓库内可离线复核的 SVG 证据。
+
+## 图纸权威与离线证据
+
+- Penpot 是唯一可编辑的当前架构图源。已核验的总览入口是 `TunnelMinion 架构总图`；发布核对页是
+  `主图 A · 当前系统架构（2026-08-12）`、`主图 B · Runtime 生命周期（2026-08-12）` 和
+  `主图 C · 请求与操作审批流程（2026-08-12）`。
+- 本次只读现场的页面 ID 记录为：A `3a9efb1a-235c-80d9-8008-78424c387137`、B
+  `3a9efb1a-235c-80d9-8008-784296a69eec`、C `3a9efb1a-235c-80d9-8008-7842e73658dd`；三页均已于
+  2026-08-12 成功导出 PNG。ID 仅用于审计定位，不是猜测出来的 URL。
+- 当前 Penpot 连接器没有返回可确认的稳定公开深链，因此本文不伪造 Penpot 链接；打开自部署项目后按
+  上述页面名/ID 定位即可。仓库中的 [当前主架构图 SVG](assets/architecture/architecture-01.svg)、
+  [真实 A/B 路径图 SVG](assets/architecture/architecture-02.svg)、Mermaid 源和脱敏摘要/manifest
+  是可审计发布证据，不能反向替代 Penpot 的编辑权威。
+- 历史来源：[旧 Figma 架构图](https://www.figma.com/board/8KODvoNqXZsLCHKO0J4nbU)，仅作 provenance，
+  不作为当前图源、门禁或合并 blocker。
 
 ## 运行边界
 

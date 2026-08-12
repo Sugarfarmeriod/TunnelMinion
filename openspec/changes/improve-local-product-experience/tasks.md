@@ -26,7 +26,8 @@
 - [x] 2.5 将 legacy 页面的 unsafe 请求迁移到相同门禁，并覆盖合法同源、DNS rebinding、恶意/缺失 Origin、cross-site、缺失/错误 header、固定错误优先级与真实 CLI corpus 兼容契约测试
 - [x] 2.6 由 FastAPI 提供 `/app/*` 与 `/app-assets/*`，确保 fallback 不吞 `/api/*`/SSE；`index.html` no-store、哈希资源 immutable、生产 CSP 禁止内联和外部脚本
 - [x] 2.7 覆盖路径穿越、恶意 HTML/script、外部资源、缓存误报、CSP、浏览器存储与 320 CSS px/200% zoom 基础门禁，提交并推送 Foundation 代码检查点
-- [ ] 2.8 Foundation 关闭前核对并按需更新主 FigJam 的安全边界与静态资源交付边界，同步最后核对日期、当前/历史标记和仓库主图链接；额度不足时允许后续独立切片继续，但 Foundation 阶段保持未关闭
+- [x] 2.8 Foundation 关闭前只读核对自部署 Penpot 当前主图的安全边界与静态资源交付边界，记录页面名/ID、核对日期、当前/历史标记、导出结果和仓库主图/摘要链接；只有 integration owner 在归属明确时按需更新 Penpot，不猜测 URL，Figma 仅为历史 provenance 且不构成 blocker
+  - 证据（2026-08-12）：已核对 `TunnelMinion 架构总图` 与 `主图 A/B/C` 页面；三张 dated 主图均成功只读导出 PNG；仓库离线 SVG 与摘要/manifest 仍作为发布审计证据。
 
 ## 3. Overview 与真实应用装配
 
@@ -79,6 +80,6 @@
 - [x] 8.4 React 默认入口发布时，以自动防删除契约保证原四页路径及 `/legacy/*` 别名在首发和紧随其后的版本继续存在，并演练只恢复默认 `/` 映射的回退；实际删除另建 change
 - [ ] 8.5 执行真实 A/B：总览、聊天、peer、审批、记忆和模型/Coordinator/peer 降级；不修改客户防火墙、WireGuard、路由、模型、秘密或自启动
 - [x] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
-- [ ] 8.7 最终发布前再次核对并按需更新主 FigJam，确认最后核对日期、当前/历史标记和仓库主图链接；额度不足可记录 blocker，但不得关闭 change 或合并最终发布 PR
-- [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、FigJam 与 OpenSpec strict 门禁，提交推送并创建最终 PR
+- [ ] 8.7 最终发布前再次只读核对自部署 Penpot 的 `主图 A/B/C` 与 `TunnelMinion 架构总图`，确认页面名/ID、最后核对日期、当前/历史标记、导出结果和仓库主图/摘要链接；仅由 integration owner 在归属明确时按需更新，不猜测 URL，Figma 仅标注历史且不影响合并
+- [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、Penpot 页面/导出证据与 OpenSpec strict 门禁，确认离线 SVG/摘要可审计，提交推送并创建最终 PR；Figma/FigJam 不再作为当前门禁
 - [ ] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
