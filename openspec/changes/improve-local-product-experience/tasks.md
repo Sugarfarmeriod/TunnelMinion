@@ -25,7 +25,7 @@
 - [ ] 2.5 将 legacy 页面的 unsafe 请求迁移到相同门禁，并覆盖合法同源、DNS rebinding、恶意/缺失 Origin、cross-site、缺失/错误 header、固定错误优先级与真实 CLI corpus 兼容契约测试
 - [ ] 2.6 由 FastAPI 提供 `/app/*` 与 `/app-assets/*`，确保 fallback 不吞 `/api/*`/SSE；`index.html` no-store、哈希资源 immutable、生产 CSP 禁止内联和外部脚本
 - [ ] 2.7 覆盖路径穿越、恶意 HTML/script、外部资源、缓存误报、CSP、浏览器存储与 320 CSS px/200% zoom 基础门禁，提交并推送 Foundation 代码检查点
-- [ ] 2.8 Foundation 关闭前核对并按需更新主 FigJam 的安全边界与静态资源交付边界，同步最后核对日期、当前/历史标记和仓库主图链接；额度不足时允许后续独立切片继续，但 Foundation 阶段保持未关闭
+- [ ] 2.8 Foundation 关闭前由唯一写入者核对并按需更新 Penpot 主图的安全边界与静态资源交付边界，同步最后核对日期、当前/历史标记和仓库主图链接；Penpot 服务或写权限暂不可用时允许后续独立切片继续，但必须记录 blocker，且 Foundation 阶段保持未关闭
 
 ## 3. Overview 与真实应用装配
 
@@ -76,6 +76,6 @@
 - [ ] 8.4 React 默认入口发布时，以自动防删除契约保证原四页路径及 `/legacy/*` 别名在首发和紧随其后的版本继续存在，并演练只恢复默认 `/` 映射的回退；实际删除另建 change
 - [ ] 8.5 执行真实 A/B：总览、聊天、peer、审批、记忆和模型/Coordinator/peer 降级；不修改客户防火墙、WireGuard、路由、模型、秘密或自启动
 - [ ] 8.6 按安全 Mermaid 规则更新文档流程图并校验生成 SVG，不含 init/HTML/click/外链/脚本/事件处理器/`foreignObject`
-- [ ] 8.7 最终发布前再次核对并按需更新主 FigJam，确认最后核对日期、当前/历史标记和仓库主图链接；额度不足可记录 blocker，但不得关闭 change 或合并最终发布 PR
-- [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、FigJam 与 OpenSpec strict 门禁，提交推送并创建最终 PR
+- [ ] 8.7 最终发布前由唯一写入者再次核对并按需更新 Penpot 主图，确认最后核对日期、当前/历史标记和仓库主图链接；Penpot 服务或写权限暂不可用时必须记录 blocker，且不得关闭 change 或合并最终发布 PR
+- [ ] 8.8 运行所有质量、供应链、双平台 package、真实 A/B、文档链接、Penpot 图纸一致性与 OpenSpec strict 门禁，提交推送并创建最终 PR
 - [ ] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
