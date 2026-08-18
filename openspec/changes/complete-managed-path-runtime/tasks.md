@@ -87,7 +87,7 @@
 - [x] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
   - 当前证据：Windows/macOS CLI 的 runtime-child 与显式 `data_dir` 入口均把 managed owner 强绑定到裸 FastAPI `app.state`；`test_cli_local_entries_retain_owner_after_bundle_is_collected` 在删除临时 bundle、GC 后验证 owner 存活，lifespan 启动/停止以及 managed-node/network-path 真实状态回调可用。既有双平台 unconfigured/enrollment-required/no-model/Coordinator/probe/restart/stop fake/fixture 矩阵全通过，不外推为真实平台验收。
 - [x] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 当前证据：返修后全量 Python `1038 passed, 5 skipped, 1 warning`；branch coverage `16597` statements/`3550` branches，`100.00%`；Ruff check 通过、Ruff format `303 files already formatted`；显式项目 venv Pyright `0 errors, 0 warnings, 0 informations`；双平台/Web/Gateway/架构定向 `64 passed`。Git commit/push 仍由总指挥代办，本 writer 未执行任何 Git 元数据写入。
+  - 当前证据：目标提交 `6d22c2e` 上允许范围全量 Python `1043 passed, 5 skipped, 1 warning`；coverage `16611/16611` statements、`3550/3550` branches，`100.00%`；阶段 5 定向 `274 passed, 4 skipped`，最终独立审计另有 `71 passed`；Ruff check/format、Pyright `0 errors, 0 warnings, 0 informations`、`openspec validate complete-managed-path-runtime --strict` 与 `git diff --check` 全部通过。提交链 `18acf05` → `3675335` → `6d22c2e` 已普通 push，`origin/feature/managed-path-stage5-app-wiring` 当前指向 `6d22c2e`。
 
 ## 6. 批准资源上的真实 Provider 门禁
 
