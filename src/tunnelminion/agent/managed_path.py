@@ -199,6 +199,7 @@ class ManagedPathApplication:
     authorization_repository: SQLiteNetworkAuthorizationRepository
     revision_source: Callable[[], int]
     pending_source: Callable[[], SignedDesiredConfig | None]
+    clock: Callable[[], datetime]
     _pending: SignedDesiredConfig | None = None
     _last_error_code: str | None = None
     _closed: bool = False
@@ -274,7 +275,10 @@ class ManagedPathApplication:
 
     def resource_payload(self) -> dict[str, JsonValue]:
         """生成资源 API 可直接消费的持久化、脱敏状态。"""
-        status = self.current_managed_path_status()
+        status = self.current_managed_path_status().at(
+            _utc(self.clock()),
+            stale_error_code="path_evidence_stale",
+        )
         capabilities = cast(dict[str, JsonValue], self.capabilities.model_dump(mode="json"))
         payload = cast(
             dict[str, JsonValue],
@@ -395,6 +399,7 @@ def build_managed_path_application(
         authorization_repository=authorization_repository,
         revision_source=revision_source,
         pending_source=pending_source,
+        clock=current_clock,
     )
 
 

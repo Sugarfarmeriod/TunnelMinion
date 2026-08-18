@@ -218,7 +218,11 @@ def managed_application_lifespan(
         if current is None or current.runtime is None:
             yield
             return
-        await current.runtime.start()
+        try:
+            await current.runtime.start()
+        except BaseException:
+            current.close()
+            raise
         try:
             yield
         finally:

@@ -7,10 +7,13 @@ import json
 import socket
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Protocol
 
+import httpx
 import psutil
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from tunnelminion import cli
 from tunnelminion.domain.identifiers import NodeId
@@ -38,6 +41,12 @@ from tunnelminion.runtime.process import (
     RuntimeOperationBusy,
 )
 from tunnelminion.runtime.profile import RuntimeComponent, RuntimePaths, RuntimeProfile
+
+
+class ApiClient(Protocol):
+    """屏蔽 TestClient 当前缺失的严格类型标注。"""
+
+    def get(self, url: str) -> httpx.Response: ...
 
 
 class FakeManager:
@@ -435,6 +444,171 @@ def test_runtime_child_builds_local_and_gateway_without_access_logs(
     )
     assert calls[-1]["host"] == "10.77.0.1"
     assert calls[-1]["port"] == 8787
+
+
+def test_cli_local_entries_retain_owner_after_bundle_is_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """显式 data_dir 的裸 FastAPI 应用仍持有 lifecycle 与真实状态 provider。"""
+    import gc
+    import weakref
+    from datetime import UTC, datetime
+    from typing import cast
+
+    from tunnelminion.agent.managed_application import (
+        ManagedNodeApplication,
+        managed_application_lifespan,
+        managed_path_status_callback,
+        managed_resource_payload_callback,
+    )
+    from tunnelminion.agent.managed_node import managed_node_status
+    from tunnelminion.agent.managed_path import ManagedPathApplication
+    from tunnelminion.agent.managed_runtime import ManagedNodeRuntime
+    from tunnelminion.domain.identifiers import NetworkId
+    from tunnelminion.domain.tools import Platform
+    from tunnelminion.network.contracts import ProviderKind
+    from tunnelminion.network.path_controller import NetworkPathType
+    from tunnelminion.network.path_status import (
+        ManagedPathAuthorizationState,
+        ManagedPathFreshness,
+        ManagedPathStatus,
+    )
+    from tunnelminion.tools.audit import InMemoryAuditSink
+    from tunnelminion.tools.registry import ToolRegistry
+    from tunnelminion.tools.runtime import ToolRuntime
+    from tunnelminion.web.resources import create_resource_router
+
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.status = FakeRuntimeStatus()
+
+        async def start(self) -> None:
+            self.calls.append("start")
+
+        async def stop(self) -> None:
+            self.calls.append("stop")
+
+    class FakeRuntimeStatus:
+        def model_dump(self, *, mode: str) -> dict[str, str]:
+            del mode
+            return {"state": "running"}
+
+    class FakeManagedPath:
+        def __init__(self, status: ManagedPathStatus) -> None:
+            self.status = status
+
+        def resource_payload(self) -> dict[str, object]:
+            return {
+                **self.status.model_dump(mode="json"),
+                "configured": True,
+            }
+
+        def current_managed_path_status(self) -> ManagedPathStatus:
+            return self.status
+
+        def close(self) -> None:
+            return None
+
+    owners: list[weakref.ReferenceType[ManagedNodeApplication]] = []
+    runtimes: list[FakeRuntime] = []
+    captured: list[FastAPI] = []
+
+    def build_local(_data_dir: Path) -> SimpleNamespace:
+        node_id = NodeId.new()
+        status = ManagedPathStatus(
+            network_id=NetworkId.new(),
+            node_id=node_id,
+            revision=1,
+            plan_hash=f"sha256:{'0' * 64}",
+            authorization_revision=1,
+            provider=ProviderKind.WINDOWS,
+            authorization_state=ManagedPathAuthorizationState.UNKNOWN,
+            path_type=NetworkPathType.STATIC,
+            source="none",
+            freshness=ManagedPathFreshness.UNVERIFIED,
+            candidate_count=0,
+            journal_sequence=0,
+            updated_at=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+        runtime = FakeRuntime()
+        managed = ManagedNodeApplication(
+            config=None,
+            enrollment=managed_node_status(None),
+            runtime=cast(ManagedNodeRuntime, runtime),
+            managed_path=cast(ManagedPathApplication, FakeManagedPath(status)),
+        )
+        app = FastAPI(lifespan=managed_application_lifespan(managed))
+        app.include_router(
+            create_resource_router(
+                ToolRuntime(ToolRegistry(), Platform.WINDOWS, InMemoryAuditSink()),
+                node_id,
+                managed_status=managed_resource_payload_callback(managed),
+                managed_path_status=managed_path_status_callback(managed),
+            )
+        )
+        owners.append(weakref.ref(managed))
+        runtimes.append(runtime)
+        return SimpleNamespace(app=app, managed_node=managed)
+
+    def run(application: FastAPI, **kwargs: object) -> None:
+        del kwargs
+        captured.append(application)
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_macos_local_application", build_local)
+    monkeypatch.setattr("tunnelminion.app.build_windows_application", build_local)
+    monkeypatch.setattr("uvicorn.run", run)
+
+    identity = "00000000-0000-0000-0000-000000000001"
+    for platform, index in (("win32", 0), ("darwin", 1)):
+        monkeypatch.setattr(cli.sys, "platform", platform)
+        assert (
+            cli.main(
+                [
+                    "runtime-child",
+                    "--runtime-component=local",
+                    f"--runtime-instance-id={identity}",
+                    "--data-dir",
+                    str(tmp_path / f"child-{index}"),
+                    "--local-port",
+                    "8125",
+                    "--runtime-log-file",
+                    str(tmp_path / f"child-{index}.log"),
+                ]
+            )
+            == 0
+        )
+        assert (
+            cli.main(
+                [
+                    "--data-dir",
+                    str(tmp_path / f"panel-{index}"),
+                    "--port",
+                    str(9010 + index),
+                ]
+            )
+            == 0
+        )
+
+    gc.collect()
+    assert all(owner() is not None for owner in owners)
+    assert len(captured) == len(runtimes) == 4
+    for app, runtime in zip(captured, runtimes, strict=True):
+        assert getattr(app.state, "managed_node", None) is not None
+        test_client = TestClient(app)
+        with test_client:
+            client = cast(ApiClient, test_client)
+            assert runtime.calls == ["start"]
+            managed = client.get("/api/resources/managed-node")
+            network_path = client.get("/api/resources/network-path")
+            managed_body = cast(dict[str, object], managed.json())
+            managed_path = cast(dict[str, object], managed_body["managed_path"])
+            network_path_body = cast(dict[str, object], network_path.json())
+            assert managed.status_code == 200
+            assert managed_path["configured"] is True
+            assert network_path.status_code == 200
+            assert network_path_body["configured"] is True
+        assert runtime.calls == ["start", "stop"]
 
 
 def test_runtime_child_sanitizes_invalid_identity_and_builder_failure(

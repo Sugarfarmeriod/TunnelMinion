@@ -16,6 +16,7 @@ from tests.agent.test_network_sync import (
     build as build_sync,
 )
 from tests.network.factories import observation
+from tests.network.test_managed_path_lifecycle import path_evidence
 
 from tunnelminion.agent.coordinator import CoordinatorTransport
 from tunnelminion.agent.managed_application import build_managed_node_application
@@ -172,6 +173,56 @@ def test_common_factory_close_releases_windows_sqlite_handle(tmp_path: Path) -> 
     application.close()
     database.unlink()
     assert not database.exists()
+
+
+def test_common_factory_managed_node_payload_projects_ttl_with_injected_clock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    now = [NOW + timedelta(seconds=181)]
+    application = build_managed_path_application(
+        tmp_path,
+        envelope.config.network_id,
+        envelope.config.target_node_id,
+        lambda data_dir, ledger: _platform(provider),
+        revision_source=lambda: 0,
+        pending_source=lambda: envelope,
+        clock=lambda: now[0],
+    )
+    evidence = path_evidence()
+    status = ManagedPathStatus(
+        network_id=evidence.network_id,
+        node_id=evidence.node_id,
+        revision=evidence.revision,
+        plan_hash=evidence.plan_hash,
+        authorization_revision=evidence.authorization_revision,
+        provider=evidence.provider,
+        authorization_state=ManagedPathAuthorizationState.UNKNOWN,
+        path_type=NetworkPathType.STATIC,
+        evidence=evidence,
+        source="fake",
+        freshness=ManagedPathFreshness.FRESH,
+        candidate_count=evidence.candidate_count,
+        observed_at=evidence.observed_at,
+        refreshed_at=evidence.observed_at,
+        expires_at=evidence.expires_at,
+        journal_sequence=0,
+        updated_at=NOW,
+    )
+
+    def get_path_status(*_args: object) -> ManagedPathStatus:
+        return status
+
+    monkeypatch.setattr(application.lifecycle, "get_path_status", get_path_status)
+
+    payload = application.resource_payload()
+
+    assert payload["freshness"] == "stale"
+    assert payload["stable_error_code"] == "path_evidence_stale"
+    assert payload["authorization_state"] == "unknown"
+    application.close()
 
 
 def test_managed_path_rejects_identity_provider_and_reports_stable_errors(

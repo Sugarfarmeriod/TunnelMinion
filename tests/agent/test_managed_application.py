@@ -208,6 +208,56 @@ def test_lifespan_is_inert_without_runtime_and_starts_and_stops_ready_runtime() 
     asyncio.run(scenario())
 
 
+def test_lifespan_closes_once_when_start_or_stop_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[ManagedNodeApplication] = []
+    original_close = ManagedNodeApplication.close
+
+    def record_close(application: ManagedNodeApplication) -> None:
+        closed.append(application)
+        original_close(application)
+
+    monkeypatch.setattr(ManagedNodeApplication, "close", record_close)
+
+    class StartFailure:
+        async def start(self) -> None:
+            raise RuntimeError("start failed")
+
+        async def stop(self) -> None:
+            raise AssertionError("failed start must not stop")
+
+    class StopFailure:
+        async def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            raise RuntimeError("stop failed")
+
+    async def scenario() -> None:
+        failed_start = ManagedNodeApplication(
+            config=None,
+            enrollment=build_status(),
+            runtime=cast(ManagedNodeRuntime, StartFailure()),
+        )
+        with pytest.raises(RuntimeError, match="start failed"):
+            async with managed_application_lifespan(failed_start)(FastAPI()):
+                raise AssertionError("failed start must not enter lifespan")
+        assert closed == [failed_start]
+
+        failed_stop = ManagedNodeApplication(
+            config=None,
+            enrollment=build_status(),
+            runtime=cast(ManagedNodeRuntime, StopFailure()),
+        )
+        with pytest.raises(RuntimeError, match="stop failed"):
+            async with managed_application_lifespan(failed_stop)(FastAPI()):
+                pass
+        assert closed == [failed_start, failed_stop]
+
+    asyncio.run(scenario())
+
+
 def build_status() -> ManagedNodeStatus:
     """避免生命周期测试依赖文件系统。"""
     from tunnelminion.agent.managed_node import managed_node_status

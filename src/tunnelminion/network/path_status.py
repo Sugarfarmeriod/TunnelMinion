@@ -250,7 +250,7 @@ class ManagedPathStatus(BaseModel):
             and (self.path_type is not NetworkPathType.DIRECT or self._direct_binding_is_valid())
         )
 
-    def at(self, now: datetime) -> Self:
+    def at(self, now: datetime, *, stale_error_code: str | None = None) -> Self:
         """按当前时钟投影 stale；不改变持久化 evidence 的 expires_at。"""
         if now.tzinfo is None or now.utcoffset() != timedelta(0):
             raise ValueError("managed path status 时钟必须使用 timezone-aware UTC")
@@ -262,8 +262,7 @@ class ManagedPathStatus(BaseModel):
                 freshness = ManagedPathFreshness.FRESH
             else:
                 freshness = ManagedPathFreshness.STALE
-                if stable_error is None:
-                    stable_error = "path_evidence_stale"
+                stable_error = stale_error_code or stable_error or "path_evidence_stale"
         elif self.evidence is not None:
             assert self.evidence.stable_error_code is not None
             if stable_error is None:

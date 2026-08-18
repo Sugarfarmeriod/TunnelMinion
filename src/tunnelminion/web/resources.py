@@ -166,7 +166,10 @@ def create_resource_router(
             status = managed_path_status()
             if status is None:
                 return ManagedPathResourceView(configured=False)
-            projected = status.at((clock or (lambda: datetime.now(UTC)))())
+            projected = status.at(
+                (clock or (lambda: datetime.now(UTC)))(),
+                stale_error_code="path_evidence_stale",
+            )
             evidence = projected.evidence
             fresh = projected.freshness is ManagedPathFreshness.FRESH
             return ManagedPathResourceView(

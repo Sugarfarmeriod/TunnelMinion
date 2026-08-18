@@ -1076,6 +1076,13 @@ def test_managed_path_status_binding_and_freshness_matrix() -> None:
         {**direct.model_dump(mode="python"), "stable_error_code": "keep-me"}
     ).at(evidence.expires_at)
     assert preserved.stable_error_code == "keep-me"
+    assert (
+        preserved.at(
+            evidence.expires_at,
+            stale_error_code="path_evidence_stale",
+        ).stable_error_code
+        == "path_evidence_stale"
+    )
     offline = _status_from_evidence(
         evidence,
         path_type=NetworkPathType.OFFLINE,
