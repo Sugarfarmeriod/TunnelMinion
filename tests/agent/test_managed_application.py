@@ -202,6 +202,8 @@ def test_lifespan_is_inert_without_runtime_and_starts_and_stops_ready_runtime() 
         async with managed_application_lifespan(ready)(FastAPI()):
             assert runtime.calls == ["start"]
         assert runtime.calls == ["start", "stop"]
+        inert.close()
+        ready.close()
 
     asyncio.run(scenario())
 

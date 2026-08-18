@@ -76,12 +76,18 @@
 
 ## 5. Windows/macOS 常规应用单一装配
 
-- [ ] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
-- [ ] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
-- [ ] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
-- [ ] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
-- [ ] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
-- [ ] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
+  - 证据：`src/tunnelminion/agent/managed_path.py` 提供共用 `ManagedPathPlatformDependencies` 与 `build_managed_path_application`，Windows/macOS 仅在 `src/tunnelminion/platforms/{windows,macos}/managed_path.py` 提供 platform factory；`tests/agent/test_managed_path.py` 覆盖能力形状一致、结构化候选与安全 route fallback。平台命令与 probe 均只以 fake/fixture 或能力降级方式验证，未执行真实 Provider/probe。
+- [x] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
+  - 证据：`ManagedNodeApplication`、`ManagedNetworkSyncLoop` 与 `managed_application_lifespan` 只装配一个共享 lifecycle，并在停止时显式 close；`tests/agent/test_managed_path.py` 证明 awaiting authorization 的 Provider apply 次数为 0、能力降级不 observe/apply，`tests/agent/test_managed_application.py` 证明三 runtime domains 与 start/stop，`tests/test_app.py`、`tests/test_macos_app.py` 和常规入口验收覆盖环回/Gateway 配置不被创建。验证使用 fake/fixture，不触碰真实网络。
+- [x] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
+  - 证据：`src/tunnelminion/web/resources.py` 从持久化 `ManagedPathStatus` 投影 configured、授权、revision、fresh/stale evidence 与稳定错误；`tests/web/test_resources.py` 覆盖 fresh→stale 及授权/证据字段，`tests/agent/test_managed_path.py` 覆盖 awaiting-authorization、降级与重启持久状态。资源读取只读，不驱动 Provider 写入。
+- [x] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
+  - 证据：`src/tunnelminion/app.py` 与 `src/tunnelminion/macos_app.py` 只把 managed lifecycle 接入常规本地应用；Gateway builder 保持独立；`tests/architecture/test_managed_path_phase_one_boundary.py`、`tests/architecture/test_model_call_boundary.py`、`tests/architecture/test_coordinator_boundary.py` 与 Gateway 测试覆盖无模型/无反向写入和监听边界。未修改 LPE/package/Penpot/Figma。
+- [x] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
+  - 证据：`tests/evaluation/test_managed_node_runtime_acceptance.py` 的双平台隔离入口验收覆盖 unconfigured、enrollment-required、ready、重启稳定 identity、无模型和不创建 Gateway 配置；`tests/agent/test_managed_path.py`、`tests/agent/test_network_sync.py`、`tests/network/test_managed_path_lifecycle.py` 覆盖凭据/授权缺失、Coordinator/sync 故障、probe 降级、pending/停止与恢复矩阵。全部为 fake/fixture/架构门禁，不外推为真实平台验收。
+- [x] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：全量 Python `1035 passed, 5 skipped, 1 warning`；coverage `16584` statements/`3550` branches，`100.00%`；Ruff check 全部通过、Ruff format `303 files already formatted`；显式项目 venv Pyright `0 errors, 0 warnings, 0 informations`；`git diff --check` 通过；`openspec validate complete-managed-path-runtime --strict` valid。Git commit/push 按委托由总指挥代办，本 writer 未执行任何 Git 元数据写入。
 
 ## 6. 批准资源上的真实 Provider 门禁
 

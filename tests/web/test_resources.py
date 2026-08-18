@@ -13,6 +13,7 @@ from pydantic import JsonValue
 from tests.agent.test_coordinator import key_set
 from tests.coordinator.test_directory import capability, service_summary
 from tests.coordinator.test_registry import NETWORK, NOW, identity
+from tests.network.test_managed_path_lifecycle import path_evidence
 from tests.tools.test_registry import definition
 
 from tunnelminion.agent.coordinator import (
@@ -26,13 +27,18 @@ from tunnelminion.coordinator.contracts import (
     DirectoryNodeSummary,
     NodeStatus,
 )
-from tunnelminion.domain.identifiers import NetworkId, NodeId, ServiceId
+from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.network.contracts import ProviderKind
 from tunnelminion.network.path_controller import (
     DirectPathEvidence,
     NetworkPathType,
     PathSelection,
+)
+from tunnelminion.network.path_status import (
+    ManagedPathAuthorizationState,
+    ManagedPathFreshness,
+    ManagedPathStatus,
 )
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.fakes import FakeToolAdapter
@@ -208,6 +214,55 @@ def test_network_path_resource_is_redacted_and_explicit() -> None:
     serialized = str(body).lower()
     for forbidden in ("endpoint", "private_key", "selected_candidate_hash", "10.203"):
         assert forbidden not in serialized
+
+
+def test_managed_path_status_provider_projects_fresh_then_stale() -> None:
+    registry = ToolRegistry()
+    runtime = ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink())
+    evidence = path_evidence()
+    status = ManagedPathStatus(
+        network_id=evidence.network_id,
+        node_id=evidence.node_id,
+        revision=evidence.revision,
+        plan_hash=evidence.plan_hash,
+        authorization_revision=evidence.authorization_revision,
+        provider=evidence.provider,
+        authorization_state=ManagedPathAuthorizationState.AUTHORIZED,
+        authorization_id=AuthorizationId.new(),
+        path_type=NetworkPathType.STATIC,
+        evidence=evidence,
+        source="fake",
+        freshness=ManagedPathFreshness.FRESH,
+        candidate_count=evidence.candidate_count,
+        observed_at=evidence.observed_at,
+        refreshed_at=evidence.observed_at,
+        expires_at=evidence.expires_at,
+        journal_sequence=0,
+        updated_at=evidence.observed_at,
+    )
+    now = [evidence.observed_at]
+    app = FastAPI()
+    app.include_router(
+        create_resource_router(
+            runtime,
+            evidence.node_id,
+            managed_path_status=lambda: status,
+            clock=lambda: now[0],
+        )
+    )
+    client = cast(ApiClient, TestClient(app))
+
+    fresh = client.get("/api/resources/network-path").json()
+    assert fresh["configured"] is True
+    assert fresh["authorization_state"] == "authorized"
+    assert fresh["handshake_fresh"] is True
+    now[0] = evidence.expires_at + timedelta(seconds=1)
+    stale = client.get("/api/resources/network-path").json()
+    assert stale["configured"] is True
+    assert stale["handshake_fresh"] is False
+    assert stale["host_route_present"] is False
+    assert stale["target_probe_succeeded"] is False
+    assert stale["stable_error_code"] == "path_evidence_stale"
 
 
 def test_coordinator_resource_api_reports_safe_freshness_and_summaries() -> None:

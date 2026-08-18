@@ -1445,6 +1445,10 @@ class SQLiteNetworkGovernanceStore:
         self._provider_journal: NetworkProviderJournal | None = None
         self._authorization_repository = authorization_repository
 
+    def close(self) -> None:
+        """关闭本地 SQLite 连接，供常规应用 lifespan 安全停止时调用。"""
+        self._connection.close()
+
     def _ensure_governance_columns(self) -> None:
         rows = self._connection.execute("PRAGMA table_info(network_governance)").fetchall()
         columns = {str(row[1]) for row in rows if len(row) > 1}
