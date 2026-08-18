@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from fastapi import FastAPI
 from tests.agent.test_network_sync import (
     FakeNetworkSyncTransport,
     signed,
@@ -19,12 +20,17 @@ from tests.network.factories import observation
 from tests.network.test_managed_path_lifecycle import path_evidence
 
 from tunnelminion.agent.coordinator import CoordinatorTransport
-from tunnelminion.agent.managed_application import build_managed_node_application
+from tunnelminion.agent.managed_application import (
+    ManagedNodeApplication,
+    build_managed_node_application,
+    managed_application_lifespan,
+)
 from tunnelminion.agent.managed_network_runtime import ManagedNetworkSyncLoop
 from tunnelminion.agent.managed_node import (
     FileManagedNodeConfigRepository,
     ManagedNodeState,
     ManagedNodeStatus,
+    managed_node_status,
 )
 from tunnelminion.agent.managed_path import (
     ManagedPathApplication,
@@ -37,6 +43,7 @@ from tunnelminion.agent.managed_path import (
     _utc,  # pyright: ignore[reportPrivateUsage]
     build_managed_path_application,
 )
+from tunnelminion.agent.managed_runtime import ManagedNodeRuntime
 from tunnelminion.agent.network_sync import ManagedNetworkSyncTransport
 from tunnelminion.agent.service_observation import CollectionAdapter
 from tunnelminion.domain.identifiers import NetworkId, NodeId
@@ -167,12 +174,91 @@ def test_common_factory_close_releases_windows_sqlite_handle(tmp_path: Path) -> 
         clock=lambda: NOW,
     )
 
-    database = tmp_path / "governance.sqlite3"
-    assert database.exists()
+    governance_database = tmp_path / "governance.sqlite3"
+    ledger_database = tmp_path / "managed-network-ledger.sqlite3"
+    assert governance_database.exists()
+    assert ledger_database.exists()
     application.close()
     application.close()
-    database.unlink()
-    assert not database.exists()
+    governance_database.unlink()
+    ledger_database.unlink()
+    assert not governance_database.exists()
+    assert not ledger_database.exists()
+
+
+@pytest.mark.parametrize("failure", ("none", "start", "stop"))
+def test_real_lifespan_releases_both_sqlite_databases_without_gc(
+    tmp_path: Path,
+    failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """正常、启动失败和停止失败均只关闭一次并释放两个数据库。"""
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    managed_path = build_managed_path_application(
+        tmp_path,
+        envelope.config.network_id,
+        envelope.config.target_node_id,
+        lambda data_dir, ledger: _platform(provider),
+        revision_source=lambda: 0,
+        pending_source=lambda: envelope,
+        clock=lambda: NOW,
+    )
+
+    class Runtime:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def start(self) -> None:
+            self.calls.append("start")
+            if failure == "start":
+                raise RuntimeError("start sentinel")
+
+        async def stop(self) -> None:
+            self.calls.append("stop")
+            if failure == "stop":
+                raise RuntimeError("stop sentinel")
+
+    runtime = Runtime()
+    close_calls = 0
+    original_close = ManagedNodeApplication.close
+
+    def record_close(application: ManagedNodeApplication) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        original_close(application)
+
+    monkeypatch.setattr(ManagedNodeApplication, "close", record_close)
+    owner = ManagedNodeApplication(
+        config=None,
+        enrollment=managed_node_status(None),
+        runtime=cast(ManagedNodeRuntime, runtime),
+        managed_path=managed_path,
+    )
+
+    async def scenario() -> None:
+        if failure == "start":
+            with pytest.raises(RuntimeError, match="start sentinel"):
+                async with managed_application_lifespan(owner)(FastAPI()):
+                    raise AssertionError("failed start must not enter lifespan")
+        elif failure == "stop":
+            with pytest.raises(RuntimeError, match="stop sentinel"):
+                async with managed_application_lifespan(owner)(FastAPI()):
+                    pass
+        else:
+            async with managed_application_lifespan(owner)(FastAPI()):
+                pass
+
+    asyncio.run(scenario())
+    assert close_calls == 1
+    assert runtime.calls == (["start"] if failure == "start" else ["start", "stop"])
+
+    for database in (
+        tmp_path / "governance.sqlite3",
+        tmp_path / "managed-network-ledger.sqlite3",
+    ):
+        database.unlink()
+        assert not database.exists()
 
 
 def test_common_factory_managed_node_payload_projects_ttl_with_injected_clock(

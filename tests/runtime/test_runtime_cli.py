@@ -467,6 +467,7 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
     from tunnelminion.domain.identifiers import NetworkId
     from tunnelminion.domain.tools import Platform
     from tunnelminion.network.contracts import ProviderKind
+    from tunnelminion.network.ledger import SQLiteManagedResourceLedger
     from tunnelminion.network.path_controller import NetworkPathType
     from tunnelminion.network.path_status import (
         ManagedPathAuthorizationState,
@@ -495,8 +496,9 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
             return {"state": "running"}
 
     class FakeManagedPath:
-        def __init__(self, status: ManagedPathStatus) -> None:
+        def __init__(self, status: ManagedPathStatus, ledger: SQLiteManagedResourceLedger) -> None:
             self.status = status
+            self.ledger = ledger
 
         def resource_payload(self) -> dict[str, object]:
             return {
@@ -513,8 +515,9 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
     owners: list[weakref.ReferenceType[ManagedNodeApplication]] = []
     runtimes: list[FakeRuntime] = []
     captured: list[FastAPI] = []
+    managed_roots: list[Path] = []
 
-    def build_local(_data_dir: Path) -> SimpleNamespace:
+    def build_local(data_dir: Path) -> SimpleNamespace:
         node_id = NodeId.new()
         status = ManagedPathStatus(
             network_id=NetworkId.new(),
@@ -531,12 +534,18 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
             journal_sequence=0,
             updated_at=datetime(2026, 8, 1, tzinfo=UTC),
         )
+        ledger = SQLiteManagedResourceLedger(data_dir / "managed-network-ledger.sqlite3")
+        (data_dir / "governance.sqlite3").touch()
+        managed_roots.append(data_dir)
         runtime = FakeRuntime()
         managed = ManagedNodeApplication(
             config=None,
             enrollment=managed_node_status(None),
             runtime=cast(ManagedNodeRuntime, runtime),
-            managed_path=cast(ManagedPathApplication, FakeManagedPath(status)),
+            managed_path=cast(
+                ManagedPathApplication,
+                FakeManagedPath(status, ledger),
+            ),
         )
         app = FastAPI(lifespan=managed_application_lifespan(managed))
         app.include_router(
@@ -609,6 +618,12 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
             assert network_path.status_code == 200
             assert network_path_body["configured"] is True
         assert runtime.calls == ["start", "stop"]
+
+    for root in managed_roots:
+        for name in ("governance.sqlite3", "managed-network-ledger.sqlite3"):
+            database = root / name
+            database.unlink()
+            assert not database.exists()
 
 
 def test_runtime_child_sanitizes_invalid_identity_and_builder_failure(
