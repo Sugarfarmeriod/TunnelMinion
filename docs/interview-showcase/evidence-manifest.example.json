@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "claim_id": "showcase-plan-on-main",
+  "claim": "面试展示的 OpenSpec 规划已进入 main",
+  "status": "main-verified",
+  "source": {
+    "kind": "main",
+    "ref": "origin/main",
+    "commit_sha": "e84781aafaa73d7d61e4756b758f7c1dd0d70fbb"
+  },
+  "scope": {
+    "platforms": ["not-applicable"],
+    "environment": "repository",
+    "applies_to": "prepare-interview-showcase planning artifacts"
+  },
+  "evidence": [
+    {
+      "evidence_id": "pr-62-merge",
+      "kind": "command",
+      "reference": "git show --no-patch e84781aafaa73d7d61e4756b758f7c1dd0d70fbb",
+      "captured_at": "2026-08-19T18:54:57+08:00",
+      "verification": {
+        "result": "passed",
+        "method": "核对 main 上的 PR #62 merge commit 及其父提交",
+        "verifier": "面试展示主写任务"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "只记录公开提交标识和验证命令，不包含提交正文、运行日志或秘密"
+      }
+    },
+    {
+      "evidence_id": "pr-62-ci",
+      "kind": "ci-run",
+      "reference": "GitHub Actions run 32243201506",
+      "captured_at": "2026-08-19T18:54:57+08:00",
+      "verification": {
+        "result": "passed",
+        "method": "Windows/macOS pull request workflow",
+        "verifier": "GitHub Actions"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "只记录公开提交和 CI 标识，不包含运行日志或秘密"
+      }
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "仅证明规划交付，不证明产品展示或真实 A/B 已完成"
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelminion.local/schemas/interview-showcase-evidence-v1.json",
+  "title": "TunnelMinion 面试展示声明证据",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "claim_id",
+    "claim",
+    "status",
+    "source",
+    "scope",
+    "publication"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "claim_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "claim": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "main-verified",
+        "draft-pr-verified",
+        "planned",
+        "prohibited-claim"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "commit_sha"],
+      "properties": {
+        "kind": {
+          "enum": ["main", "pull-request", "fixture", "plan"]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "pr_number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platforms", "environment", "applies_to"],
+      "properties": {
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["windows", "macos", "linux", "cross-platform", "not-applicable"]
+          }
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applies_to": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include_in_final_metrics", "include_in_success_media"],
+      "properties": {
+        "include_in_final_metrics": {
+          "type": "boolean"
+        },
+        "include_in_success_media": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "kind",
+        "reference",
+        "captured_at",
+        "verification",
+        "redaction"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "kind": {
+          "enum": ["ci-run", "command", "report", "recording", "screenshot", "svg", "fixture"]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captured_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["result", "method"],
+          "properties": {
+            "result": {
+              "enum": ["passed", "failed", "not-run", "not-applicable"]
+            },
+            "method": {
+              "type": "string",
+              "minLength": 1
+            },
+            "verifier": {
+              "type": "string"
+            }
+          }
+        },
+        "redaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checked", "method"],
+          "properties": {
+            "checked": {
+              "type": "boolean"
+            },
+            "method": {
+              "type": "string",
+              "minLength": 1
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "main-verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "properties": {
+              "kind": {
+                "const": "main"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "draft-pr-verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "required": ["pr_number"],
+            "properties": {
+              "kind": {
+                "const": "pull-request"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["main-verified", "draft-pr-verified"]
+          }
+        }
+      },
+      "then": {
+        "required": ["evidence"],
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["planned", "prohibited-claim"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication": {
+            "properties": {
+              "include_in_final_metrics": {
+                "const": false
+              },
+              "include_in_success_media": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication": {
+            "anyOf": [
+              {
+                "properties": {
+                  "include_in_final_metrics": {
+                    "const": true
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "include_in_success_media": {
+                    "const": true
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": ["evidence"],
+        "properties": {
+          "status": {
+            "const": "main-verified"
+          },
+          "source": {
+            "properties": {
+              "kind": {
+                "const": "main"
+              }
+            }
+          },
+          "evidence": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/evidence"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "not": {
+                        "const": "fixture"
+                      }
+                    },
+                    "verification": {
+                      "properties": {
+                        "result": {
+                          "const": "passed"
+                        }
+                      }
+                    },
+                    "redaction": {
+                      "properties": {
+                        "checked": {
+                          "const": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

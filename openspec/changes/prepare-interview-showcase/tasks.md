@@ -1,16 +1,16 @@
 ## 1. 依赖、基线与单一写入边界
 
-- [ ] 1.1 现场记录 `origin/main`、PR #40、PR #59、相关 OpenSpec 完成度、CI、review 和 worktree，建立依赖矩阵；Draft PR 证据只标记为 `draft-pr-verified`
-- [ ] 1.2 为本 change 指定唯一主写者和公共文件写入顺序，确认不修改 `complete-managed-path-runtime`、`improve-local-product-experience` 的 artifacts 或任务状态
-- [ ] 1.3 在写 README、前端或最终演示材料前，确认所需 PR 已进入明确稳定基线；未满足时只保留本 change 规划并记录 blocker
-- [ ] 1.4 定义 claim-to-evidence manifest schema，覆盖状态分类、来源 SHA/PR、平台、环境、验证方式、采集时间、适用范围和脱敏资产
+- [x] 1.1 现场记录 `origin/main`、PR #40、PR #59、相关 OpenSpec 完成度、CI、review 和 worktree，建立依赖矩阵；Draft PR 证据只标记为 `draft-pr-verified`
+- [x] 1.2 为本 change 指定唯一主写者和公共文件写入顺序，确认不修改 `complete-managed-path-runtime`、`improve-local-product-experience` 的 artifacts 或任务状态
+- [x] 1.3 在写 README、前端或最终演示材料前，确认所需 PR 已进入明确稳定基线；未满足时只保留本 change 规划并记录 blocker
+- [x] 1.4 定义 claim-to-evidence manifest schema，覆盖状态分类、来源 SHA/PR、平台、环境、验证方式、采集时间、适用范围和脱敏资产
 
 ## 2. 主叙事与信息架构
 
-- [ ] 2.1 固定 30 秒产品定位和中性 PDF 服务场景，证明设备/服务入口、访问地址、只读诊断、授权、验证和恢复闭环
-- [ ] 2.2 编写三分钟逐秒脚本，使用 `Thread → Run → Operation → Evidence` 串联产品画面，并标明每一步的现场动作、预期状态和兜底资产
-- [ ] 2.3 定义五至十分钟技术深挖入口，分别覆盖 Agent/确定性工具边界、目标节点授权、幂等与恢复、跨平台降级和证据追踪
-- [ ] 2.4 明确 A/B/C 三 Agent 直接协作、邀请入网、n2n/relay、模型 fallback/额度路由和 `Mission` 均为后续独立能力，不进入首版成功声明
+- [x] 2.1 固定 30 秒产品定位和中性 PDF 服务场景，证明设备/服务入口、访问地址、只读诊断、授权、验证和恢复闭环
+- [x] 2.2 编写三分钟逐秒脚本，使用 `Thread → Run → Operation → Evidence` 串联产品画面，并标明每一步的现场动作、预期状态和兜底资产
+- [x] 2.3 定义五至十分钟技术深挖入口，分别覆盖 Agent/确定性工具边界、目标节点授权、幂等与恢复、跨平台降级和证据追踪
+- [x] 2.4 明确 A/B/C 三 Agent 直接协作、邀请入网、n2n/relay、模型 fallback/额度路由和 `Mission` 均为后续独立能力，不进入首版成功声明
 
 ## 3. 展示素材与产品承载
 
