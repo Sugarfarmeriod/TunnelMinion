@@ -9,6 +9,7 @@
 | `recording-degraded-flow` | 模型或节点异常时的诚实降级录屏 | `planned` | 未采集：等待稳定 `main` | 故障注入方式与平台待记录 | 与对应 fixture 分离；fixture 不能冒充录屏现场事实 | 画面必须显示“录屏”及故障范围 |
 | `screenshot-overview` | 设备、服务和访问地址入口 | `planned` | 未采集：等待 PR #40 稳定 | 平台、窗口尺寸与数据集待记录 | 来源页面与截图一一对应 | 地址和节点名称使用获准的脱敏值 |
 | `screenshot-operation` | 候选、目标节点批准、执行与恢复状态 | `planned` | 未采集：等待 PR #40/#59 稳定 | 平台与 operation ID 待记录 | 与公开事件和 Evidence 引用对齐 | 不显示未授权操作已生效 |
+| `readme-outline` | 根 README 未来展示段的信息顺序和证据插槽 | `planned` 结构稿已生成；根 README 未修改 | 作者基线 `9525d3e6f2b8543d3bfe11b182971aaf6ba4a16e`；等待稳定 `main` 后实施 | repository / `verify_readme_outline.py` | `readme-outline.md` → 未来根 README 展示段 | 所有 planned 行必须在发布前替换或删除；3.1 继续未完成 |
 | `diagram-lifecycle` | 主流程收束用生命周期图 | `planned` 工作包已生成，非最终素材 | 作者基线 `d884acbde1bf5767fe3ced1f252b3a520d10ca5c`；等待稳定 `main` 后重采 | repository / `verify_diagrams.py` | `diagrams/lifecycle.mmd` → `diagrams/lifecycle.svg`；Penpot 仍未授权 | manifest 固定哈希和必需标签；SVG 不含外部引用，最终发布前重扫 |
 | `diagram-security-approval` | 技术深挖用授权与安全边界图 | `planned` 工作包已生成，非最终素材 | 作者基线 `d884acbde1bf5767fe3ced1f252b3a520d10ca5c`；等待稳定 `main` 后重采 | repository / `verify_diagrams.py` | `diagrams/security-approval.mmd` → `diagrams/security-approval.svg`；不在主演示开场使用 | 只使用中性 A/B 标签，明确范围外资源与禁止自批；最终发布前重扫 |
 | `claim-manifest` | 每条展示声明的来源与发布资格 | `draft-pr-verified` | 当前 schema：`39d1ab7bdc94c5a6fa424a9857ac5fb3980507f7` | repository / Python validator | JSON Schema → 每条最终声明文件 | 最终条目必须换成稳定 `main` SHA 并重新验证 |
