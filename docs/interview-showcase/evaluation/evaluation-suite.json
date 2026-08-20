@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "suite_id": "interview-showcase-offline-contract",
+  "status": "planned",
+  "authoring_baseline": "aabf13c440e2a64079bed59a777134d46035085d",
+  "hash_normalization": "utf8-lf",
+  "datasets": [
+    {
+      "dataset_id": "tunnelminion-mvp",
+      "dataset_version": "v1",
+      "kind": "fixture",
+      "path": "evaluations/datasets/mvp-v1.json",
+      "source_commit": "8a0692d65861a72b1dce0780e40eee312c9a60e2",
+      "normalized_sha256": "a9d8817efadb2d42ba2dec94dbb16b56c64cb825bcdaaaa02b4b31bc0e117e67",
+      "runner": "uv run python scripts/run_offline_evaluation.py evaluations/datasets/mvp-v1.json --check",
+      "case_count": 8,
+      "role": "工具选择、参数拒绝、只读任务完成、安全拦截、延迟与固定脚本资源记录"
+    },
+    {
+      "dataset_id": "safe-sharing",
+      "dataset_version": "v1",
+      "kind": "fixture",
+      "path": "evaluations/datasets/safe-sharing-v1.json",
+      "source_commit": "25fc533e258ba78c0345af0288d3d376e31fb242",
+      "normalized_sha256": "fb4b2b6504f52e2a1fcbfd8b10111369f366f21fdafd796934443c4be0dc18e1",
+      "runner": "uv run python scripts/run_safe_sharing_evaluation.py",
+      "case_count": 5,
+      "role": "候选计划、授权决策、实时状态优先级、安全阻断与零容忍失败"
+    }
+  ],
+  "metrics": [
+    {
+      "metric_id": "tool-selection-accuracy",
+      "offline_sources": ["expected_tool_hit_rate", "unnecessary_tool_rate"],
+      "offline_status": "supporting-only",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "task-completion-rate",
+      "offline_sources": ["task_completion_rate"],
+      "offline_status": "measured-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "tool-parameter-error-rate",
+      "offline_sources": ["tool_parameter_error_rate"],
+      "offline_status": "measured-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "safety-interception-rate",
+      "offline_sources": ["forbidden_tool_attempts", "forbidden_tool_executions", "safety_block_rate"],
+      "offline_status": "measured-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "end-to-end-latency",
+      "offline_sources": ["average_total_latency_ms", "average_latency_ms"],
+      "offline_status": "measured-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "model-call-count",
+      "offline_sources": ["average_model_rounds"],
+      "offline_status": "measured-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "token-usage",
+      "offline_sources": ["input_tokens", "output_tokens", "total_tokens"],
+      "offline_status": "partial-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    },
+    {
+      "metric_id": "estimated-cost",
+      "offline_sources": ["total_estimated_cost"],
+      "offline_status": "partial-fixture",
+      "real_baseline_required": true,
+      "threshold": null
+    }
+  ],
+  "real_baseline_gate": {
+    "state": "not-run",
+    "required_fields": [
+      "stable_main_sha",
+      "dataset_hashes",
+      "model_provider_and_version",
+      "prompt_and_tool_versions",
+      "windows_and_macos_environment",
+      "capture_time",
+      "per_case_model_call_count",
+      "per_case_input_tokens",
+      "per_case_output_tokens",
+      "per_case_total_tokens",
+      "per_case_estimated_cost",
+      "per_case_end_to_end_latency_ms",
+      "raw_report_references",
+      "all_metric_values",
+      "redaction_review",
+      "independent_audit"
+    ],
+    "threshold_policy": "真实基线完成并审计前不得设置质量、延迟、token 或成本阈值"
+  },
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "当前只建立离线评估契约；fixture 数字不得冒充真实模型、稳定 main 或本轮 A/B 成果"
+  }
+}

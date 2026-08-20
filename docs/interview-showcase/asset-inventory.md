@@ -13,7 +13,7 @@
 | `diagram-security-approval` | 技术深挖用授权与安全边界图 | `planned` 工作包已生成，非最终素材 | 作者基线 `d884acbde1bf5767fe3ced1f252b3a520d10ca5c`；等待稳定 `main` 后重采 | repository / `verify_diagrams.py` | `diagrams/security-approval.mmd` → `diagrams/security-approval.svg`；不在主演示开场使用 | 只使用中性 A/B 标签，明确范围外资源与禁止自批；最终发布前重扫 |
 | `claim-manifest` | 每条展示声明的来源与发布资格 | `draft-pr-verified` | 当前 schema：`39d1ab7bdc94c5a6fa424a9857ac5fb3980507f7` | repository / Python validator | JSON Schema → 每条最终声明文件 | 最终条目必须换成稳定 `main` SHA 并重新验证 |
 | `cross-platform-report` | Windows/macOS 质量与构建证据 | `planned` | 未采集：等待最终素材提交 | workflow、runner 与 run ID 待记录 | 报告引用原始 CI run，不复制秘密日志 | 仅通过的本轮 run 可支持发布声明 |
-| `evaluation-report` | 正确率、安全拦截、延迟、调用与成本证据 | `planned` | 未采集：真实基线尚未运行 | 数据集、模型、节点、平台与采集时间待记录 | 原始评估输出 → 脱敏汇总表 | 阈值必须在真实基线后确定，fixture 数字不计入成果 |
+| `evaluation-report` | 正确率、安全拦截、延迟、调用与成本证据 | `planned` 契约与 fixture 基线已生成；真实基线未运行 | 作者基线 `aabf13c440e2a64079bed59a777134d46035085d`；数据集来源提交与哈希见 suite | 固定假模型与离线 Operation runner；真实模型、平台和采集环境待记录 | `evaluation/evaluation-suite.json` → `offline-baseline.fixture.json` → 未来稳定基线报告 | 阈值为空；fixture 延迟/token/零成本和部分覆盖数字不计入成果 |
 
 ## 采集规则
 
