@@ -1,0 +1,21 @@
+flowchart LR
+    D["1 只读诊断<br/>Thread / Run"] --> C["2 候选处理<br/>Operation: pending"]
+    C --> A{"3 目标节点本地批准"}
+    A -->|拒绝或过期| N["不执行任何写入"]
+    A -->|批准且范围仍匹配| E["4 Provider 执行"]
+    E --> V{"5 双重验证<br/>Provider + Path / Service"}
+    V -->|通过| S["Evidence: verified"]
+    V -->|失败或中断| R["6 恢复 / 清理<br/>仅 owned resources"]
+    R --> H["Evidence: rolled back<br/>或 manual intervention"]
+
+    classDef read fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E;
+    classDef approval fill:#FEF3C7,stroke:#D97706,color:#78350F;
+    classDef execution fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95;
+    classDef evidence fill:#DCFCE7,stroke:#16A34A,color:#14532D;
+    classDef stop fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D;
+
+    class D,C read;
+    class A approval;
+    class E execution;
+    class V,S,R,H evidence;
+    class N stop;

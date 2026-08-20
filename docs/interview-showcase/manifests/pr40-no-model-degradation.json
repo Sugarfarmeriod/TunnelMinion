@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "claim_id": "pr40-no-model-deterministic-controls",
+  "claim": "PR #40 的精确 Draft 提交证明模型不可用时确定性的设备服务状态与已有操作入口继续可用",
+  "status": "draft-pr-verified",
+  "source": {
+    "kind": "pull-request",
+    "ref": "feature/local-product-experience",
+    "commit_sha": "61398b76d01b3836dc6023f74b0ba3d17ef7cbb4",
+    "commit_role": "contains-claim-source",
+    "pr_number": 40
+  },
+  "scope": {
+    "platforms": ["cross-platform", "macos"],
+    "environment": "PR #40 detached clean worktree；后端 pytest、前端 Vitest 与本地 Playwright",
+    "applies_to": "无模型时的确定性设备服务状态与已有操作入口；不包含完整访问地址和最终录屏真实性"
+  },
+  "evidence": [
+    {
+      "evidence_id": "pr40-backend-no-model",
+      "kind": "command",
+      "reference": "uv run pytest --no-cov tests/evaluation/test_runtime_degradation.py::test_model_failure_keeps_resource_and_operation_controls_available tests/web/test_resources.py::test_resource_routes_work_without_model_provider tests/test_macos_app.py::test_macos_local_resources_degrade_without_model",
+      "captured_at": "2026-08-20T15:31:14.0690517+08:00",
+      "verification": {
+        "result": "passed",
+        "method": "3 项后端定向测试通过",
+        "verifier": "TM 新总指挥只读复核"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "只记录公开测试路径、精确提交和聚合结果，不保存日志、环境值或秘密"
+      }
+    },
+    {
+      "evidence_id": "pr40-frontend-no-model",
+      "kind": "command",
+      "reference": "npm test -- src/features/overview/OverviewPage.test.tsx src/features/operations/OperationsListPage.test.tsx",
+      "captured_at": "2026-08-20T15:31:14.0690517+08:00",
+      "verification": {
+        "result": "passed",
+        "method": "2 个测试文件共 10 项前端单元测试通过",
+        "verifier": "TM 新总指挥只读复核"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "只记录公开测试路径与聚合结果，不保存日志、环境值或秘密"
+      }
+    },
+    {
+      "evidence_id": "pr40-overview-degradation",
+      "kind": "command",
+      "reference": "npm exec -- playwright test e2e/overview-degradation.spec.ts",
+      "captured_at": "2026-08-20T15:31:14.0690517+08:00",
+      "verification": {
+        "result": "passed",
+        "method": "Chromium 与 WebKit 共 12 项 Overview 降级端到端测试通过",
+        "verifier": "TM 新总指挥只读复核"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "测试仅使用本地预览服务；只记录公开测试路径与聚合结果，不保存日志或秘密"
+      }
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "仅证明 PR #40 Draft 上的窄范围降级行为；访问地址与最终录屏真实性尚未证明，任务 4.2 保持未完成"
+  }
+}

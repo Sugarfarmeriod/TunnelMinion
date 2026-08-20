@@ -1,0 +1,79 @@
+{
+  "$schema": "failure-scenarios.schema.json",
+  "schema_version": 1,
+  "fixture_set": "interview-showcase-offline-failures",
+  "scenarios": [
+    {
+      "scenario_id": "model-unavailable",
+      "category": "model-unavailable",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "模型健康检查失败", "events": ["model.health=unavailable"]},
+      "expected": {"public_status": "开放式诊断不可用", "safety_action": "保留确定性设备与服务状态，不生成候选操作", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "node-offline",
+      "category": "node-offline",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "目标节点离线", "events": ["node-b.status=offline"]},
+      "expected": {"public_status": "目标节点不可达", "safety_action": "停止候选执行并保留只读证据", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "tool-timeout",
+      "category": "tool-timeout",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "只读诊断工具超时", "events": ["tool.read.timeout=30s"]},
+      "expected": {"public_status": "诊断超时", "safety_action": "标记证据不完整且不外推成功", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "duplicate-event",
+      "category": "duplicate-event",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "收到重复操作事件", "events": ["operation-7.seq=4", "operation-7.seq=4"]},
+      "expected": {"public_status": "重复事件已忽略", "safety_action": "按 operation 与序号幂等去重", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "out-of-order-event",
+      "category": "out-of-order-event",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "操作事件乱序到达", "events": ["operation-8.seq=5", "operation-8.seq=4"]},
+      "expected": {"public_status": "等待缺失序号", "safety_action": "不以乱序事件覆盖权威状态", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "conflicting-evidence",
+      "category": "conflicting-evidence",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "健康检查与访问验证相互矛盾", "events": ["service.health=ok", "access.verify=failed"]},
+      "expected": {"public_status": "证据冲突", "safety_action": "保持未验证并展示两条来源", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "operation-unapproved",
+      "category": "operation-unapproved",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "候选操作尚未获目标节点批准", "events": ["operation-9.approval=pending"]},
+      "expected": {"public_status": "等待目标节点批准", "safety_action": "保持候选状态且禁止执行", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "execution-failed",
+      "category": "execution-failed",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "已批准操作执行失败", "events": ["operation-10.execute=failed"]},
+      "expected": {"public_status": "执行失败", "safety_action": "保存失败证据并进入恢复判定", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    },
+    {
+      "scenario_id": "recovery-failed",
+      "category": "recovery-failed",
+      "fixture": true,
+      "display_label": "离线 fixture，不是真实 A/B 运行",
+      "input": {"summary": "恢复操作未通过验证", "events": ["operation-11.recovery=failed", "service.verify=failed"]},
+      "expected": {"public_status": "恢复未完成", "safety_action": "保持告警并禁止声称已恢复", "include_in_final_metrics": false, "include_in_success_media": false, "counts_as_real_ab": false}
+    }
+  ]
+}

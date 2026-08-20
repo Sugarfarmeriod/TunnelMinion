@@ -49,7 +49,7 @@ TunnelMinion 的工程能力已经覆盖本地产品壳、跨节点诊断、候�
 
 ### 4. 规划和实现分两阶段推进
 
-规划阶段唯一主写者只修改 `openspec/changes/prepare-interview-showcase/**`，可以完成信息架构、逐秒脚本、README 大纲、素材清单、离线 fixture 设计和评估矩阵。不得修改 README、`frontend/`、公共演示文档、外部图纸或其他 change。
+规划与前置工作包阶段唯一主写者只修改 `openspec/changes/prepare-interview-showcase/**` 和仓库内非公开、非最终的 `docs/interview-showcase/**` 工作包，可以完成依赖矩阵、证据 schema、信息架构、逐秒脚本、README 大纲、素材清单、离线 fixture 设计和评估矩阵。不得修改根 README、`frontend/`、最终截图或录屏、外部图纸或其他 change。
 
 实现阶段必须从届时最新且已同步的稳定基线开始，并在写公共文件前重新核对 PR #40/#59 的合并状态、任务所有权和真实证据门禁。若依赖仍是 Draft，只能保留规划，不进入最终素材制作。
 
@@ -69,12 +69,12 @@ TunnelMinion 的工程能力已经覆盖本地产品壳、跨节点诊断、候�
 - [展示包装掩盖未完成能力] → 每条声明强制分类并绑定 SHA、环境和采集时间；`planned` 不进入成果数字。
 - [现场模型或网络不稳定] → 使用同一稳定提交的录屏和离线证据兜底，并明确说明当前降级状态。
 - [为了故事完整而扩大产品范围] → 首版固定 A/B 安全闭环，三 Agent、邀请入网和模型路由分别进入未来 change。
-- [与 PR #40/#59 同文件写入] → 规划阶段只写本 change；实现阶段等待 owner 和合并顺序重新确认。
+- [与 PR #40/#59 同文件写入] → 规划与前置工作包阶段只写本 change 和 `docs/interview-showcase/**`；公共实现等待 owner 和合并顺序重新确认。
 - [历史图纸或截图与当前代码不一致] → 最终素材在稳定基线上重采集，并通过 manifest 对齐图源、导出物和提交。
 
 ## Migration Plan
 
-1. 在独立规划分支完成并审阅本 change，不修改产品代码和公共展示文件。
+1. 在独立规划分支完成并审阅本 change；前置工作包仅写 `docs/interview-showcase/**`，不修改产品代码和公共展示文件。
 2. 等待 PR #59/#40 及必要真实门禁形成明确稳定基线；未满足时保持规划状态。
 3. 从最新稳定 `main` 创建后续实现分支，先生成 evidence manifest，再实现 README、演示材料和必要的最小信息聚合。
 4. 在 Windows/macOS 与获准的 A/B 环境重新采集证据，完成独立审计后发布素材。

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "publication_status": "planned",
+  "authoring_baseline": "d884acbde1bf5767fe3ced1f252b3a520d10ca5c",
+  "generated_at": "2026-08-20T15:48:22.4063082+08:00",
+  "hash_normalization": "utf8-lf",
+  "penpot": {
+    "role": "editable-source-after-separate-authorization",
+    "write_status": "not-authorized",
+    "notes": "本阶段没有读取或写入外部图纸；仓库资产只是非公开、非最终的工作包证据"
+  },
+  "assets": [
+    {
+      "id": "diagram-lifecycle",
+      "purpose": "主演示最后十秒收束安全生命周期，不作为开场架构课件",
+      "source": "lifecycle.mmd",
+      "output": "lifecycle.svg",
+      "rendering": "仓库原生确定性 SVG；按 Mermaid 语义源人工映射，并由离线校验器核对共同标签、哈希与安全结构",
+      "source_sha256": "f82db48232098756b6b775d11ec839d0fb3d0155418af457bc41e4990c2ccc57",
+      "output_sha256": "b8868a9cabc72917a710ff97792199d60e2ba8c7b640bb35e5978c28441be16e",
+      "required_labels": [
+        "只读诊断",
+        "候选处理",
+        "目标节点",
+        "Provider 执行",
+        "双重验证",
+        "恢复 / 清理"
+      ]
+    },
+    {
+      "id": "diagram-security-approval",
+      "purpose": "技术深挖时解释请求节点、目标节点本地批准、执行和公开证据边界",
+      "source": "security-approval.mmd",
+      "output": "security-approval.svg",
+      "rendering": "仓库原生确定性 SVG；按 Mermaid 语义源人工映射，并由离线校验器核对共同标签、哈希与安全结构",
+      "source_sha256": "bced9ca4fc3c287da841de9fab1c6a5950b7a12e7f3bf42987c865e63d4346c6",
+      "output_sha256": "21746819f345c20eaca59c19c53c3742b7de15586841720a077d00612c4c43e8",
+      "required_labels": [
+        "请求节点 A",
+        "目标节点 B",
+        "本地批准",
+        "Provider 执行",
+        "Provider verify",
+        "Evidence",
+        "Fail closed"
+      ]
+    }
+  ]
+}

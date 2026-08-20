@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="650" viewBox="0 0 1440 650" role="img" aria-labelledby="title desc">
+  <title id="title">TunnelMinion 目标节点授权边界</title>
+  <desc id="desc">请求节点只能生成候选操作；目标节点本地批准后才能执行，并由双端验证形成公开证据。</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#f5f3ff"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="650" rx="28" fill="url(#background)"/>
+  <text x="60" y="66" fill="#0f172a" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="34" font-weight="700">批准发生在目标节点，不在模型里</text>
+  <text x="60" y="104" fill="#475569" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="18">Agent 可以诊断和提出候选，但不能给自己执行权限。</text>
+
+  <g font-family="Inter, 'Microsoft YaHei', sans-serif">
+    <rect x="60" y="145" width="390" height="310" rx="24" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="88" y="184" fill="#1e3a8a" font-size="20" font-weight="700">请求节点 A</text>
+    <g filter="url(#shadow)">
+      <rect x="90" y="215" width="330" height="62" rx="14" fill="#ffffff" stroke="#0284c7"/>
+      <text x="115" y="253" fill="#0c4a6e" font-size="18" font-weight="700">用户问题 → Agent 只读诊断</text>
+      <rect x="90" y="310" width="330" height="82" rx="14" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+      <text x="115" y="344" fill="#0c4a6e" font-size="19" font-weight="700">候选 Operation</text>
+      <text x="115" y="372" fill="#0369a1" font-size="15">公开目标 / 风险 / TTL / 回滚</text>
+    </g>
+    <path d="M255 277 V310" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+
+    <rect x="520" y="145" width="590" height="310" rx="24" fill="#faf5ff" stroke="#c4b5fd" stroke-width="2"/>
+    <text x="548" y="184" fill="#4c1d95" font-size="20" font-weight="700">目标节点 B · 授权边界</text>
+    <g filter="url(#shadow)">
+      <rect x="555" y="215" width="240" height="86" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+      <text x="675" y="250" text-anchor="middle" fill="#78350f" font-size="19" font-weight="700">本地批准</text>
+      <text x="675" y="277" text-anchor="middle" fill="#92400e" font-size="14">精确资源 · 范围 · 有效期</text>
+      <rect x="850" y="215" width="220" height="86" rx="16" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+      <text x="960" y="250" text-anchor="middle" fill="#4c1d95" font-size="19" font-weight="700">Provider 执行</text>
+      <text x="960" y="277" text-anchor="middle" fill="#6d28d9" font-size="14">授权再检查后才写入</text>
+      <rect x="850" y="345" width="220" height="70" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <text x="960" y="388" text-anchor="middle" fill="#14532d" font-size="18" font-weight="700">Provider verify</text>
+      <rect x="555" y="345" width="240" height="70" rx="16" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+      <text x="675" y="374" text-anchor="middle" fill="#7f1d1d" font-size="17" font-weight="700">拒绝 / 过期 / 不匹配</text>
+      <text x="675" y="399" text-anchor="middle" fill="#b91c1c" font-size="14">Fail closed · 零写入</text>
+    </g>
+    <path d="M450 350 H520" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="485" y="334" text-anchor="middle" fill="#475569" font-size="13">无执行权</text>
+    <path d="M795 258 H850" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M960 301 V345" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M675 301 V345" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+
+    <rect x="1170" y="145" width="210" height="310" rx="24" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="1198" y="184" fill="#14532d" font-size="20" font-weight="700">公开证据</text>
+    <g filter="url(#shadow)">
+      <rect x="1195" y="225" width="160" height="70" rx="14" fill="#ffffff" stroke="#16a34a"/>
+      <text x="1275" y="254" text-anchor="middle" fill="#14532d" font-size="16" font-weight="700">Path / Service</text>
+      <text x="1275" y="278" text-anchor="middle" fill="#15803d" font-size="14">独立验证</text>
+      <rect x="1195" y="340" width="160" height="70" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <text x="1275" y="369" text-anchor="middle" fill="#14532d" font-size="16" font-weight="700">Evidence</text>
+      <text x="1275" y="393" text-anchor="middle" fill="#15803d" font-size="14">acknowledgement</text>
+    </g>
+    <path d="M1110 380 H1195" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M1275 295 V340" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  </g>
+
+  <g font-family="Inter, 'Microsoft YaHei', sans-serif">
+    <rect x="60" y="500" width="1320" height="96" rx="18" fill="#0f172a"/>
+    <text x="88" y="536" fill="#f8fafc" font-size="17" font-weight="700">范围外资源保持不变</text>
+    <text x="88" y="567" fill="#cbd5e1" font-size="15">用户防火墙 · Murus · 既有 WireGuard · 广泛用户路由 · 秘密 · 自启动</text>
+    <text x="1352" y="536" text-anchor="end" fill="#fbbf24" font-size="15" font-weight="700">planned · 不代表 main 已交付</text>
+    <text x="1352" y="567" text-anchor="end" fill="#cbd5e1" font-size="14">Agent / Coordinator / 模型均不能自批</text>
+  </g>
+</svg>
