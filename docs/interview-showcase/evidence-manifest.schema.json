@@ -49,6 +49,9 @@
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
         },
+        "commit_role": {
+          "enum": ["contains-claim-source", "authoring-baseline"]
+        },
         "pr_number": {
           "type": "integer",
           "minimum": 1
@@ -167,6 +170,56 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "properties": {
+              "kind": {
+                "enum": ["main", "pull-request"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "required": ["commit_role"],
+            "properties": {
+              "commit_role": {
+                "const": "contains-claim-source"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "properties": {
+              "kind": {
+                "enum": ["fixture", "plan"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "required": ["commit_role"],
+            "properties": {
+              "commit_role": {
+                "const": "authoring-baseline"
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

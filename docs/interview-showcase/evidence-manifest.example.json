@@ -6,7 +6,8 @@
   "source": {
     "kind": "main",
     "ref": "origin/main",
-    "commit_sha": "e84781aafaa73d7d61e4756b758f7c1dd0d70fbb"
+    "commit_sha": "e84781aafaa73d7d61e4756b758f7c1dd0d70fbb",
+    "commit_role": "contains-claim-source"
   },
   "scope": {
     "platforms": ["not-applicable"],

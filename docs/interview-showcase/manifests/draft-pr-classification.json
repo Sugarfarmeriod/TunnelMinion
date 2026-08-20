@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "claim_id": "draft-pr-63-ci",
+  "claim": "PR #63 head 的 Windows/macOS CI 已通过",
+  "status": "draft-pr-verified",
+  "source": {
+    "kind": "pull-request",
+    "ref": "feature/interview-showcase",
+    "commit_sha": "39d1ab7bdc94c5a6fa424a9857ac5fb3980507f7",
+    "commit_role": "contains-claim-source",
+    "pr_number": 63
+  },
+  "scope": {
+    "platforms": ["cross-platform"],
+    "environment": "GitHub Actions run 32246177079",
+    "applies_to": "PR #63 planning work package checks"
+  },
+  "evidence": [
+    {
+      "evidence_id": "pr-63-ci",
+      "kind": "ci-run",
+      "reference": "GitHub Actions run 32246177079",
+      "captured_at": "2026-08-19T19:13:00+08:00",
+      "verification": {"result": "passed", "method": "Windows/macOS workflow", "verifier": "GitHub Actions"},
+      "redaction": {"checked": true, "method": "仅记录公开 run 与提交标识"}
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "Draft PR CI 不证明 main 已交付或真实 A/B 成功"
+  }
+}

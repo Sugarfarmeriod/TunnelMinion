@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "claim_id": "offline-failure-fixture",
+  "claim": "离线失败场景仅用于验证展示降级语义",
+  "status": "planned",
+  "source": {
+    "kind": "fixture",
+    "ref": "authoring-baseline",
+    "commit_sha": "39d1ab7bdc94c5a6fa424a9857ac5fb3980507f7",
+    "commit_role": "authoring-baseline"
+  },
+  "scope": {
+    "platforms": ["not-applicable"],
+    "environment": "offline-fixture",
+    "applies_to": "failure presentation semantics only"
+  },
+  "evidence": [
+    {
+      "evidence_id": "fixture-dataset",
+      "kind": "fixture",
+      "reference": "docs/interview-showcase/fixtures/failure-scenarios.json",
+      "captured_at": "2026-08-19T19:20:00+08:00",
+      "verification": {"result": "passed", "method": "离线 schema 与覆盖检查"},
+      "redaction": {"checked": true, "method": "仅含虚构节点、操作和状态"}
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "39d1ab7 是作者基线且不包含当前 fixture；fixture 不计入真实 A/B，也不能作为当前现场成功证据"
+  }
+}

@@ -6,5 +6,10 @@
 - [声明到证据 manifest schema](evidence-manifest.schema.json)
 - [manifest 示例](evidence-manifest.example.json)
 - [主演示与技术深挖脚本](storyboard.md)
+- [展示素材台账](asset-inventory.md)
+- [离线失败 fixture](fixtures/failure-scenarios.json)
+- [声明分类样例](manifests)
+
+运行 `uv run python docs/interview-showcase/verify_evidence.py` 可离线校验 schema、失败场景覆盖和声明分类边界。
 
 在 PR #40、PR #59 和真实资源门禁形成明确稳定基线前，本目录不得被当作最终 README、截图、录屏或真实 A/B 成果。所有对外声明必须先通过 manifest 的状态分类与来源核对。
