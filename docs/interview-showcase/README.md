@@ -7,6 +7,7 @@
 - [manifest 示例](evidence-manifest.example.json)
 - [主演示与技术深挖脚本](storyboard.md)
 - [展示素材台账](asset-inventory.md)
+- [无模型降级验证记录](no-model-verification.md)
 - [离线失败 fixture](fixtures/failure-scenarios.json)
 - [声明分类样例](manifests)
 
