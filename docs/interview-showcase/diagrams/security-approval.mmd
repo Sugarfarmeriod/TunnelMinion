@@ -1,0 +1,31 @@
+flowchart LR
+    subgraph A["请求节点 A"]
+        U["用户问题"] --> AG["Agent 只读诊断"]
+        AG --> P["候选 Operation"]
+    end
+
+    P -->|"公开候选；无执行权"| G{"目标节点 B 本地批准"}
+
+    subgraph B["目标节点 B · 授权边界"]
+        G -->|"拒绝 / 过期 / 不匹配"| X["Fail closed"]
+        G -->|"批准精确范围"| E["Provider 执行"]
+        E --> V["Provider verify"]
+    end
+
+    V --> PV["请求节点 path / service verify"]
+    PV --> EV["公开 Evidence / acknowledgement"]
+
+    Q["Agent / Coordinator / 模型"] -. "均不能自批" .-> G
+    R["用户防火墙、Murus、既有 WireGuard、广泛路由"] -. "范围外，保持不变" .-> B
+
+    classDef request fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E;
+    classDef gate fill:#FEF3C7,stroke:#D97706,color:#78350F;
+    classDef target fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95;
+    classDef evidence fill:#DCFCE7,stroke:#16A34A,color:#14532D;
+    classDef stop fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D;
+
+    class U,AG,P request;
+    class G gate;
+    class E,V target;
+    class PV,EV evidence;
+    class X,R stop;
