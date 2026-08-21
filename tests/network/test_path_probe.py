@@ -9,8 +9,9 @@ from typing import Any, NotRequired, TypedDict, TypeVar
 
 import pytest
 from pydantic import ValidationError
-from tests.network.factories import NOW
+from tests.network.factories import NETWORK_ID, NODE_A, NOW
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import CandidateSource, EndpointCandidate, ProviderKind
 from tunnelminion.network.path_controller import DirectPathErrorCode
 from tunnelminion.network.path_probe import (
@@ -25,6 +26,10 @@ T = TypeVar("T")
 
 
 class ProbeArgs(TypedDict):
+    network_id: NetworkId
+    node_id: NodeId
+    plan_hash: str
+    authorization_revision: int
     revision: int
     candidates: tuple[EndpointCandidate, ...]
     expected_host_route: str
@@ -143,10 +148,14 @@ def probe_args(
     now: datetime = NOW,
     expected_host_route: str = "10.0.0.2/32",
     target_host: str = "10.0.0.2",
-    target_port: int = 8787,
+    target_port: int = 51820,
     cancel_event: asyncio.Event | None = None,
 ) -> ProbeArgs:
     values: ProbeArgs = {
+        "network_id": NETWORK_ID,
+        "node_id": NODE_A,
+        "plan_hash": f"sha256:{'b' * 64}",
+        "authorization_revision": revision,
         "revision": revision,
         "candidates": candidates,
         "expected_host_route": expected_host_route,
@@ -239,7 +248,7 @@ def test_probe_filters_sources_network_ports_expiry_and_budget() -> None:
     assert result.host_route_probe_at is not None
     assert result.target_probe_at is not None
     assert result.target_probe_succeeded
-    assert target.calls == [("10.0.0.2", 8787, 2.0)]
+    assert target.calls == [("10.0.0.2", 51820, 2.0)]
 
 
 def test_probe_refresh_is_cached_and_concurrent_requests_are_serialized() -> None:
@@ -313,6 +322,31 @@ def test_probe_permission_and_unsupported_are_stable_degradations(
     assert not target.calls
 
 
+@pytest.mark.parametrize(
+    ("exception_type", "expected"),
+    [
+        (NotImplementedError, DirectPathErrorCode.UNSUPPORTED),
+        (ConnectionError, DirectPathErrorCode.PROVIDER_UNAVAILABLE),
+        (OSError, DirectPathErrorCode.PATH_UNAVAILABLE),
+    ],
+)
+def test_probe_reader_exception_matrix_is_stable(
+    exception_type: type[Exception],
+    expected: DirectPathErrorCode,
+) -> None:
+    async def failing() -> PathProbeFacts:
+        raise exception_type("fake read failure")
+
+    result = run(
+        PlatformPathProbe(
+            provider=ProviderKind.WINDOWS,
+            policy=policy(),
+            facts_reader=failing,
+        ).probe(**probe_args())
+    )
+    assert result.stable_error_code is expected
+
+
 def test_probe_handles_reader_timeout_and_permission_errors() -> None:
     timeout_reader = FactsReader(facts(), delay=0.05)
     cancel = asyncio.Event()
@@ -321,7 +355,7 @@ def test_probe_handles_reader_timeout_and_permission_errors() -> None:
             **probe_args(cancel_event=cancel)
         )
     )
-    assert timed.stable_error_code is DirectPathErrorCode.UNSUPPORTED
+    assert timed.stable_error_code is DirectPathErrorCode.TIMEOUT
 
     async def denied() -> PathProbeFacts:
         raise PermissionError("denied")
@@ -354,9 +388,9 @@ def test_probe_target_timeout_and_compatibility_methods() -> None:
 
     assert run(probe.endpoint(candidate("10.0.0.10"), 1))
     with pytest.raises(TimeoutError):
-        run(probe.target("10.0.0.2", 8787, 0.01))
+        run(probe.target("10.0.0.2", 51820, 0.01))
     with pytest.raises(ValueError, match="私有"):
-        run(probe.target("8.8.8.8", 8787, 1))
+        run(probe.target("8.8.8.8", 51820, 1))
 
 
 def test_probe_cancellation_stops_facts_and_target() -> None:
@@ -395,6 +429,8 @@ def test_probe_rejects_public_target_and_non_host_route() -> None:
     probe = make_probe(FactsReader(facts()))
     with pytest.raises(ValueError, match="host route"):
         run(probe.probe(**probe_args(expected_host_route="10.0.0.0/24")))
+    with pytest.raises(ValueError, match="批准"):
+        run(probe.probe(**probe_args(expected_host_route="192.168.1.1/32")))
     with pytest.raises(ValueError, match="私有"):
         run(probe.probe(**probe_args(target_host="8.8.8.8")))
     with pytest.raises(ValidationError):
@@ -407,6 +443,14 @@ def test_probe_rejects_public_target_and_non_host_route() -> None:
         )
 
 
+def test_probe_rejects_private_but_unapproved_target_before_connection() -> None:
+    target = TargetReader()
+    probe = make_probe(FactsReader(facts()), target)
+    with pytest.raises(ValueError, match="批准"):
+        run(probe.probe(**probe_args(target_host="192.168.1.77", target_port=22)))
+    assert target.calls == []
+
+
 def test_probe_rejects_naive_clock_cancelled_before_start_and_bad_target_bounds() -> None:
     probe = make_probe(FactsReader(facts()))
     with pytest.raises(ValueError, match="时钟"):
@@ -417,9 +461,14 @@ def test_probe_rejects_naive_clock_cancelled_before_start_and_bad_target_bounds(
         run(probe.probe(**probe_args(cancel_event=cancel)))
     for host in ("0.0.0.0", "224.0.0.1"):
         with pytest.raises(ValueError):
-            run(probe.target(host, 8787, 1))
+            run(probe.target(host, 51820, 1))
     with pytest.raises(ValueError, match="端口"):
         run(probe.target("10.0.0.2", 0, 1))
+
+
+def test_probe_marks_missing_handshake_as_stale() -> None:
+    result = run(make_probe(FactsReader(facts(handshake=None))).probe(**probe_args()))
+    assert result.stable_error_code is DirectPathErrorCode.HANDSHAKE_STALE
 
 
 def test_tcp_target_probe_is_read_only_and_bounded(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,7 +11,7 @@
 - 让 Windows/macOS 常规本地应用暴露真实 selection、evidence、authorization、freshness 和稳定错误；证据过期后降级，显式刷新成功后才恢复，不复用旧证据宣称当前可用。
 - 将同步、授权读取、Provider、probe、控制器、状态持久化和上报划分为独立故障域；保留 last-known-good/static 行为，失败不得扩大为 Gateway、模型或本地只读功能故障。
 - 真实 Provider 写操作先在隔离 fake 与受批准的独立资源上通过恢复/故障矩阵，再允许进入隔离真实 A/B 验收；fake 或历史证据不得作为生产完成证据。
-- 明确非目标：不修改客户防火墙、WireGuard、路由、模型、秘密、自启动、Coordinator/Gateway 协议或 Gateway 监听边界，也不承担前端、package 或 FigJam 交付。
+- 明确非目标：不修改客户防火墙、WireGuard、路由、模型、秘密、自启动、Coordinator/Gateway 协议或 Gateway 监听边界，也不承担前端、package 或 LPE 的 Penpot 外部图纸/图纸交付。
 
 ## Capabilities
 

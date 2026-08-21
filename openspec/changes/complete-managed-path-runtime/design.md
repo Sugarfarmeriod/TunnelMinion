@@ -19,7 +19,7 @@ PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache�
 - 不改变 Provider 的 plan/apply/verify/rollback/recover、所有权账本或 L3 policy 语义。
 - 不修改客户防火墙、Murus、WireGuard 配置、用户路由、模型、秘密、自启动或安装包。
 - 不改变 Coordinator/Gateway 协议，不把本地应用与 Gateway 合并，也不扩大 Gateway 监听范围。
-- 不实现 `improve-local-product-experience` 的 React 页面、overview 聚合或 package/发布工作，不更新 FigJam 或其他外部系统。
+- 不实现 `improve-local-product-experience` 的 React 页面、overview 聚合或 package/发布工作，不更新 LPE 的 Penpot 外部图纸/图纸交付或其他外部系统。
 - 不新增 relay、LAN discovery、自动 enrollment、自动授权或模型参与的网络决策。
 
 ## Decisions

@@ -27,6 +27,7 @@ from tunnelminion.network.path_controller import (
     NetworkPathType,
     PathSelection,
 )
+from tunnelminion.network.path_status import ManagedPathFreshness, ManagedPathStatus
 from tunnelminion.tools.contracts import ToolCallContext, ToolExecutionRequest
 from tunnelminion.tools.runtime import ToolRuntime
 
@@ -106,6 +107,7 @@ def create_resource_router(
     path_evidence: Callable[[], DirectPathEvidence | None] | None = None,
     path_authorization: Callable[[], str] | None = None,
     managed_status: Callable[[], dict[str, JsonValue]] | None = None,
+    managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> APIRouter:
     """创建不依赖模型 Provider 的本机资源路由。"""
@@ -160,6 +162,32 @@ def create_resource_router(
         )
 
     async def network_path() -> ManagedPathResourceView:
+        if managed_path_status is not None:
+            status = managed_path_status()
+            if status is None:
+                return ManagedPathResourceView(configured=False)
+            projected = status.at(
+                (clock or (lambda: datetime.now(UTC)))(),
+                stale_error_code="path_evidence_stale",
+            )
+            evidence = projected.evidence
+            fresh = projected.freshness is ManagedPathFreshness.FRESH
+            return ManagedPathResourceView(
+                configured=True,
+                provider=projected.provider,
+                revision=projected.revision,
+                authorization_state=projected.authorization_state.value,
+                path_type=projected.path_type,
+                candidate_count=projected.candidate_count,
+                handshake_fresh=(evidence.handshake_fresh if fresh and evidence else False),
+                host_route_present=(evidence.host_route_present if fresh and evidence else False),
+                target_probe_succeeded=(
+                    evidence.target_probe_succeeded if fresh and evidence else False
+                ),
+                last_handshake_at=(evidence.last_handshake_at if evidence else None),
+                last_probe_at=(evidence.target_probe_at if evidence else None),
+                stable_error_code=projected.stable_error_code,
+            )
         selection = path_selection() if path_selection is not None else None
         evidence = path_evidence() if path_evidence is not None else None
         if selection is None:

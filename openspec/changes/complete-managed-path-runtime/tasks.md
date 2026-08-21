@@ -46,30 +46,48 @@
 
 ## 3. fake Provider 下的完整治理生命周期
 
-- [ ] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
-- [ ] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
-- [ ] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
-- [ ] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
-- [ ] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
-- [ ] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
+  - 证据：`ManagedPathLifecycle.reconcile` 串联授权、observe、plan、recheck、apply、Provider verify、path verify/controller 与 sinks；网络定向 `239 passed, 4 skipped`，并由真实 `DirectPathController` hysteresis 回归证明首次 STATIC 后下一次只重试 probe/controller、`Provider.apply_calls` 不增加并进入 DIRECT。
+- [x] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
+  - 证据：固定 `netop_` 幂等键、SQLite journal、单写者锁、fencing/lease 续租与取消安全点、LKG 条件以及 ack 先于 path status；网络定向覆盖重复 apply、revoke/claim 冲突、response-lost 和长 apply 恢复。
+- [x] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
+  - 证据：隔离 fake 矩阵覆盖授权成功、apply success、`VERIFY_FAILURE`、path failure、`STEP_FAILURE`、rollback failure、ownership conflict 和 `manual_intervention`；无有效 L3 grant、普通 refresh 及伪造 capability 均断言 `Provider.apply=0`；正常 STOP/REMOVE lifecycle 与 fake Provider 均验证最终 `ABSENT`，未用 kill-switch 替代。
+- [x] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
+  - 证据：plan/apply/verify/ack 四个注入崩溃边界均先核对授权、journal、ledger 与实时状态恢复；恢复断言 `apply_calls` 不再增加，并覆盖不确定写结果只查询/恢复、缺失/冲突 ledger fail-closed。
+- [x] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
+  - 证据：授权存储、Provider、probe、controller、LKG checkpoint、ack/path sink 及 pull/verify/pending 同步域分别故障时保持 fail-closed、static/pending/LKG 与只读边界；路径证据严格绑定 network/node/provider/revision/plan/target/TTL。
+- [x] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：Ruff format/check、Pyright strict、全量 `pytest`（`1004 passed、5 skipped、0 failed`，`15881/15881` statement、`3334/3334` branch、0 partial）、网络定向（`239 passed、4 skipped`）、生产 Windows/macOS/Web 契约定向（`33 passed`）、offline evaluation、限定范围秘密/debug/UTF-8 扫描及 OpenSpec strict 均通过；本阶段仅使用隔离 fake/只读契约测试，未宣称真实 Provider/A/B 完成。
 
 ## 4. 证据 TTL、刷新与真实状态投影
 
-- [ ] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
-- [ ] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
-- [ ] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
-- [ ] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
-- [ ] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
-- [ ] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
+  - 证据：`put_journal_step` 将 governance journal 与 `network_path_status` 放入同一 SQLite transaction；第二表 insert/update 由 SQLite trigger 注入失败时两表共同回滚。`test_journal_and_path_status_are_atomic_across_retry_and_recovery`、`test_atomic_journal_failure_after_apply_recovers_without_provider_replay` 覆盖失败、重试、恢复，Provider `apply_calls` 不增加；`test_persisted_real_controller_state_projects_stale_and_restores` 继续验证真实 `DirectPathController` checkpoint 重启恢复与首次 apply 仅 1 次。
+- [x] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
+  - 证据：`ManagedPathStatus.at()` 在 TTL 边界投影 `stale` 并保留 `expires_at`/last-known-good；严格 schema 校验顶层 `path_type`、selection/evidence DIRECT 绑定、freshness 与 observed/refreshed/expires 时间线，`currently_usable` 对矛盾状态 fail-closed。`test_managed_path_status_binding_and_freshness_matrix`、`test_persisted_real_controller_state_projects_stale_and_restores`、`test_stale_readonly_refresh_recovers_fresh_without_provider_apply_and_rate_replays` 覆盖 TTL、direct 矩阵和只读恢复。
+- [x] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
+  - 证据：`refresh_path` 按 network/node/revision single-flight 并以 shield 保持共享刷新；`last_refresh_attempt_at` 在 probe 前 journal 化并持久化，因此 timeout/异常/取消也消耗 30 秒预算。reconcile/recovery 在同进程和重启路径统一检查该预算，边界后只读 Provider verify 再执行恰一次 path probe，不调用 apply 或误走 recover rollback。`test_failed_refresh_consumes_persisted_attempt_budget_without_provider_apply`、`test_refresh_single_flight_survives_caller_cancellation`、`test_cancelled_refresh_recovery_obeys_persisted_budget_across_restart`、`test_refresh_completion_does_not_remove_replacement_task` 覆盖失败、重启、取消与并发，Provider apply 始终为 1。
+- [x] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
+  - 证据：`ManagedPathStatus` sink 使用每个新状态的 delivery hash/CAS；refresh 后重新投影并递送新的 observed/evidence，独立 sink 失败重试先清除旧 `managed_path_status_sink_failed` 再发布 payload，且不重复 apply。`test_refresh_redelivers_new_managed_status_and_retries_independent_sink_failure`、`test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_own_error` 覆盖清错、refresh 递送和 apply 不增加；redacted payload/SQLite scan 仍拒绝 endpoint、路由、配置和秘密。
+- [x] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
+  - 证据：`test_managed_path_status_binding_and_freshness_matrix` 覆盖 UTC、TTL、逆向绑定矩阵和 contradictory status fail-closed；`test_persisted_real_controller_state_projects_stale_and_restores`、`test_restart_path_checkpoint_mismatches_fail_closed` 覆盖重启/checkpoint；`test_path_status_v1_migration_verifies_raw_hash_and_is_atomic` 构造真实 v1 payload/hash，验证新代码显式读取、原子迁移、篡改 fail-closed、事务崩溃与 CAS 冲突不半写，`test_v1_path_status_restores_after_restart_without_apply_replay` 验证 lifecycle 重启恢复。原子 journal 失败注入、失败刷新预算、sink 失败重试和 redacted payload 测试共同验证旧缓存保留、apply 不重放、零秘密导出。
+- [x] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：tracked Python 文件 299 个的 Ruff check/format 全通过，Pyright `0 errors, 0 warnings, 0 informations`；本轮 managed path/lifecycle 定向 `53 passed`；全量 pytest `1024 passed, 5 skipped, 1 warning`，statement `16286/16286`、branch `3518/3518`、partial 0，coverage `100.00%`。`scripts/quality.py all` wrapper 曾被仓库内禁止处理的 untracked basetemp 目录阻断，组成门禁已按 tracked 文件清单和仓库外 basetemp 独立通过；`openspec validate complete-managed-path-runtime --strict` 通过。以上证据仅证明隔离 fake/只读状态生命周期，不宣称真实 Provider、平台现场或 A/B 完成。
 
 ## 5. Windows/macOS 常规应用单一装配
 
-- [ ] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
-- [ ] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
-- [ ] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
-- [ ] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
-- [ ] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
-- [ ] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
+  - 证据：`src/tunnelminion/agent/managed_path.py` 提供共用 `ManagedPathPlatformDependencies` 与 `build_managed_path_application`，Windows/macOS 仅在 `src/tunnelminion/platforms/{windows,macos}/managed_path.py` 提供 platform factory；`tests/agent/test_managed_path.py` 覆盖能力形状一致、结构化候选与安全 route fallback。平台命令与 probe 均只以 fake/fixture 或能力降级方式验证，未执行真实 Provider/probe。
+- [x] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
+  - 当前证据：`managed_application_lifespan` 对 start 失败、stop 失败均保证 close，`ManagedPathApplication.close()` 幂等；`test_real_lifespan_releases_both_sqlite_databases_without_gc` 覆盖正常、start 异常、stop 异常，证明原始异常保留、close 恰好一次且 governance/managed-network-ledger 两个 SQLite 文件立即可删除。`test_ledger_closes_short_connections_without_gc` 与 `test_ledger_closes_connection_when_setup_fails` 覆盖账本所有短连接成功/异常及初始化失败的确定性 close；`test_common_factory_close_releases_windows_sqlite_handle` 覆盖 application.close() 连续两次；`test_cli_local_entries_retain_owner_after_bundle_is_collected` 覆盖 Windows/macOS runtime-child 与显式 data_dir 的 strong owner、资源 API 真实回调和双数据库无 GC 删除。`test_common_factory_keeps_awaiting_authorization_before_provider_apply`、双平台常规入口与完整安全矩阵继续证明 awaiting-authorization/能力降级不 observe/apply，未触碰真实网络或环回绑定。
+- [x] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
+  - 当前证据：managed-node `resource_payload()` 与 Web `network-path` 均通过注入时钟投影 `ManagedPathStatus.at()`；过期 verified static/direct evidence 公开为 stale 且稳定错误为 `path_evidence_stale`，内部刷新失败仍保留原始 timeout。`test_common_factory_managed_node_payload_projects_ttl_with_injected_clock`、`test_managed_path_status_provider_projects_fresh_then_stale`、状态矩阵和资源契约通过，授权缺失继续显示 awaiting-authorization 而非 applied。
+- [x] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
+  - 证据：`src/tunnelminion/app.py` 与 `src/tunnelminion/macos_app.py` 只把 managed lifecycle 接入常规本地应用；Gateway builder 保持独立；`tests/architecture/test_managed_path_phase_one_boundary.py`、`tests/architecture/test_model_call_boundary.py`、`tests/architecture/test_coordinator_boundary.py` 与 Gateway 测试覆盖无模型/无反向写入和监听边界。未修改 LPE/package/Penpot/Figma。
+- [x] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
+  - 当前证据：Windows/macOS CLI 的 runtime-child 与显式 `data_dir` 入口均把 managed owner 强绑定到裸 FastAPI `app.state`；`test_cli_local_entries_retain_owner_after_bundle_is_collected` 在删除临时 bundle、GC 后验证 owner 存活，lifespan 启动/停止以及 managed-node/network-path 真实状态回调可用。既有双平台 unconfigured/enrollment-required/no-model/Coordinator/probe/restart/stop fake/fixture 矩阵全通过，不外推为真实平台验收。
+- [x] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前证据：目标提交 `6d22c2e` 上允许范围全量 Python `1043 passed, 5 skipped, 1 warning`；coverage `16611/16611` statements、`3550/3550` branches，`100.00%`；阶段 5 定向 `274 passed, 4 skipped`，最终独立审计另有 `71 passed`；Ruff check/format、Pyright `0 errors, 0 warnings, 0 informations`、`openspec validate complete-managed-path-runtime --strict` 与 `git diff --check` 全部通过。提交链 `18acf05` → `3675335` → `6d22c2e` 已普通 push，`origin/feature/managed-path-stage5-app-wiring` 当前指向 `6d22c2e`。
 
 ## 6. 批准资源上的真实 Provider 门禁
 
@@ -85,6 +103,6 @@
 - [ ] 7.1 只有阶段 1–6 门禁和双端隔离资源批准完成后，才用 Windows/macOS 常规入口执行真实 A/B authorization → lifecycle → selection/evidence → TTL stale → refresh recovery
 - [ ] 7.2 覆盖 Coordinator 离线、模型缺失、单端 probe 失败、sink 失败、重启恢复和 static fallback；证明本地只读功能与独立 Gateway 继续工作
 - [ ] 7.3 保存 A/B 证据 provenance 与前后不变性；专用脚本、旧归档证据、fake、PR #44 Coordinator/cache 或 stale UI 均不得替代本轮常规入口结果
-- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、FigJam 或 tasks；向 package change 只交付已合并常规入口能力
+- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、LPE 的 Penpot 外部图纸/图纸交付或 tasks；向 package change 只交付已合并常规入口能力
 - [ ] 7.5 运行全量质量、架构、安全、秘密、双平台真实门禁和 `openspec validate complete-managed-path-runtime --strict`，核对所有证据来自当前提交且未把降级成功计为生产成功
 - [ ] 7.6 检查最终 `git status`/diff/生成物/秘密与任务勾选范围，以 Conventional Commit 提交并普通 push，创建面向 `main` 的 Draft PR；合并后再同步主规格和归档 change

@@ -498,6 +498,8 @@ def test_rollback_missing_conflict_cancel_and_failure(tmp_path: Path) -> None:
         idempotency_key=KEY,
         plan_hash=plan.plan_hash,
         revision=plan.desired.revision,
+        provider=plan.desired.provider,
+        observation_fingerprint=plan.observed_fingerprint,
         status=ReceiptStatus.FAILED,
         error=NetworkError(
             code=NetworkErrorCode.APPLY_FAILED,

@@ -5,18 +5,30 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 from tests.agent.test_network_sync import NOW, signed
+from tests.network.control_harness import (
+    NetworkOperationPolicy,
+    SQLiteNetworkAuthorizationRepository,
+)
 from tests.network.factories import (
     NETWORK_ID,
     NODE_A,
     NODE_B,
     observation,
     ownership,
+)
+from tests.network.test_managed_path_lifecycle import (
+    CountingLedger,
+    FakePathVerifier,
+    controller,
+    create_recovery_ledger,
+    path_evidence,
 )
 
 from tunnelminion.domain.identifiers import AuthorizationId
@@ -34,19 +46,26 @@ from tunnelminion.network.contracts import (
 )
 from tunnelminion.network.fakes import FakeProviderBehavior, InMemoryNetworkProvider
 from tunnelminion.network.governance import (
-    ManagedNetworkGovernanceWorkflow,
+    LocalControlAuthority,
+    ManagedPathLifecycle,
+    NetworkApplyClaimConflictError,
     NetworkAuthorizationConflictError,
     NetworkAuthorizationGrant,
     NetworkAuthorizationScope,
     NetworkAuthorizationStorageError,
     NetworkGovernancePhase,
     NetworkGovernanceRecord,
-    NetworkOperationPolicy,
+    NetworkOwnershipLedger,
     NetworkPathStatus,
     NetworkPolicyAction,
-    SQLiteNetworkAuthorizationRepository,
     SQLiteNetworkGovernanceStore,
     redacted_path_status_payload,
+)
+from tunnelminion.network.governance import (
+    NetworkOperationPolicy as ProductionNetworkOperationPolicy,
+)
+from tunnelminion.network.governance import (
+    SQLiteNetworkAuthorizationRepository as ProductionAuthorizationRepository,
 )
 from tunnelminion.tools.contracts import ToolCancellationToken
 
@@ -75,22 +94,34 @@ def workflow(
     provider: InMemoryNetworkProvider,
     *,
     commit_last_known_good: Callable[[object], object] | None = None,
+    ledger: NetworkOwnershipLedger | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[
-    ManagedNetworkGovernanceWorkflow,
+    ManagedPathLifecycle,
     NetworkOperationPolicy,
     SQLiteNetworkGovernanceStore,
     MemoryAcknowledgements,
 ]:
     policy = NetworkOperationPolicy()
-    store = SQLiteNetworkGovernanceStore(tmp_path / "governance.sqlite3")
+    database = tmp_path / "governance.sqlite3"
+    repository = SQLiteNetworkAuthorizationRepository(database)
+    store = SQLiteNetworkGovernanceStore(
+        database,
+        authorization_repository=repository,
+    )
+    policy.attach_writer(repository)
     acknowledgements = MemoryAcknowledgements()
     return (
-        ManagedNetworkGovernanceWorkflow(
+        ManagedPathLifecycle(
             provider,
             policy,
             store,
             acknowledgements,
-            clock=lambda: NOW,
+            path_verifier=FakePathVerifier(path_evidence()),
+            path_controller=controller(),
+            path_status_sink=None,
+            ledger=ledger,
+            clock=clock or (lambda: NOW),
             commit_last_known_good=commit_last_known_good,
         ),
         policy,
@@ -138,9 +169,9 @@ async def test_unsigned_local_approval_boundary_and_verified_idempotency(
     assert acknowledgements.items[-1].stage is AcknowledgementStage.AWAITING_AUTHORIZATION
 
     grant = grant_for(awaiting)
-    with pytest.raises(PermissionError, match="本地控制面"):
-        policy.approve(grant, local_control=False)
-    policy.approve(grant, local_control=True)
+    with pytest.raises(TypeError):
+        policy.approve(grant, local_control=False)  # type: ignore[call-arg]
+    policy.approve(grant, capability=policy.local_control_capability())
 
     verified = await governance.reconcile(
         envelope,
@@ -159,9 +190,6 @@ async def test_unsigned_local_approval_boundary_and_verified_idempotency(
     assert committed == [envelope]
     assert [item.stage for item in acknowledgements.items] == [
         AcknowledgementStage.AWAITING_AUTHORIZATION,
-        AcknowledgementStage.APPLYING,
-        AcknowledgementStage.APPLIED,
-        AcknowledgementStage.VERIFIED,
         AcknowledgementStage.VERIFIED,
     ]
     assert acknowledgements.items[-1].receipt_hash is not None
@@ -180,7 +208,7 @@ async def test_coordinator_ack_failure_does_not_block_local_governance(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    policy.approve(grant_for(awaiting), local_control=True)
+    policy.approve(grant_for(awaiting), capability=policy.local_control_capability())
     acknowledgements.error = ConnectionError("offline")
     verified = await governance.reconcile(
         envelope,
@@ -202,22 +230,26 @@ async def test_scope_expansion_revocation_and_expiry_require_new_approval(
         ownership=None,
     )
     grant = grant_for(awaiting)
-    policy.approve(grant, local_control=True)
+    policy.approve(grant, capability=policy.local_control_capability())
     assert policy.evaluate(awaiting.plan, at=NOW).action is NetworkPolicyAction.EXECUTE
 
     expanded = awaiting.plan.model_copy(update={"plan_hash": f"sha256:{'f' * 64}"})
     assert policy.evaluate(expanded, at=NOW).action is NetworkPolicyAction.AWAIT_AUTHORIZATION
-    with pytest.raises(PermissionError, match="本地控制面"):
-        policy.revoke(
+    with pytest.raises(TypeError):
+        policy.revoke(  # type: ignore[call-arg]
             grant.authorization_id,
             revoked_at=NOW,
-            local_control=False,
+            local_control=False,  # type: ignore[call-arg]
         )
-    policy.revoke(grant.authorization_id, revoked_at=NOW, local_control=True)
+    policy.revoke(
+        grant.authorization_id,
+        revoked_at=NOW,
+        capability=policy.local_control_capability(),
+    )
     assert policy.evaluate(awaiting.plan, at=NOW).action is NetworkPolicyAction.AWAIT_AUTHORIZATION
 
     expired = grant_for(awaiting, expires_in=timedelta(seconds=1))
-    policy.approve(expired, local_control=True)
+    policy.approve(expired, capability=policy.local_control_capability())
     assert (
         policy.evaluate(awaiting.plan, at=NOW + timedelta(seconds=1)).action
         is NetworkPolicyAction.AWAIT_AUTHORIZATION
@@ -249,7 +281,7 @@ async def test_failure_rolls_back_or_fuses_on_ownership_conflict(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    policy.approve(grant_for(awaiting), local_control=True)
+    policy.approve(grant_for(awaiting), capability=policy.local_control_capability())
     result = await governance.reconcile(
         envelope,
         action=NetworkAction.CREATE,
@@ -274,13 +306,17 @@ async def test_response_loss_crash_recovery_and_cancellation_are_bounded(
         observation(),
         behavior=FakeProviderBehavior.RESPONSE_LOST,
     )
-    governance, policy, store, _ = workflow(tmp_path / "loss", provider)
+    governance, policy, store, _ = workflow(
+        tmp_path / "loss",
+        provider,
+        ledger=create_recovery_ledger(),
+    )
     awaiting = await governance.reconcile(
         envelope,
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    policy.approve(grant_for(awaiting), local_control=True)
+    policy.approve(grant_for(awaiting), capability=policy.local_control_capability())
     with pytest.raises(TimeoutError, match="response loss"):
         await governance.reconcile(
             envelope,
@@ -292,29 +328,38 @@ async def test_response_loss_crash_recovery_and_cancellation_are_bounded(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    assert recovered_retry.phase is NetworkGovernancePhase.VERIFIED
-    assert provider.apply_calls == 2
+    assert recovered_retry.phase is NetworkGovernancePhase.ROLLED_BACK
+    assert provider.apply_calls == 1
     assert store.list_recoverable() == ()
 
+    crash_observed = observation(ownership_state=OwnershipState.MANAGED_OWNED)
+    crash_ownership = ownership(crash_observed)
     crashing = InMemoryNetworkProvider(
-        observation(),
+        crash_observed,
         behavior=FakeProviderBehavior.CRASH_AFTER_STEP,
     )
-    crash_flow, crash_policy, crash_store, _ = workflow(tmp_path / "crash", crashing)
+    crash_flow, crash_policy, crash_store, _ = workflow(
+        tmp_path / "crash",
+        crashing,
+        ledger=CountingLedger(SimpleNamespace(ownership=crash_ownership)),
+    )
     crash_awaiting = await crash_flow.reconcile(
         envelope,
-        action=NetworkAction.CREATE,
-        ownership=None,
+        action=NetworkAction.UPDATE,
+        ownership=crash_ownership,
     )
-    crash_policy.approve(grant_for(crash_awaiting), local_control=True)
+    crash_policy.approve(
+        grant_for(crash_awaiting), capability=crash_policy.local_control_capability()
+    )
     with pytest.raises(RuntimeError, match="provider crash"):
         await crash_flow.reconcile(
             envelope,
-            action=NetworkAction.CREATE,
-            ownership=None,
+            action=NetworkAction.UPDATE,
+            ownership=crash_ownership,
         )
-    recovered = await crash_flow.recover_without_model()
-    assert recovered[0].status is ReceiptStatus.ROLLED_BACK
+    recovered = await crash_flow.recover()
+    assert recovered[0].receipt is not None
+    assert recovered[0].receipt.status is ReceiptStatus.ROLLED_BACK
     saved = crash_store.get(NETWORK_ID, NODE_A, 1)
     assert saved is not None and saved.phase is NetworkGovernancePhase.ROLLED_BACK
 
@@ -328,7 +373,9 @@ async def test_response_loss_crash_recovery_and_cancellation_are_bounded(
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    cancelled_policy.approve(grant_for(cancelled_awaiting), local_control=True)
+    cancelled_policy.approve(
+        grant_for(cancelled_awaiting), capability=cancelled_policy.local_control_capability()
+    )
     token = ToolCancellationToken()
     token.cancel()
     cancelled = await cancelled_flow.reconcile(
@@ -341,16 +388,24 @@ async def test_response_loss_crash_recovery_and_cancellation_are_bounded(
     assert cancelled_provider.apply_calls == 0
 
     empty_provider = InMemoryNetworkProvider(observation())
-    empty_flow, _, empty_store, _ = workflow(tmp_path / "empty-recovery", empty_provider)
+    empty_flow, _, empty_store, _ = workflow(
+        tmp_path / "empty-recovery",
+        empty_provider,
+        ledger=create_recovery_ledger(),
+    )
     empty_awaiting = await empty_flow.reconcile(
         envelope,
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    empty_store.put(empty_awaiting.model_copy(update={"phase": NetworkGovernancePhase.APPLYING}))
-    assert await empty_flow.recover_without_model() == ()
+    empty_flow._journal(  # type: ignore[reportPrivateUsage]
+        empty_awaiting,
+        NetworkGovernancePhase.APPLYING,
+    )
+    empty_recovered = await empty_flow.recover()
+    assert empty_recovered and empty_recovered[0].phase is NetworkGovernancePhase.RECOVERY_REQUIRED
     unchanged = empty_store.get(NETWORK_ID, NODE_A, 1)
-    assert unchanged is not None and unchanged.phase is NetworkGovernancePhase.APPLYING
+    assert unchanged is not None and unchanged.phase is NetworkGovernancePhase.RECOVERY_REQUIRED
 
 
 @pytest.mark.anyio
@@ -363,7 +418,7 @@ async def test_rollback_failure_requires_manual_intervention(tmp_path: Path) -> 
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    policy.approve(grant_for(awaiting), local_control=True)
+    policy.approve(grant_for(awaiting), capability=policy.local_control_capability())
     result = await governance.reconcile(
         envelope,
         action=NetworkAction.CREATE,
@@ -385,7 +440,7 @@ async def test_single_apply_lock_and_emergency_stop_require_local_matching_owner
         action=NetworkAction.CREATE,
         ownership=None,
     )
-    policy.approve(grant_for(awaiting), local_control=True)
+    policy.approve(grant_for(awaiting), capability=policy.local_control_capability())
     original_apply = provider.apply
     gate = asyncio.Event()
 
@@ -407,7 +462,7 @@ async def test_single_apply_lock_and_emergency_stop_require_local_matching_owner
         governance.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     )
     await asyncio.sleep(0)
-    with pytest.raises(RuntimeError, match="apply 已在运行"):
+    with pytest.raises(RuntimeError, match="path lifecycle 已在运行"):
         await governance.reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
     gate.set()
     await first
@@ -415,13 +470,25 @@ async def test_single_apply_lock_and_emergency_stop_require_local_matching_owner
     managed = observation(ownership_state=OwnershipState.MANAGED_OWNED)
     owned = ownership(managed)
     emergency_provider = InMemoryNetworkProvider(managed)
-    emergency, _, _, _ = workflow(tmp_path / "emergency", emergency_provider)
-    with pytest.raises(PermissionError, match="本地控制面"):
-        await emergency.emergency_stop(envelope, owned, local_control=False)
+    emergency, emergency_policy, _, _ = workflow(tmp_path / "emergency", emergency_provider)
+    with pytest.raises(TypeError):
+        await emergency.emergency_stop(  # type: ignore[call-arg]
+            envelope,
+            owned,
+            local_control=False,  # type: ignore[call-arg]
+        )
     mismatched = owned.model_copy(update={"system_fingerprint": f"sha256:{'0' * 64}"})
     with pytest.raises(RuntimeError, match="不匹配"):
-        await emergency.emergency_stop(envelope, mismatched, local_control=True)
-    stopped = await emergency.emergency_stop(envelope, owned, local_control=True)
+        await emergency.emergency_stop(
+            envelope,
+            mismatched,
+            capability=emergency_policy.kill_switch_capability(),
+        )
+    stopped = await emergency.emergency_stop(
+        envelope,
+        owned,
+        capability=emergency_policy.kill_switch_capability(),
+    )
     assert stopped.phase is NetworkGovernancePhase.VERIFIED
 
 
@@ -469,11 +536,20 @@ def test_scope_store_status_and_clock_validation(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="秘密字段"):
         store.get(NETWORK_ID, NODE_B, 99)
 
-    naive = ManagedNetworkGovernanceWorkflow(
+    naive_database = tmp_path / "naive.sqlite3"
+    naive_repository = SQLiteNetworkAuthorizationRepository(naive_database)
+    naive_store = SQLiteNetworkGovernanceStore(
+        naive_database,
+        authorization_repository=naive_repository,
+    )
+    naive = ManagedPathLifecycle(
         provider,
         NetworkOperationPolicy(),
-        SQLiteNetworkGovernanceStore(tmp_path / "naive.sqlite3"),
+        naive_store,
         MemoryAcknowledgements(),
+        path_verifier=FakePathVerifier(path_evidence()),
+        path_controller=controller(),
+        path_status_sink=None,
         clock=lambda: NOW.replace(tzinfo=None),
     )
     with pytest.raises(ValueError, match="时区"):
@@ -569,7 +645,7 @@ async def test_authorization_repository_migrates_restarts_and_revokes_irreversib
         ownership=None,
     )
     grant = grant_for(awaiting)
-    policy.approve(grant, local_control=True)
+    policy.approve(grant, capability=policy.local_control_capability())
 
     # 新连接只从同一治理 SQLite 的授权表恢复，不依赖进程内状态。
     restarted = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
@@ -583,7 +659,7 @@ async def test_authorization_repository_migrates_restarts_and_revokes_irreversib
     revoked = restarted.revoke(
         grant.authorization_id,
         revoked_at=NOW + timedelta(seconds=1),
-        local_control=True,
+        capability=restarted.authorization_capability(),
     )
     assert revoked.revoked_at == NOW + timedelta(seconds=1)
     assert (
@@ -591,12 +667,12 @@ async def test_authorization_repository_migrates_restarts_and_revokes_irreversib
         is NetworkPolicyAction.AWAIT_AUTHORIZATION
     )
     with pytest.raises(NetworkAuthorizationConflictError, match="不同授权范围"):
-        restarted.approve(grant, local_control=True)
+        restarted.approve(grant, capability=restarted.authorization_capability())
     with pytest.raises(NetworkAuthorizationConflictError, match="不可重新写入"):
         restarted.revoke(
             grant.authorization_id,
             revoked_at=NOW + timedelta(seconds=2),
-            local_control=True,
+            capability=restarted.authorization_capability(),
         )
     assert (
         SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3").get(
@@ -605,7 +681,7 @@ async def test_authorization_repository_migrates_restarts_and_revokes_irreversib
         == revoked
     )
     restarted.close()
-    assert store.authorization_repository.list_grants(NETWORK_ID, NODE_A) == (revoked,)
+    assert store.authorization_read_port.list_grants(NETWORK_ID, NODE_A) == (revoked,)
 
 
 @pytest.mark.anyio
@@ -620,7 +696,7 @@ async def test_authorization_repository_rejects_scope_conflicts_and_corrupt_payl
         ownership=None,
     )
     grant = grant_for(awaiting)
-    policy.approve(grant, local_control=True)
+    policy.approve(grant, capability=policy.local_control_capability())
     repository = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
 
     conflicting = grant.model_copy(
@@ -629,7 +705,7 @@ async def test_authorization_repository_rejects_scope_conflicts_and_corrupt_payl
         }
     )
     with pytest.raises(NetworkAuthorizationConflictError, match="不同授权范围"):
-        repository.approve(conflicting, local_control=True)
+        repository.approve(conflicting, capability=repository.authorization_capability())
 
     connection = sqlite3.connect(tmp_path / "governance.sqlite3")
     connection.execute(
@@ -640,6 +716,84 @@ async def test_authorization_repository_rejects_scope_conflicts_and_corrupt_payl
     connection.close()
     with pytest.raises(NetworkAuthorizationStorageError, match="秘密字段"):
         repository.list_grants(NETWORK_ID, NODE_A)
+
+
+@pytest.mark.anyio
+async def test_apply_claim_rechecks_revoke_in_same_sqlite_cas_domain(tmp_path: Path) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    governance, policy, store, _ = workflow(tmp_path, provider)
+    pending = await governance.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    grant = grant_for(pending)
+    policy.approve(grant, capability=policy.local_control_capability())
+    other = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
+    claim = store.claim_apply(
+        pending.plan,
+        authorization_id=grant.authorization_id,
+        idempotency_key=pending.idempotency_key,
+        now=NOW,
+    )
+
+    with pytest.raises(NetworkApplyClaimConflictError, match="活动 apply claim"):
+        other.revoke(
+            grant.authorization_id,
+            revoked_at=NOW + timedelta(seconds=1),
+            capability=other.authorization_capability(),
+        )
+    store.assert_apply_claim(claim, now=NOW + timedelta(seconds=1))
+    assert provider.apply_calls == 0
+    other.close()
+
+
+@pytest.mark.anyio
+async def test_apply_claim_is_single_writer_and_expiry_is_fenced(tmp_path: Path) -> None:
+    envelope, _ = signed()
+    provider = InMemoryNetworkProvider(observation())
+    governance, policy, store, _ = workflow(tmp_path, provider)
+    pending = await governance.reconcile(
+        envelope,
+        action=NetworkAction.CREATE,
+        ownership=None,
+    )
+    grant = grant_for(pending)
+    policy.approve(grant, capability=policy.local_control_capability())
+    other = SQLiteNetworkAuthorizationRepository(tmp_path / "governance.sqlite3")
+
+    first = store.claim_apply(
+        pending.plan,
+        authorization_id=grant.authorization_id,
+        idempotency_key=pending.idempotency_key,
+        now=NOW,
+    )
+    with pytest.raises(NetworkApplyClaimConflictError, match="活跃"):
+        other.claim_apply(
+            pending.plan,
+            authorization_id=grant.authorization_id,
+            idempotency_key=pending.idempotency_key,
+            now=NOW,
+        )
+    store.release_apply_claim(first)
+    second = other.claim_apply(
+        pending.plan,
+        authorization_id=grant.authorization_id,
+        idempotency_key=pending.idempotency_key,
+        now=NOW + timedelta(seconds=1),
+    )
+    assert second.fencing_token > first.fencing_token
+    assert other.reap_expired_claims(now=NOW + timedelta(seconds=40)) == 1
+    with pytest.raises(NetworkApplyClaimConflictError, match="不可重放"):
+        store.claim_apply(
+            pending.plan,
+            authorization_id=grant.authorization_id,
+            idempotency_key=pending.idempotency_key,
+            now=NOW + timedelta(seconds=41),
+        )
+    assert provider.apply_calls == 0
+    other.close()
 
 
 def test_authorization_repository_rejects_index_mismatch_and_read_failure(tmp_path: Path) -> None:
@@ -661,7 +815,7 @@ def test_authorization_repository_rejects_index_mismatch_and_read_failure(tmp_pa
         approved_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
     )
-    repository.approve(grant, local_control=True)
+    repository.approve(grant, capability=repository.authorization_capability())
     connection = sqlite3.connect(tmp_path / "governance.sqlite3")
     connection.execute(
         "UPDATE network_authorization_grants SET network_id = ? WHERE authorization_id = ?",
@@ -678,7 +832,12 @@ def test_authorization_repository_rejects_index_mismatch_and_read_failure(tmp_pa
 
 
 def test_authorization_repository_uses_store_read_port(tmp_path: Path) -> None:
-    store = SQLiteNetworkGovernanceStore(tmp_path / "store-reader.sqlite3")
+    database = tmp_path / "store-reader.sqlite3"
+    repository = SQLiteNetworkAuthorizationRepository(database)
+    store = SQLiteNetworkGovernanceStore(
+        database,
+        authorization_repository=repository,
+    )
     assert store.list_grants(NETWORK_ID, NODE_A) == ()
 
 
@@ -710,32 +869,66 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
         approved_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
     )
+    production_authority = LocalControlAuthority()
+    production_repository = ProductionAuthorizationRepository(
+        ":memory:",
+        control=production_authority,
+    )
+    assert not hasattr(production_repository, "authorization_capability")
+    assert not hasattr(production_repository, "kill_switch_capability")
+    assert not hasattr(ProductionNetworkOperationPolicy(), "local_control_capability")
+    assert not hasattr(ProductionNetworkOperationPolicy(), "kill_switch_capability")
+    forged_authority = LocalControlAuthority()
+    with pytest.raises(PermissionError):
+        production_repository.approve(
+            grant,
+            capability=forged_authority.authorization_capability(),
+        )
+    production_repository.close()
     repository = SQLiteNetworkAuthorizationRepository(":memory:")
-    assert repository.approve(grant, local_control=True) == grant
-    assert repository.approve(grant, local_control=True) == grant
-    assert repository.revoke(
-        grant.authorization_id,
-        revoked_at=NOW + timedelta(seconds=1),
-        local_control=True,
-    ).revoked_at == NOW + timedelta(seconds=1)
-    assert repository.revoke(
-        grant.authorization_id,
-        revoked_at=NOW + timedelta(seconds=1),
-        local_control=True,
-    ).revoked_at == NOW + timedelta(seconds=1)
-    with pytest.raises(NetworkAuthorizationStorageError, match="未找到"):
-        repository.revoke(AuthorizationId.new(), revoked_at=NOW, local_control=True)
+    assert repository.approve(grant, capability=repository.authorization_capability()) == grant
+    assert repository.approve(grant, capability=repository.authorization_capability()) == grant
+    before_invalid_revoke = repository.list_grants(NETWORK_ID, NODE_A)
     with pytest.raises(ValueError, match="撤销时间"):
         repository.revoke(
-            grant.authorization_id, revoked_at=NOW.replace(tzinfo=None), local_control=True
+            grant.authorization_id,
+            revoked_at=NOW - timedelta(seconds=1),
+            capability=repository.authorization_capability(),
+        )
+    assert repository.list_grants(NETWORK_ID, NODE_A) == before_invalid_revoke
+    assert repository.revoke(
+        grant.authorization_id,
+        revoked_at=NOW + timedelta(seconds=1),
+        capability=repository.authorization_capability(),
+    ).revoked_at == NOW + timedelta(seconds=1)
+    assert repository.revoke(
+        grant.authorization_id,
+        revoked_at=NOW + timedelta(seconds=1),
+        capability=repository.authorization_capability(),
+    ).revoked_at == NOW + timedelta(seconds=1)
+    with pytest.raises(NetworkAuthorizationStorageError, match="未找到"):
+        repository.revoke(
+            AuthorizationId.new(),
+            revoked_at=NOW,
+            capability=repository.authorization_capability(),
+        )
+    with pytest.raises(ValueError, match="撤销时间"):
+        repository.revoke(
+            grant.authorization_id,
+            revoked_at=NOW.replace(tzinfo=None),
+            capability=repository.authorization_capability(),
         )
     repository.assert_no_secret_material()
     repository.close()
     assert repository._owns_connection is True  # pyright: ignore[reportPrivateUsage]
 
-    store = SQLiteNetworkGovernanceStore(tmp_path / "shared.sqlite3")
-    store.authorization_repository.close()  # 共享连接由 store 所有，关闭这里是 no-op。
-    assert store.authorization_repository._owns_connection is False  # pyright: ignore[reportPrivateUsage]
+    shared_database = tmp_path / "shared.sqlite3"
+    shared_repository = SQLiteNetworkAuthorizationRepository(shared_database)
+    store = SQLiteNetworkGovernanceStore(
+        shared_database,
+        authorization_repository=shared_repository,
+    )
+    assert store.authorization_read_port.list_grants(NETWORK_ID, NODE_A) == ()
 
     policy = NetworkOperationPolicy()
     with pytest.raises(NetworkAuthorizationStorageError, match="尚未绑定"):
@@ -759,7 +952,8 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
         path = tmp_path / f"payload-{index}.sqlite3"
         case_repo = SQLiteNetworkAuthorizationRepository(path)
         case_repo.approve(
-            grant.model_copy(update={"authorization_id": AuthorizationId.new()}), local_control=True
+            grant.model_copy(update={"authorization_id": AuthorizationId.new()}),
+            capability=case_repo.authorization_capability(),
         )
         case_connection = sqlite3.connect(path)
         case_connection.execute("UPDATE network_authorization_grants SET payload = ?", (payload,))
@@ -771,7 +965,7 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
 
     malformed = SQLiteNetworkAuthorizationRepository(tmp_path / "malformed.sqlite3")
     malformed_grant = grant.model_copy(update={"authorization_id": AuthorizationId.new()})
-    malformed.approve(malformed_grant, local_control=True)
+    malformed.approve(malformed_grant, capability=malformed.authorization_capability())
     malformed_connection = sqlite3.connect(tmp_path / "malformed.sqlite3")
     malformed_connection.execute(
         "UPDATE network_authorization_grants SET payload = ?",
@@ -785,7 +979,7 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
 
     invalid_row = SQLiteNetworkAuthorizationRepository(tmp_path / "invalid-row.sqlite3")
     invalid_grant = grant.model_copy(update={"authorization_id": AuthorizationId.new()})
-    invalid_row.approve(invalid_grant, local_control=True)
+    invalid_row.approve(invalid_grant, capability=invalid_row.authorization_capability())
     invalid_connection = sqlite3.connect(tmp_path / "invalid-row.sqlite3")
     invalid_connection.execute(
         "UPDATE network_authorization_grants SET payload = ?",
@@ -869,13 +1063,17 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
     with pytest.raises(NetworkAuthorizationConflictError, match="重复"):
         duplicate.list_grants(NETWORK_ID, NODE_A)
     with pytest.raises(NetworkAuthorizationConflictError, match="冲突记录"):
-        duplicate.approve(grant, local_control=True)
+        duplicate.approve(grant, capability=duplicate.authorization_capability())
     with pytest.raises(NetworkAuthorizationConflictError, match="冲突记录"):
-        duplicate.revoke(grant.authorization_id, revoked_at=NOW, local_control=True)
+        duplicate.revoke(
+            grant.authorization_id,
+            revoked_at=NOW,
+            capability=duplicate.authorization_capability(),
+        )
     duplicate.close()
 
     compare_and_swap = SQLiteNetworkAuthorizationRepository(":memory:")
-    compare_and_swap.approve(grant, local_control=True)
+    compare_and_swap.approve(grant, capability=compare_and_swap.authorization_capability())
     original_safe_payload = (  # pyright: ignore[reportPrivateUsage]
         SQLiteNetworkAuthorizationRepository._safe_payload  # pyright: ignore[reportPrivateUsage]
     )
@@ -897,6 +1095,6 @@ def test_authorization_repository_validation_and_defensive_fail_closed_paths(
         compare_and_swap.revoke(
             grant.authorization_id,
             revoked_at=NOW + timedelta(seconds=1),
-            local_control=True,
+            capability=compare_and_swap.authorization_capability(),
         )
     compare_and_swap.close()
