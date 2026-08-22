@@ -411,8 +411,11 @@ def test_windows_acl_explicit_deny_blocks_later_write_allow() -> None:
     assert not acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
         denied_then_allowed, write_mask
     )
-    assert not acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
-        allowed_then_denied, write_mask
+    assert (
+        acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+            allowed_then_denied, write_mask
+        )
+        is True
     )
     assert acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
         ((0, write_mask, "S-1-5-32-545"),), write_mask

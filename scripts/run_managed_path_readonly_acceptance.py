@@ -779,11 +779,8 @@ def _windows_untrusted_write_granted(
             continue
         if ace_type == 1:
             denied_by_sid[sid_text] = denied_by_sid.get(sid_text, 0) | relevant
-            allowed_by_sid[sid_text] = allowed_by_sid.get(sid_text, 0) & ~relevant
             if sid_text in _WINDOWS_BROAD_USER_SIDS:
                 broad_denied |= relevant
-                for other_sid in allowed_by_sid:
-                    allowed_by_sid[other_sid] &= ~relevant
             continue
         if _trusted_windows_sid(sid_text):
             continue
