@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import stat
+import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import scripts.run_managed_path_readonly_acceptance as acceptance
@@ -196,6 +200,202 @@ def test_macos_command_whitelist_rejects_privilege_and_write_commands() -> None:
     ):
         with pytest.raises(ValueError, match="acceptance_command_rejected"):
             asyncio.run(runner.run(command, 5))
+
+
+def test_default_git_runner_uses_fixed_path_and_clears_git_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed_path = Path(r"C:\Program Files\Git\cmd\git.exe")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(acceptance, "_trusted_git_path", lambda: fixed_path)
+    monkeypatch.setenv("PATH", r"C:\attacker\bin")
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_EXEC_PATH",
+    ):
+        monkeypatch.setenv(key, "attacker-controlled")
+
+    def fake_run(command: tuple[str, ...], **kwargs: object) -> SimpleNamespace:
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(acceptance.subprocess, "run", fake_run)
+    assert acceptance._default_git_runner(  # pyright: ignore[reportPrivateUsage]
+        ("rev-parse", "--verify", "HEAD")
+    ) == (0, "", "")
+
+    command = cast(tuple[str, ...], captured["command"])
+    assert command[0] == str(fixed_path)
+    fixed_args = acceptance._GIT_FIXED_ARGS  # pyright: ignore[reportPrivateUsage]
+    assert command[1 : 1 + len(fixed_args)] == fixed_args
+    assert command[-3:] == ("rev-parse", "--verify", "HEAD")
+    assert captured["shell"] is False
+    assert captured["timeout"] == 5
+    environment = cast(dict[str, str], captured["env"])
+    assert environment["GIT_OPTIONAL_LOCKS"] == "0"
+    assert all(
+        not key.upper().startswith("GIT_") or key == "GIT_OPTIONAL_LOCKS" for key in environment
+    )
+
+
+def test_default_git_runner_rejects_unapproved_command_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        acceptance,
+        "_trusted_git_path",
+        lambda: (_ for _ in ()).throw(AssertionError("path lookup must not run")),
+    )
+    with pytest.raises(ValueError, match="git_command_rejected"):
+        acceptance._default_git_runner(  # pyright: ignore[reportPrivateUsage]
+            ("log", "--all")
+        )
+
+
+def test_default_git_runner_rejects_tool_timeout_and_missing_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed_path = Path(r"C:\Program Files\Git\cmd\git.exe")
+    monkeypatch.setattr(acceptance, "_trusted_git_path", lambda: fixed_path)
+
+    def timed_out(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args, kwargs
+        raise subprocess.TimeoutExpired("git", 5)
+
+    monkeypatch.setattr(acceptance.subprocess, "run", timed_out)
+    with pytest.raises(ValueError, match="git_timeout"):
+        acceptance._default_git_runner(  # pyright: ignore[reportPrivateUsage]
+            ("rev-parse", "--verify", "HEAD")
+        )
+
+    def missing(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args, kwargs
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(acceptance.subprocess, "run", missing)
+    with pytest.raises(ValueError, match="git_tool_unavailable"):
+        acceptance._default_git_runner(  # pyright: ignore[reportPrivateUsage]
+            ("rev-parse", "--verify", "HEAD")
+        )
+
+
+def test_git_path_rejects_symlink_reparse_owner_and_acl_failures() -> None:
+    rejected = {
+        "git_tool_symlink",
+        "git_tool_reparse",
+        "git_tool_owner_untrusted",
+        "git_tool_acl_untrusted",
+    }
+
+    for reason in rejected:
+
+        def verifier(path: Path, reason: str = reason) -> None:
+            del path
+            raise ValueError(reason)
+
+        with pytest.raises(ValueError, match="git_tool_untrusted_or_unavailable"):
+            acceptance._select_trusted_git_path(  # pyright: ignore[reportPrivateUsage]
+                (Path("/system/git"),), verifier
+            )
+
+
+def test_git_path_rejects_symlink_and_reparse_nodes_before_platform_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = Path("/system/git")
+
+    def regular_node(path: Path) -> os.stat_result:
+        del path
+        return cast(
+            os.stat_result,
+            SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0),
+        )
+
+    def symlink_node(path: Path) -> bool:
+        del path
+        return True
+
+    monkeypatch.setattr(
+        acceptance.os,
+        "lstat",
+        cast(Any, regular_node),
+    )
+    monkeypatch.setattr(Path, "is_symlink", symlink_node)
+    with pytest.raises(ValueError, match="git_tool_symlink"):
+        acceptance._verify_path_node(  # pyright: ignore[reportPrivateUsage]
+            node, expect_file=True
+        )
+
+    def non_symlink_node(path: Path) -> bool:
+        del path
+        return False
+
+    def reparse_node(path: Path) -> os.stat_result:
+        del path
+        return cast(
+            os.stat_result,
+            SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0x400),
+        )
+
+    monkeypatch.setattr(Path, "is_symlink", non_symlink_node)
+    monkeypatch.setattr(
+        acceptance.os,
+        "lstat",
+        cast(Any, reparse_node),
+    )
+    with pytest.raises(ValueError, match="git_tool_reparse"):
+        acceptance._verify_path_node(  # pyright: ignore[reportPrivateUsage]
+            node, expect_file=True
+        )
+
+
+def test_macos_git_acl_and_owner_checks_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Path("/usr/bin/git")
+    untrusted = cast(
+        os.stat_result,
+        SimpleNamespace(st_uid=501, st_mode=stat.S_IFREG | stat.S_IRUSR),
+    )
+    with pytest.raises(ValueError, match="git_tool_acl_untrusted"):
+        acceptance._verify_macos_security(  # pyright: ignore[reportPrivateUsage]
+            node, untrusted
+        )
+
+    def acl_listing(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args, kwargs
+        return SimpleNamespace(
+            returncode=0,
+            stdout="-rwxr-xr-x+ 1 root wheel 1 Jan 1 00:00 /usr/bin/git\n",
+        )
+
+    monkeypatch.setattr(acceptance.subprocess, "run", acl_listing)
+    root_owned = cast(
+        os.stat_result,
+        SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | stat.S_IRUSR),
+    )
+    with pytest.raises(ValueError, match="git_tool_acl_untrusted"):
+        acceptance._verify_macos_security(  # pyright: ignore[reportPrivateUsage]
+            node, root_owned
+        )
+
+
+def test_windows_trusted_sid_matching_does_not_accept_prefix_spoof() -> None:
+    assert acceptance._trusted_windows_sid(  # pyright: ignore[reportPrivateUsage]
+        "S-1-5-18"
+    )
+    assert acceptance._trusted_windows_sid(  # pyright: ignore[reportPrivateUsage]
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+    )
+    assert not acceptance._trusted_windows_sid(  # pyright: ignore[reportPrivateUsage]
+        "S-1-5-180"
+    )
 
 
 @pytest.mark.parametrize("host", ["10.77.0.3", "0.0.0.0", "*"])

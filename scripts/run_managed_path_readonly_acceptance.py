@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
 import getpass
 import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import CandidateSource, EndpointCandidate, canonical_sha256
@@ -53,6 +55,45 @@ _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CODE_SHA = re.compile(r"^[0-9a-f]{40}$")
 _WINDOWS_INTERFACE = re.compile(r"^[A-Za-z0-9_. -]{1,64}$")
 _MACOS_INTERFACE = re.compile(r"^(?:utun[0-9]+|tmn-[a-z0-9-]{1,48})$")
+_WINDOWS_GIT_CANDIDATES = (
+    Path(r"C:\Program Files\Git\cmd\git.exe"),
+    Path(r"C:\Program Files\Git\bin\git.exe"),
+    Path(r"C:\Program Files (x86)\Git\cmd\git.exe"),
+)
+_MACOS_GIT_CANDIDATES = (Path("/usr/bin/git"),)
+_GIT_COMMANDS = frozenset(
+    {
+        ("rev-parse", "--show-toplevel"),
+        ("rev-parse", "--verify", "HEAD"),
+        ("status", "--porcelain=v1", "--untracked-files=all"),
+    }
+)
+_GIT_FIXED_ARGS = (
+    "--no-pager",
+    "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.untrackedCache=false",
+    "-c",
+    "core.preloadIndex=false",
+    "-c",
+    f"core.hooksPath={os.devnull}",
+)
+_WINDOWS_WRITE_MASK = (
+    0x00000002
+    | 0x00000004
+    | 0x00000010
+    | 0x00000040
+    | 0x00000100
+    | 0x00010000
+    | 0x00040000
+    | 0x00080000
+    | 0x10000000
+    | 0x40000000
+)
+_TRUSTED_WINDOWS_SID_EXACT = frozenset({"S-1-5-18", "S-1-5-32-544"})
+_TRUSTED_WINDOWS_SERVICE_SID_PREFIX = "S-1-5-80-"
 
 
 class NetworkChangedError(RuntimeError):
@@ -537,16 +578,215 @@ def _evidence_path(platform: str) -> Path:
 
 
 def _default_git_runner(command: tuple[str, ...]) -> tuple[int, str, str]:
-    completed = subprocess.run(
-        ("git", *command),
-        cwd=Path(__file__).resolve().parents[1],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    if type(command) is not tuple or command not in _GIT_COMMANDS:
+        raise ValueError("git_command_rejected")
+    git_path = _trusted_git_path()
+    environment = {
+        key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")
+    }
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    try:
+        completed = subprocess.run(
+            (str(git_path), *_GIT_FIXED_ARGS, *command),
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            shell=False,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("git_timeout") from exc
+    except OSError as exc:
+        raise ValueError("git_tool_unavailable") from exc
     return completed.returncode, completed.stdout, completed.stderr
+
+
+def _trusted_git_path() -> Path:
+    candidates = _WINDOWS_GIT_CANDIDATES if os.name == "nt" else _MACOS_GIT_CANDIDATES
+    return _select_trusted_git_path(candidates, _verify_git_path)
+
+
+def _select_trusted_git_path(
+    candidates: tuple[Path, ...], verifier: Callable[[Path], None]
+) -> Path:
+    for candidate in candidates:
+        try:
+            verifier(candidate)
+        except (OSError, ValueError):
+            continue
+        return candidate
+    raise ValueError("git_tool_untrusted_or_unavailable")
+
+
+def _verify_git_path(path: Path) -> None:
+    if not path.is_absolute():
+        raise ValueError("git_tool_path_rejected")
+    try:
+        _verify_path_node(path, expect_file=True)
+        for parent in path.parents:
+            _verify_path_node(parent, expect_file=False)
+    except OSError as exc:
+        raise ValueError("git_tool_unavailable") from exc
+
+
+def _verify_path_node(path: Path, *, expect_file: bool) -> None:
+    info = os.lstat(path)
+    if path.is_symlink():
+        raise ValueError("git_tool_symlink")
+    attributes = getattr(info, "st_file_attributes", 0)
+    if attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+        raise ValueError("git_tool_reparse")
+    if expect_file:
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("git_tool_not_regular")
+    elif not stat.S_ISDIR(info.st_mode):
+        raise ValueError("git_tool_parent_rejected")
+    if os.name == "nt":
+        _verify_windows_security(path)
+    elif sys.platform == "darwin":
+        _verify_macos_security(path, info)
+    else:
+        raise ValueError("git_tool_platform_unsupported")
+
+
+def _verify_macos_security(path: Path, info: os.stat_result) -> None:
+    if info.st_uid != 0 or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError("git_tool_acl_untrusted")
+    try:
+        listing = subprocess.run(
+            ("/bin/ls", "-lde", str(path)),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("git_tool_security_unavailable") from exc
+    if listing.returncode != 0 or not listing.stdout.splitlines():
+        raise ValueError("git_tool_security_unavailable")
+    permissions = listing.stdout.splitlines()[0].split(maxsplit=1)[0]
+    if permissions.endswith("+"):
+        raise ValueError("git_tool_acl_untrusted")
+
+
+def _verify_windows_security(path: Path) -> None:
+    if os.name != "nt":
+        raise ValueError("git_tool_platform_unsupported")
+    descriptor = ctypes.c_void_p()
+    kernel32: Any = None
+    try:
+        advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        owner = ctypes.c_void_p()
+        dacl = ctypes.c_void_p()
+        get_security = advapi.GetNamedSecurityInfoW
+        get_security.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        get_security.restype = ctypes.c_uint32
+        result = get_security(
+            str(path),
+            1,
+            0x00000001 | 0x00000004,
+            ctypes.byref(owner),
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(descriptor),
+        )
+        if result != 0 or not owner.value or not dacl.value:
+            raise ValueError("git_tool_acl_untrusted")
+        sid_text = _windows_sid_text(advapi, owner)
+        if not _trusted_windows_sid(sid_text):
+            raise ValueError("git_tool_owner_untrusted")
+        _verify_windows_dacl(advapi, dacl)
+    except ValueError:
+        raise
+    except (AttributeError, OSError, TypeError) as exc:
+        raise ValueError("git_tool_security_unavailable") from exc
+    finally:
+        if kernel32 is not None and descriptor.value:
+            local_free = kernel32.LocalFree
+            local_free.argtypes = [ctypes.c_void_p]
+            local_free.restype = ctypes.c_void_p
+            local_free(descriptor)
+
+
+def _windows_sid_text(advapi: object, sid: ctypes.c_void_p) -> str:
+    convert = cast(Any, advapi).ConvertSidToStringSidW
+    convert.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    convert.restype = ctypes.c_int
+    text_pointer = ctypes.c_wchar_p()
+    if not convert(sid, ctypes.byref(text_pointer)) or not text_pointer.value:
+        raise ValueError("git_tool_owner_untrusted")
+    try:
+        return text_pointer.value
+    finally:
+        local_free = ctypes.WinDLL("kernel32", use_last_error=True).LocalFree
+        local_free.argtypes = [ctypes.c_void_p]
+        local_free.restype = ctypes.c_void_p
+        local_free(ctypes.cast(text_pointer, ctypes.c_void_p))
+
+
+def _trusted_windows_sid(sid_text: str) -> bool:
+    return sid_text in _TRUSTED_WINDOWS_SID_EXACT or sid_text.startswith(
+        _TRUSTED_WINDOWS_SERVICE_SID_PREFIX
+    )
+
+
+def _verify_windows_dacl(advapi: object, dacl: ctypes.c_void_p) -> None:
+    class Acl(ctypes.Structure):
+        _fields_ = [
+            ("revision", ctypes.c_ubyte),
+            ("sbz1", ctypes.c_ubyte),
+            ("size", ctypes.c_ushort),
+            ("ace_count", ctypes.c_ushort),
+            ("sbz2", ctypes.c_ushort),
+        ]
+
+    class AceHeader(ctypes.Structure):
+        _fields_ = [
+            ("ace_type", ctypes.c_ubyte),
+            ("ace_flags", ctypes.c_ubyte),
+            ("ace_size", ctypes.c_ushort),
+        ]
+
+    acl = ctypes.cast(dacl, ctypes.POINTER(Acl)).contents
+    get_ace = cast(Any, advapi).GetAce
+    get_ace.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
+    get_ace.restype = ctypes.c_int
+    for index in range(acl.ace_count):
+        ace = ctypes.c_void_p()
+        if not get_ace(dacl, index, ctypes.byref(ace)) or not ace.value:
+            raise ValueError("git_tool_acl_untrusted")
+        header = ctypes.cast(ace, ctypes.POINTER(AceHeader)).contents
+        if header.ace_type not in (0, 1):
+            raise ValueError("git_tool_acl_untrusted")
+        if header.ace_type != 0:
+            continue
+        if header.ace_flags & 0x08:
+            continue
+        if header.ace_size < ctypes.sizeof(AceHeader) + 4:
+            raise ValueError("git_tool_acl_untrusted")
+        mask = ctypes.c_uint32.from_address(ace.value + ctypes.sizeof(AceHeader)).value
+        sid = ctypes.c_void_p(ace.value + ctypes.sizeof(AceHeader) + 4)
+        sid_text = _windows_sid_text(advapi, sid)
+        if mask & _WINDOWS_WRITE_MASK and not _trusted_windows_sid(sid_text):
+            raise ValueError("git_tool_acl_untrusted")
 
 
 def _trusted_checkout_revision(
