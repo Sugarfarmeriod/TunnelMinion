@@ -96,6 +96,20 @@ class Observer:
         return self.value
 
 
+class PathObserver(Observer):
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> MacOSTunnelSnapshot:
+        assert interface_name == "utun9"
+        assert peer_public_key == PEER
+        assert expected_host_route == "10.0.0.2/32"
+        return await self.observe(interface_name)
+
+
 def make_probe(
     observer: Observer,
     *,
@@ -151,6 +165,13 @@ def test_macos_probe_returns_evidence_from_official_readonly_source() -> None:
     assert result.handshake_probe_at is not None
     assert result.host_route_probe_at is not None
     assert result.target_probe_at is not None
+
+
+def test_macos_probe_passes_exact_route_context_to_platform_observer() -> None:
+    observer = PathObserver(snapshot())
+    result = run(make_probe(cast(Observer, observer)).probe(**args()))
+    assert result.verified
+    assert observer.calls == 1
 
 
 @pytest.mark.parametrize(

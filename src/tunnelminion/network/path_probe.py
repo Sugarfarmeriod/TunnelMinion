@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, Self, cast
 
@@ -120,10 +120,12 @@ class PlatformPathProbe:
         policy: PathProbePolicy,
         facts_reader: PathFactsReader,
         target_probe: TargetProbe = tcp_target_probe,
+        facts_reader_for_route: Callable[[str], Awaitable[PathProbeFacts]] | None = None,
     ) -> None:
         self._provider = provider
         self._policy = policy
         self._facts_reader = facts_reader
+        self._facts_reader_for_route = facts_reader_for_route
         self._target_probe = target_probe
         self._lock = asyncio.Lock()
         self._last_results: dict[str, DirectPathEvidence] = {}
@@ -176,6 +178,7 @@ class PlatformPathProbe:
                     cancel_event,
                     timeout_seconds=self._policy.per_candidate_timeout_seconds
                     * max(1, len(ranked)),
+                    expected_host_route=expected_host_route,
                 )
             except PermissionError:
                 facts = self._fallback_facts(current, DirectPathErrorCode.PERMISSION_DENIED)
@@ -304,11 +307,17 @@ class PlatformPathProbe:
         cancel_event: asyncio.Event | None,
         *,
         timeout_seconds: float,
+        expected_host_route: str,
     ) -> PathProbeFacts:
+        reader: Awaitable[PathProbeFacts]
+        if self._facts_reader_for_route is not None:
+            reader = self._facts_reader_for_route(expected_host_route)
+        else:
+            reader = self._facts_reader()
         return cast(
             PathProbeFacts,
             await self._await_cancellable(
-                self._facts_reader(),
+                reader,
                 cancel_event,
                 timeout_seconds=timeout_seconds,
             ),
@@ -535,7 +544,16 @@ class PlatformPathProbe:
 
 def _validate_host_route(value: str) -> None:
     network = ipaddress.ip_network(value, strict=True)
-    if network.prefixlen != network.max_prefixlen:
+    address = network.network_address
+    if network.prefixlen != network.max_prefixlen or any(
+        (
+            address.is_multicast,
+            address.is_unspecified,
+            address.is_loopback,
+            address.is_reserved,
+            address.is_link_local,
+        )
+    ):
         raise ValueError("PathProbe 目标必须是精确 host route")
 
 

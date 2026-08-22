@@ -21,6 +21,7 @@ _ANY_INTERFACE = re.compile(r"^[A-Za-z0-9_. -]{1,64}$")
 _SERVICE_PREFIX = "WireGuardTunnel$"
 _MAX_PEERS = 32
 _MAX_ROUTES = 256
+_MAX_SAFE_ALLOWED_NETWORK_ADDRESSES = 1 << 24
 
 
 class WindowsProviderPreflight(BaseModel):
@@ -47,6 +48,7 @@ class WindowsPeerSnapshot(BaseModel):
     endpoint_host: str | None = Field(default=None, min_length=1, max_length=255)
     endpoint_port: int | None = Field(default=None, ge=1, le=65535)
     allowed_host_routes: tuple[str, ...] = Field(default=(), max_length=8)
+    allowed_networks: tuple[str, ...] = Field(default=(), max_length=8)
     latest_handshake_epoch: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -57,8 +59,18 @@ class WindowsPeerSnapshot(BaseModel):
             ipaddress.ip_address(self.endpoint_host)
         for route in self.allowed_host_routes:
             network = ipaddress.ip_network(route, strict=True)
-            if network.prefixlen != network.max_prefixlen:
+            if (
+                network.prefixlen != network.max_prefixlen
+                or parse_safe_allowed_network(route) != route
+            ):
                 raise ValueError("Windows Provider 只接受 host route")
+        for route in self.allowed_networks:
+            if parse_safe_allowed_network(route) != route:
+                raise ValueError("Windows Provider 只接受安全的 IP network")
+        if len(set(self.allowed_host_routes)) != len(self.allowed_host_routes):
+            raise ValueError("peer host route 不得重复")
+        if len(set(self.allowed_networks)) != len(self.allowed_networks):
+            raise ValueError("peer IP network 不得重复")
         return self
 
 
@@ -93,6 +105,7 @@ class WindowsTunnelSnapshot(BaseModel):
                         "endpoint_host": peer.endpoint_host,
                         "endpoint_port": peer.endpoint_port,
                         "allowed_host_routes": peer.allowed_host_routes,
+                        "allowed_networks": peer.allowed_networks,
                     }
                     for peer in self.peers
                 ],
@@ -280,6 +293,29 @@ class WindowsWireGuardObserver:
         self._interface_index = interface_index or system_interface_index
 
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
+        return await self._observe(interface_name)
+
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> WindowsTunnelSnapshot:
+        """为 path probe 读取精确 target route；AllowedIPs 仅用于 ownership。"""
+        return await self._observe(
+            interface_name,
+            peer_public_key=peer_public_key,
+            expected_host_route=expected_host_route,
+        )
+
+    async def _observe(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str | None = None,
+        expected_host_route: str | None = None,
+    ) -> WindowsTunnelSnapshot:
         interface = self._reader.interface(interface_name)
         service = await self._commands.query_service(interface_name)
         service_present = service.returncode == 0
@@ -326,26 +362,28 @@ class WindowsWireGuardObserver:
             line.strip() for line in peers_result.stdout.splitlines() if line.strip()
         )[:_MAX_PEERS]
         peers = tuple(
-            WindowsPeerSnapshot(
-                public_key=key,
-                endpoint_host=(
-                    parsed[0]
-                    if (parsed := parse_wireguard_endpoint(endpoints.get(key, ("",))[0]))
-                    else None
-                ),
-                endpoint_port=parsed[1] if parsed is not None else None,
-                allowed_host_routes=tuple(
-                    route.strip()
-                    for route in (allowed.get(key, ("",))[0]).split(",")
-                    if route.strip() and _is_observable_host_route(route.strip())
-                )[:8],
-                latest_handshake_epoch=_nonnegative_integer(handshakes.get(key, ("",))[0]),
+            _peer_snapshot(
+                key,
+                allowed_values=allowed.get(key, ()),
+                endpoint_values=endpoints.get(key, ()),
+                handshake_values=handshakes.get(key, ()),
             )
             for key in peer_keys
         )
         desired_routes = tuple(
             dict.fromkeys(route for peer in peers for route in peer.allowed_host_routes)
         )[:_MAX_ROUTES]
+        target_route = _safe_host_route(expected_host_route)
+        target_owned = (
+            target_route is not None
+            and peer_public_key is not None
+            and peer_owns_unique_target(peers, peer_public_key, target_route)
+        )
+        if target_route is not None:
+            if target_owned:
+                desired_routes = tuple(dict.fromkeys((*desired_routes, target_route)))[:_MAX_ROUTES]
+            else:
+                desired_routes = tuple(route for route in desired_routes if route != target_route)
         interface_addresses = _canonical_interface_ips(interface.addresses)
         interface_index = self._interface_index(interface_name)
         present_routes: list[str] = []
@@ -385,7 +423,7 @@ def windows_route_contains_exact_host(
         network = ipaddress.ip_network(host_route, strict=True)
     except ValueError:
         return False
-    if network.prefixlen != network.max_prefixlen:
+    if network.prefixlen != network.max_prefixlen or parse_safe_allowed_network(host_route) is None:
         return False
 
     active_routes = False
@@ -503,19 +541,106 @@ def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
     return values
 
 
-def _is_observable_host_route(value: str) -> bool:
+def parse_safe_allowed_network(value: str) -> str | None:
+    """返回可用于 peer ownership 的安全规范 network，拒绝过宽或特殊网段。"""
     try:
         network = ipaddress.ip_network(value, strict=True)
     except ValueError:
-        return False
-    address = network.network_address
-    return network.prefixlen == network.max_prefixlen and not (
-        address.is_multicast
-        or address.is_unspecified
-        or address.is_loopback
-        or address.is_reserved
-        or address.is_link_local
+        return None
+    if (
+        network.prefixlen == 0
+        or network.num_addresses > _MAX_SAFE_ALLOWED_NETWORK_ADDRESSES
+        or any(
+            getattr(network.network_address, attribute)
+            for attribute in (
+                "is_multicast",
+                "is_unspecified",
+                "is_loopback",
+                "is_reserved",
+                "is_link_local",
+            )
+        )
+        or str(network) != value
+    ):
+        return None
+    return str(network)
+
+
+def _peer_snapshot(
+    public_key: str,
+    *,
+    allowed_values: tuple[str, ...],
+    endpoint_values: tuple[str, ...],
+    handshake_values: tuple[str, ...],
+) -> WindowsPeerSnapshot:
+    allowed_networks = tuple(
+        dict.fromkeys(
+            parsed
+            for item in allowed_values
+            for route in item.split(",")
+            if (parsed := parse_safe_allowed_network(route.strip())) is not None
+        )
+    )[:8]
+    return WindowsPeerSnapshot(
+        public_key=public_key,
+        endpoint_host=(
+            parsed[0]
+            if (parsed := parse_wireguard_endpoint(endpoint_values[0] if endpoint_values else ""))
+            else None
+        ),
+        endpoint_port=parsed[1] if parsed is not None else None,
+        allowed_host_routes=tuple(
+            route for route in allowed_networks if _is_observable_host_route(route)
+        )[:8],
+        allowed_networks=allowed_networks,
+        latest_handshake_epoch=_nonnegative_integer(
+            handshake_values[0] if handshake_values else ""
+        ),
     )
+
+
+def _is_observable_host_route(value: str) -> bool:
+    network_value = parse_safe_allowed_network(value)
+    if network_value is None:
+        return False
+    network = ipaddress.ip_network(network_value, strict=True)
+    address = network.network_address
+    return network.prefixlen == network.max_prefixlen and not address.is_reserved
+
+
+def _safe_host_route(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        network = ipaddress.ip_network(value, strict=True)
+    except ValueError:
+        return None
+    if network.prefixlen != network.max_prefixlen:
+        return None
+    return parse_safe_allowed_network(value)
+
+
+def peer_owns_unique_target(
+    peers: tuple[WindowsPeerSnapshot, ...],
+    peer_public_key: str,
+    target_route: str,
+) -> bool:
+    try:
+        target = ipaddress.ip_network(target_route, strict=True)
+    except ValueError:
+        return False
+    if target.prefixlen != target.max_prefixlen:
+        return False
+    owners = tuple(
+        peer
+        for peer in peers
+        if any(
+            target.network_address in ipaddress.ip_network(parsed, strict=True)
+            for route in (*peer.allowed_networks, *peer.allowed_host_routes)
+            if (parsed := parse_safe_allowed_network(route)) is not None
+        )
+    )
+    return len(owners) == 1 and owners[0].public_key == peer_public_key
 
 
 def _canonical_host_addresses(values: tuple[str, ...]) -> tuple[str, ...]:

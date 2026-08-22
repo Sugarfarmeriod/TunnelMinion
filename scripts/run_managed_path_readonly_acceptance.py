@@ -38,6 +38,7 @@ from tunnelminion.platforms.windows.managed_system import (
     WindowsProviderPaths,
     WindowsTunnelSnapshot,
     WindowsWireGuardObserver,
+    parse_safe_allowed_network,
     windows_is_administrator,
 )
 from tunnelminion.platforms.windows.path_probe import WindowsPathProbe
@@ -143,6 +144,16 @@ def _stable_error_code_from_exception(exc: BaseException) -> str:
 
 class Observer(Protocol):
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot: ...
+
+
+class PathObserver(Protocol):
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> WindowsTunnelSnapshot: ...
 
 
 Executor = Callable[[tuple[str, ...], float], Awaitable[CommandResult]]
@@ -328,9 +339,24 @@ async def _docker_ports(
 
 
 async def _summary(
-    runtime: PlatformRuntime, interface_name: str
+    runtime: PlatformRuntime,
+    interface_name: str,
+    *,
+    peer_public_key: str | None = None,
+    expected_host_route: str | None = None,
 ) -> tuple[dict[str, object], WindowsTunnelSnapshot]:
-    snapshot = await runtime.observer.observe(interface_name)
+    if (
+        peer_public_key is not None
+        and expected_host_route is not None
+        and hasattr(runtime.observer, "observe_path")
+    ):
+        snapshot = await cast(PathObserver, runtime.observer).observe_path(
+            interface_name,
+            peer_public_key=peer_public_key,
+            expected_host_route=expected_host_route,
+        )
+    else:
+        snapshot = await runtime.observer.observe(interface_name)
     route_hash, route_returncode = await runtime.route_summary()
     value: dict[str, object] = {
         "route_hash": route_hash,
@@ -374,8 +400,23 @@ def _candidate(
 
 
 def _target_route_owner_count(snapshot: WindowsTunnelSnapshot, target_route: str) -> int:
-    """统计声明精确目标 host route 的 peer 数量；调用方另行核对所选 peer。"""
-    return sum(target_route in peer.allowed_host_routes for peer in snapshot.peers)
+    """统计安全 network 覆盖精确目标 host 的 peer 数量；调用方另行核对所选 peer。"""
+    try:
+        target = ipaddress.ip_network(target_route, strict=True)
+    except ValueError:
+        return 0
+    if target.prefixlen != target.max_prefixlen:
+        return 0
+    owners = 0
+    for peer in snapshot.peers:
+        networks = (*peer.allowed_networks, *peer.allowed_host_routes)
+        if any(
+            target.network_address in ipaddress.ip_network(parsed, strict=True)
+            for route in networks
+            if (parsed := parse_safe_allowed_network(route)) is not None
+        ):
+            owners += 1
+    return owners
 
 
 def _selected_peer_owns_unique_target_route(
@@ -385,7 +426,17 @@ def _selected_peer_owns_unique_target_route(
 ) -> bool:
     owners = _target_route_owner_count(snapshot, target_route)
     selected = next((peer for peer in snapshot.peers if peer.public_key == peer_public_key), None)
-    return owners == 1 and selected is not None and target_route in selected.allowed_host_routes
+    if owners != 1 or selected is None:
+        return False
+    try:
+        target = ipaddress.ip_network(target_route, strict=True)
+    except ValueError:
+        return False
+    return target.prefixlen == target.max_prefixlen and any(
+        target.network_address in ipaddress.ip_network(parsed, strict=True)
+        for route in (*selected.allowed_networks, *selected.allowed_host_routes)
+        if (parsed := parse_safe_allowed_network(route)) is not None
+    )
 
 
 def _base_report(request: AcceptanceRequest, started_at: datetime) -> dict[str, object]:
@@ -433,7 +484,13 @@ async def run_acceptance(
         )
         return report
 
-    before, snapshot = await _summary(selected_runtime, request.interface_name)
+    target_route = f"{request.target_host}/32" if request.target_host is not None else None
+    before, snapshot = await _summary(
+        selected_runtime,
+        request.interface_name,
+        peer_public_key=request.peer_public_key if target_route is not None else None,
+        expected_host_route=target_route,
+    )
     discovered = _candidate(snapshot, request.peer_public_key)
     report.update(
         {
@@ -462,6 +519,7 @@ async def run_acceptance(
         return _finish_failure(report, clock, "candidate_approval_mismatch")
 
     assert request.target_host is not None and request.target_port is not None
+    assert target_route is not None
     reserved = request.target_port in RESERVED_TARGET_PORTS
     if reserved:
         docker_ports, docker_service_count = frozenset[int](), 0
@@ -476,13 +534,17 @@ async def run_acceptance(
     if not (reserved or docker_proven):
         return _finish_failure(report, clock, "target_port_rejected")
 
-    guarded, guarded_snapshot = await _summary(selected_runtime, request.interface_name)
+    guarded, guarded_snapshot = await _summary(
+        selected_runtime,
+        request.interface_name,
+        peer_public_key=request.peer_public_key,
+        expected_host_route=target_route,
+    )
     if guarded["summary_hash"] != before["summary_hash"]:
         report["after"] = guarded
         report["network_state_unchanged"] = False
         return _finish_failure(report, clock, "network_state_changed")
 
-    target_route = f"{request.target_host}/32"
     target_route_owner_count = _target_route_owner_count(guarded_snapshot, target_route)
     report["target_route_owner_count"] = target_route_owner_count
     if not _selected_peer_owns_unique_target_route(
@@ -495,7 +557,12 @@ async def run_acceptance(
 
     async def guarded_target(host: str, port: int, timeout_seconds: float) -> bool:
         nonlocal connect_guard_summary, target_called
-        immediate, _ = await _summary(selected_runtime, request.interface_name)
+        immediate, _ = await _summary(
+            selected_runtime,
+            request.interface_name,
+            peer_public_key=request.peer_public_key,
+            expected_host_route=target_route,
+        )
         if immediate["summary_hash"] != before["summary_hash"]:
             connect_guard_summary = immediate
             raise NetworkChangedError("network_state_changed")
@@ -538,7 +605,12 @@ async def run_acceptance(
         failed["network_state_unchanged"] = False
         return failed
 
-    after, _ = await _summary(selected_runtime, request.interface_name)
+    after, _ = await _summary(
+        selected_runtime,
+        request.interface_name,
+        peer_public_key=request.peer_public_key,
+        expected_host_route=target_route,
+    )
     unchanged = after["summary_hash"] == before["summary_hash"]
     error = evidence.stable_error_code.value if evidence.stable_error_code is not None else None
     final_error = "network_state_changed" if not unchanged else error

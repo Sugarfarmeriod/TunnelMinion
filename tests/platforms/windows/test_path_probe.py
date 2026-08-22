@@ -96,6 +96,20 @@ class Observer:
         return self.value
 
 
+class PathObserver(Observer):
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> WindowsTunnelSnapshot:
+        assert interface_name == "tmn-test-a"
+        assert peer_public_key == PEER
+        assert expected_host_route == "fd00::2/128"
+        return await self.observe(interface_name)
+
+
 def make_probe(
     observer: Observer,
     *,
@@ -150,6 +164,13 @@ def test_windows_probe_returns_ipv6_evidence_and_platform_source() -> None:
     assert result.selected_candidate_source.value == "admin_explicit"
     assert result.handshake_probe_at is not None
     assert result.host_route_probe_at is not None
+    assert observer.calls == 1
+
+
+def test_windows_probe_passes_exact_route_context_to_platform_observer() -> None:
+    observer = PathObserver(snapshot())
+    result = run(make_probe(cast(Observer, observer)).probe(**args()))
+    assert result.verified
     assert observer.calls == 1
 
 

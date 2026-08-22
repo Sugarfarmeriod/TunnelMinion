@@ -18,6 +18,8 @@ from tunnelminion.platforms.windows.managed_system import (
     WindowsPeerSnapshot,
     WindowsProviderPreflight,
     WindowsTunnelSnapshot,
+    parse_safe_allowed_network,
+    peer_owns_unique_target,
 )
 
 _MANAGED_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}$")
@@ -167,6 +169,29 @@ class MacOSWireGuardObserver:
         self._commands = commands
 
     async def observe(self, interface_name: str) -> MacOSTunnelSnapshot:
+        return await self._observe(interface_name)
+
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> MacOSTunnelSnapshot:
+        """为 path probe 保持统一入口；macOS 路由表本身已独立读取精确 host route。"""
+        return await self._observe(
+            interface_name,
+            peer_public_key=peer_public_key,
+            expected_host_route=expected_host_route,
+        )
+
+    async def _observe(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str | None = None,
+        expected_host_route: str | None = None,
+    ) -> MacOSTunnelSnapshot:
         FixedMacOSWireGuardCommands.validate_runtime_interface(interface_name)
         discovered = await self._commands.interfaces()
         if discovered.returncode != 0:
@@ -183,6 +208,19 @@ class MacOSWireGuardObserver:
         endpoint_values = _peer_values(endpoints.stdout if endpoints.returncode == 0 else "")
         allowed_values = _peer_values(allowed.stdout if allowed.returncode == 0 else "")
         handshake_values = _peer_values(handshakes.stdout if handshakes.returncode == 0 else "")
+        peer_snapshots = tuple(
+            _peer_snapshot(key, allowed_values, endpoint_values, handshake_values)
+            for key in peer_values
+        )
+        host_routes = _parse_host_routes(routes[0].stdout, interface_name) + _parse_host_routes(
+            routes[1].stdout, interface_name
+        )
+        target_route = _safe_host_route(expected_host_route)
+        if target_route is not None and not (
+            peer_public_key is not None
+            and peer_owns_unique_target(peer_snapshots, peer_public_key, target_route)
+        ):
+            host_routes = tuple(route for route in host_routes if route != target_route)
         return MacOSTunnelSnapshot(
             interface_name=interface_name,
             interface_present=True,
@@ -190,26 +228,8 @@ class MacOSWireGuardObserver:
             addresses=_parse_addresses(interface.stdout),
             service_present=True,
             service_running=True,
-            peers=tuple(
-                MacOSPeerSnapshot(
-                    public_key=key,
-                    endpoint_host=(
-                        parsed[0]
-                        if (parsed := parse_wireguard_endpoint(endpoint_values.get(key, ("",))[0]))
-                        else None
-                    ),
-                    endpoint_port=parsed[1] if parsed is not None else None,
-                    allowed_host_routes=tuple(
-                        route for route in allowed_values.get(key, ()) if _is_host_route(route)
-                    ),
-                    latest_handshake_epoch=_nonnegative_integer(
-                        handshake_values.get(key, ("",))[0]
-                    ),
-                )
-                for key in peer_values
-            ),
-            host_routes=_parse_host_routes(routes[0].stdout, interface_name)
-            + _parse_host_routes(routes[1].stdout, interface_name),
+            peers=peer_snapshots,
+            host_routes=host_routes,
             public_key_hash=(
                 canonical_sha256({"public_key": public_text}) if public_text else None
             ),
@@ -296,7 +316,7 @@ def _parse_host_routes(stdout: str, interface_name: str) -> tuple[str, ...]:
             network = ipaddress.ip_network(parts[0], strict=False)
         except ValueError:
             continue
-        if network.prefixlen == network.max_prefixlen:
+        if network.prefixlen == network.max_prefixlen and parse_safe_allowed_network(str(network)):
             values.append(str(network))
     return tuple(sorted(set(values)))
 
@@ -317,7 +337,43 @@ def _is_host_route(value: str) -> bool:
         network = ipaddress.ip_network(value, strict=True)
     except ValueError:
         return False
-    return network.prefixlen == network.max_prefixlen
+    return network.prefixlen == network.max_prefixlen and parse_safe_allowed_network(value) == value
+
+
+def _safe_host_route(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        network = ipaddress.ip_network(value, strict=True)
+    except ValueError:
+        return None
+    if network.prefixlen != network.max_prefixlen:
+        return None
+    return parse_safe_allowed_network(value)
+
+
+def _peer_snapshot(
+    public_key: str,
+    allowed_values: dict[str, tuple[str, ...]],
+    endpoint_values: dict[str, tuple[str, ...]],
+    handshake_values: dict[str, tuple[str, ...]],
+) -> MacOSPeerSnapshot:
+    networks = tuple(
+        dict.fromkeys(
+            parsed
+            for route in allowed_values.get(public_key, ())
+            if (parsed := parse_safe_allowed_network(route)) is not None
+        )
+    )[:8]
+    endpoint = parse_wireguard_endpoint(endpoint_values.get(public_key, ("",))[0])
+    return MacOSPeerSnapshot(
+        public_key=public_key,
+        endpoint_host=endpoint[0] if endpoint is not None else None,
+        endpoint_port=endpoint[1] if endpoint is not None else None,
+        allowed_host_routes=tuple(route for route in networks if _is_host_route(route)),
+        allowed_networks=networks,
+        latest_handshake_epoch=_nonnegative_integer(handshake_values.get(public_key, ("",))[0]),
+    )
 
 
 def _nonnegative_integer(value: str) -> int | None:

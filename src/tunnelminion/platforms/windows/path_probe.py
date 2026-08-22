@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Protocol, cast
 
 from tunnelminion.network.contracts import ProviderKind
 from tunnelminion.network.path_controller import DirectPathErrorCode
@@ -17,8 +18,19 @@ from tunnelminion.network.path_probe import (
 )
 from tunnelminion.platforms.windows.managed_system import (
     WindowsProviderPreflight,
+    WindowsTunnelSnapshot,
     WindowsWireGuardObserver,
 )
+
+
+class _PathObserver(Protocol):
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> WindowsTunnelSnapshot: ...
 
 
 class WindowsPathProbe(PlatformPathProbe):
@@ -45,14 +57,25 @@ class WindowsPathProbe(PlatformPathProbe):
             policy=policy,
             facts_reader=self._read_facts,
             target_probe=target_probe,
+            facts_reader_for_route=self._read_facts_for_route,
         )
 
-    async def _read_facts(self) -> PathProbeFacts:
+    async def _read_facts_for_route(self, expected_host_route: str) -> PathProbeFacts:
+        return await self._read_facts(expected_host_route)
+
+    async def _read_facts(self, expected_host_route: str | None = None) -> PathProbeFacts:
         observed_at = self._clock().astimezone(UTC)
         if self._preflight_error is not None:
             return self._facts_error(observed_at, self._preflight_error)
         try:
-            snapshot = await self._observer.observe(self._interface_name)
+            if expected_host_route is not None and hasattr(self._observer, "observe_path"):
+                snapshot = await cast(_PathObserver, self._observer).observe_path(
+                    self._interface_name,
+                    peer_public_key=self._peer_public_key,
+                    expected_host_route=expected_host_route,
+                )
+            else:
+                snapshot = await self._observer.observe(self._interface_name)
         except PermissionError:
             return self._facts_error(observed_at, DirectPathErrorCode.PERMISSION_DENIED)
         except (FileNotFoundError, OSError):

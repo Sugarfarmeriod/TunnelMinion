@@ -94,6 +94,22 @@ def snapshot_with_peer_routes(*routes: tuple[str, tuple[str, ...]]) -> WindowsTu
     return snapshot().model_copy(update={"peers": peers})
 
 
+def snapshot_with_peer_networks(
+    *networks: tuple[str, tuple[str, ...]],
+) -> WindowsTunnelSnapshot:
+    peers = tuple(
+        WindowsPeerSnapshot(
+            public_key=public_key,
+            endpoint_host=ENDPOINT if public_key == PEER else "192.168.50.11",
+            endpoint_port=51820,
+            allowed_networks=allowed_networks,
+            latest_handshake_epoch=int(NOW.timestamp()),
+        )
+        for public_key, allowed_networks in networks
+    )
+    return snapshot().model_copy(update={"peers": peers})
+
+
 def request(*, approved: bool = False, target_port: int = 18880) -> AcceptanceRequest:
     candidate_hash = canonical_sha256({"peer_public_key": PEER, "host": ENDPOINT, "port": 51820})
     return AcceptanceRequest(
@@ -540,6 +556,39 @@ def test_selected_peer_must_uniquely_own_target_route(
     assert report["probe_executed"] is False
     assert report["target_probe_executed"] is False
     assert probe_calls == []
+
+
+def test_selected_peer_may_uniquely_own_target_through_safe_broad_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    observer = Observer(snapshot_with_peer_networks((PEER, ("10.77.0.0/24",))))
+    report = asyncio.run(
+        run_acceptance(request(approved=True), runtime=runtime(observer), clock=lambda: NOW)
+    )
+
+    assert report["target_route_owner_count"] == 1
+    assert report["probe_executed"] is True
+    assert report["target_probe_executed"] is True
+    assert report["stable_error_code"] is None
+    assert cast(dict[str, object], report["path_evidence"])["host_route_present"] is True
+
+
+def test_overlapping_safe_broad_networks_fail_closed_before_probe() -> None:
+    observer = Observer(
+        snapshot_with_peer_networks(
+            (PEER, ("10.77.0.0/24",)),
+            ("other-peer", ("10.77.0.0/16",)),
+        )
+    )
+    report = asyncio.run(run_acceptance(request(approved=True), runtime=runtime(observer)))
+
+    assert report["target_route_owner_count"] == 2
+    assert report["stable_error_code"] == "target_route_owner_mismatch"
+    assert report["probe_executed"] is False
 
 
 @pytest.mark.parametrize(
