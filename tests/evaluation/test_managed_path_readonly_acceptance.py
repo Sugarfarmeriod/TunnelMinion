@@ -25,10 +25,13 @@ from scripts.run_managed_path_readonly_acceptance import (
 from tunnelminion.network.contracts import canonical_sha256
 from tunnelminion.network.path_probe import PathProbePolicy, TargetProbe
 from tunnelminion.platforms.windows.managed_system import (
+    FixedWindowsWireGuardCommands,
     WindowsPeerSnapshot,
+    WindowsProviderPaths,
     WindowsTunnelSnapshot,
     WindowsWireGuardObserver,
 )
+from tunnelminion.platforms.windows.models import InterfaceSnapshot, NetworkListener, ProcessInfo
 from tunnelminion.platforms.windows.path_probe import WindowsPathProbe
 from tunnelminion.platforms.windows.system import CommandResult
 
@@ -46,6 +49,96 @@ class Observer:
         assert interface_name == "HomeMac"
         self.calls += 1
         return self.snapshot
+
+
+class AcceptanceObserverRunner:
+    def __init__(self) -> None:
+        self.results: dict[tuple[str, ...], CommandResult] = {}
+        self.commands: list[tuple[str, ...]] = []
+
+    async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
+        assert timeout_seconds > 0
+        self.commands.append(command)
+        return self.results.get(command, CommandResult(returncode=0, stdout="", stderr=""))
+
+
+class AcceptanceObserverReader:
+    def interface(self, name: str) -> InterfaceSnapshot | None:
+        return InterfaceSnapshot(
+            name=name,
+            is_up=True,
+            addresses=("10.77.0.1",),
+        )
+
+    def listeners(self) -> tuple[NetworkListener, ...]:
+        raise AssertionError("验收 observer 不应枚举监听")
+
+    def processes(self, limit: int) -> tuple[ProcessInfo, ...]:
+        raise AssertionError(f"验收 observer 不应枚举进程：{limit}")
+
+
+def actual_observer_with_competing_ninth_network(
+    tmp_path: Path,
+    competing_route: str,
+) -> tuple[WindowsWireGuardObserver, AcceptanceObserverRunner]:
+    runner = AcceptanceObserverRunner()
+    paths = WindowsProviderPaths(
+        wireguard_exe=tmp_path / "wireguard.exe",
+        wg_exe=tmp_path / "wg.exe",
+        sc_exe=tmp_path / "sc.exe",
+        route_exe=tmp_path / "route.exe",
+        config_root=tmp_path / "configs",
+    )
+    commands = FixedWindowsWireGuardCommands(paths, runner)
+    prefix = (str(paths.wg_exe), "show", "HomeMac")
+    runner.results[(str(paths.sc_exe), "query", "WireGuardTunnel$HomeMac")] = CommandResult(
+        returncode=0,
+        stdout="RUNNING",
+        stderr="",
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(
+        returncode=0, stdout=f"{PEER}\nother-peer\n", stderr=""
+    )
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0,
+        stdout=f"{PEER}\t{ENDPOINT}:51820\nother-peer\t192.168.50.11:51820\n",
+        stderr="",
+    )
+    prior_networks = tuple(f"192.168.{index}.0/24" for index in range(8))
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0,
+        stdout=(
+            f"{PEER}\t10.77.0.0/24\nother-peer\t{','.join((*prior_networks, competing_route))}\n"
+        ),
+        stderr="",
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0,
+        stdout=f"{PEER}\t{int(NOW.timestamp())}\nother-peer\t{int(NOW.timestamp())}\n",
+        stderr="",
+    )
+    runner.results[(str(paths.route_exe), "print", "10.77.0.2")] = CommandResult(
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.77.0.2                  255.255.255.255  On-link       10.77.0.1  1\n"
+            "Persistent Routes:\n"
+        ),
+        stderr="",
+    )
+    return (
+        WindowsWireGuardObserver(
+            AcceptanceObserverReader(),
+            commands,
+            interface_index=lambda _name: 7,
+        ),
+        runner,
+    )
 
 
 class ChangingObserver(Observer):
@@ -588,6 +681,51 @@ def test_overlapping_safe_broad_networks_fail_closed_before_probe() -> None:
 
     assert report["target_route_owner_count"] == 2
     assert report["stable_error_code"] == "target_route_owner_mismatch"
+    assert report["probe_executed"] is False
+
+
+@pytest.mark.parametrize("competing_route", ["10.77.0.2/32", "10.77.0.0/16"])
+def test_wrapper_rejects_competing_ninth_network_before_route_or_probe(
+    tmp_path: Path,
+    competing_route: str,
+) -> None:
+    observer, command_runner = actual_observer_with_competing_ninth_network(
+        tmp_path,
+        competing_route,
+    )
+    probe_calls: list[bool] = []
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(cast(Observer, observer), probe_calls=probe_calls),
+            clock=lambda: NOW,
+        )
+    )
+
+    assert report["stable_error_code"] == "target_route_owner_mismatch"
+    assert report["probe_executed"] is False
+    assert report["target_probe_executed"] is False
+    assert probe_calls == []
+    assert [
+        command for command in command_runner.commands if len(command) > 1 and command[1] == "print"
+    ] == []
+
+
+def test_broad_ownership_change_breaks_before_after_invariance() -> None:
+    initial = snapshot_with_peer_networks((PEER, ("10.77.0.0/24",)))
+    changed = snapshot_with_peer_networks((PEER, ("10.77.0.0/16",)))
+    assert initial.system_fingerprint == changed.system_fingerprint
+    assert initial.path_ownership_fingerprint != changed.path_ownership_fingerprint
+
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(ChangingObserver(initial, changed)),
+            clock=lambda: NOW,
+        )
+    )
+
+    assert report["stable_error_code"] == "network_state_changed"
     assert report["probe_executed"] is False
 
 

@@ -372,6 +372,7 @@ async def _summary(
     value["summary_hash"] = canonical_sha256(
         {
             "system_fingerprint": snapshot.system_fingerprint,
+            "path_ownership_fingerprint": snapshot.path_ownership_fingerprint,
             "route_hash": route_hash,
             "route_query_returncode": route_returncode,
             "route_query_succeeded": value["route_query_succeeded"],
@@ -406,6 +407,10 @@ def _target_route_owner_count(snapshot: WindowsTunnelSnapshot, target_route: str
     except ValueError:
         return 0
     if target.prefixlen != target.max_prefixlen:
+        return 0
+    if parse_safe_allowed_network(target_route) != target_route:
+        return 0
+    if any(not peer.allowed_networks_complete for peer in snapshot.peers):
         return 0
     owners = 0
     for peer in snapshot.peers:

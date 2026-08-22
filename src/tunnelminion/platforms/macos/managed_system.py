@@ -18,6 +18,7 @@ from tunnelminion.platforms.windows.managed_system import (
     WindowsPeerSnapshot,
     WindowsProviderPreflight,
     WindowsTunnelSnapshot,
+    collect_safe_allowed_networks,
     parse_safe_allowed_network,
     peer_owns_unique_target,
 )
@@ -358,20 +359,15 @@ def _peer_snapshot(
     endpoint_values: dict[str, tuple[str, ...]],
     handshake_values: dict[str, tuple[str, ...]],
 ) -> MacOSPeerSnapshot:
-    networks = tuple(
-        dict.fromkeys(
-            parsed
-            for route in allowed_values.get(public_key, ())
-            if (parsed := parse_safe_allowed_network(route)) is not None
-        )
-    )[:8]
+    networks, networks_complete = collect_safe_allowed_networks(allowed_values.get(public_key, ()))
     endpoint = parse_wireguard_endpoint(endpoint_values.get(public_key, ("",))[0])
     return MacOSPeerSnapshot(
         public_key=public_key,
         endpoint_host=endpoint[0] if endpoint is not None else None,
         endpoint_port=endpoint[1] if endpoint is not None else None,
-        allowed_host_routes=tuple(route for route in networks if _is_host_route(route)),
+        allowed_host_routes=tuple(route for route in networks if _is_host_route(route))[:8],
         allowed_networks=networks,
+        allowed_networks_complete=networks_complete,
         latest_handshake_epoch=_nonnegative_integer(handshake_values.get(public_key, ("",))[0]),
     )
 

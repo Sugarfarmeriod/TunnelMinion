@@ -22,6 +22,7 @@ _SERVICE_PREFIX = "WireGuardTunnel$"
 _MAX_PEERS = 32
 _MAX_ROUTES = 256
 _MAX_SAFE_ALLOWED_NETWORK_ADDRESSES = 1 << 24
+MAX_SAFE_ALLOWED_NETWORKS = 32
 
 
 class WindowsProviderPreflight(BaseModel):
@@ -48,7 +49,8 @@ class WindowsPeerSnapshot(BaseModel):
     endpoint_host: str | None = Field(default=None, min_length=1, max_length=255)
     endpoint_port: int | None = Field(default=None, ge=1, le=65535)
     allowed_host_routes: tuple[str, ...] = Field(default=(), max_length=8)
-    allowed_networks: tuple[str, ...] = Field(default=(), max_length=8)
+    allowed_networks: tuple[str, ...] = Field(default=(), max_length=MAX_SAFE_ALLOWED_NETWORKS)
+    allowed_networks_complete: bool = True
     latest_handshake_epoch: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -105,7 +107,6 @@ class WindowsTunnelSnapshot(BaseModel):
                         "endpoint_host": peer.endpoint_host,
                         "endpoint_port": peer.endpoint_port,
                         "allowed_host_routes": peer.allowed_host_routes,
-                        "allowed_networks": peer.allowed_networks,
                     }
                     for peer in self.peers
                 ],
@@ -113,6 +114,24 @@ class WindowsTunnelSnapshot(BaseModel):
                 "public_key_hash": self.public_key_hash,
                 "stable_interface_id": self.stable_interface_id,
                 "creation_nonce": self.creation_nonce,
+            }
+        )
+
+    @property
+    def path_ownership_fingerprint(self) -> str:
+        """为验收前后不变性单独记录已脱敏的 path ownership 事实。"""
+        return canonical_sha256(
+            {
+                "interface_name": self.interface_name,
+                "peers": [
+                    {
+                        "public_key": peer.public_key,
+                        "allowed_host_routes": peer.allowed_host_routes,
+                        "allowed_networks": peer.allowed_networks,
+                        "allowed_networks_complete": peer.allowed_networks_complete,
+                    }
+                    for peer in self.peers
+                ],
             }
         )
 
@@ -566,6 +585,18 @@ def parse_safe_allowed_network(value: str) -> str | None:
     return str(network)
 
 
+def collect_safe_allowed_networks(values: Collection[str]) -> tuple[tuple[str, ...], bool]:
+    """保留完整的有界安全 network 集合，并标记是否观察完整。"""
+    networks = tuple(
+        dict.fromkeys(
+            parsed
+            for value in values
+            if (parsed := parse_safe_allowed_network(value.strip())) is not None
+        )
+    )
+    return networks[:MAX_SAFE_ALLOWED_NETWORKS], len(networks) <= MAX_SAFE_ALLOWED_NETWORKS
+
+
 def _peer_snapshot(
     public_key: str,
     *,
@@ -573,14 +604,9 @@ def _peer_snapshot(
     endpoint_values: tuple[str, ...],
     handshake_values: tuple[str, ...],
 ) -> WindowsPeerSnapshot:
-    allowed_networks = tuple(
-        dict.fromkeys(
-            parsed
-            for item in allowed_values
-            for route in item.split(",")
-            if (parsed := parse_safe_allowed_network(route.strip())) is not None
-        )
-    )[:8]
+    allowed_networks, allowed_networks_complete = collect_safe_allowed_networks(
+        tuple(route for item in allowed_values for route in item.split(","))
+    )
     return WindowsPeerSnapshot(
         public_key=public_key,
         endpoint_host=(
@@ -593,6 +619,7 @@ def _peer_snapshot(
             route for route in allowed_networks if _is_observable_host_route(route)
         )[:8],
         allowed_networks=allowed_networks,
+        allowed_networks_complete=allowed_networks_complete,
         latest_handshake_epoch=_nonnegative_integer(
             handshake_values[0] if handshake_values else ""
         ),
@@ -625,12 +652,10 @@ def peer_owns_unique_target(
     peer_public_key: str,
     target_route: str,
 ) -> bool:
-    try:
-        target = ipaddress.ip_network(target_route, strict=True)
-    except ValueError:
+    safe_target = _safe_host_route(target_route)
+    if safe_target is None or any(not peer.allowed_networks_complete for peer in peers):
         return False
-    if target.prefixlen != target.max_prefixlen:
-        return False
+    target = ipaddress.ip_network(safe_target, strict=True)
     owners = tuple(
         peer
         for peer in peers

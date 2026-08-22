@@ -12,10 +12,11 @@ from typing import Any, TypeVar
 import pytest
 from tests.network.factories import NETWORK_ID, NODE_A, NOW, desired
 
-from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ResourceId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
     LocalNetworkKeyMaterial,
+    ManagedResourceOwnership,
     NetworkAction,
     NetworkError,
     NetworkErrorCode,
@@ -23,12 +24,13 @@ from tunnelminion.network.contracts import (
     NetworkPlanStep,
     OwnershipState,
     PlanStepKind,
+    ProviderKind,
     ProviderMode,
     ProviderReceipt,
     ReceiptStatus,
     canonical_sha256,
 )
-from tunnelminion.network.ledger import SQLiteManagedResourceLedger
+from tunnelminion.network.ledger import ManagedResourceLedgerEntry, SQLiteManagedResourceLedger
 from tunnelminion.platforms.windows.managed_system import (
     WindowsPeerSnapshot,
     WindowsProviderPreflight,
@@ -289,6 +291,77 @@ def test_observe_classifies_absent_user_unknown_managed_and_conflict(tmp_path: P
     )
     assert run(value.observe("tmn-test-a")).ownership is OwnershipState.OWNERSHIP_UNKNOWN
     assert ledger.list_all() == ()
+
+
+def test_parent_ledger_remains_owned_after_allowed_network_observation_upgrade(
+    tmp_path: Path,
+) -> None:
+    backend = FakeWindowsBackend()
+    backend.snapshot = WindowsTunnelSnapshot(
+        interface_name="tmn-test-a",
+        interface_present=True,
+        interface_up=True,
+        addresses=("10.203.0.1/32",),
+        service_present=True,
+        service_running=True,
+        peers=(
+            WindowsPeerSnapshot(
+                public_key="peer-a",
+                allowed_host_routes=("10.203.0.2/32",),
+                allowed_networks=("10.203.0.2/32", "10.203.0.0/24"),
+            ),
+        ),
+        host_routes=("10.203.0.2/32",),
+        public_key_hash=canonical_sha256({"public": "own"}),
+        stable_interface_id="windows:tmn-test-a",
+        creation_nonce="a" * 32,
+    )
+    value, ledger, _ = provider(tmp_path, backend)
+    legacy_fingerprint = canonical_sha256(
+        {
+            "interface_name": backend.snapshot.interface_name,
+            "interface_present": backend.snapshot.interface_present,
+            "addresses": backend.snapshot.addresses,
+            "peers": [
+                {
+                    "public_key": peer.public_key,
+                    "endpoint_host": peer.endpoint_host,
+                    "endpoint_port": peer.endpoint_port,
+                    "allowed_host_routes": peer.allowed_host_routes,
+                }
+                for peer in backend.snapshot.peers
+            ],
+            "host_routes": backend.snapshot.host_routes,
+            "public_key_hash": backend.snapshot.public_key_hash,
+            "stable_interface_id": backend.snapshot.stable_interface_id,
+            "creation_nonce": backend.snapshot.creation_nonce,
+        }
+    )
+    ledger.put(
+        ManagedResourceLedgerEntry(
+            ownership=ManagedResourceOwnership(
+                resource_id=ResourceId.new(),
+                network_id=NETWORK_ID,
+                node_id=NODE_A,
+                provider=ProviderKind.WINDOWS,
+                interface_name="tmn-test-a",
+                stable_interface_id="windows:tmn-test-a",
+                creation_nonce="a" * 32,
+                public_key_hash=canonical_sha256({"public": "own"}),
+                parent_revision=0,
+                desired_config_hash=canonical_sha256(desired().model_dump(mode="json")),
+                system_fingerprint=legacy_fingerprint,
+            ),
+            secret_reference="keyring:tmn/test",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+
+    observed = run(value.observe("tmn-test-a"))
+
+    assert observed.ownership is OwnershipState.MANAGED_OWNED
+    assert backend.execute_calls == []
 
 
 def test_plan_rejects_user_targets_wrong_provider_conflicts_and_missing_ownership(

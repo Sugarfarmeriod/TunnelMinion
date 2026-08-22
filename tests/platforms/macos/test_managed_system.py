@@ -172,6 +172,46 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     assert filtered_snapshot.host_routes == ("10.203.0.1/32",)
 
 
+@pytest.mark.parametrize("competing_route", ["10.203.0.2/32", "10.203.0.0/16"])
+def test_observer_rejects_competitor_after_eight_allowed_networks(
+    tmp_path: Path,
+    competing_route: str,
+) -> None:
+    runner = FakeRunner()
+    commands = fixed(tmp_path, runner)
+    paths = commands.paths
+    runner.results[(str(paths.wg), "show", "interfaces")] = result("utun9\n")
+    runner.results[(str(paths.ifconfig), "utun9")] = result(
+        "utun9: flags=8051<UP> mtu 1420\n\tinet 10.203.0.1 netmask 0xffffffff\n"
+    )
+    runner.results[(str(paths.wg), "show", "utun9", "public-key")] = result("public\n")
+    runner.results[(str(paths.wg), "show", "utun9", "peers")] = result("peer-a\npeer-b\n")
+    runner.results[(str(paths.wg), "show", "utun9", "endpoints")] = result(
+        "peer-a\t10.203.0.3:51820\npeer-b\t10.203.0.4:51820\n"
+    )
+    prior_networks = tuple(f"192.168.{index}.0/24" for index in range(8))
+    runner.results[(str(paths.wg), "show", "utun9", "allowed-ips")] = result(
+        f"peer-a\t10.203.0.0/24\npeer-b\t{','.join((*prior_networks, competing_route))}\n"
+    )
+    runner.results[(str(paths.wg), "show", "utun9", "latest-handshakes")] = result(
+        "peer-a\t123\npeer-b\t123\n"
+    )
+    runner.results[(str(paths.netstat), "-rn", "-f", "inet")] = result(
+        "Destination Gateway Flags Netif Expire\n10.203.0.2 10.203.0.1 UHS utun9\n"
+    )
+    runner.results[(str(paths.netstat), "-rn", "-f", "inet6")] = result()
+
+    snapshot = asyncio.run(
+        MacOSWireGuardObserver(commands).observe_path(
+            "utun9",
+            peer_public_key="peer-a",
+            expected_host_route="10.203.0.2/32",
+        )
+    )
+
+    assert snapshot.host_routes == ()
+
+
 def test_observer_absent_permission_and_degraded_public_fields(tmp_path: Path) -> None:
     runner = FakeRunner()
     commands = fixed(tmp_path, runner)
