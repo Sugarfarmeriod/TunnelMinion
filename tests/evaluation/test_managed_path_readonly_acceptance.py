@@ -684,7 +684,10 @@ def test_overlapping_safe_broad_networks_fail_closed_before_probe() -> None:
     assert report["probe_executed"] is False
 
 
-@pytest.mark.parametrize("competing_route", ["10.77.0.2/32", "10.77.0.0/16"])
+@pytest.mark.parametrize(
+    "competing_route",
+    ["10.77.0.2/32", "10.77.0.0/16", "0.0.0.0/0", "10.0.0.0/7", "malformed"],
+)
 def test_wrapper_rejects_competing_ninth_network_before_route_or_probe(
     tmp_path: Path,
     competing_route: str,

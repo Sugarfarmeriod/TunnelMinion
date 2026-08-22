@@ -389,9 +389,14 @@ class WindowsWireGuardObserver:
             )
             for key in peer_keys
         )
-        desired_routes = tuple(
-            dict.fromkeys(route for peer in peers for route in peer.allowed_host_routes)
-        )[:_MAX_ROUTES]
+        ownership_complete = all(peer.allowed_networks_complete for peer in peers)
+        desired_routes = (
+            tuple(dict.fromkeys(route for peer in peers for route in peer.allowed_host_routes))[
+                :_MAX_ROUTES
+            ]
+            if ownership_complete
+            else ()
+        )
         target_route = _safe_host_route(expected_host_route)
         target_owned = (
             target_route is not None
@@ -556,7 +561,9 @@ def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
     for line in stdout.splitlines():
         parts = tuple(part.strip() for part in line.split("\t"))
         if len(parts) >= 2 and parts[0]:
-            values[parts[0]] = parts[1:]
+            key = parts[0]
+            parsed = parts[1:]
+            values[key] = (*values[key], "", *parsed) if key in values else parsed
     return values
 
 
@@ -587,14 +594,20 @@ def parse_safe_allowed_network(value: str) -> str | None:
 
 def collect_safe_allowed_networks(values: Collection[str]) -> tuple[tuple[str, ...], bool]:
     """保留完整的有界安全 network 集合，并标记是否观察完整。"""
-    networks = tuple(
-        dict.fromkeys(
-            parsed
-            for value in values
-            if (parsed := parse_safe_allowed_network(value.strip())) is not None
-        )
-    )
-    return networks[:MAX_SAFE_ALLOWED_NETWORKS], len(networks) <= MAX_SAFE_ALLOWED_NETWORKS
+    networks: list[str] = []
+    seen: set[str] = set()
+    complete = bool(values)
+    for value in values:
+        parsed = parse_safe_allowed_network(value.strip())
+        if parsed is None or parsed in seen:
+            complete = False
+            continue
+        seen.add(parsed)
+        if len(networks) == MAX_SAFE_ALLOWED_NETWORKS:
+            complete = False
+            continue
+        networks.append(parsed)
+    return tuple(networks), complete
 
 
 def _peer_snapshot(

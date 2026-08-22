@@ -327,9 +327,11 @@ def _peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
     for line in stdout.splitlines():
         parts = tuple(part.strip() for part in line.split("\t"))
         if parts and parts[0]:
-            values[parts[0]] = tuple(
+            key = parts[0]
+            parsed = tuple(
                 value.strip() for item in parts[1:] for value in item.split(",") if value.strip()
             )
+            values[key] = (*values[key], "", *parsed) if key in values else parsed
     return values
 
 

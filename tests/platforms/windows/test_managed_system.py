@@ -266,7 +266,7 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
     )
 
 
-def test_observer_ignores_non_host_allowed_routes_before_querying(tmp_path: Path) -> None:
+def test_incomplete_allowed_routes_stop_before_querying(tmp_path: Path) -> None:
     runner = FakeRunner()
     fixed = commands(tmp_path, runner)
     prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
@@ -313,12 +313,13 @@ def test_observer_ignores_non_host_allowed_routes_before_querying(tmp_path: Path
 
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.2/32",)
     assert snapshot.peers[0].allowed_networks == ("10.203.0.2/32", "10.203.0.0/24")
-    assert snapshot.host_routes == ("10.203.0.2/32",)
+    assert not snapshot.peers[0].allowed_networks_complete
+    assert snapshot.host_routes == ()
     assert [
         command
         for command in runner.commands
         if command[:2] == (str(fixed.paths.route_exe), "print")
-    ] == [route_command]
+    ] == []
 
 
 def test_observer_uses_unique_broad_owner_but_queries_exact_target_route(
@@ -429,7 +430,10 @@ def test_observer_drops_overlapping_target_from_path_facts(
     ] == []
 
 
-@pytest.mark.parametrize("competing_route", ["10.203.0.2/32", "10.203.0.0/16"])
+@pytest.mark.parametrize(
+    "competing_route",
+    ["10.203.0.2/32", "10.203.0.0/16", "0.0.0.0/0", "10.0.0.0/7", "malformed"],
+)
 def test_observer_rejects_competitor_after_eight_allowed_networks(
     tmp_path: Path,
     competing_route: str,
@@ -536,6 +540,24 @@ def test_allowed_network_budget_marks_ownership_observation_incomplete() -> None
         allowed_networks_complete=complete,
     )
     assert not peer_owns_unique_target((peer,), "peer", "192.168.0.1/32")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        (),
+        ("10.203.0.0/24", "malformed"),
+        ("10.203.0.0/24", "10.203.0.0/24"),
+        ("10.203.0.0/24", "0.0.0.0/0"),
+        ("10.203.0.0/24", "10.0.0.0/7"),
+    ],
+)
+def test_allowed_network_collection_marks_unsafe_or_incomplete_input(
+    values: tuple[str, ...],
+) -> None:
+    _, complete = collect_safe_allowed_networks(values)
+
+    assert not complete
 
 
 @pytest.mark.parametrize(

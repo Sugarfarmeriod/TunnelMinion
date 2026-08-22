@@ -147,6 +147,7 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     assert snapshot.host_routes == ("10.203.0.1/32", "fd00::2/128")
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.1/32",)
     assert snapshot.peers[0].allowed_networks == ("10.203.0.1/32", "10.0.0.0/8")
+    assert not snapshot.peers[0].allowed_networks_complete
     assert snapshot.peers[0].latest_handshake_epoch == 123
     assert snapshot.peers[0].endpoint_host == "fd00::10"
     assert snapshot.peers[0].endpoint_port == 51820
@@ -160,7 +161,7 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
             expected_host_route="10.203.0.1/32",
         )
     )
-    assert path_snapshot.host_routes == ("10.203.0.1/32", "fd00::2/128")
+    assert path_snapshot.host_routes == ("fd00::2/128",)
 
     filtered_snapshot = asyncio.run(
         MacOSWireGuardObserver(commands).observe_path(
@@ -172,7 +173,10 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     assert filtered_snapshot.host_routes == ("10.203.0.1/32",)
 
 
-@pytest.mark.parametrize("competing_route", ["10.203.0.2/32", "10.203.0.0/16"])
+@pytest.mark.parametrize(
+    "competing_route",
+    ["10.203.0.2/32", "10.203.0.0/16", "0.0.0.0/0", "10.0.0.0/7", "malformed"],
+)
 def test_observer_rejects_competitor_after_eight_allowed_networks(
     tmp_path: Path,
     competing_route: str,
