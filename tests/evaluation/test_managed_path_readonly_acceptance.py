@@ -398,6 +398,66 @@ def test_windows_trusted_sid_matching_does_not_accept_prefix_spoof() -> None:
     )
 
 
+def test_windows_acl_explicit_deny_blocks_later_write_allow() -> None:
+    write_mask = 0x40
+    denied_then_allowed = (
+        (1, write_mask, "S-1-5-32-545"),
+        (0, write_mask, "S-1-5-32-545"),
+    )
+    allowed_then_denied = (
+        (0, write_mask, "S-1-5-32-545"),
+        (1, write_mask, "S-1-5-32-545"),
+    )
+    assert not acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        denied_then_allowed, write_mask
+    )
+    assert not acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        allowed_then_denied, write_mask
+    )
+    assert acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        ((0, write_mask, "S-1-5-32-545"),), write_mask
+    )
+
+
+def test_windows_ancestor_mask_rejects_component_replacement_not_child_creation() -> None:
+    replacement_mask = acceptance._WINDOWS_REPLACE_COMPONENT_MASK  # pyright: ignore[reportPrivateUsage]
+    assert acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        ((0, 0x40, "S-1-5-32-545"),), replacement_mask
+    )
+    assert not acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        ((0, 0x04, "S-1-5-32-545"),), replacement_mask
+    )
+
+
+def test_git_path_uses_strict_checks_for_replaceable_components_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = Path(r"C:\Program Files\Git\cmd\git.exe")
+    observed: list[tuple[Path, bool, bool]] = []
+
+    def verify(node: Path, *, expect_file: bool, strict_write: bool = True) -> None:
+        observed.append((node, expect_file, strict_write))
+
+    monkeypatch.setattr(acceptance, "_verify_path_node", verify)
+    acceptance._verify_git_path(path)  # pyright: ignore[reportPrivateUsage]
+    assert observed == [
+        (path, True, True),
+        (path.parent, False, True),
+        (path.parent.parent, False, True),
+        (path.parent.parent.parent, False, False),
+        (path.parent.parent.parent.parent, False, False),
+    ]
+
+
+def test_standard_windows_program_files_git_path_passes_when_present() -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-only fixed Git path")
+    fixed_path = Path(r"C:\Program Files\Git\cmd\git.exe")
+    if not fixed_path.exists():
+        pytest.skip("standard system Git is not installed")
+    acceptance._verify_git_path(fixed_path)  # pyright: ignore[reportPrivateUsage]
+
+
 @pytest.mark.parametrize("host", ["10.77.0.3", "0.0.0.0", "*"])
 def test_target_host_is_exactly_gated(host: str) -> None:
     value = request(approved=True)

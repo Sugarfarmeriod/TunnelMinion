@@ -92,8 +92,20 @@ _WINDOWS_WRITE_MASK = (
     | 0x10000000
     | 0x40000000
 )
+_WINDOWS_REPLACE_COMPONENT_MASK = (
+    0x00000040 | 0x00010000 | 0x00040000 | 0x00080000 | 0x01000000 | 0x10000000
+)
 _TRUSTED_WINDOWS_SID_EXACT = frozenset({"S-1-5-18", "S-1-5-32-544"})
 _TRUSTED_WINDOWS_SERVICE_SID_PREFIX = "S-1-5-80-"
+_WINDOWS_BROAD_USER_SIDS = frozenset(
+    {
+        "S-1-1-0",
+        "S-1-5-4",
+        "S-1-5-11",
+        "S-1-5-32-545",
+        "S-1-5-32-546",
+    }
+)
 
 
 class NetworkChangedError(RuntimeError):
@@ -626,14 +638,19 @@ def _verify_git_path(path: Path) -> None:
     if not path.is_absolute():
         raise ValueError("git_tool_path_rejected")
     try:
-        _verify_path_node(path, expect_file=True)
+        _verify_path_node(path, expect_file=True, strict_write=True)
+        strict_parents = {path.parent, path.parent.parent}
         for parent in path.parents:
-            _verify_path_node(parent, expect_file=False)
+            _verify_path_node(
+                parent,
+                expect_file=False,
+                strict_write=parent in strict_parents,
+            )
     except OSError as exc:
         raise ValueError("git_tool_unavailable") from exc
 
 
-def _verify_path_node(path: Path, *, expect_file: bool) -> None:
+def _verify_path_node(path: Path, *, expect_file: bool, strict_write: bool = True) -> None:
     info = os.lstat(path)
     if path.is_symlink():
         raise ValueError("git_tool_symlink")
@@ -646,7 +663,7 @@ def _verify_path_node(path: Path, *, expect_file: bool) -> None:
     elif not stat.S_ISDIR(info.st_mode):
         raise ValueError("git_tool_parent_rejected")
     if os.name == "nt":
-        _verify_windows_security(path)
+        _verify_windows_security(path, strict_write=strict_write)
     elif sys.platform == "darwin":
         _verify_macos_security(path, info)
     else:
@@ -676,7 +693,7 @@ def _verify_macos_security(path: Path, info: os.stat_result) -> None:
         raise ValueError("git_tool_acl_untrusted")
 
 
-def _verify_windows_security(path: Path) -> None:
+def _verify_windows_security(path: Path, *, strict_write: bool = True) -> None:
     if os.name != "nt":
         raise ValueError("git_tool_platform_unsupported")
     descriptor = ctypes.c_void_p()
@@ -713,7 +730,8 @@ def _verify_windows_security(path: Path) -> None:
         sid_text = _windows_sid_text(advapi, owner)
         if not _trusted_windows_sid(sid_text):
             raise ValueError("git_tool_owner_untrusted")
-        _verify_windows_dacl(advapi, dacl)
+        write_mask = _WINDOWS_WRITE_MASK if strict_write else _WINDOWS_REPLACE_COMPONENT_MASK
+        _verify_windows_dacl(advapi, dacl, write_mask=write_mask)
     except ValueError:
         raise
     except (AttributeError, OSError, TypeError) as exc:
@@ -748,7 +766,38 @@ def _trusted_windows_sid(sid_text: str) -> bool:
     )
 
 
-def _verify_windows_dacl(advapi: object, dacl: ctypes.c_void_p) -> None:
+def _windows_untrusted_write_granted(
+    entries: Sequence[tuple[int, int, str]], write_mask: int
+) -> bool:
+    """按 ACL 顺序合并显式拒绝/允许，判断普通主体是否仍获得危险权限。"""
+    denied_by_sid: dict[str, int] = {}
+    allowed_by_sid: dict[str, int] = {}
+    broad_denied = 0
+    for ace_type, mask, sid_text in entries:
+        relevant = mask & write_mask
+        if not relevant:
+            continue
+        if ace_type == 1:
+            denied_by_sid[sid_text] = denied_by_sid.get(sid_text, 0) | relevant
+            allowed_by_sid[sid_text] = allowed_by_sid.get(sid_text, 0) & ~relevant
+            if sid_text in _WINDOWS_BROAD_USER_SIDS:
+                broad_denied |= relevant
+                for other_sid in allowed_by_sid:
+                    allowed_by_sid[other_sid] &= ~relevant
+            continue
+        if _trusted_windows_sid(sid_text):
+            continue
+        blocked = denied_by_sid.get(sid_text, 0) | broad_denied
+        allowed_by_sid[sid_text] = allowed_by_sid.get(sid_text, 0) | (relevant & ~blocked)
+    return any(allowed_by_sid.values())
+
+
+def _verify_windows_dacl(
+    advapi: object,
+    dacl: ctypes.c_void_p,
+    *,
+    write_mask: int = _WINDOWS_WRITE_MASK,
+) -> None:
     class Acl(ctypes.Structure):
         _fields_ = [
             ("revision", ctypes.c_ubyte),
@@ -769,6 +818,7 @@ def _verify_windows_dacl(advapi: object, dacl: ctypes.c_void_p) -> None:
     get_ace = cast(Any, advapi).GetAce
     get_ace.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
     get_ace.restype = ctypes.c_int
+    entries: list[tuple[int, int, str]] = []
     for index in range(acl.ace_count):
         ace = ctypes.c_void_p()
         if not get_ace(dacl, index, ctypes.byref(ace)) or not ace.value:
@@ -776,17 +826,19 @@ def _verify_windows_dacl(advapi: object, dacl: ctypes.c_void_p) -> None:
         header = ctypes.cast(ace, ctypes.POINTER(AceHeader)).contents
         if header.ace_type not in (0, 1):
             raise ValueError("git_tool_acl_untrusted")
-        if header.ace_type != 0:
-            continue
         if header.ace_flags & 0x08:
             continue
         if header.ace_size < ctypes.sizeof(AceHeader) + 4:
             raise ValueError("git_tool_acl_untrusted")
         mask = ctypes.c_uint32.from_address(ace.value + ctypes.sizeof(AceHeader)).value
+        relevant = mask & write_mask
+        if not relevant:
+            continue
         sid = ctypes.c_void_p(ace.value + ctypes.sizeof(AceHeader) + 4)
         sid_text = _windows_sid_text(advapi, sid)
-        if mask & _WINDOWS_WRITE_MASK and not _trusted_windows_sid(sid_text):
-            raise ValueError("git_tool_acl_untrusted")
+        entries.append((header.ace_type, mask, sid_text))
+    if _windows_untrusted_write_granted(entries, write_mask):
+        raise ValueError("git_tool_acl_untrusted")
 
 
 def _trusted_checkout_revision(
