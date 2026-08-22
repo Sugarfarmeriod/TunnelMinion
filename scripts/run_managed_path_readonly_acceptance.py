@@ -103,6 +103,44 @@ class NetworkChangedError(RuntimeError):
     """前后只读摘要不一致；异常正文固定且不携带原始事实。"""
 
 
+_REQUEST_ERROR_CODES = frozenset(
+    {
+        "platform_rejected",
+        "interface_rejected",
+        "peer_key_rejected",
+        "code_sha_rejected",
+        "code_sha_mismatch",
+        "candidate_approval_rejected",
+        "target_host_rejected",
+        "target_port_rejected",
+    }
+)
+_TRUSTED_CHECKOUT_ERROR_PREFIXES = (
+    "checkout_",
+    "evidence_path_",
+    "git_",
+    "trusted_checkout_",
+)
+
+
+def _stable_error_code_from_exception(exc: BaseException) -> str:
+    """将预期边界错误映射为固定代码，绝不回显异常正文。"""
+    if isinstance(exc, NetworkChangedError):
+        return "network_state_changed"
+    if isinstance(exc, ValueError):
+        code = str(exc)
+        if code in {"acceptance_command_rejected", "git_command_rejected"}:
+            return "command_boundary_rejected"
+        if code in _REQUEST_ERROR_CODES:
+            return code
+        if code.startswith(_TRUSTED_CHECKOUT_ERROR_PREFIXES):
+            return "trusted_checkout"
+        return "platform_observation_failed"
+    if isinstance(exc, OSError):
+        return "platform_observation_failed"
+    return "acceptance_internal_error"
+
+
 class Observer(Protocol):
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot: ...
 
@@ -917,14 +955,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_path = _evidence_path(args.platform)
         try:
             trusted_revision = _trusted_checkout_revision(output_path)
-        except ValueError as exc:
+        except Exception as exc:
             report = {
                 "schema_version": SCHEMA_VERSION,
+                "code_sha": args.code_sha,
                 "platform_code": args.platform,
                 "passed": False,
                 "probe_executed": False,
                 "writes_performed": False,
-                "stable_error_code": str(exc),
+                "stable_error_code": _stable_error_code_from_exception(exc),
                 "finished_at": datetime.now(UTC).isoformat(),
             }
             print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -956,7 +995,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             )
-        except Exception:
+        except Exception as exc:
             report = {
                 "schema_version": SCHEMA_VERSION,
                 "code_sha": args.code_sha,
@@ -964,10 +1003,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "passed": False,
                 "probe_executed": False,
                 "writes_performed": False,
-                "stable_error_code": "acceptance_preflight_failed",
+                "stable_error_code": _stable_error_code_from_exception(exc),
                 "finished_at": datetime.now(UTC).isoformat(),
             }
-    _write_report(report, args.platform, output_path if args.platform is not None else None)
+    try:
+        _write_report(report, args.platform, output_path if args.platform is not None else None)
+    except Exception as exc:
+        report.update(
+            {
+                "passed": False,
+                "stable_error_code": _stable_error_code_from_exception(exc),
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+        )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if bool(report.get("passed", False)) or args.platform is None else 1
 

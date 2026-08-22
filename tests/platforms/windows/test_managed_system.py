@@ -260,6 +260,60 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
     )
 
 
+def test_observer_ignores_non_host_allowed_routes_before_querying(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    fixed = commands(tmp_path, runner)
+    prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
+    runner.results[(str(fixed.paths.sc_exe), "query", "WireGuardTunnel$tmn-test-a")] = (
+        CommandResult(returncode=0, stdout="RUNNING", stderr="")
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(returncode=0, stdout="peer-a\n", stderr="")
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0, stdout="peer-a\t10.203.0.3:51820\n", stderr=""
+    )
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0,
+        stdout=(
+            "peer-a\t10.203.0.2/32,10.203.0.0/24,0.0.0.0/0,"
+            "224.0.0.0/4,224.0.0.1/32,255.255.255.255/32,*,malformed\n"
+        ),
+        stderr="",
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0, stdout="peer-a\t123\n", stderr=""
+    )
+    route_command = (str(fixed.paths.route_exe), "print", "10.203.0.2")
+    runner.results[route_command] = CommandResult(
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.203.0.2                255.255.255.255  On-link       10.203.0.1  1\n"
+            "Persistent Routes:\n"
+        ),
+        stderr="",
+    )
+    observer = WindowsWireGuardObserver(
+        FakeReader(InterfaceSnapshot(name="tmn-test-a", is_up=True, addresses=("10.203.0.1",))),
+        fixed,
+        interface_index=lambda _name: 7,
+    )
+
+    snapshot = asyncio.run(observer.observe("tmn-test-a"))
+
+    assert snapshot.peers[0].allowed_host_routes == ("10.203.0.2/32",)
+    assert snapshot.host_routes == ("10.203.0.2/32",)
+    assert [
+        command
+        for command in runner.commands
+        if command[:2] == (str(fixed.paths.route_exe), "print")
+    ] == [route_command]
+
+
 def test_windows_route_parser_accepts_exact_ipv4_and_ipv6_rows() -> None:
     ipv4 = (
         "IPv4 Route Table\n"

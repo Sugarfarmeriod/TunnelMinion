@@ -337,7 +337,7 @@ class WindowsWireGuardObserver:
                 allowed_host_routes=tuple(
                     route.strip()
                     for route in (allowed.get(key, ("",))[0]).split(",")
-                    if route.strip()
+                    if route.strip() and _is_observable_host_route(route.strip())
                 )[:8],
                 latest_handshake_epoch=_nonnegative_integer(handshakes.get(key, ("",))[0]),
             )
@@ -501,6 +501,21 @@ def _parse_peer_values(stdout: str) -> dict[str, tuple[str, ...]]:
         if len(parts) >= 2 and parts[0]:
             values[parts[0]] = parts[1:]
     return values
+
+
+def _is_observable_host_route(value: str) -> bool:
+    try:
+        network = ipaddress.ip_network(value, strict=True)
+    except ValueError:
+        return False
+    address = network.network_address
+    return network.prefixlen == network.max_prefixlen and not (
+        address.is_multicast
+        or address.is_unspecified
+        or address.is_loopback
+        or address.is_reserved
+        or address.is_link_local
+    )
 
 
 def _canonical_host_addresses(values: tuple[str, ...]) -> tuple[str, ...]:

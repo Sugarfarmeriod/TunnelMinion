@@ -569,6 +569,60 @@ def test_non_administrator_fails_before_observation() -> None:
     assert observer.calls == 0
 
 
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (ValueError("acceptance_command_rejected"), "command_boundary_rejected"),
+        (ValueError("trusted_checkout_unavailable"), "trusted_checkout"),
+        (ValueError("route contains secret endpoint"), "platform_observation_failed"),
+        (RuntimeError("programming detail with secret"), "acceptance_internal_error"),
+    ],
+)
+def test_exception_mapping_is_stable_and_redacted(error: Exception, expected: str) -> None:
+    code = acceptance._stable_error_code_from_exception(  # pyright: ignore[reportPrivateUsage]
+        error
+    )
+    assert code == expected
+    assert "secret" not in code
+
+
+def test_main_maps_observer_failure_without_echoing_exception(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(acceptance.sys.stdin, "isatty", lambda: True)
+
+    def evidence_path(_platform: str) -> Path:
+        return Path("evidence.json")
+
+    def trusted_revision(_path: Path) -> str:
+        return "a" * 40
+
+    def fake_getpass(_prompt: str) -> str:
+        return PEER
+
+    def no_write(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr(acceptance, "_evidence_path", evidence_path)
+    monkeypatch.setattr(acceptance, "_trusted_checkout_revision", trusted_revision)
+    monkeypatch.setattr(acceptance.getpass, "getpass", fake_getpass)
+
+    async def fail_observation(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        raise ValueError("raw route output with endpoint")
+
+    monkeypatch.setattr(acceptance, "run_acceptance", fail_observation)
+    monkeypatch.setattr(acceptance, "_write_report", no_write)
+
+    assert (
+        acceptance.main(["--platform", "windows", "--interface", "HomeMac", "--code-sha", "a" * 40])
+        == 1
+    )
+    output = capsys.readouterr().out
+    assert "platform_observation_failed" in output
+    assert "raw route output with endpoint" not in output
+
+
 def test_network_change_stops_before_production_probe_and_target() -> None:
     observer = Observer(snapshot())
     probe_calls: list[bool] = []
