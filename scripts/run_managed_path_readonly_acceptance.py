@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -63,6 +64,7 @@ class Observer(Protocol):
 
 
 Executor = Callable[[tuple[str, ...], float], Awaitable[CommandResult]]
+GitRunner = Callable[[tuple[str, ...]], tuple[int, str, str]]
 
 
 @dataclass(frozen=True)
@@ -249,14 +251,6 @@ async def _summary(
     snapshot = await runtime.observer.observe(interface_name)
     route_hash, route_returncode = await runtime.route_summary()
     value: dict[str, object] = {
-        "summary_hash": canonical_sha256(
-            {
-                "system_fingerprint": snapshot.system_fingerprint,
-                "route_hash": route_hash,
-                "route_returncode": route_returncode,
-                "observed_error_code": snapshot.observed_error_code,
-            }
-        ),
         "route_hash": route_hash,
         "route_query_succeeded": route_returncode == 0,
         "interface_present": snapshot.interface_present,
@@ -267,6 +261,21 @@ async def _summary(
         "host_route_count": len(snapshot.host_routes),
         "stable_error_code": snapshot.observed_error_code,
     }
+    value["summary_hash"] = canonical_sha256(
+        {
+            "system_fingerprint": snapshot.system_fingerprint,
+            "route_hash": route_hash,
+            "route_query_returncode": route_returncode,
+            "route_query_succeeded": value["route_query_succeeded"],
+            "interface_present": value["interface_present"],
+            "interface_up": value["interface_up"],
+            "service_present": value["service_present"],
+            "service_running": value["service_running"],
+            "peer_count": value["peer_count"],
+            "host_route_count": value["host_route_count"],
+            "stable_error_code": value["stable_error_code"],
+        }
+    )
     return value, snapshot
 
 
@@ -280,6 +289,21 @@ def _candidate(
         {"peer_public_key": peer_public_key, "host": peer.endpoint_host, "port": peer.endpoint_port}
     )
     return candidate_hash, peer.endpoint_host, peer.endpoint_port
+
+
+def _target_route_owner_count(snapshot: WindowsTunnelSnapshot, target_route: str) -> int:
+    """统计声明精确目标 host route 的 peer 数量；调用方另行核对所选 peer。"""
+    return sum(target_route in peer.allowed_host_routes for peer in snapshot.peers)
+
+
+def _selected_peer_owns_unique_target_route(
+    snapshot: WindowsTunnelSnapshot,
+    peer_public_key: str,
+    target_route: str,
+) -> bool:
+    owners = _target_route_owner_count(snapshot, target_route)
+    selected = next((peer for peer in snapshot.peers if peer.public_key == peer_public_key), None)
+    return owners == 1 and selected is not None and target_route in selected.allowed_host_routes
 
 
 def _base_report(request: AcceptanceRequest, started_at: datetime) -> dict[str, object]:
@@ -302,12 +326,21 @@ async def run_acceptance(
     """运行预检或已批准探测；报告永不包含原始系统事实。"""
     started_at = clock().astimezone(UTC)
     _validate_request(request)
-    selected_runtime = runtime or (
-        _windows_runtime(request, executor)
-        if request.platform == "windows"
-        else _macos_runtime(request, executor)
-    )
     report = _base_report(request, started_at)
+    if runtime is None:
+        try:
+            trusted_revision = _trusted_checkout_revision(_evidence_path(request.platform))
+        except ValueError as exc:
+            return _finish_failure(report, clock, str(exc))
+        if request.code_sha != trusted_revision:
+            return _finish_failure(report, clock, "code_sha_mismatch")
+        selected_runtime = (
+            _windows_runtime(request, executor)
+            if request.platform == "windows"
+            else _macos_runtime(request, executor)
+        )
+    else:
+        selected_runtime = runtime
     if not selected_runtime.elevated:
         report.update(
             {
@@ -361,11 +394,19 @@ async def run_acceptance(
     if not (reserved or docker_proven):
         return _finish_failure(report, clock, "target_port_rejected")
 
-    guarded, _ = await _summary(selected_runtime, request.interface_name)
+    guarded, guarded_snapshot = await _summary(selected_runtime, request.interface_name)
     if guarded["summary_hash"] != before["summary_hash"]:
         report["after"] = guarded
         report["network_state_unchanged"] = False
         return _finish_failure(report, clock, "network_state_changed")
+
+    target_route = f"{request.target_host}/32"
+    target_route_owner_count = _target_route_owner_count(guarded_snapshot, target_route)
+    report["target_route_owner_count"] = target_route_owner_count
+    if not _selected_peer_owns_unique_target_route(
+        guarded_snapshot, request.peer_public_key, target_route
+    ):
+        return _finish_failure(report, clock, "target_route_owner_mismatch")
 
     target_called = False
     connect_guard_summary: dict[str, object] | None = None
@@ -403,7 +444,7 @@ async def run_acceptance(
             authorization_revision=1,
             revision=1,
             candidates=(candidate,),
-            expected_host_route=f"{request.target_host}/32",
+            expected_host_route=target_route,
             target_host=request.target_host,
             target_port=request.target_port,
             now=now,
@@ -418,6 +459,7 @@ async def run_acceptance(
     after, _ = await _summary(selected_runtime, request.interface_name)
     unchanged = after["summary_hash"] == before["summary_hash"]
     error = evidence.stable_error_code.value if evidence.stable_error_code is not None else None
+    final_error = "network_state_changed" if not unchanged else error
     report.update(
         {
             "after": after,
@@ -425,8 +467,8 @@ async def run_acceptance(
             "probe_executed": True,
             "target_probe_executed": target_called,
             "path_evidence": {
-                "verified": evidence.verified,
-                "stable_error_code": error,
+                "verified": bool(evidence.verified and unchanged),
+                "stable_error_code": final_error,
                 "source_hash": canonical_sha256({"source": evidence.source}),
                 "candidate_count": evidence.candidate_count,
                 "endpoint_probe_succeeded": evidence.endpoint_probe_succeeded,
@@ -436,7 +478,7 @@ async def run_acceptance(
                 "observed_at": evidence.observed_at.isoformat(),
                 "expires_at": evidence.expires_at.isoformat(),
             },
-            "stable_error_code": error if unchanged else "network_state_changed",
+            "stable_error_code": final_error,
             "passed": unchanged and evidence.verified,
             "finished_at": clock().astimezone(UTC).isoformat(),
         }
@@ -488,14 +530,83 @@ def dry_run_report() -> dict[str, object]:
     }
 
 
-def _write_report(report: dict[str, object], platform: str | None) -> Path | None:
-    if platform is None:
-        return None
+def _evidence_path(platform: str) -> Path:
     root = Path(__file__).resolve().parents[1] / "evaluations" / "platform"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    output = root / f"managed-path-readonly-{platform}-{timestamp}.json"
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return root / f"managed-path-readonly-{platform}-{timestamp}.json"
+
+
+def _default_git_runner(command: tuple[str, ...]) -> tuple[int, str, str]:
+    completed = subprocess.run(
+        ("git", *command),
+        cwd=Path(__file__).resolve().parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return completed.returncode, completed.stdout, completed.stderr
+
+
+def _trusted_checkout_revision(
+    evidence_path: Path,
+    *,
+    git_runner: GitRunner | None = None,
+) -> str:
+    """读取可信 checkout 的 HEAD，并拒绝除指定新 evidence 外的预存修改。"""
+    root = Path(__file__).resolve().parents[1]
+    output = evidence_path.resolve()
+    try:
+        relative_output = output.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("evidence_path_rejected") from exc
+    if output.exists():
+        raise ValueError("evidence_path_preexisting")
+    run_git = git_runner or _default_git_runner
+    top_returncode, top_stdout, _ = run_git(("rev-parse", "--show-toplevel"))
+    if top_returncode != 0 or Path(top_stdout.strip()).resolve() != root:
+        raise ValueError("trusted_checkout_unavailable")
+    status_returncode, status_stdout, _ = run_git(
+        ("status", "--porcelain=v1", "--untracked-files=all")
+    )
+    if status_returncode != 0:
+        raise ValueError("trusted_checkout_unavailable")
+    for line in status_stdout.splitlines():
+        if not line:
+            continue
+        status = line[:2]
+        path = line[3:] if len(line) >= 4 else ""
+        if status == "??" and path == relative_output:
+            continue
+        raise ValueError("checkout_dirty")
+    head_returncode, head_stdout, _ = run_git(("rev-parse", "--verify", "HEAD"))
+    revision = head_stdout.strip()
+    if head_returncode != 0 or _CODE_SHA.fullmatch(revision) is None:
+        raise ValueError("trusted_checkout_unavailable")
+    return revision
+
+
+def _write_report(
+    report: dict[str, object], platform: str | None, output_path: Path | None = None
+) -> Path | None:
+    if platform is None:
+        return None
+    output = output_path or _evidence_path(platform)
+    trusted_revision = _trusted_checkout_revision(output)
+    _validate_report_code_sha(report.get("code_sha"), trusted_revision)
+    try:
+        with output.open("x", encoding="utf-8") as handle:
+            json.dump(report, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+    except FileExistsError as exc:
+        raise ValueError("evidence_path_preexisting") from exc
     return output
+
+
+def _validate_report_code_sha(report_code_sha: object, trusted_revision: str) -> None:
+    if report_code_sha != trusted_revision:
+        raise ValueError("code_sha_mismatch")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -507,6 +618,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--target-host", choices=tuple(sorted(TARGET_HOSTS)))
     parser.add_argument("--target-port", type=int)
     args = parser.parse_args(argv)
+    output_path: Path | None = None
     if args.platform is None:
         report: dict[str, object] = dry_run_report()
     else:
@@ -523,7 +635,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "stable_error_code": "interactive_terminal_required",
                 "finished_at": datetime.now(UTC).isoformat(),
             }
-            _write_report(report, args.platform)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 1
+        output_path = _evidence_path(args.platform)
+        try:
+            trusted_revision = _trusted_checkout_revision(output_path)
+        except ValueError as exc:
+            report = {
+                "schema_version": SCHEMA_VERSION,
+                "platform_code": args.platform,
+                "passed": False,
+                "probe_executed": False,
+                "writes_performed": False,
+                "stable_error_code": str(exc),
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 1
+        if args.code_sha != trusted_revision:
+            report = {
+                "schema_version": SCHEMA_VERSION,
+                "platform_code": args.platform,
+                "passed": False,
+                "probe_executed": False,
+                "writes_performed": False,
+                "stable_error_code": "code_sha_mismatch",
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 1
         peer_public_key = getpass.getpass("Peer public key（不会回显或保存）: ")
@@ -534,7 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         platform=args.platform,
                         interface_name=args.interface,
                         peer_public_key=peer_public_key,
-                        code_sha=args.code_sha,
+                        code_sha=trusted_revision,
                         approved_candidate_hash=args.approve_candidate,
                         target_host=args.target_host,
                         target_port=args.target_port,
@@ -552,7 +690,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "stable_error_code": "acceptance_preflight_failed",
                 "finished_at": datetime.now(UTC).isoformat(),
             }
-    _write_report(report, args.platform)
+    _write_report(report, args.platform, output_path if args.platform is not None else None)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if bool(report.get("passed", False)) or args.platform is None else 1
 

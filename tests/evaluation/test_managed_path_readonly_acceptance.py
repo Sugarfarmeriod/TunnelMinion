@@ -44,6 +44,18 @@ class Observer:
         return self.snapshot
 
 
+class ChangingObserver(Observer):
+    def __init__(self, initial: WindowsTunnelSnapshot, changed: WindowsTunnelSnapshot) -> None:
+        super().__init__(initial)
+        self.changed = changed
+
+    async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
+        if self.calls > 0:
+            self.calls += 1
+            return self.changed
+        return await super().observe(interface_name)
+
+
 def snapshot() -> WindowsTunnelSnapshot:
     return WindowsTunnelSnapshot(
         interface_name="HomeMac",
@@ -62,6 +74,20 @@ def snapshot() -> WindowsTunnelSnapshot:
         ),
         host_routes=("10.77.0.2/32",),
     )
+
+
+def snapshot_with_peer_routes(*routes: tuple[str, tuple[str, ...]]) -> WindowsTunnelSnapshot:
+    peers = tuple(
+        WindowsPeerSnapshot(
+            public_key=public_key,
+            endpoint_host=ENDPOINT if public_key == PEER else "192.168.50.11",
+            endpoint_port=51820,
+            allowed_host_routes=allowed_routes,
+            latest_handshake_epoch=int(NOW.timestamp()),
+        )
+        for public_key, allowed_routes in routes
+    )
+    return snapshot().model_copy(update={"peers": peers})
 
 
 def request(*, approved: bool = False, target_port: int = 18880) -> AcceptanceRequest:
@@ -204,6 +230,51 @@ def test_target_port_requires_reserved_range_or_deployed_docker_proof(
     assert accepted["stable_error_code"] != "target_port_rejected"
 
 
+@pytest.mark.parametrize(
+    ("initial", "expected_error"),
+    [
+        (snapshot_with_peer_routes((PEER, ())), "target_route_owner_mismatch"),
+        (
+            snapshot_with_peer_routes(
+                (PEER, ("10.77.0.2/32",)),
+                ("other-peer", ("10.77.0.2/32",)),
+            ),
+            "target_route_owner_mismatch",
+        ),
+    ],
+)
+def test_selected_peer_must_uniquely_own_target_route(
+    initial: WindowsTunnelSnapshot, expected_error: str
+) -> None:
+    observer = Observer(initial)
+    probe_calls: list[bool] = []
+    report = asyncio.run(
+        run_acceptance(request(approved=True), runtime=runtime(observer, probe_calls=probe_calls))
+    )
+    assert report["stable_error_code"] == expected_error
+    assert report["target_route_owner_count"] in {0, 2}
+    assert report["probe_executed"] is False
+    assert report["target_probe_executed"] is False
+    assert probe_calls == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["interface_present", "interface_up", "service_present", "service_running"],
+)
+def test_each_normalized_network_summary_field_change_fails_closed(field: str) -> None:
+    initial = snapshot()
+    changed = initial.model_copy(update={field: False})
+    observer = ChangingObserver(initial, changed)
+    report = asyncio.run(
+        run_acceptance(request(approved=True), runtime=runtime(observer), clock=lambda: NOW)
+    )
+    assert report["stable_error_code"] == "network_state_changed"
+    assert report["network_state_unchanged"] is False
+    assert report["probe_executed"] is False
+    assert report["target_probe_executed"] is False
+
+
 def test_non_administrator_fails_before_observation() -> None:
     observer = Observer(snapshot())
     report = asyncio.run(run_acceptance(request(), runtime=runtime(observer, elevated=False)))
@@ -272,6 +343,40 @@ def test_network_change_at_connect_guard_stops_target_probe(
     assert target_calls == []
 
 
+def test_final_network_change_forces_path_evidence_unverified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(host: str, port: int, timeout: float) -> bool:
+        del host, port, timeout
+        return True
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    observer = Observer(snapshot())
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(
+                observer,
+                route_hashes=[
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "2" * 64,
+                ],
+            ),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["stable_error_code"] == "network_state_changed"
+    assert report["passed"] is False
+    assert report["probe_executed"] is True
+    assert report["target_probe_executed"] is True
+    evidence = report["path_evidence"]
+    assert isinstance(evidence, dict)
+    assert evidence["verified"] is False
+    assert evidence["stable_error_code"] == "network_state_changed"
+
+
 def test_preflight_output_contains_only_redacted_candidate_hash() -> None:
     report = asyncio.run(
         run_acceptance(request(), runtime=runtime(Observer(snapshot())), clock=lambda: NOW)
@@ -281,6 +386,79 @@ def test_preflight_output_contains_only_redacted_candidate_hash() -> None:
     assert str(report["candidate_hash"]).startswith("sha256:")
     for forbidden in (PEER, ENDPOINT, "HomeMac", "10.77.0.2/32"):
         assert forbidden not in serialized
+
+
+def test_report_rejects_format_correct_but_untrusted_sha() -> None:
+    with pytest.raises(ValueError, match="code_sha_mismatch"):
+        acceptance._validate_report_code_sha(  # pyright: ignore[reportPrivateUsage]
+            "a" * 40, "b" * 40
+        )
+
+
+def test_run_rejects_untrusted_sha_before_platform_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def trusted_revision(evidence_path: Path) -> str:
+        del evidence_path
+        return "b" * 40
+
+    monkeypatch.setattr(
+        acceptance,
+        "_trusted_checkout_revision",
+        trusted_revision,
+    )
+    report = asyncio.run(run_acceptance(request()))
+    assert report["stable_error_code"] == "code_sha_mismatch"
+    assert report["probe_executed"] is False
+
+
+def test_trusted_checkout_rejects_dirty_worktree_and_returns_head() -> None:
+    root = Path(acceptance.__file__).resolve().parents[1]
+    evidence = root / "evaluations" / "platform" / "managed-path-readonly-test.json"
+
+    def clean_git(command: tuple[str, ...]) -> tuple[int, str, str]:
+        if command == ("rev-parse", "--show-toplevel"):
+            return 0, str(root), ""
+        if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return 0, "", ""
+        if command == ("rev-parse", "--verify", "HEAD"):
+            return 0, "b" * 40, ""
+        raise AssertionError(command)
+
+    assert (
+        acceptance._trusted_checkout_revision(  # pyright: ignore[reportPrivateUsage]
+            evidence, git_runner=clean_git
+        )
+        == "b" * 40
+    )
+
+    def evidence_git(command: tuple[str, ...]) -> tuple[int, str, str]:
+        if command == ("rev-parse", "--show-toplevel"):
+            return 0, str(root), ""
+        if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return 0, "?? evaluations/platform/managed-path-readonly-test.json\n", ""
+        if command == ("rev-parse", "--verify", "HEAD"):
+            return 0, "b" * 40, ""
+        raise AssertionError(command)
+
+    assert (
+        acceptance._trusted_checkout_revision(  # pyright: ignore[reportPrivateUsage]
+            evidence, git_runner=evidence_git
+        )
+        == "b" * 40
+    )
+
+    def dirty_git(command: tuple[str, ...]) -> tuple[int, str, str]:
+        if command == ("rev-parse", "--show-toplevel"):
+            return 0, str(root), ""
+        if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return 0, " M scripts/other.py\n", ""
+        raise AssertionError(command)
+
+    with pytest.raises(ValueError, match="checkout_dirty"):
+        acceptance._trusted_checkout_revision(  # pyright: ignore[reportPrivateUsage]
+            evidence, git_runner=dirty_git
+        )
 
 
 def test_approved_probe_uses_production_class_and_redacts_output(
