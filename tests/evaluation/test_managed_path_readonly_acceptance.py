@@ -422,6 +422,27 @@ def test_windows_acl_explicit_deny_blocks_later_write_allow() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "denying_sid",
+    [
+        "S-1-1-0",
+        "S-1-5-4",
+        "S-1-5-11",
+        "S-1-5-32-545",
+        "S-1-5-32-546",
+    ],
+)
+def test_windows_group_deny_does_not_cover_unknown_sid_allow(denying_sid: str) -> None:
+    write_mask = 0x40
+    assert acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]
+        (
+            (1, write_mask, denying_sid),
+            (0, write_mask, "S-1-5-21-111-222-333-444"),
+        ),
+        write_mask,
+    )
+
+
 def test_windows_ancestor_mask_rejects_component_replacement_not_child_creation() -> None:
     replacement_mask = acceptance._WINDOWS_REPLACE_COMPONENT_MASK  # pyright: ignore[reportPrivateUsage]
     assert acceptance._windows_untrusted_write_granted(  # pyright: ignore[reportPrivateUsage]

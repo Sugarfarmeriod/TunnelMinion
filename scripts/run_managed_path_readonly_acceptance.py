@@ -97,15 +97,6 @@ _WINDOWS_REPLACE_COMPONENT_MASK = (
 )
 _TRUSTED_WINDOWS_SID_EXACT = frozenset({"S-1-5-18", "S-1-5-32-544"})
 _TRUSTED_WINDOWS_SERVICE_SID_PREFIX = "S-1-5-80-"
-_WINDOWS_BROAD_USER_SIDS = frozenset(
-    {
-        "S-1-1-0",
-        "S-1-5-4",
-        "S-1-5-11",
-        "S-1-5-32-545",
-        "S-1-5-32-546",
-    }
-)
 
 
 class NetworkChangedError(RuntimeError):
@@ -769,22 +760,19 @@ def _trusted_windows_sid(sid_text: str) -> bool:
 def _windows_untrusted_write_granted(
     entries: Sequence[tuple[int, int, str]], write_mask: int
 ) -> bool:
-    """按 ACL 顺序合并显式拒绝/允许，判断普通主体是否仍获得危险权限。"""
+    """按 ACL 顺序合并显式拒绝/允许，仅按同一 SID 的先置拒绝判断。"""
     denied_by_sid: dict[str, int] = {}
     allowed_by_sid: dict[str, int] = {}
-    broad_denied = 0
     for ace_type, mask, sid_text in entries:
         relevant = mask & write_mask
         if not relevant:
             continue
         if ace_type == 1:
             denied_by_sid[sid_text] = denied_by_sid.get(sid_text, 0) | relevant
-            if sid_text in _WINDOWS_BROAD_USER_SIDS:
-                broad_denied |= relevant
             continue
         if _trusted_windows_sid(sid_text):
             continue
-        blocked = denied_by_sid.get(sid_text, 0) | broad_denied
+        blocked = denied_by_sid.get(sid_text, 0)
         allowed_by_sid[sid_text] = allowed_by_sid.get(sid_text, 0) | (relevant & ~blocked)
     return any(allowed_by_sid.values())
 
