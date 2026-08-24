@@ -69,6 +69,9 @@ from tunnelminion.network.path_status import (
     ManagedPathStatus,
 )
 from tunnelminion.network.provider import NetworkProvider
+from tunnelminion.platforms.macos.managed_path import (
+    _tool_path as macos_tool_path,  # pyright: ignore[reportPrivateUsage]
+)
 from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
 from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
 from tunnelminion.tools.registry import ToolRegistry
@@ -542,6 +545,21 @@ def test_platform_factories_share_capability_shape_without_running_commands(
         assert dependencies.capabilities.provider_apply_available is False
         probe = dependencies.probe_factory(envelope.config, policy)
         assert isinstance(probe, PlatformPathProbe)
+
+
+def test_macos_tool_path_supports_apple_silicon_homebrew(tmp_path: Path) -> None:
+    apple_silicon = Path("/opt/homebrew/bin/wg")
+
+    selected = macos_tool_path(
+        tmp_path,
+        "wg",
+        "/usr/local/bin/wg",
+        str(apple_silicon),
+        platform_name="darwin",
+        path_exists=lambda path: path == apple_silicon,
+    )
+
+    assert selected == apple_silicon
 
 
 class _RecordingProbe:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from tunnelminion.agent.managed_path import (
@@ -38,8 +39,18 @@ def build_macos_managed_path_platform(
     root = data_dir.resolve()
     tools_root = root / "managed-platform-tools"
     paths = MacOSProviderPaths(
-        wg=_tool_path(tools_root, "wg", "/usr/local/bin/wg"),
-        wg_quick=_tool_path(tools_root, "wg-quick", "/usr/local/bin/wg-quick"),
+        wg=_tool_path(
+            tools_root,
+            "wg",
+            "/usr/local/bin/wg",
+            "/opt/homebrew/bin/wg",
+        ),
+        wg_quick=_tool_path(
+            tools_root,
+            "wg-quick",
+            "/usr/local/bin/wg-quick",
+            "/opt/homebrew/bin/wg-quick",
+        ),
         ifconfig=_tool_path(tools_root, "ifconfig", "/sbin/ifconfig"),
         netstat=_tool_path(tools_root, "netstat", "/usr/sbin/netstat"),
         config_root=root / "managed-network" / "macos",
@@ -86,8 +97,19 @@ def build_macos_managed_path_platform(
     )
 
 
-def _tool_path(root: Path, name: str, native_path: str) -> Path:
-    return Path(native_path) if sys.platform == "darwin" else root / name
+def _tool_path(
+    root: Path,
+    name: str,
+    *native_paths: str,
+    platform_name: str | None = None,
+    path_exists: Callable[[Path], bool] | None = None,
+) -> Path:
+    platform = sys.platform if platform_name is None else platform_name
+    if platform != "darwin":
+        return root / name
+    exists = Path.exists if path_exists is None else path_exists
+    candidates = tuple(Path(value) for value in native_paths)
+    return next((path for path in candidates if exists(path)), candidates[0])
 
 
 __all__ = ["build_macos_managed_path_platform"]

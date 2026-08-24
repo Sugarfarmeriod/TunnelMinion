@@ -1,0 +1,129 @@
+{
+  "schema_version": "managed-path-stage6-authorization/v1",
+  "status": "approved_preflight_blocked",
+  "authorization": {
+    "basis": "用户在当前任务确认上一条精确阶段 6 隔离资源与真实 apply/故障/回滚范围后要求继续",
+    "ttl_seconds": 900,
+    "ttl_start": "每个平台在常规 lifecycle 执行 apply 前重新签发并立即 recheck",
+    "allowed_actions": [
+      "observe",
+      "plan",
+      "authorization_recheck",
+      "apply",
+      "provider_verify",
+      "path_verify",
+      "controlled_verify_failure",
+      "rollback",
+      "recover",
+      "remove"
+    ],
+    "forbidden_actions": [
+      "修改客户防火墙或 Murus",
+      "修改已有 WireGuard 接口或配置",
+      "修改默认路由、DNS、端口转发或宽路由",
+      "修改 Gateway、模型、Coordinator、自启动或生产外部系统",
+      "读取、导出、提交或输出任何私钥、预共享密钥或现有配置正文"
+    ]
+  },
+  "resources": {
+    "windows": {
+      "host": "10.77.0.2",
+      "logical_interface": "tmn-stage6-a",
+      "runtime_interface": "tmn-stage6-a.r1",
+      "address": "192.0.2.1/30",
+      "peer_host_route": "192.0.2.2/32",
+      "udp_port": 51888,
+      "data_directory": "F:/Project/codex/tunnelminion-stage6-data/windows",
+      "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-a.r1 执行 rollback/recover"
+    },
+    "macos": {
+      "host": "10.77.0.1",
+      "logical_interface": "tmn-stage6-b",
+      "runtime_interface": "tmn-stage6-b.r1",
+      "address": "192.0.2.2/30",
+      "peer_host_route": "192.0.2.1/32",
+      "udp_port": 51889,
+      "data_directory": "/Volumes/DarkAI/Codex-project/Side project/Tunnelminion-stage6-data/macos",
+      "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-b.r1 执行 rollback/recover"
+    }
+  },
+  "pre_write_baseline": {
+    "writes_performed": false,
+    "windows": {
+      "captured_at": "2026-08-24T13:53:29.8790379Z",
+      "candidate_interface_present": false,
+      "candidate_service_present": false,
+      "candidate_host_route_present": false,
+      "candidate_udp_port_in_use": false,
+      "invariants_sha256": "de1da8a8dde57150f753a6e7f1018bdf5707c7edee03f2c717b417217f9cf709",
+      "invariants_digest_scope": [
+        "接口名称、状态和描述的排序摘要",
+        "IPv4 destination、interface、next-hop 和 metric 的排序摘要",
+        "UDP 本地地址与端口的排序摘要"
+      ],
+      "protected_tcp_listeners_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "dns_state_sha256": "a0bf21c1f16bed57b27c9dda3b5dcc7420b816da25435367f72c51a506fe239c",
+      "protected_invariants_covered": [
+        "已有 WireGuard 与物理接口状态",
+        "已有用户路由与默认路由",
+        "Gateway 8787 与模型 8082 的 TCP 监听边界",
+        "DNS 状态",
+        "其他 UDP 监听边界"
+      ],
+      "administrator": false,
+      "official_tools_available": true
+    },
+    "macos": {
+      "captured_at": "2026-08-24T13:53:31Z",
+      "candidate_interface_present": false,
+      "candidate_host_route_present": false,
+      "candidate_udp_port_in_use": false,
+      "invariants_sha256": "a4602086f2d1d6e4404b033d5a676a29e190f9ccb826f942bbc6d1832bff66bb",
+      "invariants_digest_scope": [
+        "ifconfig 接口事实摘要",
+        "IPv4 route table 摘要",
+        "UDP listener 摘要"
+      ],
+      "protected_tcp_listeners_sha256": "b7c70d4976255ef8fb0c3f1a869528c272f3ea0c6b6ddc89fb3fe01d17400d72",
+      "dns_state_sha256": "1584d13f59134d98b5f41a5586e4b469695c42585594cdce14b71005fd58eb27",
+      "protected_invariants_covered": [
+        "已有 WireGuard/utun 与物理接口状态",
+        "已有用户路由与默认路由",
+        "Gateway 8787 与模型 8082 的 TCP 监听边界",
+        "DNS 状态",
+        "其他 UDP 监听边界"
+      ],
+      "sudo_noninteractive": false,
+      "official_tools_available": true,
+      "origin_main_tool_path_compatibility_fix_required": true,
+      "worktree_remediation_status": "implemented_pending_independent_review_commit_and_macos_sync"
+    }
+  },
+  "non_observed_no_touch_boundaries": {
+    "items": [
+      "Windows 防火墙",
+      "Murus",
+      "已有 WireGuard 配置正文",
+      "秘密存储正文",
+      "自启动配置",
+      "模型配置"
+    ],
+    "reason": "为避免读取秘密或扩大现场访问，不读取这些正文；通过固定 Provider argv、计划资源白名单、命令审计与 writes=false/前后资源摘要证明未触碰",
+    "verification": "真实执行前后再次核对计划/命令只命中 tmn-stage6-a.r1、tmn-stage6-b.r1、两条批准 host route、两个批准 UDP 端口和隔离数据目录"
+  },
+  "stop_conditions": [
+    "任一平台没有已确认的非交互式管理员执行通道",
+    "任一候选接口、host route、UDP 端口或数据目录出现冲突",
+    "计划包含批准范围外资源或任何既有网络资源",
+    "所有权不能由 ledger、creation nonce 与实时状态共同证明",
+    "rollback 失败或进入 manual_intervention"
+  ],
+  "execution": {
+    "real_network_writes_performed": false,
+    "blockers": [
+      "当前 Windows 任务进程不是管理员",
+      "当前 macOS SSH 会话不具备 passwordless sudo",
+      "origin/main 的 macOS 常规工厂尚未识别 /opt/homebrew/bin；当前工作树修复尚待独立审计、提交、推送和 Mac 同步"
+    ]
+  }
+}
