@@ -573,6 +573,8 @@ def test_windows_ancestor_mask_rejects_component_replacement_not_child_creation(
 def test_git_path_uses_strict_checks_for_replaceable_components_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-only fixed Git path")
     path = Path(r"C:\Program Files\Git\cmd\git.exe")
     observed: list[tuple[Path, bool, bool]] = []
 
