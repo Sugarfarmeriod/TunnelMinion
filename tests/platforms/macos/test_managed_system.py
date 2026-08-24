@@ -120,6 +120,10 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
         "\tinet 10.203.0.3 netmask 0xffffffff\n"
         "\tinet 10.203.0.4 unexpected layout\n"
         "\tinet bad netmask nope\n"
+        "\tinet6 fd00::2 prefixlen 128\n"
+        "\tinet6 fe80::1%utun9 prefixlen 64 scopeid 0x12\n"
+        "\tinet6 fd00::3 prefixlen 129\n"
+        "\tinet6 bad prefixlen nope\n"
         "\tstatus: active\n"
     )
     runner.results[(str(paths.wg), "show", "utun9", "public-key")] = result("public-b\n")
@@ -143,7 +147,12 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     )
     snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe("utun9"))
     assert snapshot.interface_up
-    assert snapshot.addresses == ("10.203.0.2/32", "10.203.0.3/32")
+    assert snapshot.addresses == (
+        "10.203.0.2/32",
+        "10.203.0.3/32",
+        "fd00::2/128",
+        "fe80::1/64",
+    )
     assert snapshot.host_routes == ("10.203.0.1/32", "fd00::2/128")
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.1/32",)
     assert snapshot.peers[0].allowed_networks == ("10.203.0.1/32", "10.0.0.0/8")

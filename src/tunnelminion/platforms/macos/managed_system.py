@@ -311,6 +311,16 @@ def _parse_addresses(stdout: str) -> tuple[str, ...]:
             except (ipaddress.AddressValueError, ValueError):
                 continue
             values.append(f"{address}/{prefix}")
+        elif len(parts) >= 4 and parts[0] == "inet6" and "prefixlen" in parts:
+            try:
+                address = ipaddress.IPv6Address(parts[1].split("%", maxsplit=1)[0])
+                prefix_index = parts.index("prefixlen") + 1
+                prefix = int(parts[prefix_index])
+                if not 0 <= prefix <= address.max_prefixlen:
+                    continue
+            except (ipaddress.AddressValueError, ValueError, IndexError):
+                continue
+            values.append(f"{address}/{prefix}")
     return tuple(sorted(set(values)))
 
 
