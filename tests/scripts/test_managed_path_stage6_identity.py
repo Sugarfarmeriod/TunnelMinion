@@ -58,6 +58,10 @@ def test_stage6_identity_rejects_wrong_platform(monkeypatch: pytest.MonkeyPatch)
 def test_stage6_identity_rejects_elevated_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr("scripts.managed_path_stage6_identity.ctypes.windll", None, raising=False)
+    with pytest.raises(SystemExit, match="无法确认"):
+        _require_unprivileged("windows")
+
     shell32 = SimpleNamespace(IsUserAnAdmin=lambda: 1)
     monkeypatch.setattr(
         "scripts.managed_path_stage6_identity.ctypes.windll",

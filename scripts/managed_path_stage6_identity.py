@@ -31,6 +31,14 @@ class _IdentityProvider(Protocol):
     ) -> LocalNetworkKeyMaterial: ...
 
 
+class _WindowsShell32(Protocol):
+    def IsUserAnAdmin(self) -> int: ...
+
+
+class _WindowsDlls(Protocol):
+    shell32: _WindowsShell32
+
+
 @dataclass(frozen=True, slots=True)
 class _PlatformConfig:
     provider: ProviderKind
@@ -119,8 +127,12 @@ def _require_matching_platform(platform: str) -> None:
 
 def _require_unprivileged(platform: str) -> None:
     """身份创建固定使用普通用户；管理员仅留给后续 Provider apply。"""
-    if platform == "windows" and bool(ctypes.windll.shell32.IsUserAnAdmin()):  # pyright: ignore[reportAttributeAccessIssue]
-        raise SystemExit("Windows 身份创建禁止使用管理员令牌")
+    if platform == "windows":
+        windows_dlls = cast(_WindowsDlls | None, getattr(ctypes, "windll", None))
+        if windows_dlls is None:
+            raise SystemExit("无法确认 Windows 管理员令牌状态")
+        if bool(windows_dlls.shell32.IsUserAnAdmin()):
+            raise SystemExit("Windows 身份创建禁止使用管理员令牌")
     effective_uid = cast(Callable[[], int], getattr(os, "geteuid", lambda: -1))
     if platform == "macos" and effective_uid() == 0:
         raise SystemExit("macOS 身份创建禁止使用 root")
