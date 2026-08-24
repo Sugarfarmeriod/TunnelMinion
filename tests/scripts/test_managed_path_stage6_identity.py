@@ -62,6 +62,7 @@ def test_stage6_identity_rejects_elevated_execution(
     monkeypatch.setattr(
         "scripts.managed_path_stage6_identity.ctypes.windll",
         SimpleNamespace(shell32=shell32),
+        raising=False,
     )
     with pytest.raises(SystemExit, match="管理员令牌"):
         _require_unprivileged("windows")
