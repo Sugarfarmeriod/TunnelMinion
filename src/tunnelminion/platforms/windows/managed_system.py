@@ -314,6 +314,10 @@ class WindowsWireGuardObserver:
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
         return await self._observe(interface_name)
 
+    async def observe_candidates(self, interface_name: str) -> WindowsTunnelSnapshot:
+        """只读取候选所需 WireGuard 事实，不读取任何路由。"""
+        return await self._observe(interface_name, include_routes=False)
+
     async def observe_path(
         self,
         interface_name: str,
@@ -334,6 +338,7 @@ class WindowsWireGuardObserver:
         *,
         peer_public_key: str | None = None,
         expected_host_route: str | None = None,
+        include_routes: bool = True,
     ) -> WindowsTunnelSnapshot:
         interface = self._reader.interface(interface_name)
         service = await self._commands.query_service(interface_name)
@@ -394,7 +399,7 @@ class WindowsWireGuardObserver:
             tuple(dict.fromkeys(route for peer in peers for route in peer.allowed_host_routes))[
                 :_MAX_ROUTES
             ]
-            if ownership_complete
+            if ownership_complete and include_routes
             else ()
         )
         target_route = _safe_host_route(expected_host_route)

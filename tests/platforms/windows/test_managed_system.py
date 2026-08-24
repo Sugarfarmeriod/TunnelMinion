@@ -265,6 +265,12 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
         ).system_fingerprint
     )
 
+    runner.commands.clear()
+    candidate_snapshot = asyncio.run(observer.observe_candidates("tmn-test-a"))
+    assert len(candidate_snapshot.peers) == 2
+    assert candidate_snapshot.host_routes == ()
+    assert not any(command[0] == str(fixed.paths.route_exe) for command in runner.commands)
+
 
 def test_incomplete_allowed_routes_stop_before_querying(tmp_path: Path) -> None:
     runner = FakeRunner()

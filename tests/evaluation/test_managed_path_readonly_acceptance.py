@@ -223,10 +223,13 @@ def runtime(
     route_hashes: list[str] | None = None,
     docker_ports: frozenset[int] = frozenset(),
     probe_calls: list[bool] | None = None,
+    route_calls: list[bool] | None = None,
 ) -> PlatformRuntime:
     values = route_hashes or ["sha256:" + "1" * 64]
 
     async def route_summary() -> tuple[str, int]:
+        if route_calls is not None:
+            route_calls.append(True)
         return (values.pop(0) if len(values) > 1 else values[0]), 0
 
     async def deployed_ports() -> tuple[frozenset[int], int]:
@@ -1000,14 +1003,68 @@ def test_approved_hash_uniquely_resolves_peer_without_interactive_key(
     assert PEER not in serialized
 
 
-def test_approved_hash_requires_exactly_one_matching_peer() -> None:
+def test_production_runtime_is_rebuilt_with_uniquely_resolved_peer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    peer_bindings: list[str | None] = []
+
+    def build_runtime(req: AcceptanceRequest, _executor: object) -> PlatformRuntime:
+        peer_bindings.append(req.peer_public_key)
+        return runtime(Observer(snapshot()))
+
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        return True
+
+    def trusted_revision(_path: Path) -> str:
+        return "a" * 40
+
+    monkeypatch.setattr(acceptance, "_windows_runtime", build_runtime)
+    monkeypatch.setattr(acceptance, "_trusted_checkout_revision", trusted_revision)
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+
+    report = asyncio.run(
+        run_acceptance(
+            replace(request(approved=True), peer_public_key=None),
+            clock=lambda: NOW,
+        )
+    )
+
+    assert report["passed"] is True
+    assert peer_bindings == [None, PEER]
+
+
+@pytest.mark.parametrize("match_count", [0, 2])
+def test_approved_hash_requires_exactly_one_matching_peer(
+    monkeypatch: pytest.MonkeyPatch,
+    match_count: int,
+) -> None:
     duplicated = snapshot().model_copy(update={"peers": snapshot().peers * 2})
     probe_calls: list[bool] = []
-    approved = replace(request(approved=True), peer_public_key=None)
+    route_calls: list[bool] = []
+    target_calls: list[bool] = []
+
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        target_calls.append(True)
+        return True
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    approved = replace(
+        request(approved=True),
+        peer_public_key=None,
+        approved_candidate_hash=(
+            request(approved=True).approved_candidate_hash
+            if match_count == 2
+            else "sha256:" + "f" * 64
+        ),
+    )
     report = asyncio.run(
         run_acceptance(
             approved,
-            runtime=runtime(Observer(duplicated), probe_calls=probe_calls),
+            runtime=runtime(
+                Observer(duplicated if match_count == 2 else snapshot()),
+                probe_calls=probe_calls,
+                route_calls=route_calls,
+            ),
             clock=lambda: NOW,
         )
     )
@@ -1015,6 +1072,8 @@ def test_approved_hash_requires_exactly_one_matching_peer() -> None:
     assert report["stable_error_code"] == "candidate_approval_mismatch"
     assert report["probe_executed"] is False
     assert probe_calls == []
+    assert route_calls == []
+    assert target_calls == []
 
 
 def test_missing_peer_without_approved_hash_is_rejected() -> None:

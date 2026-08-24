@@ -172,6 +172,12 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     )
     assert filtered_snapshot.host_routes == ("10.203.0.1/32",)
 
+    runner.commands.clear()
+    candidate_snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe_candidates("utun9"))
+    assert len(candidate_snapshot.peers) == 1
+    assert candidate_snapshot.host_routes == ()
+    assert not any(command[0] == str(paths.netstat) for command in runner.commands)
+
 
 @pytest.mark.parametrize(
     "competing_route",

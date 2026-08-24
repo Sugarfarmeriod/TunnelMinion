@@ -156,6 +156,10 @@ class PathObserver(Protocol):
     ) -> WindowsTunnelSnapshot: ...
 
 
+class CandidateObserver(Protocol):
+    async def observe_candidates(self, interface_name: str) -> WindowsTunnelSnapshot: ...
+
+
 Executor = Callable[[tuple[str, ...], float], Awaitable[CommandResult]]
 GitRunner = Callable[[tuple[str, ...]], tuple[int, str, str]]
 
@@ -394,6 +398,14 @@ async def _summary(
     return value, snapshot
 
 
+async def _candidate_snapshot(
+    runtime: PlatformRuntime, interface_name: str
+) -> WindowsTunnelSnapshot:
+    if hasattr(runtime.observer, "observe_candidates"):
+        return await cast(CandidateObserver, runtime.observer).observe_candidates(interface_name)
+    return await runtime.observer.observe(interface_name)
+
+
 def _candidate(
     snapshot: WindowsTunnelSnapshot, peer_public_key: str
 ) -> tuple[str, str, int] | None:
@@ -510,26 +522,34 @@ async def run_acceptance(
     target_route = f"{request.target_host}/32" if request.target_host is not None else None
     peer_public_key = request.peer_public_key
     if peer_public_key is None:
-        before, snapshot = await _summary(selected_runtime, request.interface_name)
-        approved = _approved_candidate(snapshot, cast(str, request.approved_candidate_hash))
+        candidate_snapshot = await _candidate_snapshot(selected_runtime, request.interface_name)
+        approved = _approved_candidate(
+            candidate_snapshot, cast(str, request.approved_candidate_hash)
+        )
         if approved is None:
-            discovered = None
-        else:
-            peer_public_key, discovered = approved
-            if runtime is None:
-                resolved_request = replace(request, peer_public_key=peer_public_key)
-                selected_runtime = (
-                    _windows_runtime(resolved_request, executor)
-                    if request.platform == "windows"
-                    else _macos_runtime(resolved_request, executor)
-                )
-            if target_route is not None:
-                before, snapshot = await _summary(
-                    selected_runtime,
-                    request.interface_name,
-                    peer_public_key=peer_public_key,
-                    expected_host_route=target_route,
-                )
+            report.update(
+                {
+                    "preflight": {"elevated": True, "stable_error_code": None},
+                    "candidate_count": 0,
+                    "candidate_hash": None,
+                    "source_code": selected_runtime.source_code,
+                }
+            )
+            return _finish_failure(report, clock, "candidate_approval_mismatch")
+        peer_public_key, discovered = approved
+        if runtime is None:
+            resolved_request = replace(request, peer_public_key=peer_public_key)
+            selected_runtime = (
+                _windows_runtime(resolved_request, executor)
+                if request.platform == "windows"
+                else _macos_runtime(resolved_request, executor)
+            )
+        before, snapshot = await _summary(
+            selected_runtime,
+            request.interface_name,
+            peer_public_key=peer_public_key,
+            expected_host_route=target_route,
+        )
     else:
         before, snapshot = await _summary(
             selected_runtime,

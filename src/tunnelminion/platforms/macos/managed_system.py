@@ -172,6 +172,10 @@ class MacOSWireGuardObserver:
     async def observe(self, interface_name: str) -> MacOSTunnelSnapshot:
         return await self._observe(interface_name)
 
+    async def observe_candidates(self, interface_name: str) -> MacOSTunnelSnapshot:
+        """只读取候选所需 WireGuard 事实，不读取任何路由。"""
+        return await self._observe(interface_name, include_routes=False)
+
     async def observe_path(
         self,
         interface_name: str,
@@ -192,6 +196,7 @@ class MacOSWireGuardObserver:
         *,
         peer_public_key: str | None = None,
         expected_host_route: str | None = None,
+        include_routes: bool = True,
     ) -> MacOSTunnelSnapshot:
         FixedMacOSWireGuardCommands.validate_runtime_interface(interface_name)
         discovered = await self._commands.interfaces()
@@ -202,7 +207,7 @@ class MacOSWireGuardObserver:
 
         interface = await self._commands.inspect_interface(interface_name)
         public, peers, endpoints, allowed, handshakes, routes = await self._read_public_state(
-            interface_name
+            interface_name, include_routes=include_routes
         )
         public_text = public.stdout.strip() if public.returncode == 0 else ""
         peer_values = _peer_values(peers.stdout if peers.returncode == 0 else "")
@@ -213,8 +218,11 @@ class MacOSWireGuardObserver:
             _peer_snapshot(key, allowed_values, endpoint_values, handshake_values)
             for key in peer_values
         )
-        host_routes = _parse_host_routes(routes[0].stdout, interface_name) + _parse_host_routes(
-            routes[1].stdout, interface_name
+        host_routes = (
+            _parse_host_routes(routes[0].stdout, interface_name)
+            + _parse_host_routes(routes[1].stdout, interface_name)
+            if routes
+            else ()
         )
         target_route = _safe_host_route(expected_host_route)
         if target_route is not None and not (
@@ -248,13 +256,15 @@ class MacOSWireGuardObserver:
     async def _read_public_state(
         self,
         interface_name: str,
+        *,
+        include_routes: bool = True,
     ) -> tuple[
         CommandResult,
         CommandResult,
         CommandResult,
         CommandResult,
         CommandResult,
-        tuple[CommandResult, CommandResult],
+        tuple[CommandResult, ...],
     ]:
         public = await self._commands.show(interface_name, "public-key")
         peers = await self._commands.show(interface_name, "peers")
@@ -262,8 +272,12 @@ class MacOSWireGuardObserver:
         allowed = await self._commands.show(interface_name, "allowed-ips")
         handshakes = await self._commands.show(interface_name, "latest-handshakes")
         route_results = (
-            await self._commands.route_table("inet"),
-            await self._commands.route_table("inet6"),
+            (
+                await self._commands.route_table("inet"),
+                await self._commands.route_table("inet6"),
+            )
+            if include_routes
+            else ()
         )
         return public, peers, endpoints, allowed, handshakes, route_results
 
