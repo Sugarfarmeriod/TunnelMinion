@@ -274,7 +274,7 @@ def _windows_runtime(request: AcceptanceRequest, executor: Executor | None) -> P
         ),
         route_summary=route_summary,
         docker_ports=lambda: _docker_ports(runner, tools["docker"]),
-        elevated=windows_is_administrator() if os.name == "nt" else False,
+        elevated=windows_is_administrator(),
         source_code="windows_production_path_probe",
     )
 
@@ -1033,7 +1033,7 @@ def _windows_sid_text(advapi: object, sid: ctypes.c_void_p) -> str:
     try:
         return text_pointer.value
     finally:
-        local_free = ctypes.WinDLL("kernel32", use_last_error=True).LocalFree
+        local_free = cast(Any, ctypes).WinDLL("kernel32", use_last_error=True).LocalFree
         local_free.argtypes = [ctypes.c_void_p]
         local_free.restype = ctypes.c_void_p
         local_free(ctypes.cast(text_pointer, ctypes.c_void_p))
