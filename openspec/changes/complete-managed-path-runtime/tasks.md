@@ -39,10 +39,10 @@
   - 证据：`MacOSPathProbe` 仅消费固定参数的 `wg show` 与 `netstat -rn -f inet|inet6` 只读观察器，覆盖双地址族精确 host route 与安全网段唯一归属，稳定降级且不含 Murus、防火墙、route 写入或 WireGuard 配置调用；平台定向测试覆盖相同失败边界。
 - [x] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、路由归属缺失/竞争、本机 target、旧 handshake、target timeout、权限拒绝和取消矩阵
   - 证据：网络 fixture 覆盖恶意/对话来源、批准网段和端口过滤、过期与超预算候选、IPv4/IPv6 endpoint、安全网段唯一归属、缺失/竞争/默认路由、本机 target、旧 handshake、target 超时、权限/unsupported、取消、缓存刷新和并发；Windows/macOS fixture 另覆盖平台错误映射。
-- [ ] 2.5 在 Windows/macOS 只读环境保存批准远端 target 实际连通、探测前后网络不变性与来源证据；能读取完整平台事实时同时保存所选 peer 安全网段唯一归属，权限不足时允许保存明确标为 `target-connectivity` 的降级证据；不要求额外 `/32` route，不得用本机 target 或 fixture 代替
-  - Windows 现场证据已通过独立只读审计：`evaluations/platform/managed-path-readonly-windows-20260824T093154Z.json` 在代码 `3328f7e1855e05ae5b34226fd91504d86f5ad972` 上以 `target-connectivity` 来源证明批准远端 target 实际连通、目标非本机、接口与路由摘要前后不变且 `writes_performed=false`。macOS 同类真实证据仍缺失，因此本任务保持未完成；不得把 Windows 单端或 fixture 外推为双平台完成。
-- [ ] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
-  - 质量门禁已执行并通过：全量 `912 passed, 5 skipped`、statement + branch coverage `100.00%`、Ruff、Pyright strict、限定范围秘密扫描和 OpenSpec strict 均通过；但本任务按要求保持未完成：2.5 的双平台真实只读前后不变性与来源证据缺失，因此不将本地测试、fixture 或代码门禁外推为阶段完成。
+- [x] 2.5 在 Windows/macOS 只读环境保存批准远端 target 实际连通、探测前后网络不变性与来源证据；能读取完整平台事实时同时保存所选 peer 安全网段唯一归属，权限不足时允许保存明确标为 `target-connectivity` 的降级证据；不要求额外 `/32` route，不得用本机 target 或 fixture 代替
+  - Windows 与 macOS 现场证据均已通过独立 Sol/xhigh 只读审计：`evaluations/platform/managed-path-readonly-windows-20260824T093154Z.json` 与 `evaluations/platform/managed-path-readonly-macos-20260824T110452Z.json` 分别以明确标注的 `target-connectivity` 降级来源证明批准远端 target 实际连通、目标非本机、接口与路由摘要前后不变且 `writes_performed=false`；两份证据不冒充完整 `PathProbe`，也不授权阶段 6–7。
+- [x] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前分支质量门禁已执行并通过：全量 `1145 passed, 5 skipped`、statement + branch coverage `100.00%`、跨平台 probe/只读证据脱敏契约与架构无模型/无写入定向测试 `72 passed`、Ruff format/check、Pyright strict、`git diff --check` 和 OpenSpec strict 均通过；首次全量运行仅因未安装项目声明的 `package` 依赖组缺少 PyInstaller 而出现两个环境失败，补齐该依赖组后未修改代码即全量通过。
 
 ## 3. fake Provider 下的完整治理生命周期
 
