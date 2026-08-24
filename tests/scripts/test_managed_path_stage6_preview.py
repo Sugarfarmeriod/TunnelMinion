@@ -104,6 +104,14 @@ def test_preview_runs_lifecycle_recheck_without_apply(
     assert "rechecking" in evidence["journal_phases"]
     assert evidence["provider_apply_calls"] == 0
     assert evidence["real_network_writes_performed"] is False
+    assert evidence["plan"]["allowed_route_overlaps"] == [
+        {
+            "route": "192.0.0.0/9",
+            "observation_fingerprint": (
+                "sha256:43938c1ef2e9e749462dc899a7e408f759f575dc472bfe412763f7c9244814bf"
+            ),
+        }
+    ]
     assert "secret_reference" not in evidence_text
     assert "private_key" not in evidence_text
     assert "public_key" not in evidence_text

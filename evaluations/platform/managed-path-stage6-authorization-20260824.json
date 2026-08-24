@@ -34,6 +34,11 @@
       "address_pool": "192.0.2.0/30",
       "address": "192.0.2.1/32",
       "peer_host_route": "192.0.2.2/32",
+      "allowed_route_overlap": {
+        "route": "192.0.0.0/9",
+        "observation_fingerprint": "sha256:43938c1ef2e9e749462dc899a7e408f759f575dc472bfe412763f7c9244814bf",
+        "writes_existing_route": false
+      },
       "udp_port": 51888,
       "data_directory": "F:/Project/codex/tunnelminion-stage6-data/windows",
       "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-a.r1 执行 rollback/recover"

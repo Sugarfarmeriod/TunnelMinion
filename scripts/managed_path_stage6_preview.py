@@ -29,6 +29,7 @@ from scripts.managed_path_stage6_identity import (
 
 from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId
 from tunnelminion.network.contracts import (
+    ApprovedRouteOverlap,
     CandidateSource,
     DesiredNetworkConfig,
     EndpointCandidate,
@@ -85,6 +86,7 @@ class _PreviewConfig:
     peer_endpoint_host: str
     peer_endpoint_port: int
     peer_identity_file: str
+    allowed_route_overlaps: tuple[ApprovedRouteOverlap, ...] = ()
 
 
 _CONFIGS = {
@@ -99,6 +101,14 @@ _CONFIGS = {
         peer_endpoint_host="10.77.0.1",
         peer_endpoint_port=51889,
         peer_identity_file="macos-peer-public-identity.json",
+        allowed_route_overlaps=(
+            ApprovedRouteOverlap(
+                route="192.0.0.0/9",
+                observation_fingerprint=(
+                    "sha256:43938c1ef2e9e749462dc899a7e408f759f575dc472bfe412763f7c9244814bf"
+                ),
+            ),
+        ),
     ),
     "macos": _PreviewConfig(
         provider=ProviderKind.MACOS,
@@ -294,6 +304,9 @@ async def _run(platform: str, *, now: datetime) -> dict[str, object]:
                 "host": config.peer_endpoint_host,
                 "port": config.peer_endpoint_port,
             },
+            "allowed_route_overlaps": [
+                overlap.model_dump(mode="json") for overlap in desired.allowed_route_overlaps
+            ],
             "steps": [
                 {
                     "index": step.index,
@@ -393,6 +406,7 @@ def _desired_config(
         interface_name=config.interface_name,
         address=config.address,
         listen_port=config.listen_port,
+        allowed_route_overlaps=config.allowed_route_overlaps,
         peers=(
             PeerConfiguration(
                 node_id=config.peer_node_id,
