@@ -70,17 +70,39 @@ class RestrictedMacOSConfigStore:
         name = self._secret_name(network_id, node_id)
         private_text = self._secrets.get(name)
         if private_text is None:
-            private = X25519PrivateKey.generate()
-            private_text = base64.b64encode(
+            return self.create_identity(network_id, node_id)
+        else:
+            private = X25519PrivateKey.from_private_bytes(base64.b64decode(private_text))
+        public = base64.b64encode(
+            private.public_key().public_bytes(
+                serialization.Encoding.Raw,
+                serialization.PublicFormat.Raw,
+            )
+        ).decode()
+        return LocalNetworkKeyMaterial(
+            secret_reference=f"keyring:{name}",
+            public_key=public,
+            public_key_hash=canonical_sha256({"public_key": public}),
+        )
+
+    def create_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """创建全新身份，不读取或复用秘密后端中的既有材料。"""
+        name = self._secret_name(network_id, node_id)
+        private = X25519PrivateKey.generate()
+        self._secrets.set(
+            name,
+            base64.b64encode(
                 private.private_bytes(
                     serialization.Encoding.Raw,
                     serialization.PrivateFormat.Raw,
                     serialization.NoEncryption(),
                 )
-            ).decode()
-            self._secrets.set(name, private_text)
-        else:
-            private = X25519PrivateKey.from_private_bytes(base64.b64decode(private_text))
+            ).decode(),
+        )
         public = base64.b64encode(
             private.public_key().public_bytes(
                 serialization.Encoding.Raw,
@@ -286,6 +308,13 @@ class OfficialMacOSManagedBackend:
         node_id: NodeId,
     ) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_identity(network_id, node_id)
+
+    def create_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        return self._materials.create_identity(network_id, node_id)
 
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         result = await self._commands.route_table()

@@ -94,6 +94,14 @@ class WindowsManagedBackend(Protocol):
         """在 desired config 形成前生成可注册的本机公钥。"""
         ...  # pragma: no cover - Protocol 无运行时实现
 
+    def create_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """创建全新身份，调用方负责证明不存在既有身份。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         """扫描其他接口地址和路由；只以稳定错误暴露冲突。"""
         ...  # pragma: no cover - Protocol 无运行时实现
@@ -271,6 +279,14 @@ class WindowsNetworkProvider:
     ) -> LocalNetworkKeyMaterial:
         """生成或复用本机密钥并返回 Coordinator 可注册的公钥。"""
         return self._backend.ensure_identity(network_id, node_id)
+
+    def create_local_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        """创建全新本机身份，不触发既有秘密读取路径。"""
+        return self._backend.create_identity(network_id, node_id)
 
     async def observe(self, interface_name: str) -> NetworkObservation:
         snapshot = await self._backend.observe(interface_name)

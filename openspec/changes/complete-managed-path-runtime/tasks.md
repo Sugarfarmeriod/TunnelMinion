@@ -92,7 +92,7 @@
 ## 6. 批准资源上的真实 Provider 门禁
 
 - [x] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
-  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立 `tmn-stage6-*.r1`、`192.0.2.0/30` 内两条 peer host route、UDP `51888/51889`、隔离数据目录、900 秒 L3 grant、常规 lifecycle REMOVE/所有权匹配 rollback-recover 停止方式，以及接口、路由、UDP、受保护 TCP listener 和 DNS 的写前摘要。现场确认候选资源无冲突且 `real_network_writes_performed=false`；Windows 当前进程非管理员、macOS 当前 SSH 无 passwordless sudo，故 6.2–6.6 仍未开始。macOS Apple Silicon Homebrew 路径兼容修复与该证据已由独立 Sol/xhigh 只读审计 ACCEPT。
+  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立 `tmn-stage6-*.r1`、`192.0.2.0/30` 地址池内两个 `/32` 接口地址与两条 peer host route、UDP `51888/51889`、隔离数据目录、900 秒 L3 grant、常规 lifecycle REMOVE/所有权匹配 rollback-recover 停止方式，以及接口、路由、UDP、受保护 TCP listener 和 DNS 的写前摘要。现场确认候选资源无冲突且 `real_network_writes_performed=false`；身份首次创建固定拒绝 Windows elevated token 与 macOS root，UAC/root 仅供后续真实 Provider apply。Windows 当前普通用户进程可用于身份入口且 UAC 辅助通道已只读验证可用，macOS 管理员 GUI 通道仍待验证，故 6.2–6.6 尚未开始。macOS Apple Silicon Homebrew 路径兼容修复与初版证据、首次身份创建入口的无秘密读取/fail-closed/固定路径边界均已由独立 Sol/xhigh 只读审计 ACCEPT。
 - [ ] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
 - [ ] 6.3 在批准资源上验证真实 apply → Provider verify → path verify → selection → acknowledgement，并保存提交、平台、入口、授权和观测时间 provenance
 - [ ] 6.4 注入真实 verify failure/受控中断并验证 rollback/recover、所有权冲突和 manual intervention，不用命令退出码或 fake 证据替代

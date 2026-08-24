@@ -94,6 +94,13 @@ class FakeMacOSBackend:
             public_key_hash=canonical_sha256({"public": "macos"}),
         )
 
+    def create_identity(
+        self,
+        network_id: NetworkId,
+        node_id: NodeId,
+    ) -> LocalNetworkKeyMaterial:
+        return self.ensure_identity(network_id, node_id)
+
     async def validate_no_conflicts(self, desired: DesiredNetworkConfig) -> None:
         del desired
 

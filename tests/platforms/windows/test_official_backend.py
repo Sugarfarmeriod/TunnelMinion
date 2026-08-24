@@ -34,8 +34,10 @@ from tunnelminion.platforms.windows.system import CommandResult
 class MemorySecrets:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
+        self.get_calls = 0
 
     def get(self, name: str) -> str | None:
+        self.get_calls += 1
         return self.values.get(name)
 
     def set(self, name: str, value: str) -> None:
@@ -43,6 +45,23 @@ class MemorySecrets:
 
     def delete(self, name: str) -> None:
         self.values.pop(name, None)
+
+
+def test_create_identity_does_not_read_secret_store(tmp_path: Path) -> None:
+    secrets = MemorySecrets()
+    store = AclRestrictedWindowsConfigStore(
+        tmp_path / "configs",
+        secrets,
+        FakeRunner(),
+        tmp_path / "icacls.exe",
+        account_name="stage6",
+    )
+
+    material = store.create_identity(NETWORK_ID, NODE_A)
+
+    assert secrets.get_calls == 0
+    assert material.public_key.endswith("=")
+    assert len(secrets.values) == 1
 
 
 class FakeRunner:
