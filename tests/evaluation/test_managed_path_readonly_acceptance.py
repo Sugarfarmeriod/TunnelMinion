@@ -221,16 +221,21 @@ def runtime(
     *,
     elevated: bool = True,
     route_hashes: list[str] | None = None,
+    route_returncodes: list[int] | None = None,
     docker_ports: frozenset[int] = frozenset(),
     probe_calls: list[bool] | None = None,
     route_calls: list[bool] | None = None,
 ) -> PlatformRuntime:
     values = route_hashes or ["sha256:" + "1" * 64]
+    returncodes = route_returncodes or [0]
 
     async def route_summary() -> tuple[str, int]:
         if route_calls is not None:
             route_calls.append(True)
-        return (values.pop(0) if len(values) > 1 else values[0]), 0
+        return (
+            values.pop(0) if len(values) > 1 else values[0],
+            returncodes.pop(0) if len(returncodes) > 1 else returncodes[0],
+        )
 
     async def deployed_ports() -> tuple[frozenset[int], int]:
         return docker_ports, 1 if docker_ports else 0
@@ -853,7 +858,11 @@ def test_non_administrator_rejects_network_change_after_connect(
             runtime=runtime(
                 Observer(snapshot()),
                 elevated=False,
-                route_hashes=["sha256:" + "1" * 64, "sha256:" + "2" * 64],
+                route_hashes=[
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "2" * 64,
+                ],
             ),
             clock=lambda: NOW,
         )
@@ -861,6 +870,79 @@ def test_non_administrator_rejects_network_change_after_connect(
     assert report["passed"] is False
     assert report["stable_error_code"] == "network_state_changed"
     assert report["network_state_unchanged"] is False
+
+
+def test_non_administrator_stops_before_connect_when_guard_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_calls: list[bool] = []
+
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        target_calls.append(True)
+        return True
+
+    def local_interface(_interface: str, _host: str) -> dict[str, object]:
+        return {
+            "interface_present": True,
+            "interface_up": True,
+            "address_count": 1,
+            "address_hash": "sha256:" + "a" * 64,
+            "target_is_local": False,
+        }
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    monkeypatch.setattr(acceptance, "_local_interface_summary", local_interface)
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(
+                Observer(snapshot()),
+                elevated=False,
+                route_hashes=["sha256:" + "1" * 64, "sha256:" + "2" * 64],
+            ),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["stable_error_code"] == "network_state_changed"
+    assert report["target_probe_executed"] is False
+    assert target_calls == []
+
+
+def test_non_administrator_rejects_failed_route_observation_before_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_calls: list[bool] = []
+
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        target_calls.append(True)
+        return True
+
+    def local_interface(_interface: str, _host: str) -> dict[str, object]:
+        return {
+            "interface_present": True,
+            "interface_up": True,
+            "address_count": 1,
+            "address_hash": "sha256:" + "a" * 64,
+            "target_is_local": False,
+        }
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    monkeypatch.setattr(acceptance, "_local_interface_summary", local_interface)
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(
+                Observer(snapshot()),
+                elevated=False,
+                route_returncodes=[1],
+            ),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["passed"] is False
+    assert report["stable_error_code"] == "route_observation_failed"
+    assert report["target_probe_executed"] is False
+    assert target_calls == []
 
 
 @pytest.mark.parametrize(

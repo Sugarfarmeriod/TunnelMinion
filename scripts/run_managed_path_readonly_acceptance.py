@@ -545,10 +545,28 @@ async def _run_connectivity_only(
             "docker_service_count": docker_service_count,
         }
     )
+    if before_route_code != 0:
+        return _finish_failure(report, clock, "route_observation_failed")
     if before_interface["target_is_local"]:
         return _finish_failure(report, clock, "local_target_rejected")
     if not before_interface["interface_present"] or not before_interface["interface_up"]:
         return _finish_failure(report, clock, "interface_unavailable")
+
+    guard_interface = _local_interface_summary(request.interface_name, request.target_host)
+    guard_route_hash, guard_route_code = await runtime.route_summary()
+    guard = {
+        **guard_interface,
+        "route_hash": guard_route_hash,
+        "route_query_succeeded": guard_route_code == 0,
+    }
+    if guard_route_code != 0:
+        report["after"] = guard
+        report["network_state_unchanged"] = False
+        return _finish_failure(report, clock, "route_observation_failed")
+    if guard != before:
+        report["after"] = guard
+        report["network_state_unchanged"] = False
+        return _finish_failure(report, clock, "network_state_changed")
 
     target_succeeded = await tcp_target_probe(request.target_host, request.target_port, 2.0)
     after_interface = _local_interface_summary(request.interface_name, request.target_host)
@@ -558,11 +576,15 @@ async def _run_connectivity_only(
         "route_hash": after_route_hash,
         "route_query_succeeded": after_route_code == 0,
     }
-    unchanged = after == before
+    unchanged = after_route_code == 0 and after == before
     stable_error = (
         None
         if target_succeeded and unchanged
-        else ("network_state_changed" if not unchanged else "target_unreachable")
+        else (
+            "route_observation_failed"
+            if after_route_code != 0
+            else ("network_state_changed" if not unchanged else "target_unreachable")
+        )
     )
     report.update(
         {
