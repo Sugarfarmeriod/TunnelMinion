@@ -40,7 +40,7 @@
 - [x] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、路由归属缺失/竞争、本机 target、旧 handshake、target timeout、权限拒绝和取消矩阵
   - 证据：网络 fixture 覆盖恶意/对话来源、批准网段和端口过滤、过期与超预算候选、IPv4/IPv6 endpoint、安全网段唯一归属、缺失/竞争/默认路由、本机 target、旧 handshake、target 超时、权限/unsupported、取消、缓存刷新和并发；Windows/macOS fixture 另覆盖平台错误映射。
 - [ ] 2.5 在 Windows/macOS 只读环境保存批准远端 target 实际连通、探测前后网络不变性与来源证据；能读取完整平台事实时同时保存所选 peer 安全网段唯一归属，权限不足时允许保存明确标为 `target-connectivity` 的降级证据；不要求额外 `/32` route，不得用本机 target 或 fixture 代替
-  - 现场门禁未完成：当前执行环境未同时提供可批准的 Windows/macOS 隔离资源与现场验证条件；本阶段未调用真实 PathProbe 或客户网络接口，受控 fixture 未被当作生产能力或现场证据。
+  - Windows 现场证据已通过独立只读审计：`evaluations/platform/managed-path-readonly-windows-20260824T093154Z.json` 在代码 `3328f7e1855e05ae5b34226fd91504d86f5ad972` 上以 `target-connectivity` 来源证明批准远端 target 实际连通、目标非本机、接口与路由摘要前后不变且 `writes_performed=false`。macOS 同类真实证据仍缺失，因此本任务保持未完成；不得把 Windows 单端或 fixture 外推为双平台完成。
 - [ ] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
   - 质量门禁已执行并通过：全量 `912 passed, 5 skipped`、statement + branch coverage `100.00%`、Ruff、Pyright strict、限定范围秘密扫描和 OpenSpec strict 均通过；但本任务按要求保持未完成：2.5 的双平台真实只读前后不变性与来源证据缺失，因此不将本地测试、fixture 或代码门禁外推为阶段完成。
 

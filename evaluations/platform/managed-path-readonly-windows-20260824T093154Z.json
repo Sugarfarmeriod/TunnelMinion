@@ -1,0 +1,40 @@
+{
+  "schema_version": "managed-path-readonly-evidence/v1",
+  "code_sha": "3328f7e1855e05ae5b34226fd91504d86f5ad972",
+  "platform_code": "windows",
+  "started_at": "2026-08-24T09:31:54.656253+00:00",
+  "writes_performed": false,
+  "preflight": {
+    "elevated": false,
+    "stable_error_code": null
+  },
+  "source_code": "target-connectivity",
+  "before": {
+    "interface_present": true,
+    "interface_up": true,
+    "address_count": 2,
+    "address_hash": "sha256:46505eeac45a7ed30b1f7d1320529a680eef9a8c7509e060fe494bb24a793ebb",
+    "target_is_local": false,
+    "route_hash": "sha256:894db840e7b3709b4c257b7050f8e3b588efb9662231748c65c4fa7c49e510be",
+    "route_query_succeeded": true
+  },
+  "target_approval_hash": "sha256:4e8268e8281bb22c5a235d349e5793624e5fb988c22494e699b3133fab45b70f",
+  "port_policy_code": "reserved_acceptance",
+  "docker_service_count": 0,
+  "after": {
+    "interface_present": true,
+    "interface_up": true,
+    "address_count": 2,
+    "address_hash": "sha256:46505eeac45a7ed30b1f7d1320529a680eef9a8c7509e060fe494bb24a793ebb",
+    "target_is_local": false,
+    "route_hash": "sha256:894db840e7b3709b4c257b7050f8e3b588efb9662231748c65c4fa7c49e510be",
+    "route_query_succeeded": true
+  },
+  "network_state_unchanged": true,
+  "probe_executed": true,
+  "target_probe_executed": true,
+  "target_probe_succeeded": true,
+  "stable_error_code": null,
+  "passed": true,
+  "finished_at": "2026-08-24T09:31:56.467388+00:00"
+}
