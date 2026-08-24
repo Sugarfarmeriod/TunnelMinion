@@ -267,7 +267,7 @@ async def _run(platform: str, *, now: datetime) -> dict[str, object]:
         "schema_version": "managed-path-stage6-preview/v1",
         "platform": platform,
         "commit": _git_commit(),
-        "entrypoint": "scripts/managed_path_stage6_preview.py",
+        "entrypoint": "python -m scripts.managed_path_stage6_preview",
         "observed_at": now.isoformat(),
         "initial_phase": pending.phase.value,
         "recheck_phase": rechecked.phase.value,
