@@ -606,8 +606,10 @@ def test_target_host_is_exactly_gated(host: str) -> None:
         asyncio.run(run_acceptance(replace(value, target_host=host)))
 
 
+@pytest.mark.parametrize("reserved_port", [7899, 8787])
 def test_target_port_requires_reserved_range_or_deployed_docker_proof(
     monkeypatch: pytest.MonkeyPatch,
+    reserved_port: int,
 ) -> None:
     async def target(host: str, port: int, timeout: float) -> bool:
         del host, port, timeout
@@ -616,7 +618,7 @@ def test_target_port_requires_reserved_range_or_deployed_docker_proof(
     monkeypatch.setattr(acceptance, "tcp_target_probe", target)
     explicit = asyncio.run(
         run_acceptance(
-            request(approved=True, target_port=8787),
+            request(approved=True, target_port=reserved_port),
             runtime=runtime(Observer(snapshot())),
         )
     )
