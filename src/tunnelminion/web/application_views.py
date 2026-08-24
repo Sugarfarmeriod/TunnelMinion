@@ -29,6 +29,7 @@ from tunnelminion.network.path_controller import (
     DirectPathEvidence,
     PathSelection,
 )
+from tunnelminion.network.path_status import ManagedPathFreshness, ManagedPathStatus
 from tunnelminion.runtime.profile import current_program_dir
 from tunnelminion.web import overview as overview_contracts
 from tunnelminion.web.resources import (
@@ -113,6 +114,7 @@ def build_application_view_bindings(
     model_service: ModelConfigurationService,
     managed: ManagedNodeApplication,
     network_path: NetworkPathViewBindings | None = None,
+    managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -125,6 +127,7 @@ def build_application_view_bindings(
         clock or (lambda: datetime.now(UTC)),
         runtime_package or detect_runtime_package(),
         network_path,
+        managed_path_status,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -182,12 +185,14 @@ class _ApplicationViewAdapter:
         clock: Clock,
         package: overview_contracts.RuntimePackageOverview,
         network_path: NetworkPathViewBindings | None = None,
+        managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
         self.model_service = model_service
         self.managed = managed
         self.path_bindings = network_path
+        self.managed_path_status_provider = managed_path_status
         self.clock = clock
         self.package = package
 
@@ -326,6 +331,9 @@ class _ApplicationViewAdapter:
         )
 
     def network_path(self) -> overview_contracts.NetworkPathOverview:
+        managed_path = self.current_managed_path_status()
+        if managed_path is not None:
+            return self.managed_path_overview(managed_path)
         _, explicit, error = self.managed_state()
         if explicit is overview_contracts.CoordinatorOverviewState.UNCONFIGURED:
             return self.empty_path(
@@ -690,6 +698,55 @@ class _ApplicationViewAdapter:
         if explicit is overview_contracts.CoordinatorOverviewState.SYNC_NOT_STARTED:
             return "sync-not-started"
         return "unknown"
+
+    def current_managed_path_status(self) -> ManagedPathStatus | None:
+        """读取一次持久化状态并按当前时钟投影，不触发平台探测。"""
+        if self.managed_path_status_provider is None:
+            return None
+        status = self.managed_path_status_provider()
+        return (
+            status.at(self.now(), stale_error_code=_NETWORK_PATH_EVIDENCE_STALE)
+            if status is not None
+            else None
+        )
+
+    def managed_path_overview(
+        self,
+        status: ManagedPathStatus,
+    ) -> overview_contracts.NetworkPathOverview:
+        """把受管路径状态投影为 Overview，不回退到较旧路径事实。"""
+        evidence = status.evidence
+        freshness = {
+            ManagedPathFreshness.UNVERIFIED: overview_contracts.OverviewFreshness.UNKNOWN,
+            ManagedPathFreshness.FRESH: overview_contracts.OverviewFreshness.FRESH,
+            ManagedPathFreshness.STALE: overview_contracts.OverviewFreshness.STALE,
+        }[status.freshness]
+        return overview_contracts.NetworkPathOverview(
+            source=overview_contracts.OverviewSource.NETWORK_PATH_EVIDENCE,
+            evidence_at=status.observed_at,
+            freshness=freshness,
+            error=(
+                overview_contracts.OverviewError(code=status.stable_error_code)
+                if status.stable_error_code is not None
+                else None
+            ),
+            configured=True,
+            state=overview_contracts.NetworkPathOverviewState(status.path_type.value),
+            provider=status.provider,
+            revision=status.revision,
+            handshake=self.evidence_view(
+                evidence.handshake_fresh if evidence is not None else None,
+                evidence.last_handshake_at if evidence is not None else None,
+            ),
+            route=self.evidence_view(
+                evidence.host_route_present if evidence is not None else None,
+                evidence.observed_at if evidence is not None else None,
+            ),
+            probe=self.evidence_view(
+                evidence.target_probe_succeeded if evidence is not None else None,
+                evidence.target_probe_at if evidence is not None else None,
+            ),
+        )
 
     @staticmethod
     def evidence_view(

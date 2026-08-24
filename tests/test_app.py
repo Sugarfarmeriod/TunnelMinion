@@ -27,7 +27,7 @@ from tunnelminion.app import (
     load_or_create_node_id,
 )
 from tunnelminion.coordinator.contracts import GatewayEndpoint
-from tunnelminion.domain.identifiers import NetworkId, NodeId, RunId, ThreadId
+from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.macos_app import SafeSharingGatewaySettings
@@ -43,6 +43,12 @@ from tunnelminion.network.path_controller import (
     DirectPathEvidence,
     NetworkPathType,
     PathSelection,
+)
+from tunnelminion.network.path_status import (
+    ManagedPathAuthorizationState,
+    ManagedPathFreshness,
+    ManagedPathStatus,
+    source_category,
 )
 from tunnelminion.platforms.windows.models import InterfaceSnapshot
 from tunnelminion.platforms.windows.system import CommandResult
@@ -83,14 +89,17 @@ def configured_managed_application(
     )
 
 
-def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
+def real_path_bindings(
+    platform: Platform,
+    node_id: NodeId | None = None,
+) -> NetworkPathViewBindings:
     """生成 endpoint、route 与秘密均已脱敏的真实路径事实。"""
     provider = ProviderKind(platform.value)
     network_id = NetworkId("network_0123456789abcdef0123456789abcdef")
-    node_id = NodeId("node_0123456789abcdef0123456789abcdef")
+    current_node_id = node_id or NodeId("node_0123456789abcdef0123456789abcdef")
     selection = PathSelection(
         network_id=network_id,
-        node_id=node_id,
+        node_id=current_node_id,
         plan_hash="sha256:" + "a" * 64,
         authorization_revision=3,
         path_type=NetworkPathType.DIRECT,
@@ -109,7 +118,7 @@ def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
     )
     evidence = DirectPathEvidence(
         network_id=network_id,
-        node_id=node_id,
+        node_id=current_node_id,
         plan_hash="sha256:" + "a" * 64,
         authorization_revision=3,
         provider=provider,
@@ -127,6 +136,7 @@ def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
         target_probe_at=PATH_NOW,
         target_probe_succeeded=True,
         verified=True,
+        source="fake",
         observed_at=PATH_NOW,
         expires_at=PATH_NOW + timedelta(seconds=180),
     )
@@ -134,6 +144,40 @@ def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
         selection=lambda: selection,
         evidence=lambda: evidence,
         authorization=lambda: "authorized-l3",
+    )
+
+
+def real_managed_path_status(node_id: NodeId, platform: Platform) -> ManagedPathStatus:
+    """把同一组脱敏路径事实包装为受管路径持久化状态。"""
+    bindings = real_path_bindings(platform, node_id)
+    selection = bindings.selection()
+    evidence = bindings.evidence()
+    assert selection is not None
+    assert evidence is not None
+    assert selection.network_id is not None
+    assert selection.plan_hash is not None
+    assert selection.authorization_revision is not None
+    return ManagedPathStatus(
+        network_id=selection.network_id,
+        node_id=node_id,
+        revision=selection.revision,
+        plan_hash=selection.plan_hash,
+        authorization_revision=selection.authorization_revision,
+        provider=selection.provider,
+        authorization_state=ManagedPathAuthorizationState.AUTHORIZED,
+        authorization_id=AuthorizationId("authorization_" + "e" * 32),
+        path_type=selection.path_type,
+        selection=selection,
+        evidence=evidence,
+        source=source_category(evidence.source),
+        freshness=ManagedPathFreshness.FRESH,
+        candidate_count=evidence.candidate_count,
+        last_known_good_revision=selection.last_known_good_revision,
+        observed_at=evidence.observed_at,
+        refreshed_at=evidence.observed_at,
+        expires_at=evidence.expires_at,
+        journal_sequence=1,
+        updated_at=PATH_NOW,
     )
 
 
@@ -313,6 +357,47 @@ def test_windows_factory_binds_configured_coordinator_and_real_path_views(
     assert overview["coordinator"]["state"] == "sync_not_started"
     assert overview["network_path"]["state"] == "direct"
     assert overview["network_path"]["handshake"]["status"] == "passed"
+
+
+def test_windows_factory_prefers_managed_path_status_in_overview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status: ManagedPathStatus | None = None
+
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        nonlocal status
+        status = real_managed_path_status(node_id, platform)
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.app.build_managed_node_application", fake_managed)
+
+    def current_managed_path_status(_self: ManagedNodeApplication) -> ManagedPathStatus | None:
+        return status
+
+    monkeypatch.setattr(
+        ManagedNodeApplication,
+        "current_managed_path_status",
+        current_managed_path_status,
+    )
+    bundle = build_windows_application(
+        tmp_path / "windows-managed-path",
+        network_path=real_path_bindings(Platform.MACOS),
+    )
+    client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
+
+    path = client.get("/api/resources/network-path").json()
+    overview = client.get("/api/resources/overview").json()
+    assert path["provider"] == "windows"
+    assert overview["network_path"]["provider"] == "windows"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["probe"]["status"] == "passed"
 
 
 def test_regular_windows_and_macos_apps_survive_invalid_managed_config(

@@ -193,12 +193,14 @@ def build_windows_application(
         lifespan=managed_application_lifespan(managed),
     )
     install_local_request_guard(app)
+    current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node_id,
         platform=Platform.WINDOWS,
         model_service=model_service,
         managed=managed,
         network_path=network_path,
+        managed_path_status=current_managed_path_status,
     )
     app.include_router(create_model_router(model_service))
     app.include_router(
@@ -209,7 +211,7 @@ def build_windows_application(
             coordinator_cache=views.resource_bindings.coordinator_cache,
             network_path_status=views.resource_bindings.network_path,
             managed_status=managed_resource_payload_callback(managed),
-            managed_path_status=managed_path_status_callback(managed),
+            managed_path_status=current_managed_path_status,
         )
     )
     app.include_router(create_overview_router(views.overview_service))

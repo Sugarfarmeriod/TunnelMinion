@@ -14,7 +14,11 @@ from fastapi.testclient import TestClient
 from keyring.errors import KeyringError
 from pydantic import JsonValue
 from tests.operation.factories import plan
-from tests.test_app import configured_managed_application, real_path_bindings
+from tests.test_app import (
+    configured_managed_application,
+    real_managed_path_status,
+    real_path_bindings,
+)
 
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
@@ -35,6 +39,7 @@ from tunnelminion.macos_app import (
     create_macos_app,
 )
 from tunnelminion.model.configuration import ModelConfigurationService
+from tunnelminion.network.path_status import ManagedPathStatus
 from tunnelminion.operation.contracts import (
     LeaseRecord,
     VerificationResult,
@@ -382,3 +387,44 @@ def test_macos_factory_binds_configured_coordinator_and_real_path_views(
     assert overview["coordinator"]["state"] == "sync_not_started"
     assert overview["network_path"]["state"] == "direct"
     assert overview["network_path"]["probe"]["status"] == "passed"
+
+
+def test_macos_factory_prefers_managed_path_status_in_overview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status: ManagedPathStatus | None = None
+
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        nonlocal status
+        status = real_managed_path_status(node_id, platform)
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
+
+    def current_managed_path_status(_self: ManagedNodeApplication) -> ManagedPathStatus | None:
+        return status
+
+    monkeypatch.setattr(
+        ManagedNodeApplication,
+        "current_managed_path_status",
+        current_managed_path_status,
+    )
+    bundle = build_macos_local_application(
+        tmp_path / "macos-managed-path",
+        network_path=real_path_bindings(Platform.WINDOWS),
+    )
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
+
+    path = client.get("/api/resources/network-path", headers={}).json()
+    overview = client.get("/api/resources/overview", headers={}).json()
+    assert path["provider"] == "macos"
+    assert overview["network_path"]["provider"] == "macos"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["handshake"]["status"] == "passed"
