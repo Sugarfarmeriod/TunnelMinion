@@ -34,7 +34,8 @@
 
 - [x] 3.1 由 foundation/integration 单一 owner 实现 `GET /api/resources/overview` 强类型聚合 endpoint，返回 local runtime/platform/version/package/readiness、model、Coordinator、path、节点、服务、来源、新鲜度和稳定错误码
 - [x] 3.2 由同一后端 owner 扩展 operation detail，加入脱敏 owned resources、verification、cleanup record、manual action、允许动作和 state
-- [ ] 3.3 由同一应用装配 owner 抽取 Windows/macOS 共用 Coordinator/path helper，连接真实 status/cache/path/evidence/authorization，避免已配置状态误报 `unconfigured`
+- [x] 3.3 由同一应用装配 owner 抽取 Windows/macOS 共用 Coordinator/path helper，连接真实 status/cache/path/evidence/authorization，避免已配置状态误报 `unconfigured`
+  - 证据（2026-08-24）：Windows/macOS 应用装配已共同接入 managed-path status/cache/path/evidence/authorization，并保留旧 Coordinator/path binding 作为无 managed-path 状态时的降级；后端全量 `1330 passed, 6 skipped` 且 statement/branch 100%，前端 89 项单元测试、5 项供应链测试及 Chromium/WebKit 36 项浏览器测试通过。
 - [x] 3.4 由后端 owner 为 overview/operation model、OpenAPI、应用工厂装配、配置损坏、凭据缺失、同步未开始和未知枚举补齐 100% 分支覆盖契约测试
 - [x] 3.5 仅在 `frontend/src/features/overview` 实现本机、节点、服务和关键依赖卡片，显示来源、证据时间、新鲜度和下一步动作，不把原始 JSON 当主界面
 - [x] 3.6 覆盖无模型、无 Coordinator、peer 离线、防火墙日志不可读、缓存过期和刷新恢复的组件/浏览器矩阵

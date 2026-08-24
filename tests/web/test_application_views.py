@@ -43,7 +43,7 @@ from tunnelminion.coordinator.contracts import (
     NodeStatus,
     ServiceLifecycle,
 )
-from tunnelminion.domain.identifiers import NodeId, ServiceId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.configuration import (
     ModelConfigurationService,
@@ -328,6 +328,10 @@ def path_selection(
     error: DirectPathErrorCode | None = None,
 ) -> PathSelection:
     return PathSelection(
+        network_id=NetworkId("network_0123456789abcdef0123456789abcdef"),
+        node_id=LOCAL_NODE,
+        plan_hash="sha256:" + "a" * 64,
+        authorization_revision=revision,
         path_type=NetworkPathType.DIRECT,
         provider=provider,
         revision=revision,
@@ -338,6 +342,10 @@ def path_selection(
         selected_at=NOW,
         last_evidence_at=NOW,
         stable_error_code=error,
+        target_host_hash="sha256:" + "c" * 64,
+        target_port=8787,
+        route_identity_hash="sha256:" + "d" * 64,
+        expires_at=NOW + timedelta(seconds=180),
     )
 
 
@@ -349,8 +357,15 @@ def path_evidence(
     observed_at: datetime = NOW,
 ) -> DirectPathEvidence:
     return DirectPathEvidence(
+        network_id=NetworkId("network_0123456789abcdef0123456789abcdef"),
+        node_id=LOCAL_NODE,
+        plan_hash="sha256:" + "a" * 64,
+        authorization_revision=revision,
         provider=provider,
         revision=revision,
+        target_host_hash="sha256:" + "c" * 64,
+        target_port=8787,
+        route_identity_hash="sha256:" + "d" * 64,
         candidate_count=1,
         selected_candidate_hash="sha256:" + "b" * 64,
         endpoint_probe_at=NOW,
@@ -363,6 +378,7 @@ def path_evidence(
         verified=verified,
         stable_error_code=None if verified else DirectPathErrorCode.HANDSHAKE_STALE,
         observed_at=observed_at,
+        expires_at=observed_at + timedelta(seconds=180),
     )
 
 

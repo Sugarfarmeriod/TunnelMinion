@@ -1,0 +1,74 @@
+{
+  "after": {
+    "host_route_count": 8,
+    "interface_present": true,
+    "interface_up": true,
+    "observed_error_code": "permission_denied",
+    "peer_count": 0,
+    "service_present": true,
+    "service_running": true,
+    "system_fingerprint": "sha256:9e5527ca043d147bc1a6823a125fd4db1a06145990f3f43cbcd2541d9ee2ff7b"
+  },
+  "authorization": {
+    "max_target_attempts": 1,
+    "protocol": "tcp",
+    "scope": "readonly-observation-only",
+    "target_host_hash": "sha256:2a3c4ebe397bceaf9056e0de70b5157b4f153ddbd47ae39c7ea98a6e98a585d0",
+    "target_port": 18880,
+    "target_timeout_seconds": 2
+  },
+  "before": {
+    "host_route_count": 8,
+    "interface_present": true,
+    "interface_up": true,
+    "observed_error_code": "permission_denied",
+    "peer_count": 0,
+    "service_present": true,
+    "service_running": true,
+    "system_fingerprint": "sha256:9e5527ca043d147bc1a6823a125fd4db1a06145990f3f43cbcd2541d9ee2ff7b"
+  },
+  "code_commit": "4f4e7ac931a3c88a1bb7c7438662936d6687b46f",
+  "finished_at": "2026-08-21T17:48:41.663002+00:00",
+  "hostname": "yinxi的Mac mini",
+  "interface": null,
+  "limitations": [
+    "唯一接口/peer 门禁未通过，未猜测 WireGuard 所有者，未调用 MacOSPathProbe 的目标连接路径。",
+    "public key、endpoint、路由原文和命令原始输出仅在内存中用于观察/哈希；证据不保存其正文。",
+    "本证据仅覆盖 macOS 真实只读观察与 fail-closed 门禁，不是 verified、真实 Provider 或 OpenSpec 阶段 6–7 完成证据。"
+  ],
+  "network_state_unchanged": true,
+  "observer": {
+    "class": "MacOSWireGuardObserver",
+    "command_boundary": "FixedMacOSWireGuardCommands",
+    "path_probe_class": "MacOSPathProbe",
+    "path_probe_invocation_reason": "unique-interface-peer-gate-failed-closed",
+    "path_probe_invoked": false,
+    "preflight_error_code": "permission_denied",
+    "preflight_mode": "observe_only"
+  },
+  "ownership_gate": {
+    "result": "failed_closed",
+    "target_route_match_interface_count": 0,
+    "target_route_match_peer_count": 0,
+    "unique_owner": false
+  },
+  "path_evidence": {
+    "candidate_count": 0,
+    "expires_at": "2026-08-21T17:51:41.663002+00:00",
+    "observed_at": "2026-08-21T17:48:41.663002+00:00",
+    "source": "macos:wg-show-netstat",
+    "stable_error_code": "permission_denied",
+    "target_probe_executed": false,
+    "target_probe_succeeded": false,
+    "verified": false
+  },
+  "platform": "macOS",
+  "route_output_hash_after": "sha256:120df2926f713e66a8ddb40ff539fbb5ed0dcbd1126ef7f5e637fb8d0f8d34fd",
+  "route_output_hash_before": "sha256:120df2926f713e66a8ddb40ff539fbb5ed0dcbd1126ef7f5e637fb8d0f8d34fd",
+  "route_query_returncode_after": 0,
+  "route_query_returncode_before": 0,
+  "schema_version": "managed-path-readonly-evidence/v1",
+  "source": "macos:MacOSWireGuardObserver",
+  "started_at": "2026-08-21T17:48:41.532811+00:00",
+  "writes_performed": false
+}

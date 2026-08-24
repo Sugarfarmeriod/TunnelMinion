@@ -6,7 +6,7 @@ import asyncio
 import io
 import json
 import runpy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +86,13 @@ def configured_managed_application(
 def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
     """生成 endpoint、route 与秘密均已脱敏的真实路径事实。"""
     provider = ProviderKind(platform.value)
+    network_id = NetworkId("network_0123456789abcdef0123456789abcdef")
+    node_id = NodeId("node_0123456789abcdef0123456789abcdef")
     selection = PathSelection(
+        network_id=network_id,
+        node_id=node_id,
+        plan_hash="sha256:" + "a" * 64,
+        authorization_revision=3,
         path_type=NetworkPathType.DIRECT,
         provider=provider,
         revision=3,
@@ -96,10 +102,21 @@ def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
         consecutive_successes=2,
         selected_at=PATH_NOW,
         last_evidence_at=PATH_NOW,
+        target_host_hash="sha256:" + "c" * 64,
+        target_port=8787,
+        route_identity_hash="sha256:" + "d" * 64,
+        expires_at=PATH_NOW + timedelta(seconds=180),
     )
     evidence = DirectPathEvidence(
+        network_id=network_id,
+        node_id=node_id,
+        plan_hash="sha256:" + "a" * 64,
+        authorization_revision=3,
         provider=provider,
         revision=3,
+        target_host_hash="sha256:" + "c" * 64,
+        target_port=8787,
+        route_identity_hash="sha256:" + "d" * 64,
         candidate_count=1,
         selected_candidate_hash="sha256:" + "b" * 64,
         endpoint_probe_at=PATH_NOW,
@@ -111,6 +128,7 @@ def real_path_bindings(platform: Platform) -> NetworkPathViewBindings:
         target_probe_succeeded=True,
         verified=True,
         observed_at=PATH_NOW,
+        expires_at=PATH_NOW + timedelta(seconds=180),
     )
     return NetworkPathViewBindings(
         selection=lambda: selection,

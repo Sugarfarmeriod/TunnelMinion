@@ -35,6 +35,7 @@ from tunnelminion.network.contracts import (
     VerificationResult,
     canonical_sha256,
     compute_plan_hash,
+    network_operation_idempotency_key,
 )
 from tunnelminion.network.ledger import (
     ManagedResourceLedgerEntry,
@@ -469,6 +470,7 @@ class WindowsNetworkProvider:
 
     async def verify(self, plan: NetworkPlan) -> VerificationResult:
         observed = await self.observe(plan.desired.interface_name)
+        journal = self._journals.find_by_plan_hash(plan.plan_hash)
         expected_routes = tuple(
             route for peer in plan.desired.peers for route in peer.allowed_host_routes
         )
@@ -481,8 +483,15 @@ class WindowsNetworkProvider:
                 and set(expected_routes) <= set(observed.host_routes)
             )
         result = VerificationResult(
+            idempotency_key=(
+                journal.idempotency_key
+                if journal is not None
+                else network_operation_idempotency_key(plan)
+            ),
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=observed.system_fingerprint,
             succeeded=succeeded,
             checked_dimensions=(
                 "service",
@@ -501,14 +510,12 @@ class WindowsNetworkProvider:
                 correlation_id=plan.plan_hash,
             ),
         )
-        if succeeded:
-            journal = self._journals.find_by_plan_hash(plan.plan_hash)
-            if journal is not None:
-                self._journals.put(
-                    journal.model_copy(
-                        update={"status": ReceiptStatus.VERIFIED, "updated_at": self._now()}
-                    )
+        if succeeded and journal is not None:
+            self._journals.put(
+                journal.model_copy(
+                    update={"status": ReceiptStatus.VERIFIED, "updated_at": self._now()}
                 )
+            )
         return result
 
     async def rollback(
@@ -595,6 +602,8 @@ class WindowsNetworkProvider:
             idempotency_key=journal.idempotency_key,
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=observation.system_fingerprint,
             status=ReceiptStatus.ROLLED_BACK,
             steps=tuple(rollback_receipts),
             observation_after=observation,
@@ -678,13 +687,16 @@ class WindowsNetworkProvider:
         self,
         journal: WindowsOperationJournal,
     ) -> ProviderReceipt:
+        observation = await self.observe(journal.plan.desired.interface_name)
         return ProviderReceipt(
             idempotency_key=journal.idempotency_key,
             plan_hash=journal.plan.plan_hash,
             revision=journal.plan.desired.revision,
+            provider=journal.plan.desired.provider,
+            observation_fingerprint=observation.system_fingerprint,
             status=ReceiptStatus.APPLIED,
             steps=journal.steps,
-            observation_after=await self.observe(journal.plan.desired.interface_name),
+            observation_after=observation,
         )
 
     def _receipt(
@@ -700,6 +712,8 @@ class WindowsNetworkProvider:
             idempotency_key=journal.idempotency_key,
             plan_hash=journal.plan.plan_hash,
             revision=journal.plan.desired.revision,
+            provider=journal.plan.desired.provider,
+            observation_fingerprint=journal.plan.observed_fingerprint,
             status=status,
             steps=journal.steps,
             error=NetworkError(
@@ -724,6 +738,8 @@ class WindowsNetworkProvider:
             idempotency_key=idempotency_key,
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=plan.observed_fingerprint,
             status=status,
             error=NetworkError(
                 code=code,

@@ -19,6 +19,8 @@ from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
     build_managed_node_application,
     managed_application_lifespan,
+    managed_path_status_callback,
+    managed_resource_payload_callback,
 )
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.app import default_data_dir, load_or_create_node_id
@@ -62,6 +64,7 @@ from tunnelminion.platforms.macos.adapters import (
     ServiceReachabilityAdapter,
 )
 from tunnelminion.platforms.macos.definitions import MacOSToolAdapters, register_macos_tools
+from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
 from tunnelminion.platforms.macos.system import (
     MacOSSystemReader,
     SubprocessCommandRunner,
@@ -302,6 +305,7 @@ def build_macos_local_application(
         node.listeners,
         node.processes,
         node.docker,
+        managed_path_platform_factory=build_macos_managed_path_platform,
     )
     app = FastAPI(
         title="TunnelMinion",
@@ -324,7 +328,8 @@ def build_macos_local_application(
             coordinator_status=views.resource_bindings.coordinator_status,
             coordinator_cache=views.resource_bindings.coordinator_cache,
             network_path_status=views.resource_bindings.network_path,
-            managed_status=managed.resource_payload,
+            managed_status=managed_resource_payload_callback(managed),
+            managed_path_status=managed_path_status_callback(managed),
         )
     )
     app.include_router(create_overview_router(views.overview_service))
@@ -345,7 +350,9 @@ def build_macos_local_application(
 
 def create_macos_app() -> FastAPI:
     """供 macOS 本地 Uvicorn 工厂使用。"""
-    return build_macos_local_application().app
+    bundle = build_macos_local_application()
+    bundle.app.state.managed_node = bundle.managed_node
+    return bundle.app
 
 
 def build_macos_gateway_application(

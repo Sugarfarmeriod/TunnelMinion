@@ -14,8 +14,14 @@ from tunnelminion.platforms.windows.managed_system import (
     FixedWindowsWireGuardCommands,
     WindowsPeerSnapshot,
     WindowsProviderPaths,
+    WindowsTunnelSnapshot,
     WindowsWireGuardObserver,
+    _is_observable_host_route,  # pyright: ignore[reportPrivateUsage]
+    _safe_host_route,  # pyright: ignore[reportPrivateUsage]
+    collect_safe_allowed_networks,
+    parse_safe_allowed_network,
     parse_wireguard_endpoint,
+    peer_owns_unique_target,
     system_interface_index,
     windows_is_administrator,
     windows_route_contains_exact_host,
@@ -258,6 +264,348 @@ def test_observer_parses_bounded_peers_routes_handshakes_and_fingerprint(
             }
         ).system_fingerprint
     )
+
+    runner.commands.clear()
+    candidate_snapshot = asyncio.run(observer.observe_candidates("tmn-test-a"))
+    assert len(candidate_snapshot.peers) == 2
+    assert candidate_snapshot.host_routes == ()
+    assert not any(command[0] == str(fixed.paths.route_exe) for command in runner.commands)
+
+
+def test_incomplete_allowed_routes_stop_before_querying(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    fixed = commands(tmp_path, runner)
+    prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
+    runner.results[(str(fixed.paths.sc_exe), "query", "WireGuardTunnel$tmn-test-a")] = (
+        CommandResult(returncode=0, stdout="RUNNING", stderr="")
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(returncode=0, stdout="peer-a\n", stderr="")
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0, stdout="peer-a\t10.203.0.3:51820\n", stderr=""
+    )
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0,
+        stdout=(
+            "peer-a\t10.203.0.2/32,10.203.0.0/24,0.0.0.0/0,"
+            "224.0.0.0/4,224.0.0.1/32,255.255.255.255/32,*,malformed\n"
+        ),
+        stderr="",
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0, stdout="peer-a\t123\n", stderr=""
+    )
+    route_command = (str(fixed.paths.route_exe), "print", "10.203.0.2")
+    runner.results[route_command] = CommandResult(
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.203.0.2                255.255.255.255  On-link       10.203.0.1  1\n"
+            "Persistent Routes:\n"
+        ),
+        stderr="",
+    )
+    observer = WindowsWireGuardObserver(
+        FakeReader(InterfaceSnapshot(name="tmn-test-a", is_up=True, addresses=("10.203.0.1",))),
+        fixed,
+        interface_index=lambda _name: 7,
+    )
+
+    snapshot = asyncio.run(observer.observe("tmn-test-a"))
+
+    assert snapshot.peers[0].allowed_host_routes == ("10.203.0.2/32",)
+    assert snapshot.peers[0].allowed_networks == ("10.203.0.2/32", "10.203.0.0/24")
+    assert not snapshot.peers[0].allowed_networks_complete
+    assert snapshot.host_routes == ()
+    assert [
+        command
+        for command in runner.commands
+        if command[:2] == (str(fixed.paths.route_exe), "print")
+    ] == []
+
+
+def test_observer_uses_unique_broad_owner_but_queries_exact_target_route(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    fixed = commands(tmp_path, runner)
+    prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
+    runner.results[(str(fixed.paths.sc_exe), "query", "WireGuardTunnel$tmn-test-a")] = (
+        CommandResult(returncode=0, stdout="RUNNING", stderr="")
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(returncode=0, stdout="peer-a\n", stderr="")
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0, stdout="peer-a\t10.203.0.3:51820\n", stderr=""
+    )
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0, stdout="peer-a\t10.203.0.0/24\n", stderr=""
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0, stdout="peer-a\t123\n", stderr=""
+    )
+    target_command = (str(fixed.paths.route_exe), "print", "10.203.0.2")
+    runner.results[target_command] = CommandResult(
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.203.0.2                255.255.255.255  On-link       10.203.0.1  1\n"
+            "Persistent Routes:\n"
+        ),
+        stderr="",
+    )
+    observer = WindowsWireGuardObserver(
+        FakeReader(InterfaceSnapshot(name="tmn-test-a", is_up=True, addresses=("10.203.0.1",))),
+        fixed,
+        interface_index=lambda _name: 7,
+    )
+
+    snapshot = asyncio.run(
+        observer.observe_path(
+            "tmn-test-a",
+            peer_public_key="peer-a",
+            expected_host_route="10.203.0.2/32",
+        )
+    )
+
+    assert snapshot.peers[0].allowed_host_routes == ()
+    assert snapshot.peers[0].allowed_networks == ("10.203.0.0/24",)
+    assert snapshot.host_routes == ("10.203.0.2/32",)
+    assert [
+        command
+        for command in runner.commands
+        if command[:2] == (str(fixed.paths.route_exe), "print")
+    ] == [target_command]
+
+
+def test_observer_drops_overlapping_target_from_path_facts(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    fixed = commands(tmp_path, runner)
+    prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
+    runner.results[(str(fixed.paths.sc_exe), "query", "WireGuardTunnel$tmn-test-a")] = (
+        CommandResult(returncode=0, stdout="RUNNING", stderr="")
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(
+        returncode=0, stdout="peer-a\npeer-b\n", stderr=""
+    )
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0,
+        stdout="peer-a\t10.203.0.3:51820\npeer-b\t10.203.0.4:51820\n",
+        stderr="",
+    )
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0,
+        stdout="peer-a\t10.203.0.0/24\npeer-b\t10.203.0.2/32\n",
+        stderr="",
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0, stdout="peer-a\t123\npeer-b\t123\n", stderr=""
+    )
+    observer = WindowsWireGuardObserver(
+        FakeReader(InterfaceSnapshot(name="tmn-test-a", is_up=True, addresses=("10.203.0.1",))),
+        fixed,
+        interface_index=lambda _name: 7,
+    )
+
+    snapshot = asyncio.run(
+        observer.observe_path(
+            "tmn-test-a",
+            peer_public_key="peer-a",
+            expected_host_route="10.203.0.2/32",
+        )
+    )
+
+    assert snapshot.host_routes == ()
+    assert [
+        command
+        for command in runner.commands
+        if command[:2] == (str(fixed.paths.route_exe), "print")
+    ] == []
+
+
+@pytest.mark.parametrize(
+    "competing_route",
+    ["10.203.0.2/32", "10.203.0.0/16", "0.0.0.0/0", "10.0.0.0/7", "malformed"],
+)
+def test_observer_rejects_competitor_after_eight_allowed_networks(
+    tmp_path: Path,
+    competing_route: str,
+) -> None:
+    runner = FakeRunner()
+    fixed = commands(tmp_path, runner)
+    prefix = (str(fixed.paths.wg_exe), "show", "tmn-test-a")
+    runner.results[(str(fixed.paths.sc_exe), "query", "WireGuardTunnel$tmn-test-a")] = (
+        CommandResult(returncode=0, stdout="RUNNING", stderr="")
+    )
+    runner.results[(*prefix, "public-key")] = CommandResult(
+        returncode=0, stdout="own-public\n", stderr=""
+    )
+    runner.results[(*prefix, "peers")] = CommandResult(
+        returncode=0, stdout="peer-a\npeer-b\n", stderr=""
+    )
+    runner.results[(*prefix, "endpoints")] = CommandResult(
+        returncode=0,
+        stdout="peer-a\t10.203.0.3:51820\npeer-b\t10.203.0.4:51820\n",
+        stderr="",
+    )
+    prior_networks = tuple(f"192.168.{index}.0/24" for index in range(8))
+    runner.results[(*prefix, "allowed-ips")] = CommandResult(
+        returncode=0,
+        stdout=(f"peer-a\t10.203.0.0/24\npeer-b\t{','.join((*prior_networks, competing_route))}\n"),
+        stderr="",
+    )
+    runner.results[(*prefix, "latest-handshakes")] = CommandResult(
+        returncode=0, stdout="peer-a\t123\npeer-b\t123\n", stderr=""
+    )
+    target_command = (str(fixed.paths.route_exe), "print", "10.203.0.2")
+    runner.results[target_command] = CommandResult(
+        returncode=0,
+        stdout=(
+            "IPv4 Route Table\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "10.203.0.2                255.255.255.255  On-link       10.203.0.1  1\n"
+            "Persistent Routes:\n"
+        ),
+        stderr="",
+    )
+    observer = WindowsWireGuardObserver(
+        FakeReader(InterfaceSnapshot(name="tmn-test-a", is_up=True, addresses=("10.203.0.1",))),
+        fixed,
+        interface_index=lambda _name: 7,
+    )
+
+    snapshot = asyncio.run(
+        observer.observe_path(
+            "tmn-test-a",
+            peer_public_key="peer-a",
+            expected_host_route="10.203.0.2/32",
+        )
+    )
+
+    assert snapshot.host_routes == ()
+    assert [
+        command
+        for command in runner.commands
+        if command[:2] == (str(fixed.paths.route_exe), "print")
+    ] == []
+
+
+def test_system_fingerprint_keeps_legacy_projection_and_isolates_path_ownership() -> None:
+    base = WindowsTunnelSnapshot(
+        interface_name="tmn-test-a",
+        interface_present=True,
+        interface_up=True,
+        addresses=("10.203.0.1/32",),
+        service_present=True,
+        service_running=True,
+        peers=(
+            WindowsPeerSnapshot(
+                public_key="peer-a",
+                allowed_host_routes=("10.203.0.2/32",),
+            ),
+        ),
+        host_routes=("10.203.0.2/32",),
+        public_key_hash="sha256:" + "a" * 64,
+        stable_interface_id="windows:tmn-test-a",
+        creation_nonce="a" * 32,
+    )
+    upgraded = base.model_copy(
+        update={
+            "peers": (base.peers[0].model_copy(update={"allowed_networks": ("10.203.0.0/24",)}),)
+        }
+    )
+
+    assert upgraded.system_fingerprint == base.system_fingerprint
+    assert upgraded.path_ownership_fingerprint != base.path_ownership_fingerprint
+
+
+def test_allowed_network_budget_marks_ownership_observation_incomplete() -> None:
+    networks, complete = collect_safe_allowed_networks(
+        tuple(f"192.168.{index}.0/24" for index in range(33))
+    )
+
+    assert len(networks) == 32
+    assert not complete
+    peer = WindowsPeerSnapshot(
+        public_key="peer",
+        allowed_networks=networks,
+        allowed_networks_complete=complete,
+    )
+    assert not peer_owns_unique_target((peer,), "peer", "192.168.0.1/32")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        (),
+        ("10.203.0.0/24", "malformed"),
+        ("10.203.0.0/24", "10.203.0.0/24"),
+        ("10.203.0.0/24", "0.0.0.0/0"),
+        ("10.203.0.0/24", "10.0.0.0/7"),
+    ],
+)
+def test_allowed_network_collection_marks_unsafe_or_incomplete_input(
+    values: tuple[str, ...],
+) -> None:
+    _, complete = collect_safe_allowed_networks(values)
+
+    assert not complete
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "0.0.0.0/0",
+        "0.0.0.0/1",
+        "10.0.0.0/7",
+        "224.0.0.0/4",
+        "127.0.0.0/8",
+        "malformed",
+    ],
+)
+def test_safe_allowed_network_rejects_dangerous_or_special_values(value: str) -> None:
+    assert parse_safe_allowed_network(value) is None
+
+
+def test_peer_snapshot_rejects_invalid_and_duplicate_network_facts() -> None:
+    with pytest.raises(ValidationError, match="安全的 IP network"):
+        WindowsPeerSnapshot(public_key="peer", allowed_networks=("0.0.0.0/0",))
+    with pytest.raises(ValidationError, match="host route 不得重复"):
+        WindowsPeerSnapshot(
+            public_key="peer",
+            allowed_host_routes=("10.203.0.2/32", "10.203.0.2/32"),
+        )
+    with pytest.raises(ValidationError, match="IP network 不得重复"):
+        WindowsPeerSnapshot(
+            public_key="peer",
+            allowed_networks=("10.203.0.0/24", "10.203.0.0/24"),
+        )
+
+
+def test_windows_network_helpers_fail_closed_for_invalid_targets() -> None:
+    peer = WindowsPeerSnapshot(public_key="peer", allowed_networks=("10.203.0.0/24",))
+    assert not _is_observable_host_route("malformed")
+    assert _safe_host_route(None) is None
+    assert _safe_host_route("malformed") is None
+    assert _safe_host_route("10.203.0.0/24") is None
+    assert _safe_host_route("10.203.0.2/32") == "10.203.0.2/32"
+    assert not peer_owns_unique_target((peer,), "peer", "malformed")
+    assert not peer_owns_unique_target((peer,), "peer", "10.203.0.0/24")
+    assert not peer_owns_unique_target((peer,), "other", "10.203.0.2/32")
 
 
 def test_windows_route_parser_accepts_exact_ipv4_and_ipv6_rows() -> None:

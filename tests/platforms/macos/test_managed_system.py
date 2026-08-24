@@ -13,6 +13,8 @@ from tunnelminion.platforms.macos.managed_system import (
     MacOSPeerSnapshot,
     MacOSProviderPaths,
     MacOSWireGuardObserver,
+    _is_host_route,  # pyright: ignore[reportPrivateUsage]
+    _safe_host_route,  # pyright: ignore[reportPrivateUsage]
     parse_wireguard_endpoint,
 )
 from tunnelminion.platforms.macos.system import CommandResult
@@ -118,6 +120,10 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
         "\tinet 10.203.0.3 netmask 0xffffffff\n"
         "\tinet 10.203.0.4 unexpected layout\n"
         "\tinet bad netmask nope\n"
+        "\tinet6 fd00::2 prefixlen 128\n"
+        "\tinet6 fe80::1%utun9 prefixlen 64 scopeid 0x12\n"
+        "\tinet6 fd00::3 prefixlen 129\n"
+        "\tinet6 bad prefixlen nope\n"
         "\tstatus: active\n"
     )
     runner.results[(str(paths.wg), "show", "utun9", "public-key")] = result("public-b\n")
@@ -141,14 +147,88 @@ def test_observer_reads_public_state_and_ignores_malformed_rows(tmp_path: Path) 
     )
     snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe("utun9"))
     assert snapshot.interface_up
-    assert snapshot.addresses == ("10.203.0.2/32", "10.203.0.3/32")
+    assert snapshot.addresses == (
+        "10.203.0.2/32",
+        "10.203.0.3/32",
+        "fd00::2/128",
+        "fe80::1/64",
+    )
     assert snapshot.host_routes == ("10.203.0.1/32", "fd00::2/128")
     assert snapshot.peers[0].allowed_host_routes == ("10.203.0.1/32",)
+    assert snapshot.peers[0].allowed_networks == ("10.203.0.1/32", "10.0.0.0/8")
+    assert not snapshot.peers[0].allowed_networks_complete
     assert snapshot.peers[0].latest_handshake_epoch == 123
     assert snapshot.peers[0].endpoint_host == "fd00::10"
     assert snapshot.peers[0].endpoint_port == 51820
     assert snapshot.public_key_hash is not None
     assert snapshot.system_fingerprint.startswith("sha256:")
+
+    path_snapshot = asyncio.run(
+        MacOSWireGuardObserver(commands).observe_path(
+            "utun9",
+            peer_public_key="peer-b",
+            expected_host_route="10.203.0.1/32",
+        )
+    )
+    assert path_snapshot.host_routes == ("fd00::2/128",)
+
+    filtered_snapshot = asyncio.run(
+        MacOSWireGuardObserver(commands).observe_path(
+            "utun9",
+            peer_public_key="peer-b",
+            expected_host_route="fd00::2/128",
+        )
+    )
+    assert filtered_snapshot.host_routes == ("10.203.0.1/32",)
+
+    runner.commands.clear()
+    candidate_snapshot = asyncio.run(MacOSWireGuardObserver(commands).observe_candidates("utun9"))
+    assert len(candidate_snapshot.peers) == 1
+    assert candidate_snapshot.host_routes == ()
+    assert not any(command[0] == str(paths.netstat) for command in runner.commands)
+
+
+@pytest.mark.parametrize(
+    "competing_route",
+    ["10.203.0.2/32", "10.203.0.0/16", "0.0.0.0/0", "10.0.0.0/7", "malformed"],
+)
+def test_observer_rejects_competitor_after_eight_allowed_networks(
+    tmp_path: Path,
+    competing_route: str,
+) -> None:
+    runner = FakeRunner()
+    commands = fixed(tmp_path, runner)
+    paths = commands.paths
+    runner.results[(str(paths.wg), "show", "interfaces")] = result("utun9\n")
+    runner.results[(str(paths.ifconfig), "utun9")] = result(
+        "utun9: flags=8051<UP> mtu 1420\n\tinet 10.203.0.1 netmask 0xffffffff\n"
+    )
+    runner.results[(str(paths.wg), "show", "utun9", "public-key")] = result("public\n")
+    runner.results[(str(paths.wg), "show", "utun9", "peers")] = result("peer-a\npeer-b\n")
+    runner.results[(str(paths.wg), "show", "utun9", "endpoints")] = result(
+        "peer-a\t10.203.0.3:51820\npeer-b\t10.203.0.4:51820\n"
+    )
+    prior_networks = tuple(f"192.168.{index}.0/24" for index in range(8))
+    runner.results[(str(paths.wg), "show", "utun9", "allowed-ips")] = result(
+        f"peer-a\t10.203.0.0/24\npeer-b\t{','.join((*prior_networks, competing_route))}\n"
+    )
+    runner.results[(str(paths.wg), "show", "utun9", "latest-handshakes")] = result(
+        "peer-a\t123\npeer-b\t123\n"
+    )
+    runner.results[(str(paths.netstat), "-rn", "-f", "inet")] = result(
+        "Destination Gateway Flags Netif Expire\n10.203.0.2 10.203.0.1 UHS utun9\n"
+    )
+    runner.results[(str(paths.netstat), "-rn", "-f", "inet6")] = result()
+
+    snapshot = asyncio.run(
+        MacOSWireGuardObserver(commands).observe_path(
+            "utun9",
+            peer_public_key="peer-a",
+            expected_host_route="10.203.0.2/32",
+        )
+    )
+
+    assert snapshot.host_routes == ()
 
 
 def test_observer_absent_permission_and_degraded_public_fields(tmp_path: Path) -> None:
@@ -185,3 +265,9 @@ def test_macos_peer_endpoint_and_parser_are_fail_closed() -> None:
         MacOSPeerSnapshot(public_key="peer", endpoint_port=51820)
     for value in ("", "(none)", "<none>", "bad", "[fd00::1]", "10.0.0.1:not-port", "10.0.0.1:0"):
         assert parse_wireguard_endpoint(value) is None
+    assert not _is_host_route("bad")
+    assert not _is_host_route("10.0.0.0/24")
+    assert _safe_host_route(None) is None
+    assert _safe_host_route("bad") is None
+    assert _safe_host_route("10.0.0.0/24") is None
+    assert _safe_host_route("10.0.0.1/32") == "10.0.0.1/32"
