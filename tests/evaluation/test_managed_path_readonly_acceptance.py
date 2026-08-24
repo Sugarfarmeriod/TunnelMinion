@@ -609,6 +609,14 @@ def test_target_port_requires_reserved_range_or_deployed_docker_proof(
         return True
 
     monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    explicit = asyncio.run(
+        run_acceptance(
+            request(approved=True, target_port=8787),
+            runtime=runtime(Observer(snapshot())),
+        )
+    )
+    assert explicit["stable_error_code"] != "target_port_rejected"
+
     observer = Observer(snapshot())
     rejected = asyncio.run(
         run_acceptance(request(approved=True, target_port=8080), runtime=runtime(observer))

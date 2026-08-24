@@ -51,7 +51,7 @@ from tunnelminion.platforms.windows.system import (
 
 SCHEMA_VERSION = "managed-path-readonly-evidence/v1"
 TARGET_HOSTS = frozenset({"10.77.0.1", "10.77.0.2"})
-RESERVED_TARGET_PORTS = frozenset(range(18880, 18900))
+RESERVED_TARGET_PORTS = frozenset({8787, *range(18880, 18900)})
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CODE_SHA = re.compile(r"^[0-9a-f]{40}$")
 _WINDOWS_INTERFACE = re.compile(r"^[A-Za-z0-9_. -]{1,64}$")
