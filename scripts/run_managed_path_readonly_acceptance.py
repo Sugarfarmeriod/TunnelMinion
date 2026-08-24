@@ -1,4 +1,4 @@
-"""人工启动的 Windows/macOS managed path 管理员只读验收包装器。"""
+"""人工启动的 Windows/macOS managed path 只读验收包装器。"""
 
 from __future__ import annotations
 
@@ -484,6 +484,101 @@ def _base_report(request: AcceptanceRequest, started_at: datetime) -> dict[str, 
     }
 
 
+def _local_interface_summary(interface_name: str, target_host: str) -> dict[str, object]:
+    """只返回脱敏接口摘要，并判断目标是否为本机地址。"""
+    interface = PsutilSystemReader().interface(interface_name)
+    addresses = () if interface is None else interface.addresses
+    return {
+        "interface_present": interface is not None,
+        "interface_up": False if interface is None else interface.is_up,
+        "address_count": len(addresses),
+        "address_hash": canonical_sha256({"addresses": sorted(addresses)}),
+        "target_is_local": target_host in addresses,
+    }
+
+
+async def _run_connectivity_only(
+    request: AcceptanceRequest,
+    runtime: PlatformRuntime,
+    report: dict[str, object],
+    clock: Callable[[], datetime],
+) -> dict[str, object]:
+    """权限不足时仅证明批准目标可达且网络摘要未改变。"""
+    if (
+        request.approved_candidate_hash is None
+        or request.target_host is None
+        or request.target_port is None
+    ):
+        report.update(
+            {
+                "passed": False,
+                "preflight": {"elevated": False, "stable_error_code": "permission_denied"},
+                "finished_at": clock().astimezone(UTC).isoformat(),
+            }
+        )
+        return report
+
+    reserved = request.target_port in RESERVED_TARGET_PORTS
+    if reserved:
+        docker_ports, docker_service_count = frozenset[int](), 0
+    else:
+        docker_ports, docker_service_count = await runtime.docker_ports()
+    if not reserved and request.target_port not in docker_ports:
+        return _finish_failure(report, clock, "target_port_rejected")
+
+    before_interface = _local_interface_summary(request.interface_name, request.target_host)
+    before_route_hash, before_route_code = await runtime.route_summary()
+    before = {
+        **before_interface,
+        "route_hash": before_route_hash,
+        "route_query_succeeded": before_route_code == 0,
+    }
+    report.update(
+        {
+            "preflight": {"elevated": False, "stable_error_code": None},
+            "source_code": "target-connectivity",
+            "before": before,
+            "target_approval_hash": canonical_sha256(
+                {"host": request.target_host, "port": request.target_port}
+            ),
+            "port_policy_code": "reserved_acceptance" if reserved else "deployed_docker",
+            "docker_service_count": docker_service_count,
+        }
+    )
+    if before_interface["target_is_local"]:
+        return _finish_failure(report, clock, "local_target_rejected")
+    if not before_interface["interface_present"] or not before_interface["interface_up"]:
+        return _finish_failure(report, clock, "interface_unavailable")
+
+    target_succeeded = await tcp_target_probe(request.target_host, request.target_port, 2.0)
+    after_interface = _local_interface_summary(request.interface_name, request.target_host)
+    after_route_hash, after_route_code = await runtime.route_summary()
+    after = {
+        **after_interface,
+        "route_hash": after_route_hash,
+        "route_query_succeeded": after_route_code == 0,
+    }
+    unchanged = after == before
+    stable_error = (
+        None
+        if target_succeeded and unchanged
+        else ("network_state_changed" if not unchanged else "target_unreachable")
+    )
+    report.update(
+        {
+            "after": after,
+            "network_state_unchanged": unchanged,
+            "probe_executed": True,
+            "target_probe_executed": True,
+            "target_probe_succeeded": target_succeeded,
+            "stable_error_code": stable_error,
+            "passed": target_succeeded and unchanged,
+            "finished_at": clock().astimezone(UTC).isoformat(),
+        }
+    )
+    return report
+
+
 async def run_acceptance(
     request: AcceptanceRequest,
     *,
@@ -510,14 +605,7 @@ async def run_acceptance(
     else:
         selected_runtime = runtime
     if not selected_runtime.elevated:
-        report.update(
-            {
-                "passed": False,
-                "preflight": {"elevated": False, "stable_error_code": "permission_denied"},
-                "finished_at": clock().astimezone(UTC).isoformat(),
-            }
-        )
-        return report
+        return await _run_connectivity_only(request, selected_runtime, report, clock)
 
     target_route = f"{request.target_host}/32" if request.target_host is not None else None
     peer_public_key = request.peer_public_key

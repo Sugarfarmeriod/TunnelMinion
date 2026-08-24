@@ -770,6 +770,99 @@ def test_non_administrator_fails_before_observation() -> None:
     assert observer.calls == 0
 
 
+def test_non_administrator_accepts_approved_remote_target_connectivity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(host: str, port: int, timeout: float) -> bool:
+        assert (host, port, timeout) == ("10.77.0.2", 18880, 2.0)
+        return True
+
+    def local_interface(interface: str, host: str) -> dict[str, object]:
+        return {
+            "interface_present": interface == "HomeMac",
+            "interface_up": True,
+            "address_count": 1,
+            "address_hash": "sha256:" + "a" * 64,
+            "target_is_local": host == "10.77.0.1",
+        }
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    monkeypatch.setattr(acceptance, "_local_interface_summary", local_interface)
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(Observer(snapshot()), elevated=False),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["passed"] is True
+    assert report["source_code"] == "target-connectivity"
+    assert report["network_state_unchanged"] is True
+    assert report["writes_performed"] is False
+
+
+def test_non_administrator_rejects_local_target_before_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        raise AssertionError("本机目标不得执行连接")
+
+    def local_interface(_interface: str, host: str) -> dict[str, object]:
+        return {
+            "interface_present": True,
+            "interface_up": True,
+            "address_count": 1,
+            "address_hash": "sha256:" + "a" * 64,
+            "target_is_local": host == "10.77.0.1",
+        }
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    monkeypatch.setattr(acceptance, "_local_interface_summary", local_interface)
+    report = asyncio.run(
+        run_acceptance(
+            replace(request(approved=True), target_host="10.77.0.1"),
+            runtime=runtime(Observer(snapshot()), elevated=False),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["passed"] is False
+    assert report["stable_error_code"] == "local_target_rejected"
+    assert report["target_probe_executed"] is False
+
+
+def test_non_administrator_rejects_network_change_after_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        return True
+
+    def local_interface(_interface: str, _host: str) -> dict[str, object]:
+        return {
+            "interface_present": True,
+            "interface_up": True,
+            "address_count": 1,
+            "address_hash": "sha256:" + "a" * 64,
+            "target_is_local": False,
+        }
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    monkeypatch.setattr(acceptance, "_local_interface_summary", local_interface)
+    report = asyncio.run(
+        run_acceptance(
+            request(approved=True),
+            runtime=runtime(
+                Observer(snapshot()),
+                elevated=False,
+                route_hashes=["sha256:" + "1" * 64, "sha256:" + "2" * 64],
+            ),
+            clock=lambda: NOW,
+        )
+    )
+    assert report["passed"] is False
+    assert report["stable_error_code"] == "network_state_changed"
+    assert report["network_state_unchanged"] is False
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [

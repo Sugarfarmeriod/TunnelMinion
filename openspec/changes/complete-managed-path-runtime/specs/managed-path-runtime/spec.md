@@ -9,6 +9,11 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 - **WHEN** signed desired config 给出未过期候选且候选通过本机地址、来源和端口策略
 - **THEN** 平台 probe 在固定预算内返回四个证据维度及观测时间；安全网段由所选 peer 唯一覆盖、批准的远端 target 实际连通且系统网络配置前后不变即可通过，不额外要求 `/32` route
 
+#### Scenario: 权限不足时保存现场连通性证据
+
+- **WHEN** 当前账户不能读取完整 WireGuard 详情，但批准的远端 target 可在固定预算内连通
+- **THEN** 阶段 2.5 验收 MAY 在确认目标不是本机地址、接口与路由摘要前后不变且未执行写操作后保存 `target-connectivity` 来源证据；该证据只证明现场连通性，不得冒充生产 PathProbe 的 peer 所有权或 handshake 证据
+
 #### Scenario: 批准目标是本机地址
 
 - **WHEN** 批准 target 与当前接口的任一本机地址相同
