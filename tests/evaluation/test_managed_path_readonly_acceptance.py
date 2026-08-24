@@ -813,6 +813,72 @@ def test_main_maps_observer_failure_without_echoing_exception(
     assert "raw route output with endpoint" not in output
 
 
+def test_approved_main_is_noninteractive_and_resolves_peer_from_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[AcceptanceRequest] = []
+    approved_hash = canonical_sha256({"peer_public_key": PEER, "host": ENDPOINT, "port": 51820})
+
+    def evidence_path(_platform: str) -> Path:
+        return Path("evidence.json")
+
+    def trusted_revision(_path: Path) -> str:
+        return "a" * 40
+
+    def reject_getpass(_prompt: str) -> str:
+        raise AssertionError("不得读取交互输入")
+
+    def no_write(
+        _report: dict[str, object],
+        _platform: str | None,
+        _output_path: Path | None = None,
+    ) -> Path | None:
+        return None
+
+    monkeypatch.setattr(acceptance.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(acceptance, "_evidence_path", evidence_path)
+    monkeypatch.setattr(acceptance, "_trusted_checkout_revision", trusted_revision)
+    monkeypatch.setattr(acceptance.getpass, "getpass", reject_getpass)
+
+    async def accepted(req: AcceptanceRequest) -> dict[str, object]:
+        captured.append(req)
+        return {
+            "schema_version": acceptance.SCHEMA_VERSION,
+            "code_sha": req.code_sha,
+            "platform_code": req.platform,
+            "passed": True,
+            "probe_executed": True,
+            "writes_performed": False,
+            "stable_error_code": None,
+        }
+
+    monkeypatch.setattr(acceptance, "run_acceptance", accepted)
+    monkeypatch.setattr(acceptance, "_write_report", no_write)
+
+    assert (
+        acceptance.main(
+            [
+                "--platform",
+                "windows",
+                "--interface",
+                "HomeMac",
+                "--code-sha",
+                "a" * 40,
+                "--approve-candidate",
+                approved_hash,
+                "--target-host",
+                "10.77.0.1",
+                "--target-port",
+                "18880",
+            ]
+        )
+        == 0
+    )
+    assert len(captured) == 1
+    assert captured[0].peer_public_key is None
+    assert captured[0].approved_candidate_hash == approved_hash
+
+
 def test_network_change_stops_before_production_probe_and_target() -> None:
     observer = Observer(snapshot())
     probe_calls: list[bool] = []
@@ -914,6 +980,52 @@ def test_preflight_output_contains_only_redacted_candidate_hash() -> None:
     assert str(report["candidate_hash"]).startswith("sha256:")
     for forbidden in (PEER, ENDPOINT, "HomeMac", "10.77.0.2/32"):
         assert forbidden not in serialized
+
+
+def test_approved_hash_uniquely_resolves_peer_without_interactive_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def target(_host: str, _port: int, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(acceptance, "tcp_target_probe", target)
+    approved = replace(request(approved=True), peer_public_key=None)
+    report = asyncio.run(
+        run_acceptance(approved, runtime=runtime(Observer(snapshot())), clock=lambda: NOW)
+    )
+
+    assert report["passed"] is True
+    assert report["probe_executed"] is True
+    serialized = json.dumps(report, ensure_ascii=False)
+    assert PEER not in serialized
+
+
+def test_approved_hash_requires_exactly_one_matching_peer() -> None:
+    duplicated = snapshot().model_copy(update={"peers": snapshot().peers * 2})
+    probe_calls: list[bool] = []
+    approved = replace(request(approved=True), peer_public_key=None)
+    report = asyncio.run(
+        run_acceptance(
+            approved,
+            runtime=runtime(Observer(duplicated), probe_calls=probe_calls),
+            clock=lambda: NOW,
+        )
+    )
+
+    assert report["stable_error_code"] == "candidate_approval_mismatch"
+    assert report["probe_executed"] is False
+    assert probe_calls == []
+
+
+def test_missing_peer_without_approved_hash_is_rejected() -> None:
+    with pytest.raises(ValueError, match="peer_key_rejected"):
+        asyncio.run(
+            run_acceptance(
+                replace(request(), peer_public_key=None),
+                runtime=runtime(Observer(snapshot())),
+                clock=lambda: NOW,
+            )
+        )
 
 
 def test_report_rejects_format_correct_but_untrusted_sha() -> None:

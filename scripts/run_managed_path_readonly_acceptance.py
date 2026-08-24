@@ -14,7 +14,7 @@ import stat
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -160,11 +160,17 @@ Executor = Callable[[tuple[str, ...], float], Awaitable[CommandResult]]
 GitRunner = Callable[[tuple[str, ...]], tuple[int, str, str]]
 
 
+def _required_peer_public_key(value: str | None) -> str:
+    if value is None:
+        raise ValueError("peer_key_rejected")
+    return value
+
+
 @dataclass(frozen=True)
 class AcceptanceRequest:
     platform: str
     interface_name: str
-    peer_public_key: str
+    peer_public_key: str | None
     code_sha: str
     approved_candidate_hash: str | None = None
     target_host: str | None = None
@@ -258,7 +264,7 @@ def _windows_runtime(request: AcceptanceRequest, executor: Executor | None) -> P
         probe_factory=lambda policy, target: WindowsPathProbe(
             observer,
             interface_name=request.interface_name,
-            peer_public_key=request.peer_public_key,
+            peer_public_key=_required_peer_public_key(request.peer_public_key),
             policy=policy,
             target_probe=target,
         ),
@@ -305,7 +311,7 @@ def _macos_runtime(request: AcceptanceRequest, executor: Executor | None) -> Pla
         probe_factory=lambda policy, target: MacOSPathProbe(
             observer,
             interface_name=request.interface_name,
-            peer_public_key=request.peer_public_key,
+            peer_public_key=_required_peer_public_key(request.peer_public_key),
             policy=policy,
             target_probe=target,
         ),
@@ -400,6 +406,18 @@ def _candidate(
     return candidate_hash, peer.endpoint_host, peer.endpoint_port
 
 
+def _approved_candidate(
+    snapshot: WindowsTunnelSnapshot, approved_hash: str
+) -> tuple[str, tuple[str, str, int]] | None:
+    matches = tuple(
+        (peer.public_key, candidate)
+        for peer in snapshot.peers
+        if (candidate := _candidate(snapshot, peer.public_key)) is not None
+        and candidate[0] == approved_hash
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
 def _target_route_owner_count(snapshot: WindowsTunnelSnapshot, target_route: str) -> int:
     """统计安全 network 覆盖精确目标 host 的 peer 数量；调用方另行核对所选 peer。"""
     try:
@@ -490,13 +508,36 @@ async def run_acceptance(
         return report
 
     target_route = f"{request.target_host}/32" if request.target_host is not None else None
-    before, snapshot = await _summary(
-        selected_runtime,
-        request.interface_name,
-        peer_public_key=request.peer_public_key if target_route is not None else None,
-        expected_host_route=target_route,
-    )
-    discovered = _candidate(snapshot, request.peer_public_key)
+    peer_public_key = request.peer_public_key
+    if peer_public_key is None:
+        before, snapshot = await _summary(selected_runtime, request.interface_name)
+        approved = _approved_candidate(snapshot, cast(str, request.approved_candidate_hash))
+        if approved is None:
+            discovered = None
+        else:
+            peer_public_key, discovered = approved
+            if runtime is None:
+                resolved_request = replace(request, peer_public_key=peer_public_key)
+                selected_runtime = (
+                    _windows_runtime(resolved_request, executor)
+                    if request.platform == "windows"
+                    else _macos_runtime(resolved_request, executor)
+                )
+            if target_route is not None:
+                before, snapshot = await _summary(
+                    selected_runtime,
+                    request.interface_name,
+                    peer_public_key=peer_public_key,
+                    expected_host_route=target_route,
+                )
+    else:
+        before, snapshot = await _summary(
+            selected_runtime,
+            request.interface_name,
+            peer_public_key=peer_public_key if target_route is not None else None,
+            expected_host_route=target_route,
+        )
+        discovered = _candidate(snapshot, peer_public_key)
     report.update(
         {
             "preflight": {"elevated": True, "stable_error_code": None},
@@ -525,6 +566,7 @@ async def run_acceptance(
 
     assert request.target_host is not None and request.target_port is not None
     assert target_route is not None
+    assert peer_public_key is not None
     reserved = request.target_port in RESERVED_TARGET_PORTS
     if reserved:
         docker_ports, docker_service_count = frozenset[int](), 0
@@ -542,7 +584,7 @@ async def run_acceptance(
     guarded, guarded_snapshot = await _summary(
         selected_runtime,
         request.interface_name,
-        peer_public_key=request.peer_public_key,
+        peer_public_key=peer_public_key,
         expected_host_route=target_route,
     )
     if guarded["summary_hash"] != before["summary_hash"]:
@@ -552,9 +594,7 @@ async def run_acceptance(
 
     target_route_owner_count = _target_route_owner_count(guarded_snapshot, target_route)
     report["target_route_owner_count"] = target_route_owner_count
-    if not _selected_peer_owns_unique_target_route(
-        guarded_snapshot, request.peer_public_key, target_route
-    ):
+    if not _selected_peer_owns_unique_target_route(guarded_snapshot, peer_public_key, target_route):
         return _finish_failure(report, clock, "target_route_owner_mismatch")
 
     target_called = False
@@ -565,7 +605,7 @@ async def run_acceptance(
         immediate, _ = await _summary(
             selected_runtime,
             request.interface_name,
-            peer_public_key=request.peer_public_key,
+            peer_public_key=peer_public_key,
             expected_host_route=target_route,
         )
         if immediate["summary_hash"] != before["summary_hash"]:
@@ -613,7 +653,7 @@ async def run_acceptance(
     after, _ = await _summary(
         selected_runtime,
         request.interface_name,
-        peer_public_key=request.peer_public_key,
+        peer_public_key=peer_public_key,
         expected_host_route=target_route,
     )
     unchanged = after["summary_hash"] == before["summary_hash"]
@@ -666,7 +706,10 @@ def _validate_request(request: AcceptanceRequest) -> None:
     interface_pattern = _WINDOWS_INTERFACE if request.platform == "windows" else _MACOS_INTERFACE
     if interface_pattern.fullmatch(request.interface_name) is None:
         raise ValueError("interface_rejected")
-    if not request.peer_public_key or len(request.peer_public_key) > 128:
+    if request.peer_public_key is None:
+        if request.approved_candidate_hash is None:
+            raise ValueError("peer_key_rejected")
+    elif not request.peer_public_key or len(request.peer_public_key) > 128:
         raise ValueError("peer_key_rejected")
     if _CODE_SHA.fullmatch(request.code_sha) is None:
         raise ValueError("code_sha_rejected")
@@ -1016,7 +1059,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         if args.interface is None or args.code_sha is None:
             parser.error("指定平台时必须提供 --interface 和 --code-sha")
-        if not sys.stdin.isatty():
+        interactive_peer_required = args.approve_candidate is None
+        if interactive_peer_required and not sys.stdin.isatty():
             report = {
                 "schema_version": SCHEMA_VERSION,
                 "code_sha": args.code_sha,
@@ -1057,7 +1101,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 1
-        peer_public_key = getpass.getpass("Peer public key（不会回显或保存）: ")
+        peer_public_key = (
+            getpass.getpass("Peer public key（不会回显或保存）: ")
+            if interactive_peer_required
+            else None
+        )
         try:
             report = asyncio.run(
                 run_acceptance(
