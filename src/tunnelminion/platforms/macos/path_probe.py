@@ -14,6 +14,7 @@ from tunnelminion.network.path_probe import (
     PathProbePolicy,
     PlatformPathProbe,
     TargetProbe,
+    target_matches_local_address,
     tcp_target_probe,
 )
 from tunnelminion.platforms.macos.managed_system import (
@@ -21,6 +22,7 @@ from tunnelminion.platforms.macos.managed_system import (
     MacOSTunnelSnapshot,
     MacOSWireGuardObserver,
 )
+from tunnelminion.platforms.windows.managed_system import peer_owns_unique_target
 
 
 class _PathObserver(Protocol):
@@ -100,6 +102,18 @@ class MacOSPathProbe(PlatformPathProbe):
             last_handshake_at=handshake_at,
             handshake_probe_at=observed_at,
             host_routes=snapshot.host_routes,
+            route_owned_by_selected_peer=(
+                expected_host_route is not None
+                and peer_owns_unique_target(
+                    snapshot.peers,
+                    self._peer_public_key,
+                    expected_host_route,
+                )
+            ),
+            target_is_local=(
+                expected_host_route is not None
+                and target_matches_local_address(expected_host_route, snapshot.addresses)
+            ),
             host_route_probe_at=observed_at,
             observed_at=observed_at,
             error_code=error,

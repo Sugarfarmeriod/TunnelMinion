@@ -174,6 +174,40 @@ def test_windows_probe_passes_exact_route_context_to_platform_observer() -> None
     assert observer.calls == 1
 
 
+def test_windows_probe_accepts_unique_safe_network_without_exact_route() -> None:
+    broad_peer = WindowsPeerSnapshot(
+        public_key=PEER,
+        endpoint_host="fd00::10",
+        endpoint_port=51820,
+        allowed_networks=("fd00::/120",),
+        latest_handshake_epoch=int(NOW.timestamp()),
+    )
+    broad_snapshot = snapshot(peer=broad_peer).model_copy(update={"host_routes": ()})
+
+    result = run(make_probe(Observer(broad_snapshot)).probe(**args()))
+
+    assert result.verified
+    assert result.host_route_present
+
+
+def test_windows_probe_rejects_local_target_before_connect() -> None:
+    broad_peer = WindowsPeerSnapshot(
+        public_key=PEER,
+        endpoint_host="fd00::10",
+        endpoint_port=51820,
+        allowed_networks=("fd00::/120",),
+        latest_handshake_epoch=int(NOW.timestamp()),
+    )
+    local_snapshot = snapshot(peer=broad_peer).model_copy(
+        update={"host_routes": (), "addresses": ("fd00::2/128",)}
+    )
+
+    result = run(make_probe(Observer(local_snapshot)).probe(**args()))
+
+    assert not result.verified
+    assert result.target_probe_at is None
+
+
 @pytest.mark.parametrize(
     ("error_code", "expected"),
     [

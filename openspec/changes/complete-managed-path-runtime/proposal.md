@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 为 Windows 与 macOS 提供确定性、只读的平台 `PathProbe`，从实时系统事实形成有时间边界的 endpoint、handshake、host route 和 target probe 证据。
+- 为 Windows 与 macOS 提供确定性、只读的平台 `PathProbe`，从实时系统事实形成有时间边界的 endpoint、handshake、唯一 peer 路由归属和 target probe 证据；不把缺少单独 `/32` host route 作为已批准远端连通的否决条件。
 - 在现有本机网络治理 SQLite 数据库内增加唯一权威的 L3 grant repository，以独立表持久化批准与撤销状态；本机控制面保留唯一写权限，managed path lifecycle 只获得只读查询端口，不新建第二套数据库或并行授权来源。
 - 建立一条共享的 managed path lifecycle，把既有 signed config 同步、权威 L3 授权读取、Provider governance、Provider、`DirectPathVerifier` 和 `DirectPathController` 串成单并发生命周期，并持久化可恢复的脱敏 selection/evidence 状态。
 - 未找到与 network/node/revision/Provider/资源范围/计划摘要/观察指纹精确匹配的有效本机 L3 授权时，只保存 pending 并显示 `awaiting-authorization`；普通启动、模型、对话、记忆和服务观察均不得创建授权或触发网络写入。

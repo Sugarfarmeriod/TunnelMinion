@@ -19,6 +19,7 @@ from tunnelminion.network.path_probe import (
     PathProbeFacts,
     PathProbePolicy,
     PlatformPathProbe,
+    target_matches_local_address,
     tcp_target_probe,
 )
 
@@ -65,6 +66,8 @@ def facts(
     endpoints: tuple[tuple[str, int], ...] = (("10.0.0.10", 51820),),
     handshake: datetime | None = NOW,
     routes: tuple[str, ...] = ("10.0.0.2/32",),
+    route_owned: bool = False,
+    target_is_local: bool = False,
     error: DirectPathErrorCode | None = None,
     source: str = "fixture:readonly",
 ) -> PathProbeFacts:
@@ -76,6 +79,8 @@ def facts(
         last_handshake_at=handshake,
         handshake_probe_at=NOW,
         host_routes=routes,
+        route_owned_by_selected_peer=route_owned,
+        target_is_local=target_is_local,
         host_route_probe_at=NOW,
         observed_at=NOW,
         error_code=error,
@@ -198,6 +203,17 @@ def test_facts_reject_secret_like_or_unbounded_values() -> None:
             host_route_probe_at=NOW,
             observed_at=NOW,
         )
+
+
+def test_local_target_matching_ignores_invalid_and_nonmatching_addresses() -> None:
+    assert target_matches_local_address(
+        "10.0.0.2/32",
+        ("10.0.0.3/32", "invalid", "10.0.0.2/32"),
+    )
+    assert not target_matches_local_address(
+        "10.0.0.2/32",
+        ("10.0.0.3/32", "invalid"),
+    )
     with pytest.raises(ValidationError, match="host route"):
         facts(routes=("10.0.0.0/24",))
     with pytest.raises(ValidationError, match="规范"):
@@ -249,6 +265,40 @@ def test_probe_filters_sources_network_ports_expiry_and_budget() -> None:
     assert result.target_probe_at is not None
     assert result.target_probe_succeeded
     assert target.calls == [("10.0.0.2", 51820, 2.0)]
+
+
+def test_probe_accepts_unique_safe_peer_route_without_exact_host_route() -> None:
+    target = TargetReader()
+    result = run(
+        make_probe(
+            FactsReader(facts(routes=(), route_owned=True)),
+            target,
+        ).probe(**probe_args())
+    )
+
+    assert result.verified
+    assert result.host_route_present
+    assert target.calls == [("10.0.0.2", 51820, 2.0)]
+
+
+def test_probe_rejects_local_target_before_connect() -> None:
+    target = TargetReader()
+    result = run(
+        make_probe(
+            FactsReader(facts(routes=(), route_owned=True, target_is_local=True)),
+            target,
+        ).probe(**probe_args())
+    )
+
+    assert not result.verified
+    assert result.stable_error_code is DirectPathErrorCode.HOST_ROUTE_MISSING
+    assert result.target_probe_at is None
+    assert target.calls == []
+
+
+def test_probe_rejects_target_route_mismatch() -> None:
+    with pytest.raises(ValueError, match="target 与 route 不一致"):
+        run(make_probe(FactsReader(facts())).probe(**probe_args(target_host="10.0.0.3")))
 
 
 def test_probe_refresh_is_cached_and_concurrent_requests_are_serialized() -> None:

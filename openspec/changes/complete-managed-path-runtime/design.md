@@ -44,7 +44,7 @@ lifecycle 只接受从该 repository 读出的精确有效授权，并要求其�
 
 ### 3. 平台 PathProbe 是只读适配器，Provider verify 仍是写事务的完成门禁
 
-Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测获得 endpoint reachability、最新 handshake、精确 host route 和 target reachability。探测目标只能来自通过策略过滤的结构化候选和 desired config；不接受 prompt、对话文本、完整秘密或任意命令。probe 不调用 Provider 写 API；Provider apply 后仍由既有 Provider `verify` 重新读取所有权和系统状态，path verifier/controller 只决定可观察 path selection，不能把命令退出码升级为 verified。
+Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测获得 endpoint reachability、最新 handshake、唯一 peer 路由归属和 target reachability。目标地址可以由所选 peer 的安全精确 host route 或安全网段唯一覆盖；只要没有竞争 peer、默认路由/超宽路由等不安全覆盖，批准的远端 target 实际连通且探测前后网络不变，就不再要求系统额外存在单独 `/32` route。探测目标不得是本机地址，只能来自通过策略过滤的结构化候选和 desired config；不接受 prompt、对话文本、完整秘密或任意命令。probe 不调用 Provider 写 API；Provider apply 后仍由既有 Provider `verify` 重新读取所有权和系统状态，path verifier/controller 只决定可观察 path selection，不能把命令退出码升级为 verified。
 
 备选方案是复用通用工具运行时或模型诊断；否决原因是其输入范围更宽，且无法证明固定预算、无模型与无副作用。
 

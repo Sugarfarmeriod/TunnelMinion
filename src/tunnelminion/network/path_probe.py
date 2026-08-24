@@ -58,6 +58,8 @@ class PathProbeFacts(BaseModel):
     last_handshake_at: datetime | None = None
     handshake_probe_at: datetime
     host_routes: tuple[str, ...] = Field(default=(), max_length=64)
+    route_owned_by_selected_peer: bool = False
+    target_is_local: bool = False
     host_route_probe_at: datetime
     observed_at: datetime
     error_code: DirectPathErrorCode | None = None
@@ -151,6 +153,7 @@ class PlatformPathProbe:
         self._validate_route_policy(expected_host_route)
         _validate_target(target_host, target_port)
         self._validate_target_policy(target_host, target_port)
+        _validate_target_route_binding(expected_host_route, target_host)
         key = self._request_key(
             network_id=network_id,
             node_id=node_id,
@@ -226,10 +229,14 @@ class PlatformPathProbe:
 
             handshake_fresh = self._handshake_fresh(facts.last_handshake_at, current)
             expected_route = str(ipaddress.ip_network(expected_host_route, strict=True))
-            route_present = expected_route in facts.host_routes
-            target_probe_at = current if selected is not None else None
+            route_present = (
+                expected_route in facts.host_routes or facts.route_owned_by_selected_peer
+            ) and not facts.target_is_local
+            target_probe_at = (
+                current if selected is not None and not facts.target_is_local else None
+            )
             target_succeeded = False
-            if selected is not None:
+            if selected is not None and not facts.target_is_local:
                 self._raise_if_cancelled(cancel_event)
                 target_succeeded = await self._run_target_probe(
                     target_host,
@@ -565,3 +572,21 @@ def _validate_target(host: str, port: int) -> None:
         raise ValueError("PathProbe 目标必须属于私有、环回或链路本地地址")
     if not 1 <= port <= 65535:
         raise ValueError("PathProbe 目标端口无效")
+
+
+def _validate_target_route_binding(expected_host_route: str, target_host: str) -> None:
+    route = ipaddress.ip_network(expected_host_route, strict=True)
+    if route.network_address != ipaddress.ip_address(target_host):
+        raise ValueError("PathProbe target 与 route 不一致")
+
+
+def target_matches_local_address(target_route: str, addresses: tuple[str, ...]) -> bool:
+    """只比较结构化地址，不导出接口地址正文。"""
+    target = ipaddress.ip_network(target_route, strict=True).network_address
+    for value in addresses:
+        try:
+            if ipaddress.ip_interface(value).ip == target:
+                return True
+        except ValueError:
+            continue
+    return False
