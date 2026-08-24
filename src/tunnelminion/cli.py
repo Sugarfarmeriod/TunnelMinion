@@ -24,6 +24,14 @@ _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
+def _retain_local_application_owner(application: object, bundle: object) -> None:
+    """把常规本地 managed owner 绑定到裸 FastAPI 应用。"""
+    state = getattr(application, "state", None)
+    owner = getattr(bundle, "managed_node", None)
+    if state is not None and owner is not None:
+        state.managed_node = owner
+
+
 def _runtime_port(value: str) -> int:
     """解析 runtime 本地端口，同时保持帮助文本简短。"""
     port = int(value)
@@ -286,11 +294,13 @@ def _runtime_child(values: list[str]) -> int:
             if sys.platform == "darwin":
                 from tunnelminion.macos_app import build_macos_local_application
 
-                application = build_macos_local_application(args.data_dir).app
+                bundle = build_macos_local_application(args.data_dir)
             else:
                 from tunnelminion.app import build_windows_application
 
-                application = build_windows_application(args.data_dir).app
+                bundle = build_windows_application(args.data_dir)
+            application = bundle.app
+            _retain_local_application_owner(application, bundle)
         uvicorn.run(
             application,
             host=host,
@@ -655,11 +665,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if sys.platform == "darwin":
             from tunnelminion.macos_app import build_macos_local_application
 
-            application = build_macos_local_application(args.data_dir).app
+            bundle = build_macos_local_application(args.data_dir)
         else:
             from tunnelminion.app import build_windows_application
 
-            application = build_windows_application(args.data_dir).app
+            bundle = build_windows_application(args.data_dir)
+        application = bundle.app
+        _retain_local_application_owner(application, bundle)
         uvicorn.run(application, host="127.0.0.1", port=args.port)
         return 0
     factory = (

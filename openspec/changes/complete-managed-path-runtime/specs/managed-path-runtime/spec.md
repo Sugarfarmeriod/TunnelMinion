@@ -2,12 +2,22 @@
 
 ### Requirement: 平台 PathProbe 必须只读、确定且有界
 
-Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和经过本机策略过滤的结构化候选读取 endpoint、WireGuard handshake、精确 host route 与 target reachability。Probe MUST 固定候选数量、目标、超时、刷新间隔和单并发，MUST NOT 调用模型、执行任意命令或修改防火墙、WireGuard、路由、端口转发和监听器。
+Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和经过本机策略过滤的结构化候选读取 endpoint、WireGuard handshake、唯一 peer 路由归属与 target reachability。目标 MAY 由所选 peer 的安全精确 host route 或安全网段唯一覆盖；当不存在竞争 peer 或不安全宽路由、批准的远端 target 实际连通且网络前后不变时，系统 MUST NOT 仅因缺少单独 `/32` route 判定失败。Probe MUST 拒绝本机目标，固定候选数量、目标、超时、刷新间隔和单并发，MUST NOT 调用模型、执行任意命令或修改防火墙、WireGuard、路由、端口转发和监听器。
 
 #### Scenario: 对批准候选执行真实只读探测
 
 - **WHEN** signed desired config 给出未过期候选且候选通过本机地址、来源和端口策略
-- **THEN** 平台 probe 在固定预算内返回四个证据维度及观测时间，且系统网络配置前后不变
+- **THEN** 平台 probe 在固定预算内返回四个证据维度及观测时间；安全网段由所选 peer 唯一覆盖、批准的远端 target 实际连通且系统网络配置前后不变即可通过，不额外要求 `/32` route
+
+#### Scenario: 权限不足时保存现场连通性证据
+
+- **WHEN** 当前账户不能读取完整 WireGuard 详情，但批准的远端 target 可在固定预算内连通
+- **THEN** 阶段 2.5 验收 MAY 在确认目标不是本机地址、接口与路由摘要前后不变且未执行写操作后保存 `target-connectivity` 来源证据；该证据只证明现场连通性，不得冒充生产 PathProbe 的 peer 所有权或 handshake 证据
+
+#### Scenario: 批准目标是本机地址
+
+- **WHEN** 批准 target 与当前接口的任一本机地址相同
+- **THEN** probe 在 target 连接前 fail closed，不把本机回环式成功冒充远端 peer 连通
 
 #### Scenario: 对话包含未批准 endpoint
 
@@ -68,7 +78,7 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 
 #### Scenario: 只读刷新恢复
 
-- **WHEN** 陈旧状态触发合并后的单次刷新且新的 handshake、route 和 target probe 全部成功
+- **WHEN** 陈旧状态触发合并后的单次刷新且新的 handshake、唯一 peer 路由归属和远端 target probe 全部成功
 - **THEN** 系统以新观测时间更新 selection/evidence 为 fresh direct，且没有调用 Provider apply
 
 #### Scenario: 读取或导出 path 状态

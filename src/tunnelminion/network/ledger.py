@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -63,7 +65,7 @@ class SQLiteManagedResourceLedger:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS managed_network_resources (
@@ -84,7 +86,7 @@ class SQLiteManagedResourceLedger:
     def put(self, entry: ManagedResourceLedgerEntry) -> None:
         """幂等保存同一资源；资源 ID 变化必须先显式删除旧账本。"""
         ownership = entry.ownership
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             current = connection.execute(
                 """SELECT resource_id FROM managed_network_resources
                 WHERE network_id=? AND node_id=?""",
@@ -118,7 +120,7 @@ class SQLiteManagedResourceLedger:
 
     def get(self, network_id: NetworkId, node_id: NodeId) -> ManagedResourceLedgerEntry | None:
         """读取精确 network/node 的账本记录。"""
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             row = connection.execute(
                 """SELECT payload FROM managed_network_resources
                 WHERE network_id=? AND node_id=?""",
@@ -130,7 +132,7 @@ class SQLiteManagedResourceLedger:
 
     def list_all(self) -> tuple[ManagedResourceLedgerEntry, ...]:
         """按稳定身份返回全部受管资源，不读取秘密后端。"""
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             rows = connection.execute(
                 """SELECT payload FROM managed_network_resources
                 ORDER BY network_id, node_id"""
@@ -153,13 +155,14 @@ class SQLiteManagedResourceLedger:
             return False
         if entry.ownership.system_fingerprint != expected_system_fingerprint:
             raise ValueError("实时系统指纹与本地所有权账本不一致")
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             cursor = connection.execute(
                 """DELETE FROM managed_network_resources
                 WHERE network_id=? AND node_id=?""",
                 (str(network_id), str(node_id)),
             )
-        return cursor.rowcount == 1
+            deleted = cursor.rowcount
+        return deleted == 1
 
     def export_public(self) -> tuple[ManagedResourcePublicExport, ...]:
         """导出时删除秘密引用名称，仅表达引用是否存在。"""
@@ -175,7 +178,7 @@ class SQLiteManagedResourceLedger:
 
     def assert_no_secret_material(self) -> None:
         """检查普通 SQLite payload 没有常见秘密字段或 WireGuard 私钥形态。"""
-        with self._connect() as connection:
+        with self._connection_scope() as connection:
             rows = connection.execute("SELECT payload FROM managed_network_resources").fetchall()
         for row in rows:
             payload = cast(str, row["payload"])
@@ -188,7 +191,21 @@ class SQLiteManagedResourceLedger:
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        return connection
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA foreign_keys=ON")
+            return connection
+        except BaseException:
+            connection.close()
+            raise
+
+    @contextmanager
+    def _connection_scope(self) -> Generator[sqlite3.Connection, None, None]:
+        """为每次短事务同时提供提交/回滚和确定性关闭。"""
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()

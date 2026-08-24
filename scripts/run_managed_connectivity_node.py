@@ -7,26 +7,14 @@ import asyncio
 import json
 import os
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tunnelminion.coordinator.contracts import VerificationKeyView
-from tunnelminion.domain.identifiers import AuthorizationId
 from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretStore
 from tunnelminion.network.contracts import (
-    NetworkAcknowledgement,
     NetworkAction,
     OwnershipState,
-    ReceiptStatus,
     SignedDesiredConfig,
-)
-from tunnelminion.network.governance import (
-    ManagedNetworkGovernanceWorkflow,
-    NetworkAuthorizationGrant,
-    NetworkAuthorizationScope,
-    NetworkOperationPolicy,
-    NetworkPolicyAction,
-    SQLiteNetworkGovernanceStore,
 )
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 from tunnelminion.network.signing import (
@@ -63,15 +51,6 @@ from tunnelminion.platforms.windows.system import (
     PsutilSystemReader,
     SubprocessCommandRunner,
 )
-from tunnelminion.tools.contracts import ToolCancellationToken
-
-
-class Acknowledgements:
-    def __init__(self) -> None:
-        self.items: list[NetworkAcknowledgement] = []
-
-    async def acknowledge(self, acknowledgement: NetworkAcknowledgement) -> None:
-        self.items.append(acknowledgement)
 
 
 def _provider(platform: str, root: Path):
@@ -140,13 +119,11 @@ async def execute(
     approve_plan_hash: str | None,
 ) -> dict[str, object]:
     root = data_directory.resolve()
-    provider, ledger = _provider(platform, root)
     if command == "recover":
-        receipts = await provider.recover(cancellation=ToolCancellationToken())
-        return {
-            "platform": platform,
-            "recovered": [receipt.model_dump(mode="json") for receipt in receipts],
-        }
+        raise RuntimeError(
+            "真实恢复必须等待常规应用装配唯一 managed path lifecycle，不得直接调用 Provider.recover"
+        )
+    provider, ledger = _provider(platform, root)
     if envelope_path is None or verification_key_path is None:
         raise ValueError("preview/apply/remove 必须提供签名配置和验证公钥")
     envelope = SignedDesiredConfig.model_validate_json(envelope_path.read_text(encoding="utf-8"))
@@ -197,53 +174,10 @@ async def execute(
         }
     if approve_plan_hash != plan.plan_hash:
         raise PermissionError("本机批准的 plan hash 与实时预览不一致")
-    now = datetime.now(UTC)
-    policy = NetworkOperationPolicy()
-    policy.approve(
-        NetworkAuthorizationGrant(
-            authorization_id=AuthorizationId.new(),
-            scope=NetworkAuthorizationScope.from_plan(
-                plan,
-                address_pool="10.253.0.0/24",
-            ),
-            approved_by="operator-confirmed-2026-07-29",
-            approved_at=now,
-            expires_at=now + timedelta(minutes=15),
-        ),
-        local_control=True,
+    raise RuntimeError(
+        "真实 apply/remove 必须等待常规应用装配唯一 managed path lifecycle、"
+        "持久授权仓储和真实 path verifier/controller；当前仅允许只读 preview"
     )
-    if removing:
-        decision = policy.evaluate(plan, at=now)
-        if decision.action is not NetworkPolicyAction.EXECUTE:
-            raise PermissionError("本机 L3 授权未覆盖实时清理计划")
-        receipt = await provider.apply(
-            plan,
-            idempotency_key=f"netop_{plan.plan_hash.removeprefix('sha256:')}",
-            cancellation=ToolCancellationToken(),
-        )
-        verification = await provider.verify(plan)
-        verified = receipt.status is ReceiptStatus.APPLIED and verification.succeeded
-        return {
-            "platform": platform,
-            "phase": "verified" if verified else "manual_intervention",
-            "plan_hash": plan.plan_hash,
-            "receipt_status": receipt.status.value,
-            "verification_succeeded": verification.succeeded,
-        }
-    acknowledgements = Acknowledgements()
-    record = await ManagedNetworkGovernanceWorkflow(
-        provider,
-        policy,
-        SQLiteNetworkGovernanceStore(root / "governance.sqlite3"),
-        acknowledgements,
-    ).reconcile(envelope, action=NetworkAction.CREATE, ownership=None)
-    return {
-        "platform": platform,
-        "phase": record.phase.value,
-        "plan_hash": plan.plan_hash,
-        "receipt_status": None if record.receipt is None else record.receipt.status.value,
-        "acknowledgements": [item.stage.value for item in acknowledgements.items],
-    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

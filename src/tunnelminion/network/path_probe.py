@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     CandidateSource,
     EndpointCandidate,
@@ -57,6 +58,8 @@ class PathProbeFacts(BaseModel):
     last_handshake_at: datetime | None = None
     handshake_probe_at: datetime
     host_routes: tuple[str, ...] = Field(default=(), max_length=64)
+    route_owned_by_selected_peer: bool = False
+    target_is_local: bool = False
     host_route_probe_at: datetime
     observed_at: datetime
     error_code: DirectPathErrorCode | None = None
@@ -119,10 +122,12 @@ class PlatformPathProbe:
         policy: PathProbePolicy,
         facts_reader: PathFactsReader,
         target_probe: TargetProbe = tcp_target_probe,
+        facts_reader_for_route: Callable[[str], Awaitable[PathProbeFacts]] | None = None,
     ) -> None:
         self._provider = provider
         self._policy = policy
         self._facts_reader = facts_reader
+        self._facts_reader_for_route = facts_reader_for_route
         self._target_probe = target_probe
         self._lock = asyncio.Lock()
         self._last_results: dict[str, DirectPathEvidence] = {}
@@ -130,6 +135,10 @@ class PlatformPathProbe:
     async def probe(
         self,
         *,
+        network_id: NetworkId,
+        node_id: NodeId,
+        plan_hash: str,
+        authorization_revision: int,
         revision: int,
         candidates: tuple[EndpointCandidate, ...],
         expected_host_route: str,
@@ -141,8 +150,15 @@ class PlatformPathProbe:
         """执行一次单并发、可取消、最小刷新间隔受限的只读探测。"""
         current = self._aware(now)
         _validate_host_route(expected_host_route)
+        self._validate_route_policy(expected_host_route)
         _validate_target(target_host, target_port)
+        self._validate_target_policy(target_host, target_port)
+        _validate_target_route_binding(expected_host_route, target_host)
         key = self._request_key(
+            network_id=network_id,
+            node_id=node_id,
+            plan_hash=plan_hash,
+            authorization_revision=authorization_revision,
             revision=revision,
             candidates=candidates,
             expected_host_route=expected_host_route,
@@ -165,19 +181,36 @@ class PlatformPathProbe:
                     cancel_event,
                     timeout_seconds=self._policy.per_candidate_timeout_seconds
                     * max(1, len(ranked)),
+                    expected_host_route=expected_host_route,
                 )
             except PermissionError:
                 facts = self._fallback_facts(current, DirectPathErrorCode.PERMISSION_DENIED)
-            except (TimeoutError, OSError):
+            except TimeoutError:
+                facts = self._fallback_facts(current, DirectPathErrorCode.TIMEOUT)
+            except NotImplementedError:
                 facts = self._fallback_facts(current, DirectPathErrorCode.UNSUPPORTED)
+            except ConnectionError:
+                facts = self._fallback_facts(
+                    current,
+                    DirectPathErrorCode.PROVIDER_UNAVAILABLE,
+                )
+            except OSError:
+                facts = self._fallback_facts(current, DirectPathErrorCode.PATH_UNAVAILABLE)
             self._raise_if_cancelled(cancel_event)
             if facts.error_code is not None:
                 evidence = self._failed_evidence(
+                    network_id=network_id,
+                    node_id=node_id,
+                    plan_hash=plan_hash,
+                    authorization_revision=authorization_revision,
                     revision=revision,
                     candidate_count=len(ranked),
                     current=current,
                     facts=facts,
                     error_code=facts.error_code,
+                    target_host=target_host,
+                    target_port=target_port,
+                    expected_host_route=expected_host_route,
                 )
                 self._last_results[key] = evidence
                 return evidence
@@ -196,10 +229,14 @@ class PlatformPathProbe:
 
             handshake_fresh = self._handshake_fresh(facts.last_handshake_at, current)
             expected_route = str(ipaddress.ip_network(expected_host_route, strict=True))
-            route_present = expected_route in facts.host_routes
-            target_probe_at = current if selected is not None else None
+            route_present = (
+                expected_route in facts.host_routes or facts.route_owned_by_selected_peer
+            ) and not facts.target_is_local
+            target_probe_at = (
+                current if selected is not None and not facts.target_is_local else None
+            )
             target_succeeded = False
-            if selected is not None:
+            if selected is not None and not facts.target_is_local:
                 self._raise_if_cancelled(cancel_event)
                 target_succeeded = await self._run_target_probe(
                     target_host,
@@ -211,8 +248,15 @@ class PlatformPathProbe:
                 selected is not None and handshake_fresh and route_present and target_succeeded
             )
             evidence = DirectPathEvidence(
+                network_id=network_id,
+                node_id=node_id,
+                plan_hash=plan_hash,
+                authorization_revision=authorization_revision,
                 provider=self._provider,
                 revision=revision,
+                target_host_hash=canonical_sha256({"host": target_host}),
+                target_port=target_port,
+                route_identity_hash=canonical_sha256({"host_route": expected_host_route}),
                 candidate_count=len(ranked),
                 selected_candidate_hash=(
                     canonical_sha256(selected.model_dump(mode="json"))
@@ -239,6 +283,8 @@ class PlatformPathProbe:
                 ),
                 source=facts.source,
                 observed_at=current,
+                freshness_ttl_seconds=self._policy.max_handshake_age_seconds,
+                expires_at=current + timedelta(seconds=self._policy.max_handshake_age_seconds),
             )
             self._last_results[key] = evidence
             return evidence
@@ -258,6 +304,7 @@ class PlatformPathProbe:
     async def target(self, host: str, port: int, timeout_seconds: float) -> bool:
         """兼容基础 PathProbe 契约的固定目标探测。"""
         _validate_target(host, port)
+        self._validate_target_policy(host, port)
         return await asyncio.wait_for(
             self._target_probe(host, port, timeout_seconds), timeout=timeout_seconds
         )
@@ -267,11 +314,17 @@ class PlatformPathProbe:
         cancel_event: asyncio.Event | None,
         *,
         timeout_seconds: float,
+        expected_host_route: str,
     ) -> PathProbeFacts:
+        reader: Awaitable[PathProbeFacts]
+        if self._facts_reader_for_route is not None:
+            reader = self._facts_reader_for_route(expected_host_route)
+        else:
+            reader = self._facts_reader()
         return cast(
             PathProbeFacts,
             await self._await_cancellable(
-                self._facts_reader(),
+                reader,
                 cancel_event,
                 timeout_seconds=timeout_seconds,
             ),
@@ -359,15 +412,29 @@ class PlatformPathProbe:
     def _failed_evidence(
         self,
         *,
+        network_id: NetworkId,
+        node_id: NodeId,
+        plan_hash: str,
+        authorization_revision: int,
         revision: int,
         candidate_count: int,
         current: datetime,
         facts: PathProbeFacts,
         error_code: DirectPathErrorCode,
+        target_host: str,
+        target_port: int,
+        expected_host_route: str,
     ) -> DirectPathEvidence:
         return DirectPathEvidence(
+            network_id=network_id,
+            node_id=node_id,
+            plan_hash=plan_hash,
+            authorization_revision=authorization_revision,
             provider=self._provider,
             revision=revision,
+            target_host_hash=canonical_sha256({"host": target_host}),
+            target_port=target_port,
+            route_identity_hash=canonical_sha256({"host_route": expected_host_route}),
             candidate_count=candidate_count,
             last_handshake_at=facts.last_handshake_at,
             handshake_probe_at=facts.handshake_probe_at,
@@ -376,7 +443,32 @@ class PlatformPathProbe:
             stable_error_code=error_code,
             source=facts.source,
             observed_at=current,
+            freshness_ttl_seconds=self._policy.max_handshake_age_seconds,
+            expires_at=current + timedelta(seconds=self._policy.max_handshake_age_seconds),
         )
+
+    def _validate_target_policy(self, host: str, port: int) -> None:
+        address = ipaddress.ip_address(host)
+        approved_networks = tuple(
+            ipaddress.ip_network(value, strict=True) for value in self._policy.approved_networks
+        )
+        if port not in self._policy.approved_ports or not any(
+            address in network for network in approved_networks
+        ):
+            raise ValueError("PathProbe target 不在批准的 network/port 范围")
+
+    def _validate_route_policy(self, route: str) -> None:
+        network = ipaddress.ip_network(route, strict=True)
+        approved_networks = tuple(
+            ipaddress.ip_network(value, strict=True) for value in self._policy.approved_networks
+        )
+        if not any(
+            network.version == approved.version
+            and int(network.network_address) >= int(approved.network_address)
+            and int(network.broadcast_address) <= int(approved.broadcast_address)
+            for approved in approved_networks
+        ):
+            raise ValueError("PathProbe host route 不在批准的 network 范围")
 
     @staticmethod
     def _fallback_facts(
@@ -421,6 +513,10 @@ class PlatformPathProbe:
     @staticmethod
     def _request_key(
         *,
+        network_id: NetworkId,
+        node_id: NodeId,
+        plan_hash: str,
+        authorization_revision: int,
         revision: int,
         candidates: tuple[EndpointCandidate, ...],
         expected_host_route: str,
@@ -429,6 +525,10 @@ class PlatformPathProbe:
     ) -> str:
         return canonical_sha256(
             {
+                "network_id": str(network_id),
+                "node_id": str(node_id),
+                "plan_hash": plan_hash,
+                "authorization_revision": authorization_revision,
                 "revision": revision,
                 "candidates": [item.model_dump(mode="json") for item in candidates],
                 "expected_host_route": expected_host_route,
@@ -451,7 +551,16 @@ class PlatformPathProbe:
 
 def _validate_host_route(value: str) -> None:
     network = ipaddress.ip_network(value, strict=True)
-    if network.prefixlen != network.max_prefixlen:
+    address = network.network_address
+    if network.prefixlen != network.max_prefixlen or any(
+        (
+            address.is_multicast,
+            address.is_unspecified,
+            address.is_loopback,
+            address.is_reserved,
+            address.is_link_local,
+        )
+    ):
         raise ValueError("PathProbe 目标必须是精确 host route")
 
 
@@ -463,3 +572,21 @@ def _validate_target(host: str, port: int) -> None:
         raise ValueError("PathProbe 目标必须属于私有、环回或链路本地地址")
     if not 1 <= port <= 65535:
         raise ValueError("PathProbe 目标端口无效")
+
+
+def _validate_target_route_binding(expected_host_route: str, target_host: str) -> None:
+    route = ipaddress.ip_network(expected_host_route, strict=True)
+    if route.network_address != ipaddress.ip_address(target_host):
+        raise ValueError("PathProbe target 与 route 不一致")
+
+
+def target_matches_local_address(target_route: str, addresses: tuple[str, ...]) -> bool:
+    """只比较结构化地址，不导出接口地址正文。"""
+    target = ipaddress.ip_network(target_route, strict=True).network_address
+    for value in addresses:
+        try:
+            if ipaddress.ip_interface(value).ip == target:
+                return True
+        except ValueError:
+            continue
+    return False

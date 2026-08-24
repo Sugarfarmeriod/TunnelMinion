@@ -103,6 +103,9 @@ class NetworkErrorCode(StrEnum):
     INVALID_CONFIG = "invalid_config"
     VERSION_INCOMPATIBLE = "version_incompatible"
     PROVIDER_UNAVAILABLE = "provider_unavailable"
+    UNSUPPORTED = "unsupported"
+    TIMEOUT = "timeout"
+    PATH_UNAVAILABLE = "path_unavailable"
     PERMISSION_DENIED = "permission_denied"
     AUTHORIZATION_REQUIRED = "authorization_required"
     ROUTE_NOT_ALLOWED = "route_not_allowed"
@@ -114,6 +117,8 @@ class NetworkErrorCode(StrEnum):
     ROLLBACK_FAILED = "rollback_failed"
     CANCELLED = "cancelled"
     RECOVERY_REQUIRED = "recovery_required"
+    CLAIM_CONFLICT = "claim_conflict"
+    JOURNAL_CONFLICT = "journal_conflict"
 
 
 class ReceiptStatus(StrEnum):
@@ -464,6 +469,19 @@ def compute_plan_hash(
     )
 
 
+def network_operation_idempotency_key(plan: NetworkPlan) -> str:
+    """由计划身份生成跨生命周期与 Provider 共用的稳定幂等键。"""
+    digest = canonical_sha256(
+        {
+            "network_id": str(plan.desired.network_id),
+            "node_id": str(plan.desired.target_node_id),
+            "revision": plan.desired.revision,
+            "plan_hash": plan.plan_hash,
+        }
+    ).removeprefix("sha256:")
+    return f"netop_{digest}"
+
+
 class StepReceipt(BaseModel):
     """单个已确认步骤的无秘密回执。"""
 
@@ -483,6 +501,8 @@ class ProviderReceipt(BaseModel):
     idempotency_key: str = Field(pattern=r"^netop_[0-9a-f]{64}$")
     plan_hash: str = Field(pattern=_HASH.pattern)
     revision: int = Field(ge=1)
+    provider: ProviderKind
+    observation_fingerprint: str = Field(pattern=_HASH.pattern)
     status: ReceiptStatus
     steps: tuple[StepReceipt, ...] = Field(default=(), max_length=MAX_PLAN_STEPS)
     observation_after: NetworkObservation | None = None
@@ -502,6 +522,11 @@ class ProviderReceipt(BaseModel):
                 raise ValueError("失败回执必须包含错误")
         elif self.error is not None:
             raise ValueError("非失败回执不得包含错误")
+        if (
+            self.observation_after is not None
+            and self.observation_fingerprint != self.observation_after.system_fingerprint
+        ):
+            raise ValueError("回执观察指纹与回执携带的实时状态不一致")
         return self
 
 
@@ -510,8 +535,11 @@ class VerificationResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    idempotency_key: str = Field(pattern=r"^netop_[0-9a-f]{64}$")
     plan_hash: str = Field(pattern=_HASH.pattern)
     revision: int = Field(ge=1)
+    provider: ProviderKind
+    observation_fingerprint: str = Field(pattern=_HASH.pattern)
     succeeded: bool
     checked_dimensions: tuple[str, ...] = Field(min_length=1, max_length=16)
     observation: NetworkObservation
@@ -521,6 +549,8 @@ class VerificationResult(BaseModel):
     def validate_result(self) -> Self:
         if self.succeeded == (self.error is not None):
             raise ValueError("验证成功状态与错误字段不一致")
+        if self.observation_fingerprint != self.observation.system_fingerprint:
+            raise ValueError("验证观察指纹与实时状态不一致")
         return self
 
 
@@ -554,5 +584,6 @@ class NetworkAcknowledgement(BaseModel):
     stage: AcknowledgementStage
     plan_hash: str | None = Field(default=None, pattern=_HASH.pattern)
     receipt_hash: str | None = Field(default=None, pattern=_HASH.pattern)
+    idempotency_key: str | None = Field(default=None, pattern=r"^netop_[0-9a-f]{64}$")
     error: NetworkError | None = None
     acknowledged_at: datetime

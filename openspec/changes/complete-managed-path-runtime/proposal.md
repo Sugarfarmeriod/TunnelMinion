@@ -4,14 +4,14 @@
 
 ## What Changes
 
-- 为 Windows 与 macOS 提供确定性、只读的平台 `PathProbe`，从实时系统事实形成有时间边界的 endpoint、handshake、host route 和 target probe 证据。
+- 为 Windows 与 macOS 提供确定性、只读的平台 `PathProbe`，从实时系统事实形成有时间边界的 endpoint、handshake、唯一 peer 路由归属和 target probe 证据；不把缺少单独 `/32` host route 作为已批准远端连通的否决条件。
 - 在现有本机网络治理 SQLite 数据库内增加唯一权威的 L3 grant repository，以独立表持久化批准与撤销状态；本机控制面保留唯一写权限，managed path lifecycle 只获得只读查询端口，不新建第二套数据库或并行授权来源。
 - 建立一条共享的 managed path lifecycle，把既有 signed config 同步、权威 L3 授权读取、Provider governance、Provider、`DirectPathVerifier` 和 `DirectPathController` 串成单并发生命周期，并持久化可恢复的脱敏 selection/evidence 状态。
 - 未找到与 network/node/revision/Provider/资源范围/计划摘要/观察指纹精确匹配的有效本机 L3 授权时，只保存 pending 并显示 `awaiting-authorization`；普通启动、模型、对话、记忆和服务观察均不得创建授权或触发网络写入。
 - 让 Windows/macOS 常规本地应用暴露真实 selection、evidence、authorization、freshness 和稳定错误；证据过期后降级，显式刷新成功后才恢复，不复用旧证据宣称当前可用。
 - 将同步、授权读取、Provider、probe、控制器、状态持久化和上报划分为独立故障域；保留 last-known-good/static 行为，失败不得扩大为 Gateway、模型或本地只读功能故障。
 - 真实 Provider 写操作先在隔离 fake 与受批准的独立资源上通过恢复/故障矩阵，再允许进入隔离真实 A/B 验收；fake 或历史证据不得作为生产完成证据。
-- 明确非目标：不修改客户防火墙、WireGuard、路由、模型、秘密、自启动、Coordinator/Gateway 协议或 Gateway 监听边界，也不承担前端、package 或 FigJam 交付。
+- 明确非目标：不修改客户防火墙、WireGuard、路由、模型、秘密、自启动、Coordinator/Gateway 协议或 Gateway 监听边界，也不承担前端、package 或 LPE 的 Penpot 外部图纸/图纸交付。
 
 ## Capabilities
 

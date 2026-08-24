@@ -13,6 +13,8 @@ from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
     build_managed_node_application,
     managed_application_lifespan,
+    managed_path_status_callback,
+    managed_resource_payload_callback,
 )
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.domain.identifiers import NodeId
@@ -40,6 +42,7 @@ from tunnelminion.platforms.windows.definitions import (
     WindowsToolAdapters,
     register_windows_tools,
 )
+from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
 from tunnelminion.platforms.windows.system import (
     PsutilSystemReader,
     SubprocessCommandRunner,
@@ -170,6 +173,7 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         listeners,
         processes,
         docker,
+        managed_path_platform_factory=build_windows_managed_path_platform,
     )
     app = FastAPI(
         title="TunnelMinion",
@@ -178,7 +182,12 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
     )
     app.include_router(create_model_router(model_service))
     app.include_router(
-        create_resource_router(runtime, node_id, managed_status=managed.resource_payload)
+        create_resource_router(
+            runtime,
+            node_id,
+            managed_status=managed_resource_payload_callback(managed),
+            managed_path_status=managed_path_status_callback(managed),
+        )
     )
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
@@ -199,4 +208,6 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
 
 def create_app() -> FastAPI:
     """供 Uvicorn `--factory` 使用的应用工厂。"""
-    return build_windows_application().app
+    bundle = build_windows_application()
+    bundle.app.state.managed_node = bundle.managed_node
+    return bundle.app

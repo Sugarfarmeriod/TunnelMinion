@@ -216,6 +216,8 @@ def test_receipt_verification_signature_and_acknowledgement_contracts() -> None:
         idempotency_key=key,
         plan_hash=plan.plan_hash,
         revision=1,
+        provider=plan.desired.provider,
+        observation_fingerprint=observation().system_fingerprint,
         status=ReceiptStatus.APPLIED,
         steps=(_step(),),
     )
@@ -229,13 +231,23 @@ def test_receipt_verification_signature_and_acknowledgement_contracts() -> None:
         message="failed",
         correlation_id="corr",
     )
+    observed = observation()
     with pytest.raises(ValidationError, match="非失败回执"):
         ProviderReceipt.model_validate({**valid.model_dump(), "error": error})
-
-    observed = observation()
+    with pytest.raises(ValidationError, match="观察指纹"):
+        ProviderReceipt.model_validate(
+            {
+                **valid.model_dump(),
+                "observation_after": observed,
+                "observation_fingerprint": f"sha256:{'f' * 64}",
+            }
+        )
     failed = VerificationResult(
+        idempotency_key=key,
         plan_hash=plan.plan_hash,
         revision=1,
+        provider=plan.desired.provider,
+        observation_fingerprint=observed.system_fingerprint,
         succeeded=False,
         checked_dimensions=("interface",),
         observation=observed,
@@ -244,6 +256,13 @@ def test_receipt_verification_signature_and_acknowledgement_contracts() -> None:
     assert not failed.succeeded
     with pytest.raises(ValidationError, match="不一致"):
         VerificationResult.model_validate({**failed.model_dump(), "succeeded": True})
+    with pytest.raises(ValidationError, match="观察指纹"):
+        VerificationResult.model_validate(
+            {
+                **failed.model_dump(),
+                "observation_fingerprint": f"sha256:{'f' * 64}",
+            }
+        )
 
     signed = SignedDesiredConfig(
         config=desired(),
