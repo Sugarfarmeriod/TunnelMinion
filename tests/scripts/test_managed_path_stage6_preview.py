@@ -26,6 +26,66 @@ from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 NOW = datetime(2026, 8, 24, 5, 0, tzinfo=UTC)
 
 
+def test_stage6_path_targets_are_explicit_and_bounded() -> None:
+    root = Path(__file__).resolve().parents[2]
+    authorization = json.loads(
+        (root / "evaluations/platform/managed-path-stage6-authorization-20260824.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    path_targets = authorization["authorization"]["path_targets"]
+
+    assert path_targets["windows_lifecycle"] == {
+        "source_platform": "windows",
+        "target_host": "192.0.2.2",
+        "targets": [
+            {
+                "port": 8787,
+                "protocol": "tcp",
+                "purpose": "TunnelMinion Gateway 既有服务连通性",
+            }
+        ],
+    }
+    assert path_targets["macos_lifecycle"] == {
+        "source_platform": "macos",
+        "target_host": "192.0.2.1",
+        "targets": [
+            {
+                "port": 7899,
+                "protocol": "tcp",
+                "priority": "primary",
+                "purpose": "Clash Verge 外部访问页面",
+            },
+            {
+                "port": 47990,
+                "protocol": "tcp",
+                "priority": "fallback",
+                "purpose": "Sunshine 管理页面",
+            },
+        ],
+    }
+    assert path_targets["constraints"] == {
+        "maximum_attempts_per_target": 1,
+        "maximum_probe_runs_per_platform": 1,
+        "connect_timeout_seconds": 2,
+        "requires_provider_apply_success": True,
+        "requires_provider_verify_success": True,
+        "attempt_targets_in_declared_order": True,
+        "stop_after_first_success": True,
+        "fallback_only_after_primary_failure": True,
+        "send_application_payload": False,
+        "service_discovery_or_port_scan": False,
+        "start_or_modify_listener": False,
+        "requires_isolated_peer_host_route": True,
+    }
+    assert authorization["non_observed_no_touch_boundaries"]["verification"] == (
+        "真实执行前后分别核对：Provider 写计划/命令只命中 tmn-stage6-a.r1、tmn-stage6-b.r1、"
+        "两条批准 host route、两个批准 UDP 端口和隔离数据目录；path verify 只在 Provider "
+        "apply/verify 成功后对三个固定目标执行每平台一次 run、每目标至多一次、2 秒、无应用负载的 "
+        "TCP connect"
+    )
+
+
 def test_platform_route_overlaps_are_independently_bound() -> None:
     windows = subject._CONFIGS["windows"]  # pyright: ignore[reportPrivateUsage]
     macos = subject._CONFIGS["macos"]  # pyright: ignore[reportPrivateUsage]
