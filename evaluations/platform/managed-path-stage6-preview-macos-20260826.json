@@ -1,0 +1,113 @@
+{
+  "authorization": {
+    "approved_at": "2026-08-26T08:16:28.318439+00:00",
+    "approved_by": "stage6-explicit-user-authorization-20260824",
+    "authorization_id": "authorization_9af1de5b82b84ef0a0da92f53f563301",
+    "expires_at": "2026-08-26T08:31:28.318439+00:00"
+  },
+  "authorization_reads": 3,
+  "authorization_scope": {
+    "action": "create",
+    "address_pool": "192.0.2.0/30",
+    "allowed_host_routes": [
+      "192.0.2.1/32"
+    ],
+    "allowed_relay_roles": [
+      "none"
+    ],
+    "allowed_route_overlaps": [
+      {
+        "observation_fingerprint": "sha256:1721e91dee1ef4cc0dfa0212feb6e94938c6296d6e73c1f38018c1a6ed1e9bae",
+        "route": "192.0.0.0/9"
+      }
+    ],
+    "interface_prefix": "tmn-stage6-",
+    "listen_port": 51889,
+    "maximum_peers": 1,
+    "network_id": "network_60000000000000000000000000000000",
+    "node_id": "node_6000000000000000000000000000000b",
+    "observed_fingerprint": "sha256:b1e3887aaaea95a64cfa819ac6e437a3a70445c7c350d45abadb2122e395a92c",
+    "ownership_fingerprint": "sha256:222667f43f9523fc629245ed567d43490d97c8c68ac48af5bae6433827d01900",
+    "ownership_resource_id": null,
+    "parent_revision": 0,
+    "peer_node_ids": [
+      "node_6000000000000000000000000000000a"
+    ],
+    "plan_hash": "sha256:71bae7a266fe02bedcb92af42a965071fdcd34724b557de5316313a56dd536d6",
+    "provider": "macos",
+    "revision": 1
+  },
+  "authorization_ttl_seconds": 900,
+  "commit": "881715b62195f7f64afd2d308f7e6acdb7bf541e",
+  "entrypoint": "python -m scripts.managed_path_stage6_preview",
+  "initial_phase": "awaiting_authorization",
+  "journal_phases": [
+    "observing",
+    "planning",
+    "awaiting_authorization",
+    "awaiting_authorization",
+    "authorized",
+    "rechecking",
+    "applying",
+    "cancelled"
+  ],
+  "observed_at": "2026-08-26T08:16:28.318439+00:00",
+  "plan": {
+    "action": "create",
+    "address": "192.0.2.2/32",
+    "allowed_route_overlaps": [
+      {
+        "observation_fingerprint": "sha256:1721e91dee1ef4cc0dfa0212feb6e94938c6296d6e73c1f38018c1a6ed1e9bae",
+        "route": "192.0.0.0/9"
+      }
+    ],
+    "interface_name": "tmn-stage6-b",
+    "listen_port": 51889,
+    "observed_fingerprint": "sha256:b1e3887aaaea95a64cfa819ac6e437a3a70445c7c350d45abadb2122e395a92c",
+    "peer_endpoint_hash": "sha256:35771bdbf80a559c06d93d93903f19d8c32b2efa4f2df12dc3a0fc91337fabde",
+    "peer_host_routes": [
+      "192.0.2.1/32"
+    ],
+    "peer_node_id": "node_6000000000000000000000000000000a",
+    "plan_hash": "sha256:71bae7a266fe02bedcb92af42a965071fdcd34724b557de5316313a56dd536d6",
+    "steps": [
+      {
+        "index": 0,
+        "kind": "write_config",
+        "rollback_kind": "delete_config",
+        "target": "tmn-stage6-b"
+      },
+      {
+        "index": 1,
+        "kind": "create_interface",
+        "rollback_kind": "remove_interface",
+        "target": "tmn-stage6-b"
+      },
+      {
+        "index": 2,
+        "kind": "configure_address",
+        "rollback_kind": "configure_address",
+        "target": "tmn-stage6-b"
+      },
+      {
+        "index": 3,
+        "kind": "configure_peer",
+        "rollback_kind": "configure_peer",
+        "target": "tmn-stage6-b"
+      },
+      {
+        "index": 4,
+        "kind": "add_host_route",
+        "rollback_kind": "add_host_route",
+        "target": "tmn-stage6-b"
+      }
+    ]
+  },
+  "platform": "macos",
+  "private_material_exported": false,
+  "provider_apply_calls": 0,
+  "real_network_writes_performed": false,
+  "recheck_phase": "cancelled",
+  "redaction_commit": "de78367123e78342426dc2e9678fe6649b0b6efd",
+  "schema_version": "managed-path-stage6-preview/v1"
+}
