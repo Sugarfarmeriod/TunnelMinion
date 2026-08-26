@@ -127,6 +127,11 @@ def test_preview_runs_lifecycle_recheck_without_apply(
             ),
         }
     ]
+    assert evidence["plan"]["peer_endpoint_hash"] == canonical_sha256(
+        {"host": "10.77.0.1", "port": 51889}
+    )
+    assert "peer_endpoint" not in evidence["plan"]
+    assert "10.77.0.1" not in evidence_text
     assert "secret_reference" not in evidence_text
     assert "private_key" not in evidence_text
     assert "public_key" not in evidence_text

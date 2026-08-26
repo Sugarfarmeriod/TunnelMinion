@@ -308,10 +308,12 @@ async def _run(platform: str, *, now: datetime) -> dict[str, object]:
             "listen_port": desired.listen_port,
             "peer_node_id": str(config.peer_node_id),
             "peer_host_routes": [config.peer_host_route],
-            "peer_endpoint": {
-                "host": config.peer_endpoint_host,
-                "port": config.peer_endpoint_port,
-            },
+            "peer_endpoint_hash": canonical_sha256(
+                {
+                    "host": config.peer_endpoint_host,
+                    "port": config.peer_endpoint_port,
+                }
+            ),
             "allowed_route_overlaps": [
                 overlap.model_dump(mode="json") for overlap in desired.allowed_route_overlaps
             ],
