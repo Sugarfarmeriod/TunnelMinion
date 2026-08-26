@@ -121,6 +121,14 @@ _CONFIGS = {
         peer_endpoint_host="10.77.0.2",
         peer_endpoint_port=51888,
         peer_identity_file="windows-peer-public-identity.json",
+        allowed_route_overlaps=(
+            ApprovedRouteOverlap(
+                route="192.0.0.0/9",
+                observation_fingerprint=(
+                    "sha256:1721e91dee1ef4cc0dfa0212feb6e94938c6296d6e73c1f38018c1a6ed1e9bae"
+                ),
+            ),
+        ),
     ),
 }
 

@@ -26,6 +26,21 @@ from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 NOW = datetime(2026, 8, 24, 5, 0, tzinfo=UTC)
 
 
+def test_platform_route_overlaps_are_independently_bound() -> None:
+    windows = subject._CONFIGS["windows"]  # pyright: ignore[reportPrivateUsage]
+    macos = subject._CONFIGS["macos"]  # pyright: ignore[reportPrivateUsage]
+
+    assert windows.allowed_route_overlaps[0].route == "192.0.0.0/9"
+    assert windows.allowed_route_overlaps[0].observation_fingerprint == (
+        "sha256:43938c1ef2e9e749462dc899a7e408f759f575dc472bfe412763f7c9244814bf"
+    )
+    assert macos.allowed_route_overlaps[0].route == "192.0.0.0/9"
+    assert macos.allowed_route_overlaps[0].observation_fingerprint == (
+        "sha256:1721e91dee1ef4cc0dfa0212feb6e94938c6296d6e73c1f38018c1a6ed1e9bae"
+    )
+    assert windows.allowed_route_overlaps != macos.allowed_route_overlaps
+
+
 def _public_identity(*, node_id: str, provider: str) -> dict[str, object]:
     public_key = "A" * 43 + "="
     return {

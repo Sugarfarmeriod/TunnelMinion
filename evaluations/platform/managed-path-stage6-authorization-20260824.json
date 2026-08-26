@@ -50,6 +50,11 @@
       "address_pool": "192.0.2.0/30",
       "address": "192.0.2.2/32",
       "peer_host_route": "192.0.2.1/32",
+      "allowed_route_overlap": {
+        "route": "192.0.0.0/9",
+        "observation_fingerprint": "sha256:1721e91dee1ef4cc0dfa0212feb6e94938c6296d6e73c1f38018c1a6ed1e9bae",
+        "writes_existing_route": false
+      },
       "udp_port": 51889,
       "data_directory": "/Volumes/DarkAI/Codex-project/Side project/Tunnelminion-stage6-data/macos",
       "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-b.r1 执行 rollback/recover"
