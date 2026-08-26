@@ -86,7 +86,7 @@
       },
       "udp_port": 51888,
       "data_directory": "F:/Project/codex/tunnelminion-stage6-data/windows",
-      "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-a.r1 执行 rollback/recover"
+      "stop_method": "只对原 CREATE plan/receipt 和所有权指纹匹配的 tmn-stage6-a.r1 执行 Provider rollback/recover；保留验收前已存在身份，不执行会删除身份的 REMOVE"
     },
     "macos": {
       "host": "10.77.0.1",
@@ -102,7 +102,7 @@
       },
       "udp_port": 51889,
       "data_directory": "/Volumes/DarkAI/Codex-project/Side project/Tunnelminion-stage6-data/macos",
-      "stop_method": "常规 lifecycle REMOVE；失败时只按逐步 journal 对所有权指纹匹配的 tmn-stage6-b.r1 执行 rollback/recover"
+      "stop_method": "只对原 CREATE plan/receipt 和所有权指纹匹配的 tmn-stage6-b.r1 执行 Provider rollback/recover；保留验收前已存在身份，不执行会删除身份的 REMOVE"
     }
   },
   "pre_write_baseline": {

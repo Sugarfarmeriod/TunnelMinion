@@ -9,7 +9,7 @@ from tunnelminion.agent.managed_path import (
     ManagedPathCapabilityState,
     ManagedPathPlatformDependencies,
 )
-from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.model.secrets import KeyringSecretStore, SecretStore
 from tunnelminion.network.contracts import DesiredNetworkConfig, ProviderKind, ProviderMode
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 from tunnelminion.network.path_probe import PathProbePolicy
@@ -33,6 +33,8 @@ from tunnelminion.platforms.windows.system import PsutilSystemReader, Subprocess
 def build_windows_managed_path_platform(
     data_dir: Path,
     ledger: SQLiteManagedResourceLedger,
+    *,
+    secret_store: SecretStore | None = None,
 ) -> ManagedPathPlatformDependencies:
     """创建 Windows Provider、只读观察器和固定能力状态，不执行 Provider 操作。"""
     root = data_dir.resolve()
@@ -52,7 +54,7 @@ def build_windows_managed_path_platform(
     observer = WindowsWireGuardObserver(PsutilSystemReader(), commands)
     materials = AclRestrictedWindowsConfigStore(
         paths.config_root,
-        KeyringSecretStore(),
+        secret_store or KeyringSecretStore(),
         runner,
         _tool_path(tools_root, "icacls.exe", r"C:\Windows\System32\icacls.exe"),
     )

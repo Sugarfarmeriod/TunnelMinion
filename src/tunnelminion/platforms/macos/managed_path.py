@@ -10,7 +10,7 @@ from tunnelminion.agent.managed_path import (
     ManagedPathCapabilityState,
     ManagedPathPlatformDependencies,
 )
-from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.model.secrets import KeyringSecretStore, SecretStore
 from tunnelminion.network.contracts import DesiredNetworkConfig, ProviderKind, ProviderMode
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 from tunnelminion.network.path_probe import PathProbePolicy
@@ -34,6 +34,8 @@ from tunnelminion.platforms.macos.system import SubprocessCommandRunner
 def build_macos_managed_path_platform(
     data_dir: Path,
     ledger: SQLiteManagedResourceLedger,
+    *,
+    secret_store: SecretStore | None = None,
 ) -> ManagedPathPlatformDependencies:
     """创建 macOS Provider、只读观察器和固定能力状态，不执行 Provider 操作。"""
     root = data_dir.resolve()
@@ -59,7 +61,10 @@ def build_macos_managed_path_platform(
     commands = FixedMacOSWireGuardCommands(paths, runner)
     preflight = commands.preflight()
     observer = MacOSWireGuardObserver(commands)
-    materials = RestrictedMacOSConfigStore(paths.config_root, KeyringSecretStore())
+    materials = RestrictedMacOSConfigStore(
+        paths.config_root,
+        secret_store or KeyringSecretStore(),
+    )
     backend = OfficialMacOSManagedBackend(commands, observer, materials)
     provider = MacOSNetworkProvider(
         backend,
