@@ -40,6 +40,7 @@ from tunnelminion.platforms.windows.network_provider import (
     SQLiteWindowsOperationJournal,
     WindowsBackendError,
     WindowsNetworkProvider,
+    WindowsOperationJournal,
 )
 from tunnelminion.tools.contracts import ToolCancellationToken
 
@@ -72,8 +73,10 @@ class FakeWindowsBackend:
         self.fail_step: PlanStepKind | None = None
         self.crash_step: PlanStepKind | None = None
         self.crash_after_effect_step: PlanStepKind | None = None
+        self.partial_effect_step: PlanStepKind | None = None
         self.fail_rollback: PlanStepKind | None = None
         self.leave_interface_on_rollback = False
+        self.leave_route_on_rollback = False
         self.block: asyncio.Event | None = None
         self.omit_ownership_after_create = False
         self.on_step: Callable[[PlanStepKind], None] | None = None
@@ -194,6 +197,10 @@ class FakeWindowsBackend:
             PlanStepKind.REMOVE_INTERFACE,
         }:
             self.snapshot = absent(plan.desired.interface_name)
+        if step.kind is self.partial_effect_step:
+            self.snapshot = self.snapshot.model_copy(
+                update={"host_routes": (*self.snapshot.host_routes, "203.0.113.1/32")}
+            )
         if step.kind is self.crash_after_effect_step:
             raise RuntimeError("injected Windows crash after effect")
         return canonical_sha256({"step": step.kind.value, "count": len(self.execute_calls)})
@@ -217,6 +224,8 @@ class FakeWindowsBackend:
             )
         if step.kind is PlanStepKind.CREATE_INTERFACE and not self.leave_interface_on_rollback:
             self.snapshot = absent(plan.desired.interface_name)
+            if self.leave_route_on_rollback:
+                self.snapshot = self.snapshot.model_copy(update={"host_routes": ("10.203.0.2/32",)})
         elif (
             step.kind
             in {
@@ -646,6 +655,7 @@ def test_crash_recovery_verify_failure_and_corrupt_journal(tmp_path: Path) -> No
     backend.crash_step = None
     recovered = run(value.recover(cancellation=ToolCancellationToken()))
     assert recovered[0].status is ReceiptStatus.ROLLED_BACK
+    assert PlanStepKind.CONFIGURE_PEER not in backend.rollback_calls
     assert run(value.recover(cancellation=ToolCancellationToken())) == ()
 
     backend2 = FakeWindowsBackend()
@@ -705,7 +715,7 @@ def test_create_side_effect_crash_is_recovered_or_marked_manual(tmp_path: Path) 
     journal = journals.get(KEY)
     assert journal is not None
     assert journal.in_flight_step_index == 1
-    assert journal.in_flight_runtime_interfaces == ()
+    assert journal.in_flight_runtime_hash == canonical_sha256({"runtime_interfaces": ()})
     assert backend.snapshot.interface_present
 
     backend.crash_after_effect_step = None
@@ -733,6 +743,61 @@ def test_create_side_effect_crash_is_recovered_or_marked_manual(tmp_path: Path) 
     assert manual[0].error.code is NetworkErrorCode.RECOVERY_REQUIRED
     assert orphan.snapshot.interface_present
 
+    route_only = FakeWindowsBackend()
+    route_only.crash_after_effect_step = PlanStepKind.CREATE_INTERFACE
+    route_only.leave_route_on_rollback = True
+    route_value, _, _ = provider(tmp_path / "route-only", route_only)
+    route_plan = run(create_plan(route_value))
+    with pytest.raises(RuntimeError, match="after effect"):
+        run(
+            route_value.apply(
+                route_plan,
+                idempotency_key=KEY,
+                cancellation=ToolCancellationToken(),
+            )
+        )
+    route_only.crash_after_effect_step = None
+    route_recovery = run(route_value.recover(cancellation=ToolCancellationToken()))
+    assert route_recovery[0].status is ReceiptStatus.MANUAL_INTERVENTION
+    assert route_only.snapshot.host_routes == ("10.203.0.2/32",)
+
+    partial = FakeWindowsBackend()
+    partial.partial_effect_step = PlanStepKind.CONFIGURE_PEER
+    partial.crash_after_effect_step = PlanStepKind.CONFIGURE_PEER
+    partial_value, _, _ = provider(tmp_path / "partial", partial)
+    partial_plan = run(create_plan(partial_value))
+    with pytest.raises(RuntimeError, match="after effect"):
+        run(
+            partial_value.apply(
+                partial_plan,
+                idempotency_key=KEY,
+                cancellation=ToolCancellationToken(),
+            )
+        )
+    partial.crash_after_effect_step = None
+    partial_recovery = run(partial_value.recover(cancellation=ToolCancellationToken()))
+    assert partial_recovery[0].status is ReceiptStatus.MANUAL_INTERVENTION
+    assert PlanStepKind.CONFIGURE_PEER not in partial.rollback_calls
+
+
+def test_in_flight_journal_requires_atomic_hashes_and_next_index(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.crash_step = PlanStepKind.CONFIGURE_PEER
+    value, _, journals = provider(tmp_path, backend)
+    plan = run(create_plan(value))
+    with pytest.raises(RuntimeError, match="crash"):
+        run(value.apply(plan, idempotency_key=KEY, cancellation=ToolCancellationToken()))
+    journal = journals.get(KEY)
+    assert journal is not None
+    payload = journal.model_dump()
+    payload["in_flight_snapshot_hash"] = None
+    with pytest.raises(ValueError, match="状态不完整"):
+        WindowsOperationJournal.model_validate(payload)
+    payload = journal.model_dump()
+    payload["in_flight_step_index"] = 0
+    with pytest.raises(ValueError, match="index"):
+        WindowsOperationJournal.model_validate(payload)
+
     incomplete = FakeWindowsBackend()
     incomplete.omit_ownership_after_create = True
     incomplete_value, _, _ = provider(tmp_path / "incomplete", incomplete)
@@ -747,6 +812,41 @@ def test_create_side_effect_crash_is_recovered_or_marked_manual(tmp_path: Path) 
     assert failed.status is ReceiptStatus.FAILED
     assert failed.error is not None
     assert failed.error.code is NetworkErrorCode.OWNERSHIP_CONFLICT
+
+
+def test_in_flight_stop_never_blindly_restarts_existing_interface(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    value, ledger, _ = provider(tmp_path, backend)
+    create = run(create_plan(value))
+    run(value.apply(create, idempotency_key=KEY, cancellation=ToolCancellationToken()))
+    assert run(value.verify(create)).succeeded
+    entry = ledger.get(NETWORK_ID, NODE_A)
+    assert entry is not None
+    observed = run(value.observe("tmn-test-a"))
+    stop = run(
+        value.plan(
+            action=NetworkAction.STOP,
+            desired=desired(),
+            observed=observed,
+            ownership=entry.ownership,
+        )
+    )
+    backend.crash_step = PlanStepKind.STOP_INTERFACE
+    with pytest.raises(RuntimeError, match="crash"):
+        run(
+            value.apply(
+                stop,
+                idempotency_key=f"netop_{'b' * 64}",
+                cancellation=ToolCancellationToken(),
+            )
+        )
+    backend.crash_step = None
+
+    recovered = run(value.recover(cancellation=ToolCancellationToken()))
+
+    assert recovered[0].status is ReceiptStatus.MANUAL_INTERVENTION
+    assert PlanStepKind.STOP_INTERFACE not in backend.rollback_calls
+    assert backend.snapshot.interface_present
 
 
 def test_update_stop_remove_and_naive_clock(tmp_path: Path) -> None:

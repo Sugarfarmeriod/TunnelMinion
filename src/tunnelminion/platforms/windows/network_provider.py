@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tunnelminion.domain.identifiers import NetworkId, NodeId, ResourceId
 from tunnelminion.network.contracts import (
@@ -144,12 +144,33 @@ class WindowsOperationJournal(BaseModel):
     idempotency_key: str = Field(pattern=r"^netop_[0-9a-f]{64}$")
     secret_reference: str = Field(min_length=3, max_length=224, repr=False)
     creation_nonce: str = Field(pattern=r"^[0-9a-f]{32}$")
+    baseline_snapshot_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    baseline_runtime_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     steps: tuple[StepReceipt, ...] = ()
     in_flight_step_index: int | None = Field(default=None, ge=0)
-    in_flight_snapshot: WindowsTunnelSnapshot | None = None
-    in_flight_runtime_interfaces: tuple[str, ...] | None = None
+    in_flight_snapshot_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    in_flight_runtime_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     status: ReceiptStatus | None = None
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_in_flight_state(self) -> WindowsOperationJournal:
+        """未决步骤的 index 与两个脱敏 pre-state hash 必须原子出现。"""
+        values = (
+            self.in_flight_step_index,
+            self.in_flight_snapshot_hash,
+            self.in_flight_runtime_hash,
+        )
+        if all(value is None for value in values):
+            return self
+        if any(value is None for value in values):
+            raise ValueError("Windows 未决步骤状态不完整")
+        index = self.in_flight_step_index
+        if index is None:  # pragma: no cover - 上方 all/any 已穷尽
+            raise ValueError("Windows 未决步骤 index 缺失")
+        if index != len(self.steps) or index >= len(self.plan.steps):
+            raise ValueError("Windows 未决步骤 index 与回执不一致")
+        return self
 
 
 class SQLiteWindowsOperationJournal:
@@ -421,6 +442,10 @@ class WindowsNetworkProvider:
                     creation_nonce=plan.ownership.creation_nonce
                     if plan.ownership is not None
                     else secrets.token_hex(16),
+                    baseline_snapshot_hash=live.system_fingerprint,
+                    baseline_runtime_hash=self._runtime_hash(
+                        await self._backend.runtime_interfaces(plan.desired.interface_name)
+                    ),
                     updated_at=self._now(),
                 )
             else:
@@ -445,14 +470,13 @@ class WindowsNetworkProvider:
                         NetworkErrorCode.CANCELLED,
                         "Windows 操作在安全点取消",
                     )
+                pre_step = await self._backend.observe(plan.desired.interface_name)
                 in_flight = journal.model_copy(
                     update={
                         "in_flight_step_index": len(journal.steps),
-                        "in_flight_snapshot": await self._backend.observe(
-                            plan.desired.interface_name
-                        ),
-                        "in_flight_runtime_interfaces": await self._backend.runtime_interfaces(
-                            plan.desired.interface_name
+                        "in_flight_snapshot_hash": pre_step.system_fingerprint,
+                        "in_flight_runtime_hash": self._runtime_hash(
+                            await self._backend.runtime_interfaces(plan.desired.interface_name)
                         ),
                         "updated_at": self._now(),
                     }
@@ -489,8 +513,8 @@ class WindowsNetworkProvider:
                     update={
                         "steps": (*journal.steps, step_receipt),
                         "in_flight_step_index": None,
-                        "in_flight_snapshot": None,
-                        "in_flight_runtime_interfaces": None,
+                        "in_flight_snapshot_hash": None,
+                        "in_flight_runtime_hash": None,
                         "updated_at": self._now(),
                     }
                 )
@@ -596,11 +620,33 @@ class WindowsNetworkProvider:
             )
         rollback_receipts: list[StepReceipt] = []
         attempted_indices = [item.index for item in journal.steps]
-        if (
-            journal.in_flight_step_index is not None
-            and journal.in_flight_step_index not in attempted_indices
-        ):
-            attempted_indices.append(journal.in_flight_step_index)
+        if journal.in_flight_step_index is not None:
+            if plan.action is not NetworkAction.CREATE:
+                return self._manual_recovery(
+                    journal,
+                    "非 CREATE 未决步骤不能证明 effect，拒绝盲目执行反向写",
+                )
+            current_runtime_hash = self._runtime_hash(
+                await self._backend.runtime_interfaces(plan.desired.interface_name)
+            )
+            no_observed_effect = (
+                snapshot.system_fingerprint == journal.in_flight_snapshot_hash
+                and current_runtime_hash == journal.in_flight_runtime_hash
+            )
+            in_flight_step = plan.steps[journal.in_flight_step_index]
+            should_reverse = in_flight_step.kind is PlanStepKind.WRITE_CONFIG or (
+                in_flight_step.kind is PlanStepKind.CREATE_INTERFACE and not no_observed_effect
+            )
+            if not no_observed_effect and in_flight_step.kind not in {
+                PlanStepKind.WRITE_CONFIG,
+                PlanStepKind.CREATE_INTERFACE,
+            }:
+                return self._manual_recovery(
+                    journal,
+                    "CREATE 未决步骤只观察到部分或未知 effect",
+                )
+            if should_reverse and journal.in_flight_step_index not in attempted_indices:
+                attempted_indices.append(journal.in_flight_step_index)
         for original_index in reversed(attempted_indices):
             if cancellation.cancelled:
                 return self._receipt(
@@ -640,23 +686,18 @@ class WindowsNetworkProvider:
                     system_receipt_hash=receipt_hash,
                 )
             )
-        if journal.in_flight_runtime_interfaces is not None:
-            current_interfaces = await self._backend.runtime_interfaces(plan.desired.interface_name)
-            unexpected = set(current_interfaces) - set(journal.in_flight_runtime_interfaces)
-            if unexpected:
-                manual = journal.model_copy(
-                    update={
-                        "status": ReceiptStatus.MANUAL_INTERVENTION,
-                        "updated_at": self._now(),
-                    }
-                )
-                self._journals.put(manual)
-                return self._receipt(
-                    manual,
-                    ReceiptStatus.MANUAL_INTERVENTION,
-                    NetworkErrorCode.RECOVERY_REQUIRED,
-                    "未决步骤回滚后仍存在新增运行时接口",
-                )
+        restored_snapshot = await self._backend.observe(plan.desired.interface_name)
+        restored_runtime_hash = self._runtime_hash(
+            await self._backend.runtime_interfaces(plan.desired.interface_name)
+        )
+        if (
+            restored_snapshot.system_fingerprint != journal.baseline_snapshot_hash
+            or restored_runtime_hash != journal.baseline_runtime_hash
+        ):
+            return self._manual_recovery(
+                journal,
+                "回滚后接口、服务、地址或 host route 未恢复到操作前基线",
+            )
         if entry is not None and plan.action is NetworkAction.CREATE:
             self._ledger.delete(
                 entry.ownership.network_id,
@@ -678,6 +719,29 @@ class WindowsNetworkProvider:
             steps=tuple(rollback_receipts),
             observation_after=observation,
         )
+
+    def _manual_recovery(
+        self,
+        journal: WindowsOperationJournal,
+        message: str,
+    ) -> ProviderReceipt:
+        manual = journal.model_copy(
+            update={
+                "status": ReceiptStatus.MANUAL_INTERVENTION,
+                "updated_at": self._now(),
+            }
+        )
+        self._journals.put(manual)
+        return self._receipt(
+            manual,
+            ReceiptStatus.MANUAL_INTERVENTION,
+            NetworkErrorCode.RECOVERY_REQUIRED,
+            message,
+        )
+
+    @staticmethod
+    def _runtime_hash(interfaces: tuple[str, ...]) -> str:
+        return canonical_sha256({"runtime_interfaces": tuple(sorted(interfaces))})
 
     async def recover(
         self,
