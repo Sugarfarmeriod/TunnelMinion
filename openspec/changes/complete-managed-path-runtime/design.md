@@ -68,6 +68,8 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 
 第一层用纯 fake 验证状态机、授权拒绝、并发、故障矩阵和秘密边界；第二层用平台只读 probe 与受控 fixture 验证真实观察；第三层仅在明确批准的独立接口/地址/端口和隔离数据目录上验证真实 Provider 写入、回滚与恢复；第四层才可在真实 A/B 常规入口验证跨机 lifecycle。每份证据记录代码提交、平台、入口、资源批准、观测时间和来源。较低层成功、旧记录或专用脚本不得替代较高层完成条件。
 
+第三层开发验收可由操作者在明确授权后，通过本机交互式 `sudo`、已经建立的 root/管理员进程，或获准的 SSH 管理会话启动；这些方式只提供验收进程所需的权限上下文，不属于产品 lifecycle 的提权能力，也不能替代 Provider verify、path verify、前后不变性和精确回滚证据。验收工具不得接收、传输、记录或保存管理员密码，不得使用 `sudo -S`、修改 `sudoers`、建立持久免密凭据、安装常驻提权 helper 或新增自启动项。产品常规入口在权限不足时仍按稳定错误降级，不自行提权或弹出 sudo prompt。
+
 ## Risks / Trade-offs
 
 - [平台只读接口在权限不足或厂商版本间不一致] → 返回稳定 `permission_denied`/`unsupported` 并只降级 path evidence；本地页面、static peer、Coordinator cache 和 Gateway 独立运行。
@@ -77,6 +79,7 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 - [证据 TTL 使短暂离线更快显示 stale] → 保留 last-known-good/static 但不称为当前 direct，成功刷新后自动恢复展示。
 - [跨平台工厂抽取可能触及活跃 UI change 的同一应用文件] → 本 change 先合并后由 `improve-local-product-experience` 基于该状态契约接线；同阶段应用工厂保持单一写 owner。
 - [真实 Provider 测试可能影响用户网络] → 必须显式批准隔离资源、保存前后不变性证据并提供人工停止；未满足前置条件时相关任务保持未完成。
+- [开发验收借助 root/管理员或 SSH 扩大误操作影响] → 只允许操作者显式建立的临时权限上下文，固定命令、参数和批准资源；禁止密码管道、权限策略修改和持久 helper，并以所有权核验和精确回滚限制清理范围。
 
 ## Migration Plan
 

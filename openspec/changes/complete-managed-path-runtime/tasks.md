@@ -92,11 +92,11 @@
 ## 6. 批准资源上的真实 Provider 门禁
 
 - [x] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
-  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立 `tmn-stage6-*.r1`、`192.0.2.0/30` 地址池内两个 `/32` 接口地址与两条 peer host route、UDP `51888/51889`、隔离数据目录、900 秒 L3 grant、原 CREATE plan/receipt 与所有权匹配的 rollback-recover 停止方式（保留验收前已存在身份，不执行会删除身份的 REMOVE），以及接口、路由、UDP、受保护 TCP listener 和 DNS 的写前摘要。现场确认候选资源无冲突且 `real_network_writes_performed=false`；身份首次创建固定拒绝 Windows elevated token 与 macOS root，UAC/root 仅供后续真实 Provider apply。Windows UAC 与 macOS GUI 管理员通道均已只读验证可用；6.2 已用两端真实 Provider preview 与身份复用证据完成且经独立 Sol/xhigh 审计 ACCEPT，6.3–6.6 尚未执行真实网络写入。
+  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立 `tmn-stage6-*.r1`、`192.0.2.0/30` 地址池内两个 `/32` 接口地址与两条 peer host route、UDP `51888/51889`、隔离数据目录、900 秒 L3 grant、原 CREATE plan/receipt 与所有权匹配的 rollback-recover 停止方式（保留验收前已存在身份，不执行会删除身份的 REMOVE），以及接口、路由、UDP、受保护 TCP listener 和 DNS 的写前摘要。现场确认候选资源无冲突且 `real_network_writes_performed=false`；身份首次创建固定拒绝 Windows elevated token 与 macOS root，root/管理员仅供后续真实 Provider apply。Windows 管理员与 macOS 管理权限上下文均已只读验证可用；第三层验收允许操作者显式建立本机交互式 `sudo`、既有 root/管理员进程或获准 SSH 管理会话，但不得传输或保存密码、使用 `sudo -S`、修改 `sudoers`、安装持久 helper 或新增自启动。6.2 已用两端真实 Provider preview 与身份复用证据完成且经独立 Sol/xhigh 审计 ACCEPT，6.3–6.6 尚未执行真实网络写入。
 - [x] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
   - 证据：Windows 与 macOS 分别在批准的 `tmn-stage6-*.r1`、`192.0.2.0/30`、UDP `51888/51889` 和隔离数据目录上，通过生产 Provider 的真实 observe/plan 与共享 lifecycle 完成 900 秒授权、3 次权威 repository 读取和 apply 前 recheck/cancel；`evaluations/platform/managed-path-stage6-preview-{windows,macos}-20260826.json` 均记录 `provider_apply_calls=0`、`real_network_writes_performed=false`。两端现场已有 `192.0.0.0/9` 只以精确观察指纹批准为 overlap，不作为写步骤；五个计划步骤仅指向批准的受管接口。原运行提交分别为 `664a1aa`/`881715b`，完整 endpoint 经 `de78367` 改为 canonical hash 后入库；双平台证据已由独立 Sol/xhigh 只读审计 ACCEPT，未把 preview 冒充真实 apply/path 完成。
-- [ ] 6.3 在批准资源上验证真实 apply → Provider verify → path verify → selection → acknowledgement，并保存提交、平台、入口、授权和观测时间 provenance
-- [ ] 6.4 注入真实 verify failure/受控中断并验证 rollback/recover、所有权冲突和 manual intervention，不用命令退出码或 fake 证据替代
+- [ ] 6.3 在批准资源上验证真实 apply → Provider verify → path verify → selection → acknowledgement，并保存提交、平台、入口、授权和观测时间 provenance；可使用操作者明确建立的本机交互式 `sudo`、既有 root/管理员进程或获准 SSH 管理会话启动验收，但不得让产品 lifecycle 自行提权，也不得把权限取得或 SSH 成功当作完成证据
+- [ ] 6.4 注入真实 verify failure/受控中断并验证 rollback/recover、所有权冲突和 manual intervention，不用命令退出码、root/SSH 成功或 fake 证据替代；验收过程不得接收、传输、记录或保存密码，不得使用 `sudo -S`、修改 `sudoers`、建立持久免密凭据、安装常驻提权 helper 或新增自启动项
 - [ ] 6.5 在另一平台重复相同门禁；若平台资源或权限未获批准，只报告 blocker，不将单平台结果外推为双平台完成
 - [ ] 6.6 核对 `HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动前后不变；检查证据与 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
 

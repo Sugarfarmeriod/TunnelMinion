@@ -29,6 +29,11 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 - **WHEN** 当前账户无权读取 handshake/route 或平台没有受支持的只读接口
 - **THEN** lifecycle 发布对应稳定降级错误，不尝试提权、sudo prompt 或写入替代路径，其他本地功能继续运行
 
+#### Scenario: 操作者为第三层开发验收提供管理权限上下文
+
+- **WHEN** 操作者已明确批准第三层隔离资源和真实写入窗口，并以本机交互式 `sudo`、既有 root/管理员进程或获准的 SSH 管理会话启动验收进程
+- **THEN** 验收工具 MAY 在该临时权限上下文中执行批准资源上的 Provider 门禁，但 MUST NOT 接收、传输、记录或保存密码，MUST NOT 使用 `sudo -S`、修改 `sudoers`、建立持久免密凭据、安装常驻提权 helper 或新增自启动项；该权限上下文不得成为生产 lifecycle 的自行提权路径，也不得替代 Provider verify、path verify、前后不变性和精确回滚证据
+
 ### Requirement: 本机 L3 授权必须由单一权威 repository 持久化
 
 系统 SHALL 在现有本机网络治理 SQLite 数据库内，以独立 `network_authorization_grants` 表持久化 `NetworkAuthorizationGrant`，并把它作为 L3 授权的唯一事实来源。repository MUST 提供仅限显式本机控制面的原子 approve/revoke 写端口，以及供 policy、lifecycle、恢复和状态投影使用的只读查询端口；`NetworkOperationPolicy` 的 approve/revoke/evaluate MUST 委派给这些端口，不得继续维护可作为授权事实的私有内存 grant 表。普通启动、模型、对话、记忆、服务观察、Coordinator、页面和远端输入 MUST NOT 获得写端口。系统 MUST NOT 从执行记录、内存 grant、signed desired config 或 operation L2 preauthorization 推断、迁移或扩大 L3 授权。
@@ -107,7 +112,7 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 
 ### Requirement: 生产完成证据必须来自常规入口和批准资源
 
-真实 Provider 写入 MUST 在隔离 fake 的授权/故障/恢复矩阵通过后，才可使用明确批准的独立接口、地址、端口、数据目录和时间窗口验证。生产 path lifecycle 的完成证据 MUST 来自 Windows/macOS 常规入口，并记录代码提交、平台、入口、资源批准、来源和观测时间；fake、专用脚本、历史证据或仅有 Coordinator/cache 状态 MUST NOT 被标记为生产完成。
+真实 Provider 写入 MUST 在隔离 fake 的授权/故障/恢复矩阵通过后，才可使用明确批准的独立接口、地址、端口、数据目录和时间窗口验证。开发验收 MAY 使用操作者明确建立的临时 root/管理员或 SSH 管理权限上下文启动批准范围内的执行，但权限取得方式本身不构成完成证据。生产 path lifecycle 的完成证据 MUST 来自 Windows/macOS 常规入口，并记录代码提交、平台、入口、资源批准、来源和观测时间；fake、专用脚本、历史证据、仅有命令退出码、root/SSH 成功或仅有 Coordinator/cache 状态 MUST NOT 被标记为生产完成。
 
 #### Scenario: fake lifecycle 全部通过
 
