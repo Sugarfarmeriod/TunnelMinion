@@ -10,6 +10,8 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -77,12 +79,91 @@ from tunnelminion.tools.contracts import ToolCancellationToken
 _BARRIER_TIMEOUT_SECONDS = 180
 _AUTHORIZATION_TTL_SECONDS = 900
 _HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_MACOS_CONSOLE_PATH = Path("/dev/console")
+_MACOS_LOGIN_UID_MINIMUM = 501
 
 
 @dataclass(frozen=True, slots=True)
 class _ApprovedTarget:
     host: str
     port: int
+
+
+class _MacOSLoginKeychainSecretStore:
+    """root runner 仅把固定 Keychain 读取降权到当前控制台登录用户。"""
+
+    def __init__(
+        self,
+        *,
+        expected_name: str,
+        service_name: str = "TunnelMinion",
+        platform_name: str | None = None,
+        effective_uid: Callable[[], int] | None = None,
+        console_uid: Callable[[], int] | None = None,
+        run_process: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    ) -> None:
+        self._expected_name = expected_name
+        self._service_name = service_name
+        self._platform_name = sys.platform if platform_name is None else platform_name
+        self._effective_uid = effective_uid or cast(
+            Callable[[], int], getattr(os, "geteuid", lambda: -1)
+        )
+        self._console_uid = console_uid or (lambda: os.stat(_MACOS_CONSOLE_PATH).st_uid)
+        self._run_process = run_process
+
+    def get(self, name: str) -> str | None:
+        """通过固定系统 argv 读取一个既有项；错误正文和秘密均不外泄。"""
+        if self._platform_name != "darwin" or self._effective_uid() != 0:
+            raise SecretStoreError("macOS 登录用户 Keychain 代理上下文无效")
+        if name != self._expected_name:
+            raise SecretStoreError("macOS 登录用户 Keychain 代理拒绝非批准名称")
+        try:
+            uid = self._console_uid()
+        except OSError as exc:
+            raise SecretStoreError("无法确认 macOS 控制台登录用户") from exc
+        if not _MACOS_LOGIN_UID_MINIMUM <= uid < 2**31:
+            raise SecretStoreError("macOS 控制台没有可用的普通登录用户")
+        command = (
+            "/bin/launchctl",
+            "asuser",
+            str(uid),
+            "/usr/bin/sudo",
+            "-u",
+            f"#{uid}",
+            "-H",
+            "/usr/bin/security",
+            "find-generic-password",
+            "-s",
+            self._service_name,
+            "-a",
+            name,
+            "-w",
+        )
+        try:
+            completed = self._run_process(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="strict",
+                timeout=15,
+                env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            )
+        except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+            raise SecretStoreError("无法读取 macOS 登录用户 Keychain") from exc
+        if completed.returncode != 0:
+            raise SecretStoreError("无法读取 macOS 登录用户 Keychain")
+        value = completed.stdout.rstrip("\r\n")
+        return value or None
+
+    def set(self, name: str, value: str) -> None:
+        del name, value
+        raise SecretStoreError("阶段 6 管理员执行禁止创建或覆盖身份")
+
+    def delete(self, name: str) -> None:
+        del name
+        raise SecretStoreError("阶段 6 管理员执行禁止删除身份")
 
 
 _TARGETS: dict[str, tuple[_ApprovedTarget, ...]] = {
@@ -979,8 +1060,15 @@ def _assert_existing_identity(
         raise SystemExit("阶段 6 本机公开身份绑定不一致")
     name = f"wireguard/{_NETWORK_ID}/{config.node_id}"
     try:
+        selected_backend = backend
+        if selected_backend is None:
+            selected_backend = (
+                _MacOSLoginKeychainSecretStore(expected_name=name)
+                if platform == "macos"
+                else KeyringSecretStore()
+            )
         store = _ExistingOnlySecretStore(
-            backend or KeyringSecretStore(),
+            selected_backend,
             expected_name=name,
             expected_public_key=payload["public_key"],
             expected_public_key_hash=payload["public_key_hash"],

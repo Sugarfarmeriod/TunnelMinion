@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -628,3 +629,107 @@ def test_platform_identity_delegates_remain_available_for_default_factories() ->
     assert macos.create_identity(network_id, node_id) is material
     assert windows.create_identity(network_id, node_id) is material
     assert provider.create_local_identity(network_id, node_id) is material
+
+
+def test_macos_root_reads_only_approved_login_keychain_item_without_secret_in_argv() -> None:
+    captured: list[tuple[tuple[str, ...], dict[str, object]]] = []
+    private_text = "private-material-only-in-stdout"
+
+    def run_process(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, f"{private_text}\n", "ignored")
+
+    name = "wireguard/network/node"
+    store = subject._MacOSLoginKeychainSecretStore(  # pyright: ignore[reportPrivateUsage]
+        expected_name=name,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        console_uid=lambda: 501,
+        run_process=run_process,
+    )
+
+    assert store.get(name) == private_text
+    command, kwargs = captured[0]
+    assert command == (
+        "/bin/launchctl",
+        "asuser",
+        "501",
+        "/usr/bin/sudo",
+        "-u",
+        "#501",
+        "-H",
+        "/usr/bin/security",
+        "find-generic-password",
+        "-s",
+        "TunnelMinion",
+        "-a",
+        name,
+        "-w",
+    )
+    assert private_text not in command
+    assert kwargs["timeout"] == 15
+    assert kwargs["env"] == {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+    with pytest.raises(SecretStoreError, match="禁止创建"):
+        store.set(name, private_text)
+    with pytest.raises(SecretStoreError, match="禁止删除"):
+        store.delete(name)
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "effective_uid", "console_uid", "requested_name", "message"),
+    [
+        ("win32", 0, 501, "wireguard/network/node", "上下文无效"),
+        ("darwin", 501, 501, "wireguard/network/node", "上下文无效"),
+        ("darwin", 0, 501, "wireguard/other/node", "非批准名称"),
+        ("darwin", 0, 0, "wireguard/network/node", "普通登录用户"),
+        ("darwin", 0, 2**31, "wireguard/network/node", "普通登录用户"),
+    ],
+)
+def test_macos_login_keychain_store_rejects_wrong_boundary(
+    platform_name: str,
+    effective_uid: int,
+    console_uid: int,
+    requested_name: str,
+    message: str,
+) -> None:
+    store = subject._MacOSLoginKeychainSecretStore(  # pyright: ignore[reportPrivateUsage]
+        expected_name="wireguard/network/node",
+        platform_name=platform_name,
+        effective_uid=lambda: effective_uid,
+        console_uid=lambda: console_uid,
+    )
+    with pytest.raises(SecretStoreError, match=message):
+        store.get(requested_name)
+
+
+def test_macos_login_keychain_store_redacts_failures() -> None:
+    def missing_console() -> int:
+        raise OSError("sensitive console detail")
+
+    missing = subject._MacOSLoginKeychainSecretStore(  # pyright: ignore[reportPrivateUsage]
+        expected_name="wireguard/network/node",
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        console_uid=missing_console,
+    )
+    with pytest.raises(SecretStoreError, match="无法确认") as console_error:
+        missing.get("wireguard/network/node")
+    assert "sensitive" not in str(console_error.value)
+
+    def failed_process(
+        command: tuple[str, ...], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(command, 1, "private-output", "sensitive error")
+
+    failed = subject._MacOSLoginKeychainSecretStore(  # pyright: ignore[reportPrivateUsage]
+        expected_name="wireguard/network/node",
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        console_uid=lambda: 501,
+        run_process=failed_process,
+    )
+    with pytest.raises(SecretStoreError, match="无法读取") as process_error:
+        failed.get("wireguard/network/node")
+    assert "private-output" not in str(process_error.value)
+    assert "sensitive error" not in str(process_error.value)
