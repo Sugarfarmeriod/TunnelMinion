@@ -423,7 +423,14 @@ class _MacOSStage6CommandRunner:
         if not self._runtime_root.is_dir():
             raise RuntimeError("Stage 6 macOS WireGuard runtime 目录无效")
         name_file, marker_path, wg_config = self._runtime_paths()
-        if any(path.exists() or path.is_symlink() for path in (name_file, marker_path, wg_config)):
+        runtime_materials = (
+            name_file,
+            marker_path,
+            _private_temp_path(marker_path),
+            wg_config,
+            _private_temp_path(wg_config),
+        )
+        if any(path.exists() or path.is_symlink() for path in runtime_materials):
             raise RuntimeError("Stage 6 macOS direct manager 存在未清理运行材料")
         _ensure_macos_stage6_directory(marker_path.parent)
         plan_hash, creation_nonce = self._operation_binding
@@ -561,18 +568,37 @@ class _MacOSStage6CommandRunner:
             {"creation_nonce": creation_nonce}
         ):
             raise RuntimeError("Stage 6 macOS runtime marker 操作绑定不匹配")
+        marker_pid = cast(int | None, marker["pid"])
+        started_at = cast(str | None, marker["started_at"])
         runtime_interface = cast(str | None, marker["runtime_interface"])
+        if (
+            marker["phase"] == "preparing"
+            and self._wireguard_process is None
+            and marker_pid is None
+            and started_at is None
+        ):
+            uncertain_private_material = marker_temp.exists() or marker_temp.is_symlink()
+            uncertain_spawn_material = (
+                name_file.exists()
+                or name_file.is_symlink()
+                or runtime_interface is not None
+                or ((wg_config.exists() or wg_config.is_symlink()) and not self._spawn_known_absent)
+            )
+            if uncertain_private_material or uncertain_spawn_material:
+                raise RuntimeError("Stage 6 macOS pre-spawn 结果无法证明，必须人工恢复")
+            route_table = await self._run_private_command(
+                (str(self._paths.netstat), "-rn", "-f", "inet")
+            )
+            if _exact_macos_route_interfaces(route_table or "", host_route):
+                raise RuntimeError("Stage 6 macOS pre-spawn 出现不可能的 host route")
+            await self._assert_udp_port_absent()
+            for path in (wg_config_temp, wg_config, marker_path):
+                if path.exists() or path.is_symlink():
+                    _assert_root_owned_path(path, regular_file=True)
+                    path.unlink()
+            return
         if runtime_interface is None:
             runtime_interface = await self._recover_runtime_name(name_file)
-        if (
-            runtime_interface is None
-            and marker["phase"] == "preparing"
-            and self._wireguard_process is None
-            and not self._spawn_known_absent
-            and (wg_config.exists() or wg_config.is_symlink())
-        ):
-            raise RuntimeError("Stage 6 macOS pre-spawn 结果无法证明，必须人工恢复")
-        marker_pid = cast(int | None, marker["pid"])
         pid = (
             self._wireguard_process.pid
             if marker_pid is None and self._wireguard_process is not None
@@ -584,7 +610,6 @@ class _MacOSStage6CommandRunner:
             and pid == self._wireguard_process.pid
             and self._wireguard_process.returncode is None
         )
-        started_at = cast(str | None, marker["started_at"])
         process_owned = current_process_owned or (
             pid is not None
             and started_at is not None

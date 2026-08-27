@@ -970,6 +970,48 @@ def test_macos_stage6_direct_manager_uses_only_fixed_narrow_argv(
     )
 
 
+@pytest.mark.parametrize("stale_kind", ["marker-temp", "wg-config-temp"])
+def test_macos_stage6_direct_up_rejects_preexisting_atomic_temp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stale_kind: str,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runtime_root = tmp_path / "wireguard-runtime"
+    runtime_root.mkdir()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=runtime_root,
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = runtime_root / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    stale_path = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        marker_file if stale_kind == "marker-temp" else wg_config
+    )
+    stale_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_path.write_bytes(b"preexisting")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+
+    with pytest.raises(RuntimeError, match="存在未清理运行材料"):
+        asyncio.run(runner._direct_up(tmp_path / "config.conf"))  # pyright: ignore[reportPrivateUsage]
+
+    assert stale_path.read_bytes() == b"preexisting"
+    assert runner.runtime_resources() == (f"stage6:{stale_kind}",)
+
+
 def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1149,6 +1191,66 @@ def test_macos_stage6_preparing_recovery_cleans_private_artifacts_without_networ
     assert runner.runtime_resources() == ()
 
 
+def test_macos_stage6_preparing_recovery_cleans_incomplete_config_temp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=tmp_path / "wireguard-runtime",
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    wg_config_temp = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        wg_config
+    )
+    for item in (marker_file, wg_config_temp):
+        item.parent.mkdir(parents=True, exist_ok=True)
+        item.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+
+    def runtime_marker(path: Path) -> dict[str, object]:
+        del path
+        return {
+            "phase": "preparing",
+            "runtime_interface": None,
+            "pid": None,
+            "started_at": None,
+            "plan_hash": plan.plan_hash,
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
+            "public_key_hash": f"sha256:{'b' * 64}",
+        }
+
+    async def route_table(command: tuple[str, ...], **kwargs: object) -> str:
+        del kwargs
+        assert command == (str(paths.netstat), "-rn", "-f", "inet")
+        return ""
+
+    async def udp_absent() -> None:
+        return None
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(subject, "_load_macos_runtime_marker", runtime_marker)
+    monkeypatch.setattr(runner, "_run_private_command", route_table)
+    monkeypatch.setattr(runner, "_assert_udp_port_absent", udp_absent)
+
+    asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert runner.runtime_resources() == ()
+
+
 def test_macos_stage6_recovery_removes_only_uncommitted_marker_temp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1194,6 +1296,109 @@ def test_macos_stage6_recovery_removes_only_uncommitted_marker_temp(
     assert not marker_temp.exists()
     assert unrelated_temp.exists()
     assert runner.runtime_resources() == ()
+
+
+@pytest.mark.parametrize("other_kind", ["name", "wg-config", "wg-config-temp"])
+def test_macos_stage6_marker_temp_recovery_rejects_any_other_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    other_kind: str,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=tmp_path / "wireguard-runtime",
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    marker_temp = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        marker_file
+    )
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    wg_config_temp = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        wg_config
+    )
+    other_path = {
+        "name": name_file,
+        "wg-config": wg_config,
+        "wg-config-temp": wg_config_temp,
+    }[other_kind]
+    for item in (marker_temp, other_path):
+        item.parent.mkdir(parents=True, exist_ok=True)
+        item.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+
+    with pytest.raises(RuntimeError, match="残留组合不可证明"):
+        asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert marker_temp.exists()
+    assert other_path.exists()
+
+
+@pytest.mark.parametrize("unexpected_kind", ["name-and-socket", "route"])
+def test_macos_stage6_preparing_without_pid_never_deletes_network_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unexpected_kind: str,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runtime_root = tmp_path / "wireguard-runtime"
+    runtime_root.mkdir()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=runtime_root,
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = runtime_root / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    marker_file.parent.mkdir(parents=True, exist_ok=True)
+    marker_file.write_text("fixture", encoding="utf-8")
+    socket_file = runtime_root / "utun9.sock"
+    if unexpected_kind == "name-and-socket":
+        name_file.write_text("utun9\n", encoding="ascii")
+        socket_file.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+
+    def runtime_marker(path: Path) -> dict[str, object]:
+        del path
+        return {
+            "phase": "preparing",
+            "runtime_interface": None,
+            "pid": None,
+            "started_at": None,
+            "plan_hash": plan.plan_hash,
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
+            "public_key_hash": f"sha256:{'b' * 64}",
+        }
+
+    commands: list[tuple[str, ...]] = []
+
+    async def route_table(command: tuple[str, ...], **kwargs: object) -> str:
+        del kwargs
+        commands.append(command)
+        return "192.0.2.1/32 192.0.2.1 UGSc utun9\n" if unexpected_kind == "route" else ""
+
+    monkeypatch.setattr(subject, "_load_macos_runtime_marker", runtime_marker)
+    monkeypatch.setattr(runner, "_run_private_command", route_table)
+
+    with pytest.raises(RuntimeError, match="pre-spawn"):
+        asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert all("delete" not in command for command in commands)
+    assert marker_file.exists()
+    if unexpected_kind == "name-and-socket":
+        assert name_file.exists()
+        assert socket_file.exists()
 
 
 @pytest.mark.parametrize(
