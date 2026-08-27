@@ -34,6 +34,13 @@ class MacOSOperationBinder(Protocol):
     def bind_operation(self, plan_hash: str, creation_nonce: str) -> None: ...
 
 
+@runtime_checkable
+class MacOSRuntimeResourceReporter(Protocol):
+    """向 Provider runtime hash 暴露脱敏的额外受管资源存在性。"""
+
+    def runtime_resources(self) -> tuple[str, ...]: ...
+
+
 class MacOSProviderPreflight(WindowsProviderPreflight):
     """沿用跨平台 Provider 前置状态字段；manager 为固定平台管理器。"""
 
@@ -116,6 +123,11 @@ class FixedMacOSWireGuardCommands:
         """仅在 runner 明确支持时传递计划绑定。"""
         if isinstance(self._runner, MacOSOperationBinder):
             self._runner.bind_operation(plan_hash, creation_nonce)
+
+    def runtime_resources(self) -> tuple[str, ...]:
+        if isinstance(self._runner, MacOSRuntimeResourceReporter):
+            return self._runner.runtime_resources()
+        return ()
 
     async def interfaces(self) -> CommandResult:
         return await self._runner.run((str(self.paths.wg), "show", "interfaces"), 5)

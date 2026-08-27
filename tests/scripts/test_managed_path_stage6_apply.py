@@ -864,10 +864,11 @@ def test_macos_stage6_direct_manager_uses_only_fixed_narrow_argv(
         runtime_root=runtime_root,
         route_path=tmp_path / "system" / "route",
     )
-    config = paths.config_root / f"{desired.interface_name}.r{desired.revision}.conf"
     runner.bind_operation(plan.plan_hash, "a" * 32)
+    config = paths.config_root / f"{desired.interface_name}.r{desired.revision}.conf"
     process = _FakeMacOSProcess(output=(b"", b""))
     commands: list[tuple[str, ...]] = []
+    marker_payloads: list[dict[str, object]] = []
 
     def accept_root_path(
         path: Path, *, regular_file: bool = False, exact_mode: int | None = None
@@ -899,7 +900,8 @@ def test_macos_stage6_direct_manager_uses_only_fixed_narrow_argv(
         del path
 
     def ignore_json(path: Path, data: dict[str, object]) -> None:
-        del path, data
+        del path
+        marker_payloads.append(dict(data))
 
     def ignore_config(source: Path, target: Path) -> None:
         del source, target
@@ -928,6 +930,16 @@ def test_macos_stage6_direct_manager_uses_only_fixed_narrow_argv(
 
     asyncio.run(runner._direct_up(config))  # pyright: ignore[reportPrivateUsage]
 
+    assert [payload["phase"] for payload in marker_payloads] == [
+        "preparing",
+        "spawned",
+        "configured",
+        "addressed",
+        "routed",
+    ]
+    assert marker_payloads[0]["runtime_interface"] is None
+    assert marker_payloads[0]["pid"] is None
+    assert all("private" not in key and "endpoint" not in key for key in marker_payloads[0])
     assert commands == [
         (str(paths.wg), "setconf", "utun9", str(paths.config_root / "tmn-stage6-b.r1.wg.conf")),
         (
@@ -974,6 +986,7 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
         runtime_root=runtime_root,
         route_path=tmp_path / "system" / "route",
     )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
     name_file = runtime_root / "tmn-stage6-b.r1.name"
     marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
     wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
@@ -987,7 +1000,8 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     ) -> None:
         del path, regular_file, exact_mode
 
-    async def public_hash(_runtime: str) -> str:
+    async def public_hash(_runtime: str, *, allow_absent: bool = False) -> str:
+        assert allow_absent
         return f"sha256:{'b' * 64}"
 
     async def command_result(command: tuple[str, ...], *, allow_failure: bool = False) -> str:
@@ -1000,15 +1014,28 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     async def absent(_runtime: str) -> None:
         return None
 
+    async def process_owned(_pid: int, _started_at: str) -> bool:
+        return True
+
+    async def wait_process_absent(_pid: int, _started_at: str) -> None:
+        return None
+
+    async def udp_absent() -> None:
+        return None
+
     def accept_socket(path: Path) -> None:
         del path
 
     def runtime_marker(path: Path) -> dict[str, object]:
         del path
         return {
+            "phase": "routed",
             "runtime_interface": "utun9",
             "public_key_hash": f"sha256:{'b' * 64}",
             "pid": 4242,
+            "started_at": NOW.isoformat(),
+            "plan_hash": plan.plan_hash,
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
         }
 
     monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
@@ -1020,8 +1047,11 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     )
     monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
     monkeypatch.setattr(runner, "_runtime_public_key_hash", public_hash)
+    monkeypatch.setattr(runner, "_same_macos_process", process_owned)
     monkeypatch.setattr(runner, "_run_private_command", command_result)
     monkeypatch.setattr(runner, "_wait_interface_absent", absent)
+    monkeypatch.setattr(runner, "_wait_bound_process_absent", wait_process_absent)
+    monkeypatch.setattr(runner, "_assert_udp_port_absent", udp_absent)
 
     asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
 
@@ -1041,6 +1071,143 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     assert not (runtime_root / "utun9.sock").exists()
 
 
+def test_macos_stage6_preparing_recovery_cleans_private_artifacts_without_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=tmp_path / "wireguard-runtime",
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    for item in (marker_file, wg_config):
+        item.parent.mkdir(parents=True, exist_ok=True)
+        item.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+    assert runner.runtime_resources() == ("stage6:marker", "stage6:wg-config")
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    def runtime_marker(path: Path) -> dict[str, object]:
+        del path
+        return {
+            "phase": "preparing",
+            "runtime_interface": None,
+            "pid": None,
+            "started_at": None,
+            "plan_hash": plan.plan_hash,
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
+            "public_key_hash": f"sha256:{'b' * 64}",
+        }
+
+    async def no_runtime(_path: Path) -> None:
+        return None
+
+    async def route_table(command: tuple[str, ...], **kwargs: object) -> str:
+        del kwargs
+        assert command == (str(paths.netstat), "-rn", "-f", "inet")
+        return ""
+
+    async def udp_absent() -> None:
+        return None
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(subject, "_load_macos_runtime_marker", runtime_marker)
+    monkeypatch.setattr(runner, "_recover_runtime_name", no_runtime)
+    monkeypatch.setattr(runner, "_run_private_command", route_table)
+    monkeypatch.setattr(runner, "_assert_udp_port_absent", udp_absent)
+
+    with pytest.raises(RuntimeError, match="结果无法证明"):
+        asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+    assert runner.runtime_resources() == ("stage6:marker", "stage6:wg-config")
+
+    runner._spawn_known_absent = True  # pyright: ignore[reportPrivateUsage]
+    asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert runner.runtime_resources() == ()
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"revision": 2},
+        {"parent_revision": 1},
+        {"listen_port": 51890},
+        {"interface_name": "tmn-stage6-other"},
+    ],
+)
+def test_macos_stage6_direct_manager_rejects_resource_drift(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    desired = _plan().desired.model_copy(update=updates)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        desired,
+        paths=_stage6_test_paths(tmp_path),
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+
+    with pytest.raises(RuntimeError, match="超出批准范围"):
+        runner._direct_parameters()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_macos_stage6_direct_manager_rejects_peer_and_endpoint_drift(tmp_path: Path) -> None:
+    plan = _plan()
+    peer = plan.desired.peers[0]
+    candidate = peer.candidates[0]
+    variants = (
+        peer.model_copy(update={"persistent_keepalive_seconds": 26}),
+        peer.model_copy(update={"candidates": (candidate.model_copy(update={"port": 51890}),)}),
+        peer.model_copy(update={"allowed_host_routes": ("192.0.2.3/32",)}),
+    )
+    for changed_peer in variants:
+        runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+            plan.desired.model_copy(update={"peers": (changed_peer,)}),
+            paths=_stage6_test_paths(tmp_path),
+            platform_name="darwin",
+            effective_uid=lambda: 0,
+        )
+        with pytest.raises(RuntimeError, match="超出批准范围"):
+            runner._direct_parameters()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_macos_stage6_recovery_rejects_wrong_plan_or_nonce_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = _plan()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=_stage6_test_paths(tmp_path),
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+
+    def wrong_marker(path: Path) -> dict[str, object]:
+        del path
+        return {
+            "plan_hash": f"sha256:{'f' * 64}",
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
+        }
+
+    monkeypatch.setattr(subject, "_load_macos_runtime_marker", wrong_marker)
+    with pytest.raises(RuntimeError, match="绑定不匹配"):
+        asyncio.run(
+            runner._direct_down(tmp_path / "config.conf")  # pyright: ignore[reportPrivateUsage]
+        )
+
+
 class _FakeMacOSProcess:
     def __init__(self, *, output: tuple[bytes, bytes] | None = None) -> None:
         self.pid = 4242
@@ -1058,6 +1225,70 @@ class _FakeMacOSProcess:
     async def wait(self) -> int:
         self.returncode = -15
         return self.returncode
+
+
+def test_macos_private_mutation_timeout_and_cancel_reap_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        _plan().desired,
+        paths=_stage6_test_paths(tmp_path),
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    command = (str(runner._paths.ifconfig), "utun9", "up")  # pyright: ignore[reportPrivateUsage]
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    killed: list[tuple[int, int]] = []
+
+    def kill_group(pid: int, sig: int) -> None:
+        killed.append((pid, sig))
+
+    monkeypatch.setattr(subject.os, "killpg", kill_group, raising=False)
+    timeout_process = _FakeMacOSProcess()
+
+    async def timeout_factory(*args: object, **kwargs: object) -> _FakeMacOSProcess:
+        del args, kwargs
+        return timeout_process
+
+    monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", timeout_factory)
+    with pytest.raises(RuntimeError, match="步骤超时"):
+        asyncio.run(runner._run_private_command(command, timeout_seconds=0.001))  # pyright: ignore[reportPrivateUsage]
+    assert timeout_process.returncode == -15
+    assert killed == [(4242, subject.signal.SIGTERM)]
+
+    killed.clear()
+    cancelled_process = _FakeMacOSProcess()
+
+    async def cancel_factory(*args: object, **kwargs: object) -> _FakeMacOSProcess:
+        del args, kwargs
+        return cancelled_process
+
+    monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", cancel_factory)
+
+    async def cancel_run() -> None:
+        task = asyncio.create_task(runner._run_private_command(command))  # pyright: ignore[reportPrivateUsage]
+        await cancelled_process.started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_run())
+    assert cancelled_process.returncode == -15
+    assert killed == [(4242, subject.signal.SIGTERM)]
+
+
+def test_macos_udp_listener_parser_uses_only_local_address_column() -> None:
+    parser = subject._macos_udp_port_present  # pyright: ignore[reportPrivateUsage]
+    assert parser("udp4 0 0 *.51889 *.* 0 0\n", 51889)
+    assert parser("udp6 0 0 [::1]:51889 *.* 0 0\n", 51889)
+    assert not parser("udp4 0 0 *.60000 10.0.0.1.51889 0 0\n", 51889)
 
 
 def test_macos_stage6_runner_read_timeout_and_cancel_reap_process_group(
@@ -1157,3 +1388,92 @@ def test_hash_pinned_tool_copy_is_atomic_and_rejects_mismatch(
             source, rejected, "0" * 64
         )
     assert not rejected.exists()
+
+
+def test_macos_runtime_marker_accepts_only_bound_phase_shapes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=_stage6_test_paths(tmp_path),
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    marker = tmp_path / "runtime.json"
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    preparing = runner._runtime_marker_payload(  # pyright: ignore[reportPrivateUsage]
+        phase="preparing",
+        plan_hash=plan.plan_hash,
+        creation_nonce="a" * 32,
+        public_key_hash=f"sha256:{'b' * 64}",
+    )
+    marker.write_text(json.dumps(preparing), encoding="utf-8")
+    assert subject._load_macos_runtime_marker(marker)["phase"] == "preparing"  # pyright: ignore[reportPrivateUsage]
+
+    spawned = runner._runtime_marker_payload(  # pyright: ignore[reportPrivateUsage]
+        phase="spawned",
+        plan_hash=plan.plan_hash,
+        creation_nonce="a" * 32,
+        public_key_hash=f"sha256:{'b' * 64}",
+        runtime_interface="utun9",
+        pid=4242,
+        started_at=NOW,
+    )
+    marker.write_text(json.dumps(spawned), encoding="utf-8")
+    assert subject._load_macos_runtime_marker(marker)["pid"] == 4242  # pyright: ignore[reportPrivateUsage]
+
+    marker.write_text(json.dumps({**spawned, "phase": "unknown"}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="schema"):
+        subject._load_macos_runtime_marker(marker)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_macos_tool_closure_accepts_only_apple_absolute_dependencies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = tmp_path / "wg"
+    tool.write_bytes(b"fixture")
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+
+    def apple_only(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            f"{tool}:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n",
+            "",
+        )
+
+    subject._validate_macos_tool_closure(  # pyright: ignore[reportPrivateUsage]
+        tool, run_process=apple_only
+    )
+
+    def homebrew_dependency(
+        command: tuple[str, ...], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            f"{tool}:\n\t/opt/homebrew/lib/libunsafe.dylib (compatibility version 1.0.0)\n",
+            "",
+        )
+
+    with pytest.raises(SystemExit, match="Apple"):
+        subject._validate_macos_tool_closure(  # pyright: ignore[reportPrivateUsage]
+            tool, run_process=homebrew_dependency
+        )

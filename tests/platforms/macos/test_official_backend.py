@@ -66,6 +66,10 @@ class FakeRunner:
         self.stdout = ""
         self.queues: dict[tuple[str, ...], list[CommandResult]] = {}
         self.commands: list[tuple[str, ...]] = []
+        self.bindings: list[tuple[str, str]] = []
+
+    def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
+        self.bindings.append((plan_hash, creation_nonce))
 
     async def run(
         self,
@@ -309,6 +313,8 @@ def test_backend_execute_and_rollback_fixed_steps(tmp_path: Path) -> None:
             )
         )
         assert result.startswith("sha256:")
+
+    assert runner.bindings == [(value.plan_hash, "a" * 32)] * 2
 
     for kind in (
         PlanStepKind.STOP_INTERFACE,

@@ -43,6 +43,9 @@ class BindingRunner(FakeRunner):
     def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
         self.binding = (plan_hash, creation_nonce)
 
+    def runtime_resources(self) -> tuple[str, ...]:
+        return ("stage6:marker",)
+
 
 def fixed(
     tmp_path: Path,
@@ -101,7 +104,9 @@ def test_fixed_commands_delegate_optional_operation_binding(tmp_path: Path) -> N
     commands.bind_operation(f"sha256:{'a' * 64}", "b" * 32)
 
     assert runner.binding == (f"sha256:{'a' * 64}", "b" * 32)
+    assert commands.runtime_resources() == ("stage6:marker",)
     fixed(tmp_path, FakeRunner()).bind_operation(f"sha256:{'c' * 64}", "d" * 32)
+    assert fixed(tmp_path, FakeRunner()).runtime_resources() == ()
 
 
 def test_fixed_commands_reject_dynamic_values(tmp_path: Path) -> None:

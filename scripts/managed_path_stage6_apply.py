@@ -92,6 +92,8 @@ _MACOS_LOGIN_UID_MINIMUM = 501
 _MACOS_STAGE6_ROOT = Path("/private/var/root/Library/Application Support/TunnelMinion/stage6")
 _MACOS_WIREGUARD_RUNTIME_ROOT = Path("/var/run/wireguard")
 _MACOS_ROUTE = Path("/sbin/route")
+_MACOS_PS = Path("/bin/ps")
+_MACOS_OTOOL = Path("/usr/bin/otool")
 _MACOS_STAGE6_RUNTIME_SCHEMA = "managed-path-stage6-macos-runtime/v1"
 _MACOS_STAGE6_TOOL_SOURCES = {
     "wg": Path("/opt/homebrew/bin/wg"),
@@ -101,6 +103,9 @@ _MACOS_STAGE6_TOOL_HASHES = {
     "wg": "5b7b2a5c1756e7afbb76047fb3f5b975d0c9b0ff905817283ec09ab2e11b9e57",
     "wireguard-go": "c62a563ac888d8c6ca9895ee6f7ac5e7297171f20bc7e1c7e0ec4d6d21415337",
 }
+_MACOS_STAGE6_LEGACY_WG_QUICK_HASH = (
+    "1b8caefd878a3ffecfd8959a5d306c459d0cd645879071b5195ba538b2d40c15"
+)
 _MACOS_STAGE6_PUBLIC_FIELDS = frozenset(
     {"public-key", "peers", "endpoints", "allowed-ips", "latest-handshakes"}
 )
@@ -218,6 +223,7 @@ class _MacOSStage6CommandRunner:
         self._route_path = route_path
         self._operation_binding: tuple[str, str] | None = None
         self._wireguard_process: asyncio.subprocess.Process | None = None
+        self._spawn_known_absent = False
         self._mutation_lock = asyncio.Lock()
 
     def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
@@ -229,6 +235,14 @@ class _MacOSStage6CommandRunner:
             raise RuntimeError("Stage 6 macOS operation 绑定无效")
         self._operation_binding = (plan_hash, creation_nonce)
 
+    def runtime_resources(self) -> tuple[str, ...]:
+        """只返回固定制品的脱敏存在性 token，纳入 Provider 恢复 hash。"""
+        name_file, marker_path, wg_config = self._runtime_paths()
+        paths = (("name", name_file), ("marker", marker_path), ("wg-config", wg_config))
+        return tuple(
+            f"stage6:{label}" for label, path in paths if path.exists() or path.is_symlink()
+        )
+
     async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
         mutation = self._validate_command(command)
         self._verify_tool(Path(command[0]))
@@ -236,7 +250,12 @@ class _MacOSStage6CommandRunner:
             self._verify_tool(self._tools_root / "wireguard-go")
             self._validate_config(Path(command[2]))
             async with self._mutation_lock:
-                return await self._run_direct_manager(command[1], Path(command[2]), timeout_seconds)
+                try:
+                    return await self._run_direct_manager(
+                        command[1], Path(command[2]), timeout_seconds
+                    )
+                except (RuntimeError, TimeoutError):
+                    return CommandResult(returncode=1, stdout="", stderr="")
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
@@ -358,12 +377,26 @@ class _MacOSStage6CommandRunner:
 
     def _direct_parameters(self) -> tuple[str, str]:
         approved = _CONFIGS["macos"]
+        peers = self._desired.peers
         routes = tuple(route for peer in self._desired.peers for route in peer.allowed_host_routes)
         if (
-            self._desired.interface_name != approved.interface_name
+            self._desired.provider.value != "macos"
+            or self._desired.network_id != _NETWORK_ID
+            or self._desired.target_node_id != approved.node_id
+            or self._desired.revision != 1
+            or self._desired.parent_revision != 0
+            or self._desired.interface_name != approved.interface_name
             or self._desired.address != approved.address
             or self._desired.listen_port != approved.listen_port
+            or self._desired.allowed_route_overlaps != approved.allowed_route_overlaps
+            or len(peers) != 1
+            or peers[0].node_id != approved.peer_node_id
             or routes != (approved.peer_host_route,)
+            or peers[0].persistent_keepalive_seconds != 25
+            or len(peers[0].candidates) != 1
+            or peers[0].candidates[0].host != approved.peer_endpoint_host
+            or peers[0].candidates[0].port != approved.peer_endpoint_port
+            or peers[0].candidates[0].source.value != "admin_explicit"
         ):
             raise RuntimeError("Stage 6 macOS direct manager 资源超出批准范围")
         return self._desired.address, routes[0]
@@ -387,42 +420,52 @@ class _MacOSStage6CommandRunner:
         if any(path.exists() or path.is_symlink() for path in (name_file, marker_path, wg_config)):
             raise RuntimeError("Stage 6 macOS direct manager 存在未清理运行材料")
         _ensure_macos_stage6_directory(marker_path.parent)
-        self._write_wg_only_config(config_path, wg_config)
-        process = await asyncio.create_subprocess_exec(
-            str(self._tools_root / "wireguard-go"),
-            "-f",
-            "utun",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            env={
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "WG_TUN_NAME_FILE": str(name_file),
-            },
-            start_new_session=True,
-        )
-        self._wireguard_process = process
-        runtime_interface = await self._wait_runtime_name(name_file, process)
         plan_hash, creation_nonce = self._operation_binding
-        _write_root_private_json(
-            marker_path,
-            {
-                "schema_version": _MACOS_STAGE6_RUNTIME_SCHEMA,
-                "interface_name": self._desired.interface_name,
-                "revision": self._desired.revision,
-                "runtime_interface": runtime_interface,
-                "pid": process.pid,
-                "started_at": datetime.now(UTC).isoformat(),
-                "wireguard_go_hash": f"sha256:{_MACOS_STAGE6_TOOL_HASHES['wireguard-go']}",
-                "plan_hash": plan_hash,
-                "creation_nonce_hash": canonical_sha256({"creation_nonce": creation_nonce}),
-                "public_key_hash": self._config_public_key_hash(config_path),
-            },
+        public_key_hash = self._config_public_key_hash(config_path)
+        marker = self._runtime_marker_payload(
+            phase="preparing",
+            plan_hash=plan_hash,
+            creation_nonce=creation_nonce,
+            public_key_hash=public_key_hash,
         )
+        _write_root_private_json(marker_path, marker)
         try:
+            self._write_wg_only_config(config_path, wg_config)
+            started_at = datetime.now(UTC)
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    str(self._tools_root / "wireguard-go"),
+                    "-f",
+                    "utun",
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    env={
+                        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                        "WG_TUN_NAME_FILE": str(name_file),
+                    },
+                    start_new_session=True,
+                )
+            except OSError:
+                self._spawn_known_absent = True
+                raise
+            self._wireguard_process = process
+            runtime_interface = await self._wait_runtime_name(name_file, process)
+            marker = self._runtime_marker_payload(
+                phase="spawned",
+                plan_hash=plan_hash,
+                creation_nonce=creation_nonce,
+                public_key_hash=public_key_hash,
+                runtime_interface=runtime_interface,
+                pid=process.pid,
+                started_at=started_at,
+            )
+            _write_root_private_json(marker_path, marker)
             await self._run_private_command(
                 (str(self._paths.wg), "setconf", runtime_interface, str(wg_config))
             )
+            marker["phase"] = "configured"
+            _write_root_private_json(marker_path, marker)
             await self._run_private_command(
                 (
                     str(self._paths.ifconfig),
@@ -435,6 +478,8 @@ class _MacOSStage6CommandRunner:
                 )
             )
             await self._run_private_command((str(self._paths.ifconfig), runtime_interface, "up"))
+            marker["phase"] = "addressed"
+            _write_root_private_json(marker_path, marker)
             await self._run_private_command(
                 (
                     str(self._route_path),
@@ -447,6 +492,8 @@ class _MacOSStage6CommandRunner:
                     runtime_interface,
                 )
             )
+            marker["phase"] = "routed"
+            _write_root_private_json(marker_path, marker)
         except BaseException:
             try:
                 await asyncio.shield(self._direct_down(config_path))
@@ -456,28 +503,98 @@ class _MacOSStage6CommandRunner:
                 ) from None
             raise
 
+    def _runtime_marker_payload(
+        self,
+        *,
+        phase: str,
+        plan_hash: str,
+        creation_nonce: str,
+        public_key_hash: str,
+        runtime_interface: str | None = None,
+        pid: int | None = None,
+        started_at: datetime | None = None,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": _MACOS_STAGE6_RUNTIME_SCHEMA,
+            "phase": phase,
+            "provider": self._desired.provider.value,
+            "network_id": str(self._desired.network_id),
+            "node_id": str(self._desired.target_node_id),
+            "interface_name": self._desired.interface_name,
+            "revision": self._desired.revision,
+            "runtime_interface": runtime_interface,
+            "pid": pid,
+            "started_at": started_at.isoformat() if started_at is not None else None,
+            "wireguard_go_hash": f"sha256:{_MACOS_STAGE6_TOOL_HASHES['wireguard-go']}",
+            "plan_hash": plan_hash,
+            "creation_nonce_hash": canonical_sha256({"creation_nonce": creation_nonce}),
+            "public_key_hash": public_key_hash,
+        }
+
     async def _direct_down(self, config_path: Path) -> None:
         del config_path
+        if self._operation_binding is None:
+            raise RuntimeError("Stage 6 macOS direct manager 缺少恢复绑定")
         _, host_route = self._direct_parameters()
         name_file, marker_path, wg_config = self._runtime_paths()
         marker = _load_macos_runtime_marker(marker_path)
-        runtime_interface = cast(str, marker["runtime_interface"])
+        plan_hash, creation_nonce = self._operation_binding
+        if marker["plan_hash"] != plan_hash or marker["creation_nonce_hash"] != canonical_sha256(
+            {"creation_nonce": creation_nonce}
+        ):
+            raise RuntimeError("Stage 6 macOS runtime marker 操作绑定不匹配")
+        runtime_interface = cast(str | None, marker["runtime_interface"])
+        if runtime_interface is None:
+            runtime_interface = await self._recover_runtime_name(name_file)
+        if (
+            runtime_interface is None
+            and marker["phase"] == "preparing"
+            and self._wireguard_process is None
+            and not self._spawn_known_absent
+            and (wg_config.exists() or wg_config.is_symlink())
+        ):
+            raise RuntimeError("Stage 6 macOS pre-spawn 结果无法证明，必须人工恢复")
+        marker_pid = cast(int | None, marker["pid"])
+        pid = (
+            self._wireguard_process.pid
+            if marker_pid is None and self._wireguard_process is not None
+            else marker_pid
+        )
         current_process_owned = (
-            self._wireguard_process is not None
-            and marker["pid"] == self._wireguard_process.pid
+            pid is not None
+            and self._wireguard_process is not None
+            and pid == self._wireguard_process.pid
             and self._wireguard_process.returncode is None
         )
-        if not current_process_owned and marker[
-            "public_key_hash"
-        ] != await self._runtime_public_key_hash(runtime_interface):
+        started_at = cast(str | None, marker["started_at"])
+        process_owned = current_process_owned or (
+            pid is not None
+            and started_at is not None
+            and await self._same_macos_process(pid, started_at)
+        )
+        runtime_public_hash = (
+            await self._runtime_public_key_hash(runtime_interface, allow_absent=True)
+            if runtime_interface is not None
+            else None
+        )
+        if runtime_public_hash is not None and marker["public_key_hash"] != runtime_public_hash:
             raise RuntimeError("Stage 6 macOS runtime 接口所有权不匹配")
+        if runtime_public_hash is not None and not process_owned:
+            raise RuntimeError("Stage 6 macOS runtime 进程所有权不匹配")
         route_table = await self._run_private_command(
             (str(self._paths.netstat), "-rn", "-f", "inet")
         )
         route_interfaces = _exact_macos_route_interfaces(route_table or "", host_route)
         if route_interfaces:
+            if (
+                runtime_interface is None
+                and len(route_interfaces) == 1
+                and re.fullmatch(r"utun[0-9]+", route_interfaces[0])
+            ):
+                runtime_interface = route_interfaces[0]
             if route_interfaces != (runtime_interface,):
                 raise RuntimeError("Stage 6 macOS host route 所有权不匹配")
+            owned_runtime_interface = cast(str, runtime_interface)
             await self._run_private_command(
                 (
                     str(self._route_path),
@@ -487,24 +604,67 @@ class _MacOSStage6CommandRunner:
                     "-inet",
                     host_route,
                     "-interface",
-                    runtime_interface,
+                    owned_runtime_interface,
                 )
             )
-        socket_path = self._runtime_root / f"{runtime_interface}.sock"
-        _assert_root_owned_socket(socket_path)
-        socket_path.unlink()
-        await self._wait_interface_absent(runtime_interface)
-        for path in (name_file, marker_path, wg_config):
+        socket_path = (
+            self._runtime_root / f"{runtime_interface}.sock"
+            if runtime_interface is not None
+            else None
+        )
+        if socket_path is not None and (socket_path.exists() or socket_path.is_symlink()):
+            intent_owned = marker["phase"] == "preparing" and marker_pid is None
+            if not process_owned and not intent_owned:
+                raise RuntimeError("Stage 6 macOS control socket 进程绑定不匹配")
+            _assert_root_owned_socket(socket_path)
+            socket_path.unlink()
+        elif process_owned and current_process_owned and self._wireguard_process is not None:
+            await self._terminate_process_group(self._wireguard_process)
+        elif process_owned and pid is not None and started_at is not None:
+            await self._terminate_bound_process(pid, started_at)
+        if runtime_interface is not None:
+            await self._wait_interface_absent(runtime_interface)
+        if pid is not None and started_at is not None:
+            await self._wait_bound_process_absent(pid, started_at)
+        elif self._wireguard_process is not None:
+            try:
+                await asyncio.wait_for(self._wireguard_process.wait(), timeout=2)
+            except TimeoutError:
+                raise RuntimeError("Stage 6 macOS runtime 进程未确认退出") from None
+        await self._assert_udp_port_absent()
+        # intent marker 必须最后删除，确保任一清理中断仍可被下一次 recover 识别。
+        for path in (name_file, wg_config, marker_path):
             if path.exists() or path.is_symlink():
                 _assert_root_owned_path(path, regular_file=True)
                 path.unlink()
         self._wireguard_process = None
 
+    async def _recover_runtime_name(self, name_file: Path) -> str | None:
+        for _ in range(20):
+            if name_file.exists() or name_file.is_symlink():
+                _assert_root_owned_path(name_file, regular_file=True)
+                try:
+                    runtime = name_file.read_text(encoding="ascii", errors="strict").strip()
+                except (OSError, UnicodeError):
+                    raise RuntimeError("Stage 6 macOS runtime name 不可验证") from None
+                if re.fullmatch(r"utun[0-9]+", runtime) is None:
+                    raise RuntimeError("Stage 6 macOS runtime name 不匹配")
+                return runtime
+            await asyncio.sleep(0.05)
+        return None
+
     async def _run_private_command(
-        self, command: tuple[str, ...], *, allow_failure: bool = False
+        self,
+        command: tuple[str, ...],
+        *,
+        allow_failure: bool = False,
+        timeout_seconds: float = 5,
     ) -> str | None:
-        for path in (Path(command[0]),):
-            _assert_root_owned_path(path, regular_file=True)
+        executable = Path(command[0])
+        if executable == self._paths.wg:
+            self._verify_tool(executable)
+        else:
+            _assert_root_owned_path(executable, regular_file=True)
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
@@ -513,7 +673,14 @@ class _MacOSStage6CommandRunner:
             env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
             start_new_session=True,
         )
-        stdout, _ = await process.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+        except TimeoutError:
+            await self._terminate_process_group(process)
+            raise RuntimeError("Stage 6 macOS 固定网络步骤超时") from None
+        except asyncio.CancelledError:
+            await asyncio.shield(self._terminate_process_group(process))
+            raise
         if process.returncode != 0:
             if allow_failure:
                 return None
@@ -547,13 +714,77 @@ class _MacOSStage6CommandRunner:
             await asyncio.sleep(0.05)
         raise RuntimeError("Stage 6 macOS runtime 接口未确认清理")
 
-    async def _runtime_public_key_hash(self, runtime_interface: str) -> str:
+    async def _runtime_public_key_hash(
+        self, runtime_interface: str, *, allow_absent: bool = False
+    ) -> str | None:
         value = await self._run_private_command(
-            (str(self._paths.wg), "show", runtime_interface, "public-key")
+            (str(self._paths.wg), "show", runtime_interface, "public-key"),
+            allow_failure=allow_absent,
         )
+        if allow_absent and value is None:
+            return None
         if value is None or not value.strip():
             raise RuntimeError("Stage 6 macOS runtime 公开身份不可读取")
         return canonical_sha256({"public_key": value.strip()})
+
+    async def _same_macos_process(self, pid: int, started_at: str) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            raise RuntimeError("Stage 6 macOS runtime PID 不可验证") from None
+        process_path = _macos_process_path(pid)
+        try:
+            same_executable = process_path is not None and os.path.samefile(
+                process_path, self._tools_root / "wireguard-go"
+            )
+        except OSError:
+            same_executable = False
+        if not same_executable:
+            return False
+        started = await self._run_private_command((str(_MACOS_PS), "-p", str(pid), "-o", "lstart="))
+        try:
+            observed = datetime.strptime((started or "").strip(), "%a %b %d %H:%M:%S %Y")
+            observed = observed.astimezone().astimezone(UTC)
+            expected = datetime.fromisoformat(started_at).astimezone(UTC)
+        except ValueError:
+            raise RuntimeError("Stage 6 macOS runtime 启动时间不可验证") from None
+        return abs((observed - expected).total_seconds()) <= 5
+
+    async def _terminate_bound_process(self, pid: int, started_at: str) -> None:
+        if not await self._same_macos_process(pid, started_at):
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)  # pyright: ignore
+        for _ in range(40):
+            if not await self._same_macos_process(pid, started_at):
+                return
+            await asyncio.sleep(0.05)
+        if not await self._same_macos_process(pid, started_at):
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, 9)  # pyright: ignore
+        for _ in range(40):
+            if not await self._same_macos_process(pid, started_at):
+                return
+            await asyncio.sleep(0.05)
+        raise RuntimeError("Stage 6 macOS runtime 进程未确认终止")
+
+    async def _wait_bound_process_absent(self, pid: int, started_at: str) -> None:
+        for _ in range(100):
+            if not await self._same_macos_process(pid, started_at):
+                return
+            await asyncio.sleep(0.05)
+        raise RuntimeError("Stage 6 macOS runtime PID 未确认退出")
+
+    async def _assert_udp_port_absent(self) -> None:
+        output = await self._run_private_command((str(self._paths.netstat), "-anv", "-p", "udp"))
+        port = self._desired.listen_port
+        if port is None:
+            raise RuntimeError("Stage 6 macOS UDP 端口绑定缺失")
+        if _macos_udp_port_present(output or "", port):
+            raise RuntimeError("Stage 6 macOS UDP listener 未确认清理")
 
     def _config_public_key_hash(self, config_path: Path) -> str:
         private_value = next(
@@ -703,6 +934,33 @@ def _exact_macos_route_interfaces(stdout: str, host_route: str) -> tuple[str, ..
     return tuple(interfaces)
 
 
+def _macos_udp_port_present(stdout: str, port: int) -> bool:
+    suffixes = (f".{port}", f":{port}")
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0].startswith("udp") and parts[3].endswith(suffixes):
+            return True
+    return False
+
+
+def _macos_process_path(pid: int) -> Path | None:
+    """通过 macOS libproc 读取 PID 的真实可执行路径，不执行动态命令。"""
+    if sys.platform != "darwin":
+        return None
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        function = libproc.proc_pidpath
+        function.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
+        function.restype = ctypes.c_int
+        buffer = ctypes.create_string_buffer(4096)
+        length = function(pid, buffer, len(buffer))
+        if length <= 0:
+            return None
+        return Path(buffer.value.decode("utf-8", errors="strict"))
+    except (OSError, UnicodeError, AttributeError):
+        return None
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -791,6 +1049,10 @@ def _load_macos_runtime_marker(path: Path) -> dict[str, object]:
     payload = cast(dict[str, object], raw)
     expected_keys = {
         "schema_version",
+        "phase",
+        "provider",
+        "network_id",
+        "node_id",
         "interface_name",
         "revision",
         "runtime_interface",
@@ -807,21 +1069,39 @@ def _load_macos_runtime_marker(path: Path) -> dict[str, object]:
         payload.get("creation_nonce_hash"),
         payload.get("public_key_hash"),
     )
-    try:
-        started_at = datetime.fromisoformat(cast(str, payload.get("started_at")))
-    except (TypeError, ValueError):
+    started_raw = payload.get("started_at")
+    if isinstance(started_raw, str):
+        try:
+            started_at = datetime.fromisoformat(started_raw)
+        except ValueError:
+            started_at = None
+    else:
         started_at = None
+    phase = payload.get("phase")
+    preparing = phase == "preparing"
+    runtime = payload.get("runtime_interface")
+    pid = payload.get("pid")
     if (
         set(payload) != expected_keys
         or payload.get("schema_version") != _MACOS_STAGE6_RUNTIME_SCHEMA
+        or phase not in {"preparing", "spawned", "configured", "addressed", "routed"}
+        or payload.get("provider") != "macos"
+        or payload.get("network_id") != str(_NETWORK_ID)
+        or payload.get("node_id") != str(_CONFIGS["macos"].node_id)
         or payload.get("interface_name") != _CONFIGS["macos"].interface_name
         or payload.get("revision") != 1
-        or not isinstance(payload.get("pid"), int)
-        or cast(int, payload["pid"]) <= 0
-        or started_at is None
-        or started_at.tzinfo is None
-        or started_at.utcoffset() != timedelta(0)
-        or re.fullmatch(r"utun[0-9]+", str(payload.get("runtime_interface"))) is None
+        or (preparing and (runtime is not None or pid is not None or started_raw is not None))
+        or (
+            not preparing
+            and (
+                re.fullmatch(r"utun[0-9]+", str(runtime)) is None
+                or not isinstance(pid, int)
+                or pid <= 0
+                or started_at is None
+                or started_at.tzinfo is None
+                or started_at.utcoffset() != timedelta(0)
+            )
+        )
         or any(
             not isinstance(value, str) or _HASH_PATTERN.fullmatch(value) is None for value in hashes
         )
@@ -852,6 +1132,14 @@ def _install_macos_stage6_tools() -> dict[str, object]:
         raise SystemExit("Stage 6 macOS 固定工具安装必须使用 root")
     tools_root = _MACOS_STAGE6_ROOT / "tools"
     _ensure_macos_stage6_directory(tools_root)
+    legacy = tools_root / "wg-quick"
+    removed: list[str] = []
+    if legacy.exists() or legacy.is_symlink():
+        _assert_root_owned_path(legacy, regular_file=True, exact_mode=0o500)
+        if _sha256_file(legacy) != _MACOS_STAGE6_LEGACY_WG_QUICK_HASH:
+            raise SystemExit("Stage 6 macOS legacy wg-quick 身份不匹配")
+        legacy.unlink()
+        removed.append("wg-quick")
     installed: list[str] = []
     for name, source in _MACOS_STAGE6_TOOL_SOURCES.items():
         target = tools_root / name
@@ -860,10 +1148,18 @@ def _install_macos_stage6_tools() -> dict[str, object]:
             _assert_root_owned_path(target, regular_file=True, exact_mode=0o500)
             if _sha256_file(target) != expected_hash:
                 raise SystemExit("Stage 6 macOS 已安装固定工具 hash 不匹配")
+            _validate_macos_tool_closure(target)
             continue
+        _validate_macos_tool_closure(source)
         _copy_hash_pinned_tool(source, target, expected_hash)
+        _validate_macos_tool_closure(target)
         installed.append(name)
-    return {"installed": installed, "root": str(_MACOS_STAGE6_ROOT), "success": True}
+    return {
+        "installed": installed,
+        "removed": removed,
+        "root": str(_MACOS_STAGE6_ROOT),
+        "success": True,
+    }
 
 
 def _copy_hash_pinned_tool(source: Path, target: Path, expected_hash: str) -> None:
@@ -911,6 +1207,42 @@ def _copy_hash_pinned_tool(source: Path, target: Path, expected_hash: str) -> No
             os.close(target_descriptor)
         if temporary.exists() or temporary.is_symlink():
             temporary.unlink()
+
+
+def _validate_macos_tool_closure(
+    path: Path,
+    *,
+    run_process: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> None:
+    """拒绝 Mach-O 加载任何非 Apple 绝对系统库或动态 rpath。"""
+    _assert_root_owned_path(_MACOS_OTOOL, regular_file=True)
+    try:
+        completed = run_process(
+            (str(_MACOS_OTOOL), "-L", str(path)),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            timeout=10,
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        raise SystemExit("Stage 6 macOS 工具动态库闭包不可验证") from None
+    lines = completed.stdout.splitlines()
+    dependencies = tuple(
+        line.strip().split(" (", maxsplit=1)[0] for line in lines[1:] if line.strip()
+    )
+    if (
+        completed.returncode != 0
+        or not lines
+        or not dependencies
+        or any(
+            not dependency.startswith(("/usr/lib/", "/System/Library/"))
+            for dependency in dependencies
+        )
+    ):
+        raise SystemExit("Stage 6 macOS 工具动态库闭包超出 Apple 系统范围")
 
 
 def _load_exact_marker(path: Path, keys: frozenset[str]) -> dict[str, object]:
