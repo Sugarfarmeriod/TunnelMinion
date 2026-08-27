@@ -1806,6 +1806,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--recover", action="store_true")
     mode.add_argument("--rollback-create", action="store_true")
     mode.add_argument("--install-macos-execution-materials", action="store_true")
+    mode.add_argument("--import-peer-ready", action="store_true")
     args = parser.parse_args(argv)
     if len(args.barrier_id) != 32 or any(
         char not in "0123456789abcdef" for char in args.barrier_id
@@ -1816,6 +1817,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.platform != "macos":
             raise SystemExit("Stage 6 macOS 固定工具只允许在 macOS 安装")
         result = _install_macos_stage6_tools()
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    if args.import_peer_ready:
+        _require_elevated(args.platform)
+        result = _import_peer_ready(args.platform, args.barrier_id, sys.stdin.read())
         print(json.dumps(result, sort_keys=True))
         return 0
     if args.release_barrier:
@@ -2036,7 +2042,7 @@ async def _run(
             address_pool="192.0.2.0/30",
             interface_prefix="tmn-stage6-",
         ),
-        approved_by="stage6-explicit-user-authorization-20260826",
+        approved_by="stage6-explicit-user-authorization-20260828",
         approved_at=approved_at,
         expires_at=approved_at + timedelta(seconds=_AUTHORIZATION_TTL_SECONDS),
     )
@@ -2115,6 +2121,36 @@ def _release_barrier(platform: str, barrier_id: str) -> None:
     except RuntimeError as exc:
         raise SystemExit("阶段 6.3 本端或对端 ready marker 绑定不一致") from exc
     _publish_or_validate(data_dir / "stage6-apply-go.json", release)
+
+
+def _import_peer_ready(platform: str, barrier_id: str, raw: str) -> dict[str, object]:
+    """从操作员前台粘贴导入对端公开 barrier，不接收任何秘密。"""
+    if len(raw.encode("utf-8")) > 4096:
+        raise SystemExit("阶段 6.3 peer-ready marker 超出固定大小上限")
+    try:
+        decoded = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise SystemExit("阶段 6.3 peer-ready marker 不是有效 JSON") from exc
+    if not isinstance(decoded, dict):
+        raise SystemExit("阶段 6.3 peer-ready marker schema 不匹配")
+    payload = cast(dict[str, object], decoded)
+    if frozenset(payload) != _READY_KEYS:
+        raise SystemExit("阶段 6.3 peer-ready marker schema 不匹配")
+    peer_platform = "macos" if platform == "windows" else "windows"
+    barrier_hash = canonical_sha256({"barrier_id": barrier_id})
+    try:
+        _validate_ready_marker(payload, platform=peer_platform, barrier_hash=barrier_hash)
+    except RuntimeError as exc:
+        raise SystemExit("阶段 6.3 peer-ready marker 绑定或 TTL 无效") from exc
+    data_dir = _APPROVED_DATA_DIRS[platform]
+    _assert_trusted_data_dir(data_dir, data_dir)
+    _publish_or_validate(data_dir / "stage6-apply-peer-ready.json", payload)
+    return {
+        "barrier_id_hash": barrier_hash,
+        "peer_platform": peer_platform,
+        "peer_ready_imported": True,
+        "private_material_imported": False,
+    }
 
 
 def _require_elevated(platform: str) -> None:

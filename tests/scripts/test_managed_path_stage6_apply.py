@@ -610,6 +610,95 @@ def test_release_barrier_requires_elevated_context(
         )
 
 
+def test_import_peer_ready_writes_only_valid_bound_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        subject._APPROVED_DATA_DIRS,  # pyright: ignore[reportPrivateUsage]
+        "windows",
+        tmp_path,
+    )
+    barrier_hash = canonical_sha256({"barrier_id": BARRIER_ID})
+    peer = {
+        "schema_version": "managed-path-stage6-barrier/v2",
+        "platform": "macos",
+        "barrier_id_hash": barrier_hash,
+        "plan_hash": f"sha256:{'a' * 64}",
+        "authorization_hash": f"sha256:{'b' * 64}",
+        "authorization_expires_at": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+        "provider_verified": True,
+        "network_writes_completed": True,
+    }
+
+    result = subject._import_peer_ready(  # pyright: ignore[reportPrivateUsage]
+        "windows", BARRIER_ID, json.dumps(peer)
+    )
+
+    assert result == {
+        "barrier_id_hash": barrier_hash,
+        "peer_platform": "macos",
+        "peer_ready_imported": True,
+        "private_material_imported": False,
+    }
+    assert json.loads((tmp_path / "stage6-apply-peer-ready.json").read_text()) == peer
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",
+        json.dumps({"schema_version": "managed-path-stage6-barrier/v2"}),
+        "x" * 4097,
+    ],
+)
+def test_import_peer_ready_rejects_invalid_or_oversized_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+) -> None:
+    monkeypatch.setitem(
+        subject._APPROVED_DATA_DIRS,  # pyright: ignore[reportPrivateUsage]
+        "windows",
+        tmp_path,
+    )
+
+    with pytest.raises(SystemExit, match="peer-ready marker"):
+        subject._import_peer_ready(  # pyright: ignore[reportPrivateUsage]
+            "windows", BARRIER_ID, raw
+        )
+
+    assert not (tmp_path / "stage6-apply-peer-ready.json").exists()
+
+
+def test_import_peer_ready_rejects_wrong_platform_or_barrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        subject._APPROVED_DATA_DIRS,  # pyright: ignore[reportPrivateUsage]
+        "windows",
+        tmp_path,
+    )
+    peer = {
+        "schema_version": "managed-path-stage6-barrier/v2",
+        "platform": "windows",
+        "barrier_id_hash": canonical_sha256({"barrier_id": BARRIER_ID}),
+        "plan_hash": f"sha256:{'a' * 64}",
+        "authorization_hash": f"sha256:{'b' * 64}",
+        "authorization_expires_at": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+        "provider_verified": True,
+        "network_writes_completed": True,
+    }
+
+    with pytest.raises(SystemExit, match="绑定或 TTL"):
+        subject._import_peer_ready(  # pyright: ignore[reportPrivateUsage]
+            "windows", BARRIER_ID, json.dumps(peer)
+        )
+
+    assert not (tmp_path / "stage6-apply-peer-ready.json").exists()
+
+
 def test_ready_marker_rejects_non_hex_hash_naive_expiry_and_replay() -> None:
     barrier_hash = canonical_sha256({"barrier_id": BARRIER_ID})
     base: dict[str, object] = {
