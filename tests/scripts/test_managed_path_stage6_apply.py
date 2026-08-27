@@ -571,7 +571,43 @@ def test_main_returns_nonzero_when_acceptance_is_not_successful(
 
     monkeypatch.setattr(subject, "_require_matching_platform", matching_platform)
     monkeypatch.setattr(subject, "_run", failed_run)
-    assert subject.main(["--platform", "windows", "--barrier-id", BARRIER_ID]) == 2
+    assert subject.main(["--platform", "windows", "--barrier-id", BARRIER_ID, "--apply"]) == 2
+
+
+def test_main_requires_an_explicit_execution_mode() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        subject.main(["--platform", "windows", "--barrier-id", BARRIER_ID])
+
+    assert exc_info.value.code == 2
+
+
+def test_release_barrier_requires_elevated_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def matching_platform(platform: str) -> None:
+        assert platform == "macos"
+
+    def reject_elevation(platform: str) -> None:
+        assert platform == "macos"
+        raise SystemExit("elevation required")
+
+    def unexpected_release(platform: str, barrier_id: str) -> None:
+        pytest.fail(f"unexpected release: {platform} {barrier_id}")
+
+    monkeypatch.setattr(subject, "_require_matching_platform", matching_platform)
+    monkeypatch.setattr(subject, "_require_elevated", reject_elevation)
+    monkeypatch.setattr(subject, "_release_barrier", unexpected_release)
+
+    with pytest.raises(SystemExit, match="elevation required"):
+        subject.main(
+            [
+                "--platform",
+                "macos",
+                "--barrier-id",
+                BARRIER_ID,
+                "--release-barrier",
+            ]
+        )
 
 
 def test_ready_marker_rejects_non_hex_hash_naive_expiry_and_replay() -> None:

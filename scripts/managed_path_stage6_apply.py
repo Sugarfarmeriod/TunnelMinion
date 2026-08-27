@@ -1800,7 +1800,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=tuple(_CONFIGS), required=True)
     parser.add_argument("--barrier-id", required=True)
-    mode = parser.add_mutually_exclusive_group()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--apply", action="store_true")
     mode.add_argument("--release-barrier", action="store_true")
     mode.add_argument("--recover", action="store_true")
     mode.add_argument("--rollback-create", action="store_true")
@@ -1818,6 +1819,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     if args.release_barrier:
+        _require_elevated(args.platform)
         _release_barrier(args.platform, args.barrier_id)
         return 0
     result = asyncio.run(
@@ -2122,7 +2124,7 @@ def _require_elevated(platform: str) -> None:
             raise SystemExit("Windows 阶段 6.3 必须使用已提升管理员令牌")
     effective_uid = cast(Callable[[], int], getattr(os, "geteuid", lambda: -1))
     if platform == "macos" and effective_uid() != 0:
-        raise SystemExit("macOS 阶段 6.3 必须使用 GUI 授权的 root 进程")
+        raise SystemExit("macOS 阶段 6.3 必须使用已授权的 root 进程")
 
 
 def _assert_existing_identity(
@@ -2183,7 +2185,7 @@ def _evidence(
         "mode": mode,
         "platform": platform,
         "commit": _git_commit(),
-        "entrypoint": "python -m scripts.managed_path_stage6_apply",
+        "entrypoint": f"python -m scripts.managed_path_stage6_apply --{mode}",
         "started_at": observed_at.isoformat(),
         "finished_at": datetime.now(UTC).isoformat(),
         "phase": phase.value,
