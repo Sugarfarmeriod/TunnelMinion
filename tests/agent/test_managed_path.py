@@ -73,6 +73,8 @@ from tunnelminion.platforms.macos.managed_path import (
     _tool_path as macos_tool_path,  # pyright: ignore[reportPrivateUsage]
 )
 from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
+from tunnelminion.platforms.macos.managed_system import MacOSProviderPaths
+from tunnelminion.platforms.macos.system import CommandResult
 from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
 from tunnelminion.tools.registry import ToolRegistry
 
@@ -560,6 +562,32 @@ def test_macos_tool_path_supports_apple_silicon_homebrew(tmp_path: Path) -> None
     )
 
     assert selected == apple_silicon
+
+
+def test_macos_factory_accepts_fixed_stage_runner_and_paths(tmp_path: Path) -> None:
+    class FixedRunner:
+        async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
+            del command, timeout_seconds
+            return CommandResult(returncode=0, stdout="", stderr="")
+
+    paths = MacOSProviderPaths(
+        wg=tmp_path / "tools" / "wg",
+        wg_quick=tmp_path / "tools" / "wg-quick",
+        ifconfig=tmp_path / "system" / "ifconfig",
+        netstat=tmp_path / "system" / "netstat",
+        config_root=tmp_path / "configs",
+    )
+    ledger = SQLiteManagedResourceLedger(tmp_path / "ledger.sqlite3")
+
+    dependencies = build_macos_managed_path_platform(
+        tmp_path,
+        ledger,
+        paths=paths,
+        command_runner=FixedRunner(),
+    )
+
+    assert dependencies.provider_kind is ProviderKind.MACOS
+    assert dependencies.capabilities.mode is ProviderMode.OBSERVE_ONLY
 
 
 class _RecordingProbe:

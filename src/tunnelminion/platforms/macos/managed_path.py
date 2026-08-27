@@ -28,7 +28,7 @@ from tunnelminion.platforms.macos.official_backend import (
     RestrictedMacOSConfigStore,
 )
 from tunnelminion.platforms.macos.path_probe import MacOSPathProbe
-from tunnelminion.platforms.macos.system import SubprocessCommandRunner
+from tunnelminion.platforms.macos.system import CommandRunner, SubprocessCommandRunner
 
 
 def build_macos_managed_path_platform(
@@ -36,11 +36,13 @@ def build_macos_managed_path_platform(
     ledger: SQLiteManagedResourceLedger,
     *,
     secret_store: SecretStore | None = None,
+    paths: MacOSProviderPaths | None = None,
+    command_runner: CommandRunner | None = None,
 ) -> ManagedPathPlatformDependencies:
     """创建 macOS Provider、只读观察器和固定能力状态，不执行 Provider 操作。"""
     root = data_dir.resolve()
     tools_root = root / "managed-platform-tools"
-    paths = MacOSProviderPaths(
+    selected_paths = paths or MacOSProviderPaths(
         wg=_tool_path(
             tools_root,
             "wg",
@@ -57,12 +59,12 @@ def build_macos_managed_path_platform(
         netstat=_tool_path(tools_root, "netstat", "/usr/sbin/netstat"),
         config_root=root / "managed-network" / "macos",
     )
-    runner = SubprocessCommandRunner()
-    commands = FixedMacOSWireGuardCommands(paths, runner)
+    runner = command_runner or SubprocessCommandRunner()
+    commands = FixedMacOSWireGuardCommands(selected_paths, runner)
     preflight = commands.preflight()
     observer = MacOSWireGuardObserver(commands)
     materials = RestrictedMacOSConfigStore(
-        paths.config_root,
+        selected_paths.config_root,
         secret_store or KeyringSecretStore(),
     )
     backend = OfficialMacOSManagedBackend(commands, observer, materials)

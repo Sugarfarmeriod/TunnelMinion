@@ -5,11 +5,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import contextlib
 import ctypes
+import hashlib
 import ipaddress
 import json
 import os
 import re
+import secrets
+import signal
+import stat
 import subprocess
 import sys
 from collections.abc import Callable
@@ -44,6 +49,7 @@ from tunnelminion.agent.managed_path import ManagedPathProbeFactory
 from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId
 from tunnelminion.model.secrets import KeyringSecretStore, SecretStore, SecretStoreError
 from tunnelminion.network.contracts import (
+    DesiredNetworkConfig,
     NetworkAcknowledgement,
     NetworkAction,
     NetworkPlan,
@@ -73,6 +79,8 @@ from tunnelminion.network.path_controller import (
 from tunnelminion.network.path_probe import PathProbePolicy
 from tunnelminion.network.provider import NetworkProvider
 from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
+from tunnelminion.platforms.macos.managed_system import MacOSProviderPaths
+from tunnelminion.platforms.macos.system import CommandResult, CommandRunner
 from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
 from tunnelminion.tools.contracts import ToolCancellationToken
 
@@ -81,6 +89,20 @@ _AUTHORIZATION_TTL_SECONDS = 900
 _HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MACOS_CONSOLE_PATH = Path("/dev/console")
 _MACOS_LOGIN_UID_MINIMUM = 501
+_MACOS_STAGE6_ROOT = Path("/private/var/root/Library/Application Support/TunnelMinion/stage6")
+_MACOS_STAGE6_TOOL_SOURCES = {
+    "wg": Path("/opt/homebrew/bin/wg"),
+    "wg-quick": Path("/opt/homebrew/bin/wg-quick"),
+    "wireguard-go": Path("/opt/homebrew/bin/wireguard-go"),
+}
+_MACOS_STAGE6_TOOL_HASHES = {
+    "wg": "5b7b2a5c1756e7afbb76047fb3f5b975d0c9b0ff905817283ec09ab2e11b9e57",
+    "wg-quick": "1b8caefd878a3ffecfd8959a5d306c459d0cd645879071b5195ba538b2d40c15",
+    "wireguard-go": "c62a563ac888d8c6ca9895ee6f7ac5e7297171f20bc7e1c7e0ec4d6d21415337",
+}
+_MACOS_STAGE6_PUBLIC_FIELDS = frozenset(
+    {"public-key", "peers", "endpoints", "allowed-ips", "latest-handshakes"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +141,10 @@ class _MacOSLoginKeychainSecretStore:
             raise SecretStoreError("macOS 登录用户 Keychain 代理拒绝非批准名称")
         try:
             uid = self._console_uid()
-        except OSError as exc:
-            raise SecretStoreError("无法确认 macOS 控制台登录用户") from exc
+        except OSError:
+            uid = None
+        if uid is None:
+            raise SecretStoreError("无法确认 macOS 控制台登录用户")
         if not _MACOS_LOGIN_UID_MINIMUM <= uid < 2**31:
             raise SecretStoreError("macOS 控制台没有可用的普通登录用户")
         command = (
@@ -140,7 +164,7 @@ class _MacOSLoginKeychainSecretStore:
             "-w",
         )
         try:
-            completed = self._run_process(
+            completed: subprocess.CompletedProcess[str] | None = self._run_process(
                 command,
                 check=False,
                 capture_output=True,
@@ -150,8 +174,10 @@ class _MacOSLoginKeychainSecretStore:
                 timeout=15,
                 env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
             )
-        except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
-            raise SecretStoreError("无法读取 macOS 登录用户 Keychain") from exc
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            completed = None
+        if completed is None:
+            raise SecretStoreError("无法读取 macOS 登录用户 Keychain")
         if completed.returncode != 0:
             raise SecretStoreError("无法读取 macOS 登录用户 Keychain")
         value = completed.stdout.rstrip("\r\n")
@@ -164,6 +190,159 @@ class _MacOSLoginKeychainSecretStore:
     def delete(self, name: str) -> None:
         del name
         raise SecretStoreError("阶段 6 管理员执行禁止删除身份")
+
+
+class _MacOSStage6CommandRunner:
+    """仅执行固定 Stage 6 argv，并持有可取消的 root 进程组。"""
+
+    def __init__(
+        self,
+        desired: DesiredNetworkConfig,
+        *,
+        paths: MacOSProviderPaths | None = None,
+        platform_name: str | None = None,
+        effective_uid: Callable[[], int] | None = None,
+    ) -> None:
+        self._desired = desired
+        self._platform_name = sys.platform if platform_name is None else platform_name
+        self._effective_uid = effective_uid or cast(
+            Callable[[], int], getattr(os, "geteuid", lambda: -1)
+        )
+        self._paths = paths or _macos_stage6_paths()
+        self._tools_root = self._paths.wg.parent
+        self._config_root = self._paths.config_root
+
+    async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
+        mutation = self._validate_command(command)
+        self._verify_tool(Path(command[0]))
+        if mutation:
+            self._verify_tool(self._tools_root / "wireguard-go")
+            self._validate_config(Path(command[2]))
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={"PATH": f"{self._tools_root}:/usr/bin:/bin:/usr/sbin:/sbin"},
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+        except TimeoutError:
+            await self._terminate_process_group(process)
+            if mutation:
+                raise RuntimeError(
+                    "Stage 6 macOS root 网络命令超时，状态不确定且必须恢复"
+                ) from None
+            return CommandResult(returncode=124, stdout="", stderr="")
+        except asyncio.CancelledError:
+            await asyncio.shield(self._terminate_process_group(process))
+            raise
+        if mutation:
+            return CommandResult(returncode=process.returncode or 0, stdout="", stderr="")
+        return CommandResult(
+            returncode=process.returncode or 0,
+            stdout=stdout.decode("utf-8", errors="replace"),
+            stderr=stderr.decode("utf-8", errors="replace"),
+        )
+
+    def _validate_command(self, command: tuple[str, ...]) -> bool:
+        if self._platform_name != "darwin" or self._effective_uid() != 0:
+            raise RuntimeError("Stage 6 macOS command runner 上下文无效")
+        if any(
+            not value or len(value) > 1024 or "\x00" in value or "\n" in value for value in command
+        ):
+            raise RuntimeError("Stage 6 macOS command runner 拒绝异常 argv")
+        wg = str(self._paths.wg)
+        wg_quick = str(self._paths.wg_quick)
+        if command == (wg, "show", "interfaces"):
+            return False
+        if (
+            len(command) == 4
+            and command[:2] == (wg, "show")
+            and command[3] in _MACOS_STAGE6_PUBLIC_FIELDS
+            and (
+                command[2] == self._desired.interface_name
+                or re.fullmatch(r"utun[0-9]+", command[2]) is not None
+            )
+        ):
+            return False
+        if (
+            len(command) == 2
+            and command[0] == str(self._paths.ifconfig)
+            and (
+                command[1] == self._desired.interface_name
+                or re.fullmatch(r"utun[0-9]+", command[1]) is not None
+            )
+        ):
+            return False
+        if command in {
+            (str(self._paths.netstat), "-rn", "-f", "inet"),
+            (str(self._paths.netstat), "-rn", "-f", "inet6"),
+        }:
+            return False
+        expected_config = str(
+            self._config_root / f"{self._desired.interface_name}.r{self._desired.revision}.conf"
+        )
+        if command in {
+            (wg_quick, "up", expected_config),
+            (wg_quick, "down", expected_config),
+        }:
+            return True
+        raise RuntimeError("Stage 6 macOS command runner 拒绝非批准命令")
+
+    def _verify_tool(self, path: Path) -> None:
+        _assert_root_owned_path(path, regular_file=True)
+        expected = _MACOS_STAGE6_TOOL_HASHES.get(path.name)
+        if expected is not None and _sha256_file(path) != expected:
+            raise RuntimeError("Stage 6 macOS 固定工具 hash 不匹配")
+
+    def _validate_config(self, path: Path) -> None:
+        expected = (
+            self._config_root / f"{self._desired.interface_name}.r{self._desired.revision}.conf"
+        )
+        if path != expected:
+            raise RuntimeError("Stage 6 macOS 配置路径不匹配")
+        _assert_root_owned_path(path, regular_file=True, exact_mode=0o600)
+        try:
+            text = path.read_text(encoding="utf-8", errors="strict")
+        except (OSError, UnicodeError):
+            raise RuntimeError("Stage 6 macOS 配置不可验证") from None
+        lines = text.splitlines()
+        redacted: list[str] = []
+        private_count = 0
+        for line in lines:
+            if line.startswith("PrivateKey = "):
+                private_count += 1
+                try:
+                    private = base64.b64decode(line.removeprefix("PrivateKey = "), validate=True)
+                except ValueError:
+                    raise RuntimeError("Stage 6 macOS 配置 grammar 不匹配") from None
+                if len(private) != 32:
+                    raise RuntimeError("Stage 6 macOS 配置 grammar 不匹配")
+                redacted.append("PrivateKey = <redacted>")
+            else:
+                redacted.append(line)
+        if private_count != 1 or tuple(redacted) != _expected_redacted_config(self._desired):
+            raise RuntimeError("Stage 6 macOS 配置 grammar 不匹配")
+
+    @staticmethod
+    async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGTERM)  # pyright: ignore
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+            return
+        except TimeoutError:
+            pass
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)  # pyright: ignore
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+        except TimeoutError:
+            raise RuntimeError("Stage 6 macOS root 子进程组无法确认终止") from None
 
 
 _TARGETS: dict[str, tuple[_ApprovedTarget, ...]] = {
@@ -223,6 +402,144 @@ _RESULT_KEYS = frozenset(
         "finished_at",
     }
 )
+
+
+def _macos_stage6_paths() -> MacOSProviderPaths:
+    tools = _MACOS_STAGE6_ROOT / "tools"
+    return MacOSProviderPaths(
+        wg=tools / "wg",
+        wg_quick=tools / "wg-quick",
+        ifconfig=Path("/sbin/ifconfig"),
+        netstat=Path("/usr/sbin/netstat"),
+        config_root=_MACOS_STAGE6_ROOT / "configs",
+    )
+
+
+def _expected_redacted_config(desired: DesiredNetworkConfig) -> tuple[str, ...]:
+    lines = ["[Interface]", "PrivateKey = <redacted>", f"Address = {desired.address}"]
+    if desired.listen_port is not None:
+        lines.append(f"ListenPort = {desired.listen_port}")
+    for peer in desired.peers:
+        lines.extend(("", "[Peer]", f"PublicKey = {peer.public_key}"))
+        lines.append(f"AllowedIPs = {', '.join(peer.allowed_host_routes)}")
+        if peer.candidates:
+            candidate = peer.candidates[0]
+            lines.append(f"Endpoint = {candidate.host}:{candidate.port}")
+        if peer.persistent_keepalive_seconds is not None:
+            lines.append(f"PersistentKeepalive = {peer.persistent_keepalive_seconds}")
+    return tuple(lines)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError:
+        raise RuntimeError("Stage 6 macOS 固定文件不可读取") from None
+    return digest.hexdigest()
+
+
+def _assert_root_owned_path(
+    path: Path,
+    *,
+    regular_file: bool = False,
+    exact_mode: int | None = None,
+) -> None:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        raise RuntimeError("Stage 6 macOS root-owned 路径不存在") from None
+    mode = stat.S_IMODE(info.st_mode)
+    if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or mode & 0o022:
+        raise RuntimeError("Stage 6 macOS root-owned 路径身份不可信")
+    if regular_file and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+        raise RuntimeError("Stage 6 macOS 固定文件身份不可信")
+    if exact_mode is not None and mode != exact_mode:
+        raise RuntimeError("Stage 6 macOS 固定文件权限不匹配")
+
+
+def _ensure_macos_stage6_directory(path: Path) -> None:
+    if path != _MACOS_STAGE6_ROOT and _MACOS_STAGE6_ROOT not in path.parents:
+        raise RuntimeError("Stage 6 macOS 执行目录越界")
+    current = Path("/private/var/root")
+    _assert_root_owned_path(current)
+    relative = path.relative_to(current)
+    for part in relative.parts:
+        current /= part
+        with contextlib.suppress(FileExistsError):
+            current.mkdir(mode=0o700)
+        _assert_root_owned_path(current)
+        if not current.is_dir():
+            raise RuntimeError("Stage 6 macOS 执行路径不是目录")
+        os.chmod(current, 0o700)
+
+
+def _install_macos_stage6_tools() -> dict[str, object]:
+    if sys.platform != "darwin" or os.geteuid() != 0:  # pyright: ignore
+        raise SystemExit("Stage 6 macOS 固定工具安装必须使用 root")
+    tools_root = _MACOS_STAGE6_ROOT / "tools"
+    _ensure_macos_stage6_directory(tools_root)
+    installed: list[str] = []
+    for name, source in _MACOS_STAGE6_TOOL_SOURCES.items():
+        target = tools_root / name
+        expected_hash = _MACOS_STAGE6_TOOL_HASHES[name]
+        if target.exists() or target.is_symlink():
+            _assert_root_owned_path(target, regular_file=True, exact_mode=0o500)
+            if _sha256_file(target) != expected_hash:
+                raise SystemExit("Stage 6 macOS 已安装固定工具 hash 不匹配")
+            continue
+        _copy_hash_pinned_tool(source, target, expected_hash)
+        installed.append(name)
+    return {"installed": installed, "root": str(_MACOS_STAGE6_ROOT), "success": True}
+
+
+def _copy_hash_pinned_tool(source: Path, target: Path, expected_hash: str) -> None:
+    try:
+        source_descriptor = os.open(source, os.O_RDONLY)
+    except OSError:
+        raise SystemExit("Stage 6 macOS 工具源不可读取") from None
+    temporary = target.parent / f".{target.name}.{secrets.token_hex(16)}.tmp"
+    target_descriptor = -1
+    try:
+        source_info = os.fstat(source_descriptor)
+        if (
+            not stat.S_ISREG(source_info.st_mode)
+            or not 1 <= source_info.st_size <= 64 * 1024 * 1024
+        ):
+            raise SystemExit("Stage 6 macOS 工具源身份不可信")
+        digest = hashlib.sha256()
+        while chunk := os.read(source_descriptor, 1024 * 1024):
+            digest.update(chunk)
+        if digest.hexdigest() != expected_hash:
+            raise SystemExit("Stage 6 macOS 工具源 hash 不匹配")
+        os.lseek(source_descriptor, 0, os.SEEK_SET)
+        target_descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o500,
+        )
+        while chunk := os.read(source_descriptor, 1024 * 1024):
+            view = memoryview(chunk)
+            while view:
+                written = os.write(target_descriptor, view)
+                view = view[written:]
+        os.fchmod(target_descriptor, 0o500)  # pyright: ignore
+        os.fchown(target_descriptor, 0, 0)  # pyright: ignore
+        os.fsync(target_descriptor)
+        os.close(target_descriptor)
+        target_descriptor = -1
+        os.replace(temporary, target)
+        _assert_root_owned_path(target, regular_file=True, exact_mode=0o500)
+        if _sha256_file(target) != expected_hash:
+            raise SystemExit("Stage 6 macOS 固定工具安装后 hash 不匹配")
+    finally:
+        os.close(source_descriptor)
+        if target_descriptor >= 0:
+            os.close(target_descriptor)
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
 
 
 def _load_exact_marker(path: Path, keys: frozenset[str]) -> dict[str, object]:
@@ -735,12 +1052,19 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--release-barrier", action="store_true")
     mode.add_argument("--recover", action="store_true")
     mode.add_argument("--rollback-create", action="store_true")
+    mode.add_argument("--install-macos-execution-materials", action="store_true")
     args = parser.parse_args(argv)
     if len(args.barrier_id) != 32 or any(
         char not in "0123456789abcdef" for char in args.barrier_id
     ):
         raise SystemExit("barrier id 必须是 32 位小写十六进制")
     _require_matching_platform(args.platform)
+    if args.install_macos_execution_materials:
+        if args.platform != "macos":
+            raise SystemExit("Stage 6 macOS 固定工具只允许在 macOS 安装")
+        result = _install_macos_stage6_tools()
+        print(json.dumps(result, sort_keys=True))
+        return 0
     if args.release_barrier:
         _release_barrier(args.platform, args.barrier_id)
         return 0
@@ -823,7 +1147,13 @@ async def _run(
     dependencies = (
         build_windows_managed_path_platform(data_dir, ledger, secret_store=identity_store)
         if platform == "windows"
-        else build_macos_managed_path_platform(data_dir, ledger, secret_store=identity_store)
+        else build_macos_managed_path_platform(
+            data_dir,
+            ledger,
+            secret_store=identity_store,
+            paths=_macos_stage6_paths(),
+            command_runner=cast(CommandRunner, _MacOSStage6CommandRunner(desired)),
+        )
     )
     if not dependencies.capabilities.provider_apply_available:
         raise SystemExit("当前管理员上下文没有真实 Provider apply capability")

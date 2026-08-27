@@ -51,6 +51,16 @@ NOW = datetime(2026, 8, 26, 8, 0, tzinfo=UTC)
 BARRIER_ID = "a" * 32
 
 
+def _stage6_test_paths(root: Path) -> subject.MacOSProviderPaths:
+    return subject.MacOSProviderPaths(
+        wg=root / "tools" / "wg",
+        wg_quick=root / "tools" / "wg-quick",
+        ifconfig=root / "system" / "ifconfig",
+        netstat=root / "system" / "netstat",
+        config_root=root / "configs",
+    )
+
+
 class _Probe:
     def __init__(
         self,
@@ -733,3 +743,223 @@ def test_macos_login_keychain_store_redacts_failures() -> None:
         failed.get("wireguard/network/node")
     assert "private-output" not in str(process_error.value)
     assert "sensitive error" not in str(process_error.value)
+
+    def timed_out(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        raise subprocess.TimeoutExpired(command, 15, output="private-output", stderr="sensitive")
+
+    timeout_store = subject._MacOSLoginKeychainSecretStore(  # pyright: ignore[reportPrivateUsage]
+        expected_name="wireguard/network/node",
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        console_uid=lambda: 501,
+        run_process=timed_out,
+    )
+    with pytest.raises(SecretStoreError, match="无法读取") as timeout_error:
+        timeout_store.get("wireguard/network/node")
+    assert timeout_error.value.__cause__ is None
+    assert timeout_error.value.__context__ is None
+
+
+def test_macos_stage6_runner_accepts_only_exact_public_and_mutation_argv(
+    tmp_path: Path,
+) -> None:
+    desired = _plan().desired
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    config = paths.config_root / f"{desired.interface_name}.r{desired.revision}.conf"
+
+    assert not runner._validate_command(  # pyright: ignore[reportPrivateUsage]
+        (str(paths.wg), "show", "interfaces")
+    )
+    assert not runner._validate_command(  # pyright: ignore[reportPrivateUsage]
+        (str(paths.wg), "show", "utun17", "latest-handshakes")
+    )
+    assert not runner._validate_command(  # pyright: ignore[reportPrivateUsage]
+        (str(paths.ifconfig), "utun17")
+    )
+    assert not runner._validate_command(  # pyright: ignore[reportPrivateUsage]
+        (str(paths.netstat), "-rn", "-f", "inet")
+    )
+    assert runner._validate_command(  # pyright: ignore[reportPrivateUsage]
+        (str(paths.wg_quick), "up", str(config))
+    )
+
+    rejected = (
+        (str(paths.wg), "private-key"),
+        (str(paths.wg), "showconf", "utun17"),
+        (str(paths.wg_quick), "up", "/tmp/other.conf"),
+        (str(paths.wg_quick), "down", str(config.with_name("other.conf"))),
+        (str(paths.ifconfig), "en0", "down"),
+        (str(paths.netstat), "-an"),
+        (str(paths.wg), "show", "utun17", "private-key"),
+        (str(paths.wg), "show", "utun17\n", "peers"),
+    )
+    for command in rejected:
+        with pytest.raises(RuntimeError, match="拒绝"):
+            runner._validate_command(command)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_macos_stage6_runner_validates_root_config_grammar_without_exposing_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    desired = _plan().desired
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    config = paths.config_root / f"{desired.interface_name}.r{desired.revision}.conf"
+    config.parent.mkdir()
+    private_text = "A" * 43 + "="
+    expected = subject._expected_redacted_config(desired)  # pyright: ignore[reportPrivateUsage]
+    config.write_text(
+        "\n".join(
+            line.replace("<redacted>", private_text) if line.startswith("PrivateKey") else line
+            for line in expected
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+
+    runner._validate_config(config)  # pyright: ignore[reportPrivateUsage]
+    config.write_text(
+        config.read_text(encoding="utf-8") + "PostUp = touch /tmp/x\n", encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="grammar") as hook_error:
+        runner._validate_config(config)  # pyright: ignore[reportPrivateUsage]
+    assert private_text not in str(hook_error.value)
+
+
+class _FakeMacOSProcess:
+    def __init__(self, *, output: tuple[bytes, bytes] | None = None) -> None:
+        self.pid = 4242
+        self.returncode: int | None = None
+        self.output = output
+        self.started = asyncio.Event()
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        self.started.set()
+        if self.output is not None:
+            return self.output
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    async def wait(self) -> int:
+        self.returncode = -15
+        return self.returncode
+
+
+def test_macos_stage6_runner_timeout_and_cancel_reap_process_group(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    desired = _plan().desired
+    commands = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        desired,
+        paths=commands,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+    )
+    command = (str(commands.wg_quick), "up", str(commands.config_root / "config.conf"))
+
+    def accept_command(value: tuple[str, ...]) -> bool:
+        del value
+        return True
+
+    def accept_path(value: Path) -> None:
+        del value
+
+    monkeypatch.setattr(runner, "_validate_command", accept_command)
+    monkeypatch.setattr(runner, "_verify_tool", accept_path)
+    monkeypatch.setattr(runner, "_validate_config", accept_path)
+    killed: list[tuple[int, int]] = []
+
+    def kill_group(pid: int, sig: int) -> None:
+        killed.append((pid, sig))
+
+    monkeypatch.setattr(subject.os, "killpg", kill_group, raising=False)
+
+    timeout_process = _FakeMacOSProcess()
+
+    async def timeout_factory(*args: object, **kwargs: object) -> _FakeMacOSProcess:
+        del args, kwargs
+        return timeout_process
+
+    monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", timeout_factory)
+    with pytest.raises(RuntimeError, match="状态不确定"):
+        asyncio.run(runner.run(command, 0.001))
+    assert timeout_process.returncode == -15
+    assert killed == [(4242, subject.signal.SIGTERM)]
+
+    killed.clear()
+    cancelled_process = _FakeMacOSProcess()
+
+    async def cancel_factory(*args: object, **kwargs: object) -> _FakeMacOSProcess:
+        del args, kwargs
+        return cancelled_process
+
+    monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", cancel_factory)
+
+    async def cancel_run() -> None:
+        task = asyncio.create_task(runner.run(command, 30))
+        await cancelled_process.started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_run())
+    assert cancelled_process.returncode == -15
+    assert killed == [(4242, subject.signal.SIGTERM)]
+
+
+def test_hash_pinned_tool_copy_is_atomic_and_rejects_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.write_bytes(b"fixed-tool")
+    digest = subject.hashlib.sha256(b"fixed-tool").hexdigest()
+
+    def ignore_chmod(fd: int, mode: int) -> None:
+        del fd, mode
+
+    def ignore_chown(fd: int, uid: int, gid: int) -> None:
+        del fd, uid, gid
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    monkeypatch.setattr(subject.os, "fchmod", ignore_chmod, raising=False)
+    monkeypatch.setattr(subject.os, "fchown", ignore_chown, raising=False)
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+
+    subject._copy_hash_pinned_tool(source, target, digest)  # pyright: ignore[reportPrivateUsage]
+    assert target.read_bytes() == b"fixed-tool"
+    assert not tuple(tmp_path.glob(".*.tmp"))
+
+    rejected = tmp_path / "rejected"
+    with pytest.raises(SystemExit, match="hash"):
+        subject._copy_hash_pinned_tool(  # pyright: ignore[reportPrivateUsage]
+            source, rejected, "0" * 64
+        )
+    assert not rejected.exists()
