@@ -357,6 +357,15 @@ class OfficialWindowsManagedBackend:
             update={"interface_name": interface_name, "creation_nonce": nonce}
         )
 
+    async def runtime_interfaces(self, interface_name: str) -> tuple[str, ...]:
+        """返回当前逻辑目标对应的公开稳定接口标识。"""
+        snapshot = await self.observe(interface_name)
+        return (
+            (snapshot.stable_interface_id,)
+            if snapshot.interface_present and snapshot.stable_interface_id is not None
+            else ()
+        )
+
     async def _observe_settled(
         self,
         runtime_name: str,

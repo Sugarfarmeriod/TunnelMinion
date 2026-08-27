@@ -299,6 +299,11 @@ class OfficialMacOSManagedBackend:
             }
         )
 
+    async def runtime_interfaces(self, interface_name: str) -> tuple[str, ...]:
+        """返回 WireGuard 全部公开运行时接口，用于未决 mutation 恢复核对。"""
+        del interface_name
+        return await self._interfaces()
+
     def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         return self._materials.ensure_secret(desired)
 

@@ -79,6 +79,10 @@ class WindowsManagedBackend(Protocol):
         self, interface_name: str
     ) -> WindowsTunnelSnapshot: ...  # pragma: no cover - Protocol 无运行时实现
 
+    async def runtime_interfaces(
+        self, interface_name: str
+    ) -> tuple[str, ...]: ...  # pragma: no cover - Protocol 无运行时实现
+
     def ensure_secret(
         self,
         desired: DesiredNetworkConfig,
@@ -141,6 +145,9 @@ class WindowsOperationJournal(BaseModel):
     secret_reference: str = Field(min_length=3, max_length=224, repr=False)
     creation_nonce: str = Field(pattern=r"^[0-9a-f]{32}$")
     steps: tuple[StepReceipt, ...] = ()
+    in_flight_step_index: int | None = Field(default=None, ge=0)
+    in_flight_snapshot: WindowsTunnelSnapshot | None = None
+    in_flight_runtime_interfaces: tuple[str, ...] | None = None
     status: ReceiptStatus | None = None
     updated_at: datetime
 
@@ -419,6 +426,13 @@ class WindowsNetworkProvider:
             else:
                 journal = existing
             self._journals.put(journal)
+            if journal.in_flight_step_index is not None:
+                return self._receipt(
+                    journal,
+                    ReceiptStatus.FAILED,
+                    NetworkErrorCode.RECOVERY_REQUIRED,
+                    "Windows 操作存在未决步骤，必须先恢复",
+                )
             for step in plan.steps[len(journal.steps) :]:
                 if cancellation.cancelled:
                     cancelled = journal.model_copy(
@@ -431,6 +445,20 @@ class WindowsNetworkProvider:
                         NetworkErrorCode.CANCELLED,
                         "Windows 操作在安全点取消",
                     )
+                in_flight = journal.model_copy(
+                    update={
+                        "in_flight_step_index": len(journal.steps),
+                        "in_flight_snapshot": await self._backend.observe(
+                            plan.desired.interface_name
+                        ),
+                        "in_flight_runtime_interfaces": await self._backend.runtime_interfaces(
+                            plan.desired.interface_name
+                        ),
+                        "updated_at": self._now(),
+                    }
+                )
+                self._journals.put(in_flight)
+                journal = in_flight
                 try:
                     receipt_hash = await self._backend.execute_step(
                         plan,
@@ -460,6 +488,9 @@ class WindowsNetworkProvider:
                 journal = journal.model_copy(
                     update={
                         "steps": (*journal.steps, step_receipt),
+                        "in_flight_step_index": None,
+                        "in_flight_snapshot": None,
+                        "in_flight_runtime_interfaces": None,
                         "updated_at": self._now(),
                     }
                 )
@@ -564,7 +595,13 @@ class WindowsNetworkProvider:
                 "实时资源无法与账本或创建 nonce 双重匹配",
             )
         rollback_receipts: list[StepReceipt] = []
-        for original in reversed(journal.steps):
+        attempted_indices = [item.index for item in journal.steps]
+        if (
+            journal.in_flight_step_index is not None
+            and journal.in_flight_step_index not in attempted_indices
+        ):
+            attempted_indices.append(journal.in_flight_step_index)
+        for original_index in reversed(attempted_indices):
             if cancellation.cancelled:
                 return self._receipt(
                     journal,
@@ -572,7 +609,7 @@ class WindowsNetworkProvider:
                     NetworkErrorCode.CANCELLED,
                     "Windows 回滚在安全点取消",
                 )
-            step = plan.steps[original.index]
+            step = plan.steps[original_index]
             try:
                 receipt_hash = await self._backend.rollback_step(
                     plan,
@@ -603,6 +640,23 @@ class WindowsNetworkProvider:
                     system_receipt_hash=receipt_hash,
                 )
             )
+        if journal.in_flight_runtime_interfaces is not None:
+            current_interfaces = await self._backend.runtime_interfaces(plan.desired.interface_name)
+            unexpected = set(current_interfaces) - set(journal.in_flight_runtime_interfaces)
+            if unexpected:
+                manual = journal.model_copy(
+                    update={
+                        "status": ReceiptStatus.MANUAL_INTERVENTION,
+                        "updated_at": self._now(),
+                    }
+                )
+                self._journals.put(manual)
+                return self._receipt(
+                    manual,
+                    ReceiptStatus.MANUAL_INTERVENTION,
+                    NetworkErrorCode.RECOVERY_REQUIRED,
+                    "未决步骤回滚后仍存在新增运行时接口",
+                )
         if entry is not None and plan.action is NetworkAction.CREATE:
             self._ledger.delete(
                 entry.ownership.network_id,

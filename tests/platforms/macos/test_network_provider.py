@@ -77,6 +77,14 @@ class FakeMacOSBackend:
     async def observe(self, interface_name: str) -> MacOSTunnelSnapshot:
         return self.snapshot.model_copy(update={"interface_name": interface_name})
 
+    async def runtime_interfaces(self, interface_name: str) -> tuple[str, ...]:
+        del interface_name
+        return (
+            (self.snapshot.stable_interface_id,)
+            if self.snapshot.interface_present and self.snapshot.stable_interface_id is not None
+            else ()
+        )
+
     def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         del desired
         return self.ensure_identity(NETWORK_ID, NODE_A)

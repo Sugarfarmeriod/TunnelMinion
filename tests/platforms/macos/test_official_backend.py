@@ -211,6 +211,8 @@ def test_backend_observe_conflicts_and_unavailable(tmp_path: Path) -> None:
     assert backend.ensure_secret(config()).secret_reference.startswith("keyring:")
     assert asyncio.run(backend.observe("utun4")).interface_name == "utun4"
     assert not asyncio.run(backend.observe("tmn-test-b")).interface_present
+    runner.stdout = "utun4 utun9\n"
+    assert asyncio.run(backend.runtime_interfaces("tmn-test-b")) == ("utun4", "utun9")
 
     reference = materials.ensure_secret(config()).secret_reference
     materials.write(config(), reference, "a" * 32)

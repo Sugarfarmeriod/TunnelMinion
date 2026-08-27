@@ -71,7 +71,9 @@ class FakeWindowsBackend:
         self.ensure_calls = 0
         self.fail_step: PlanStepKind | None = None
         self.crash_step: PlanStepKind | None = None
+        self.crash_after_effect_step: PlanStepKind | None = None
         self.fail_rollback: PlanStepKind | None = None
+        self.leave_interface_on_rollback = False
         self.block: asyncio.Event | None = None
         self.omit_ownership_after_create = False
         self.on_step: Callable[[PlanStepKind], None] | None = None
@@ -93,6 +95,14 @@ class FakeWindowsBackend:
     async def observe(self, interface_name: str) -> WindowsTunnelSnapshot:
         assert interface_name == self.snapshot.interface_name
         return self.snapshot
+
+    async def runtime_interfaces(self, interface_name: str) -> tuple[str, ...]:
+        assert interface_name == self.snapshot.interface_name
+        return (
+            (self.snapshot.stable_interface_id,)
+            if self.snapshot.interface_present and self.snapshot.stable_interface_id is not None
+            else ()
+        )
 
     def ensure_secret(self, desired: DesiredNetworkConfig) -> LocalNetworkKeyMaterial:
         del desired
@@ -184,6 +194,8 @@ class FakeWindowsBackend:
             PlanStepKind.REMOVE_INTERFACE,
         }:
             self.snapshot = absent(plan.desired.interface_name)
+        if step.kind is self.crash_after_effect_step:
+            raise RuntimeError("injected Windows crash after effect")
         return canonical_sha256({"step": step.kind.value, "count": len(self.execute_calls)})
 
     async def rollback_step(
@@ -203,7 +215,7 @@ class FakeWindowsBackend:
                 NetworkErrorCode.ROLLBACK_FAILED,
                 "injected rollback failure",
             )
-        if step.kind is PlanStepKind.CREATE_INTERFACE:
+        if step.kind is PlanStepKind.CREATE_INTERFACE and not self.leave_interface_on_rollback:
             self.snapshot = absent(plan.desired.interface_name)
         elif (
             step.kind
@@ -615,6 +627,14 @@ def test_rollback_missing_conflict_cancel_and_failure(tmp_path: Path) -> None:
     assert failed.error is not None
     assert failed.error.code is NetworkErrorCode.ROLLBACK_FAILED
 
+    backend4 = FakeWindowsBackend()
+    value4, ledger4, _ = provider(tmp_path / "success", backend4)
+    plan4 = run(create_plan(value4))
+    created4 = run(value4.apply(plan4, idempotency_key=KEY, cancellation=ToolCancellationToken()))
+    rolled4 = run(value4.rollback(plan4, created4, cancellation=ToolCancellationToken()))
+    assert rolled4.status is ReceiptStatus.ROLLED_BACK
+    assert ledger4.get(NETWORK_ID, NODE_A) is None
+
 
 def test_crash_recovery_verify_failure_and_corrupt_journal(tmp_path: Path) -> None:
     backend = FakeWindowsBackend()
@@ -654,7 +674,7 @@ def test_crash_recovery_verify_failure_and_corrupt_journal(tmp_path: Path) -> No
         journals.assert_no_secret_material()
 
 
-def test_resume_crash_missing_ownership_successful_rollback_and_verified_not_recovered(
+def test_in_flight_crash_requires_recovery_before_new_apply(
     tmp_path: Path,
 ) -> None:
     backend = FakeWindowsBackend()
@@ -665,13 +685,53 @@ def test_resume_crash_missing_ownership_successful_rollback_and_verified_not_rec
         run(value.apply(plan, idempotency_key=KEY, cancellation=ToolCancellationToken()))
     backend.crash_step = None
     resumed = run(value.apply(plan, idempotency_key=KEY, cancellation=ToolCancellationToken()))
-    assert resumed.status is ReceiptStatus.APPLIED
-    assert run(value.verify(plan)).succeeded
+    assert resumed.status is ReceiptStatus.FAILED
+    assert resumed.error is not None
+    assert resumed.error.code is NetworkErrorCode.RECOVERY_REQUIRED
+    recovered = run(value.recover(cancellation=ToolCancellationToken()))
+    assert recovered[0].status is ReceiptStatus.ROLLED_BACK
     assert run(value.recover(cancellation=ToolCancellationToken())) == ()
-
-    rolled = run(value.rollback(plan, resumed, cancellation=ToolCancellationToken()))
-    assert rolled.status is ReceiptStatus.ROLLED_BACK
     assert ledger.get(NETWORK_ID, NODE_A) is None
+
+
+def test_create_side_effect_crash_is_recovered_or_marked_manual(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.crash_after_effect_step = PlanStepKind.CREATE_INTERFACE
+    value, _, journals = provider(tmp_path / "cleaned", backend)
+    plan = run(create_plan(value))
+
+    with pytest.raises(RuntimeError, match="after effect"):
+        run(value.apply(plan, idempotency_key=KEY, cancellation=ToolCancellationToken()))
+    journal = journals.get(KEY)
+    assert journal is not None
+    assert journal.in_flight_step_index == 1
+    assert journal.in_flight_runtime_interfaces == ()
+    assert backend.snapshot.interface_present
+
+    backend.crash_after_effect_step = None
+    recovered = run(value.recover(cancellation=ToolCancellationToken()))
+    assert recovered[0].status is ReceiptStatus.ROLLED_BACK
+    assert not backend.snapshot.interface_present
+
+    orphan = FakeWindowsBackend()
+    orphan.crash_after_effect_step = PlanStepKind.CREATE_INTERFACE
+    orphan.leave_interface_on_rollback = True
+    orphan_value, _, _ = provider(tmp_path / "orphan", orphan)
+    orphan_plan = run(create_plan(orphan_value))
+    with pytest.raises(RuntimeError, match="after effect"):
+        run(
+            orphan_value.apply(
+                orphan_plan,
+                idempotency_key=KEY,
+                cancellation=ToolCancellationToken(),
+            )
+        )
+    orphan.crash_after_effect_step = None
+    manual = run(orphan_value.recover(cancellation=ToolCancellationToken()))
+    assert manual[0].status is ReceiptStatus.MANUAL_INTERVENTION
+    assert manual[0].error is not None
+    assert manual[0].error.code is NetworkErrorCode.RECOVERY_REQUIRED
+    assert orphan.snapshot.interface_present
 
     incomplete = FakeWindowsBackend()
     incomplete.omit_ownership_after_create = True

@@ -271,6 +271,17 @@ def test_official_backend_maps_fixed_steps_and_observation_nonce(tmp_path: Path)
         settle_attempts=1,
         settle_delay_seconds=0,
     )
+    assert asyncio.run(backend.runtime_interfaces("tmn-test-a")) == ()
+    observer.snapshot = observer.snapshot.model_copy(
+        update={
+            "interface_present": True,
+            "stable_interface_id": "windows:tmn-test-a.r1",
+        }
+    )
+    assert asyncio.run(backend.runtime_interfaces("tmn-test-a")) == ("windows:tmn-test-a.r1",)
+    observer.snapshot = observer.snapshot.model_copy(
+        update={"interface_present": False, "stable_interface_id": None}
+    )
     assert backend.preflight().administrator
     assert backend.ensure_identity(NETWORK_ID, NODE_A).public_key.endswith("=")
     reference = backend.ensure_secret(desired()).secret_reference
