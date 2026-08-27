@@ -238,7 +238,13 @@ class _MacOSStage6CommandRunner:
     def runtime_resources(self) -> tuple[str, ...]:
         """只返回固定制品的脱敏存在性 token，纳入 Provider 恢复 hash。"""
         name_file, marker_path, wg_config = self._runtime_paths()
-        paths = (("name", name_file), ("marker", marker_path), ("wg-config", wg_config))
+        paths = (
+            ("name", name_file),
+            ("marker", marker_path),
+            ("marker-temp", _private_temp_path(marker_path)),
+            ("wg-config", wg_config),
+            ("wg-config-temp", _private_temp_path(wg_config)),
+        )
         return tuple(
             f"stage6:{label}" for label, path in paths if path.exists() or path.is_symlink()
         )
@@ -537,6 +543,18 @@ class _MacOSStage6CommandRunner:
             raise RuntimeError("Stage 6 macOS direct manager 缺少恢复绑定")
         _, host_route = self._direct_parameters()
         name_file, marker_path, wg_config = self._runtime_paths()
+        marker_temp = _private_temp_path(marker_path)
+        wg_config_temp = _private_temp_path(wg_config)
+        if not marker_path.exists() and not marker_path.is_symlink():
+            if (marker_temp.exists() or marker_temp.is_symlink()) and not any(
+                path.exists() or path.is_symlink()
+                for path in (name_file, wg_config, wg_config_temp)
+            ):
+                _assert_root_owned_path(marker_temp, regular_file=True, exact_mode=0o600)
+                await self._assert_udp_port_absent()
+                marker_temp.unlink()
+                return
+            raise RuntimeError("Stage 6 macOS intent marker 缺失且残留组合不可证明")
         marker = _load_macos_runtime_marker(marker_path)
         plan_hash, creation_nonce = self._operation_binding
         if marker["plan_hash"] != plan_hash or marker["creation_nonce_hash"] != canonical_sha256(
@@ -633,7 +651,7 @@ class _MacOSStage6CommandRunner:
                 raise RuntimeError("Stage 6 macOS runtime 进程未确认退出") from None
         await self._assert_udp_port_absent()
         # intent marker 必须最后删除，确保任一清理中断仍可被下一次 recover 识别。
-        for path in (name_file, wg_config, marker_path):
+        for path in (name_file, wg_config_temp, wg_config, marker_temp, marker_path):
             if path.exists() or path.is_symlink():
                 _assert_root_owned_path(path, regular_file=True)
                 path.unlink()
@@ -1005,7 +1023,7 @@ def _write_root_private_bytes(path: Path, payload: bytes) -> None:
     if _MACOS_STAGE6_ROOT not in path.parents:
         raise RuntimeError("Stage 6 macOS 私有文件路径越界")
     _assert_root_owned_path(path.parent)
-    temporary = path.parent / f".{path.name}.{secrets.token_hex(16)}.tmp"
+    temporary = _private_temp_path(path)
     descriptor = -1
     try:
         descriptor = os.open(
@@ -1029,6 +1047,11 @@ def _write_root_private_bytes(path: Path, payload: bytes) -> None:
             os.close(descriptor)
         if temporary.exists() or temporary.is_symlink():
             temporary.unlink()
+
+
+def _private_temp_path(path: Path) -> Path:
+    """为单写者原子写固定唯一临时路径，便于 crash recovery 精确回收。"""
+    return path.parent / f".{path.name}.tmp"
 
 
 def _write_root_private_json(path: Path, payload: dict[str, object]) -> None:

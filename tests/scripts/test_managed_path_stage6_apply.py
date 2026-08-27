@@ -1088,11 +1088,18 @@ def test_macos_stage6_preparing_recovery_cleans_private_artifacts_without_networ
     name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
     marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
     wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
-    for item in (marker_file, wg_config):
+    wg_config_temp = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        wg_config
+    )
+    for item in (marker_file, wg_config, wg_config_temp):
         item.parent.mkdir(parents=True, exist_ok=True)
         item.write_text("fixture", encoding="utf-8")
     monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
-    assert runner.runtime_resources() == ("stage6:marker", "stage6:wg-config")
+    assert runner.runtime_resources() == (
+        "stage6:marker",
+        "stage6:wg-config",
+        "stage6:wg-config-temp",
+    )
 
     def accept_root_path(
         path: Path, *, regular_file: bool = False, exact_mode: int | None = None
@@ -1130,11 +1137,62 @@ def test_macos_stage6_preparing_recovery_cleans_private_artifacts_without_networ
 
     with pytest.raises(RuntimeError, match="结果无法证明"):
         asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
-    assert runner.runtime_resources() == ("stage6:marker", "stage6:wg-config")
+    assert runner.runtime_resources() == (
+        "stage6:marker",
+        "stage6:wg-config",
+        "stage6:wg-config-temp",
+    )
 
     runner._spawn_known_absent = True  # pyright: ignore[reportPrivateUsage]
     asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
 
+    assert runner.runtime_resources() == ()
+
+
+def test_macos_stage6_recovery_removes_only_uncommitted_marker_temp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=tmp_path / "wireguard-runtime",
+    )
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    marker_temp = subject._private_temp_path(  # pyright: ignore[reportPrivateUsage]
+        marker_file
+    )
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    unrelated_temp = marker_file.parent / f".{marker_file.name}.unrelated.tmp"
+    for item in (marker_temp, unrelated_temp):
+        item.parent.mkdir(parents=True, exist_ok=True)
+        item.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+    assert runner.runtime_resources() == ("stage6:marker-temp",)
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        assert path == marker_temp
+        assert regular_file is True
+        assert exact_mode == 0o600
+
+    async def udp_absent() -> None:
+        return None
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(runner, "_assert_udp_port_absent", udp_absent)
+
+    asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert not marker_temp.exists()
+    assert unrelated_temp.exists()
     assert runner.runtime_resources() == ()
 
 
@@ -1193,6 +1251,12 @@ def test_macos_stage6_recovery_rejects_wrong_plan_or_nonce_binding(
         effective_uid=lambda: 0,
     )
     runner.bind_operation(plan.plan_hash, "a" * 32)
+    name_file = tmp_path / "wireguard-runtime" / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = tmp_path / "config" / "tmn-stage6-b.r1.wg.conf"
+    marker_file.parent.mkdir(parents=True, exist_ok=True)
+    marker_file.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
 
     def wrong_marker(path: Path) -> dict[str, object]:
         del path
