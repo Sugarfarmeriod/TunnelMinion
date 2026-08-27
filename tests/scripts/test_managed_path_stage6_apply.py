@@ -1113,11 +1113,59 @@ def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
     assert not (runtime_root / "utun9.sock").exists()
 
 
-@pytest.mark.parametrize("phase", ["addressed", "routed"])
-def test_macos_stage6_route_recovery_requires_process_and_public_key_ownership(
+@pytest.mark.parametrize(
+    ("phase", "process_is_owned", "runtime_public_hash", "route_interface", "error"),
+    [
+        pytest.param(
+            "spawned",
+            True,
+            f"sha256:{'b' * 64}",
+            "utun9",
+            "host route 进程或接口所有权不匹配",
+            id="phase-not-addressed",
+        ),
+        pytest.param(
+            "routed",
+            False,
+            f"sha256:{'b' * 64}",
+            "utun9",
+            "runtime 进程所有权不匹配",
+            id="process-not-owned",
+        ),
+        pytest.param(
+            "routed",
+            True,
+            None,
+            "utun9",
+            "host route 进程或接口所有权不匹配",
+            id="public-key-unavailable",
+        ),
+        pytest.param(
+            "routed",
+            True,
+            f"sha256:{'c' * 64}",
+            "utun9",
+            "runtime 接口所有权不匹配",
+            id="public-key-mismatch",
+        ),
+        pytest.param(
+            "routed",
+            True,
+            f"sha256:{'b' * 64}",
+            "utun8",
+            "host route 所有权不匹配",
+            id="route-interface-mismatch",
+        ),
+    ],
+)
+def test_macos_stage6_route_recovery_requires_each_ownership_proof(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     phase: str,
+    process_is_owned: bool,
+    runtime_public_hash: str | None,
+    route_interface: str,
+    error: str,
 ) -> None:
     plan = _plan()
     paths = _stage6_test_paths(tmp_path)
@@ -1152,30 +1200,30 @@ def test_macos_stage6_route_recovery_requires_process_and_public_key_ownership(
             "creation_nonce_hash": canonical_sha256({"creation_nonce": "a" * 32}),
         }
 
-    async def public_hash(_runtime: str, *, allow_absent: bool = False) -> None:
+    async def public_hash(_runtime: str, *, allow_absent: bool = False) -> str | None:
         assert allow_absent
-        return None
+        return runtime_public_hash
 
-    async def process_not_owned(_pid: int, _started_at: str) -> bool:
-        return False
+    async def process_owned(_pid: int, _started_at: str) -> bool:
+        return process_is_owned
 
     async def command_result(command: tuple[str, ...], *, allow_failure: bool = False) -> str:
         assert not allow_failure
         commands.append(command)
         if command == (str(paths.netstat), "-rn", "-f", "inet"):
-            return "192.0.2.1 link#20 UHS utun9\n"
+            return f"192.0.2.1 link#20 UHS {route_interface}\n"
         return ""
 
     monkeypatch.setattr(subject, "_load_macos_runtime_marker", runtime_marker)
     monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
     monkeypatch.setattr(runner, "_runtime_public_key_hash", public_hash)
-    monkeypatch.setattr(runner, "_same_macos_process", process_not_owned)
+    monkeypatch.setattr(runner, "_same_macos_process", process_owned)
     monkeypatch.setattr(runner, "_run_private_command", command_result)
 
-    with pytest.raises(RuntimeError, match="host route 进程或接口所有权不匹配"):
+    with pytest.raises(RuntimeError, match=error):
         asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
 
-    assert commands == [(str(paths.netstat), "-rn", "-f", "inet")]
+    assert all(command[0] != str(tmp_path / "system" / "route") for command in commands)
     assert all(item.exists() for item in (name_file, marker_file, wg_config))
 
 
