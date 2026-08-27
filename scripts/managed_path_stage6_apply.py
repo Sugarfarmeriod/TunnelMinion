@@ -630,11 +630,12 @@ class _MacOSStage6CommandRunner:
         route_interfaces = _exact_macos_route_interfaces(route_table or "", host_route)
         if route_interfaces:
             if (
-                runtime_interface is None
-                and len(route_interfaces) == 1
-                and re.fullmatch(r"utun[0-9]+", route_interfaces[0])
+                marker["phase"] not in {"addressed", "routed"}
+                or not process_owned
+                or runtime_public_hash is None
+                or marker["public_key_hash"] != runtime_public_hash
             ):
-                runtime_interface = route_interfaces[0]
+                raise RuntimeError("Stage 6 macOS host route 进程或接口所有权不匹配")
             if route_interfaces != (runtime_interface,):
                 raise RuntimeError("Stage 6 macOS host route 所有权不匹配")
             owned_runtime_interface = cast(str, runtime_interface)
