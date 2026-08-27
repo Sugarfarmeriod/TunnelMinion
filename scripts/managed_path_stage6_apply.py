@@ -90,14 +90,15 @@ _HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MACOS_CONSOLE_PATH = Path("/dev/console")
 _MACOS_LOGIN_UID_MINIMUM = 501
 _MACOS_STAGE6_ROOT = Path("/private/var/root/Library/Application Support/TunnelMinion/stage6")
+_MACOS_WIREGUARD_RUNTIME_ROOT = Path("/var/run/wireguard")
+_MACOS_ROUTE = Path("/sbin/route")
+_MACOS_STAGE6_RUNTIME_SCHEMA = "managed-path-stage6-macos-runtime/v1"
 _MACOS_STAGE6_TOOL_SOURCES = {
     "wg": Path("/opt/homebrew/bin/wg"),
-    "wg-quick": Path("/opt/homebrew/bin/wg-quick"),
     "wireguard-go": Path("/opt/homebrew/bin/wireguard-go"),
 }
 _MACOS_STAGE6_TOOL_HASHES = {
     "wg": "5b7b2a5c1756e7afbb76047fb3f5b975d0c9b0ff905817283ec09ab2e11b9e57",
-    "wg-quick": "1b8caefd878a3ffecfd8959a5d306c459d0cd645879071b5195ba538b2d40c15",
     "wireguard-go": "c62a563ac888d8c6ca9895ee6f7ac5e7297171f20bc7e1c7e0ec4d6d21415337",
 }
 _MACOS_STAGE6_PUBLIC_FIELDS = frozenset(
@@ -193,7 +194,7 @@ class _MacOSLoginKeychainSecretStore:
 
 
 class _MacOSStage6CommandRunner:
-    """仅执行固定 Stage 6 argv，并持有可取消的 root 进程组。"""
+    """用两个固定工具直接管理 Stage 6 utun，不执行 `wg-quick`。"""
 
     def __init__(
         self,
@@ -202,6 +203,8 @@ class _MacOSStage6CommandRunner:
         paths: MacOSProviderPaths | None = None,
         platform_name: str | None = None,
         effective_uid: Callable[[], int] | None = None,
+        runtime_root: Path = _MACOS_WIREGUARD_RUNTIME_ROOT,
+        route_path: Path = _MACOS_ROUTE,
     ) -> None:
         self._desired = desired
         self._platform_name = sys.platform if platform_name is None else platform_name
@@ -211,6 +214,20 @@ class _MacOSStage6CommandRunner:
         self._paths = paths or _macos_stage6_paths()
         self._tools_root = self._paths.wg.parent
         self._config_root = self._paths.config_root
+        self._runtime_root = runtime_root
+        self._route_path = route_path
+        self._operation_binding: tuple[str, str] | None = None
+        self._wireguard_process: asyncio.subprocess.Process | None = None
+        self._mutation_lock = asyncio.Lock()
+
+    def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
+        """绑定 Provider 已核准的计划与本次创建 nonce，不保存正文。"""
+        if (
+            _HASH_PATTERN.fullmatch(plan_hash) is None
+            or re.fullmatch(r"[0-9a-f]{32}", creation_nonce) is None
+        ):
+            raise RuntimeError("Stage 6 macOS operation 绑定无效")
+        self._operation_binding = (plan_hash, creation_nonce)
 
     async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
         mutation = self._validate_command(command)
@@ -218,6 +235,8 @@ class _MacOSStage6CommandRunner:
         if mutation:
             self._verify_tool(self._tools_root / "wireguard-go")
             self._validate_config(Path(command[2]))
+            async with self._mutation_lock:
+                return await self._run_direct_manager(command[1], Path(command[2]), timeout_seconds)
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
@@ -254,7 +273,7 @@ class _MacOSStage6CommandRunner:
         ):
             raise RuntimeError("Stage 6 macOS command runner 拒绝异常 argv")
         wg = str(self._paths.wg)
-        wg_quick = str(self._paths.wg_quick)
+        manager = str(self._paths.wg_quick)
         if command == (wg, "show", "interfaces"):
             return False
         if (
@@ -285,8 +304,8 @@ class _MacOSStage6CommandRunner:
             self._config_root / f"{self._desired.interface_name}.r{self._desired.revision}.conf"
         )
         if command in {
-            (wg_quick, "up", expected_config),
-            (wg_quick, "down", expected_config),
+            (manager, "up", expected_config),
+            (manager, "down", expected_config),
         }:
             return True
         raise RuntimeError("Stage 6 macOS command runner 拒绝非批准命令")
@@ -325,6 +344,247 @@ class _MacOSStage6CommandRunner:
                 redacted.append(line)
         if private_count != 1 or tuple(redacted) != _expected_redacted_config(self._desired):
             raise RuntimeError("Stage 6 macOS 配置 grammar 不匹配")
+
+    async def _run_direct_manager(
+        self, action: str, config_path: Path, timeout_seconds: float
+    ) -> CommandResult:
+        if action == "up":
+            await asyncio.wait_for(self._direct_up(config_path), timeout=timeout_seconds)
+        elif action == "down":
+            await asyncio.wait_for(self._direct_down(config_path), timeout=timeout_seconds)
+        else:  # pragma: no cover - `_validate_command` 已封闭动作集合
+            raise RuntimeError("Stage 6 macOS direct manager 动作无效")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    def _direct_parameters(self) -> tuple[str, str]:
+        approved = _CONFIGS["macos"]
+        routes = tuple(route for peer in self._desired.peers for route in peer.allowed_host_routes)
+        if (
+            self._desired.interface_name != approved.interface_name
+            or self._desired.address != approved.address
+            or self._desired.listen_port != approved.listen_port
+            or routes != (approved.peer_host_route,)
+        ):
+            raise RuntimeError("Stage 6 macOS direct manager 资源超出批准范围")
+        return self._desired.address, routes[0]
+
+    def _runtime_paths(self) -> tuple[Path, Path, Path]:
+        stem = f"{self._desired.interface_name}.r{self._desired.revision}"
+        return (
+            self._runtime_root / f"{stem}.name",
+            _MACOS_STAGE6_ROOT / "runtime" / f"{stem}.json",
+            self._config_root / f"{stem}.wg.conf",
+        )
+
+    async def _direct_up(self, config_path: Path) -> None:
+        if self._operation_binding is None:
+            raise RuntimeError("Stage 6 macOS direct manager 缺少计划绑定")
+        address, host_route = self._direct_parameters()
+        _assert_root_owned_path(self._runtime_root)
+        if not self._runtime_root.is_dir():
+            raise RuntimeError("Stage 6 macOS WireGuard runtime 目录无效")
+        name_file, marker_path, wg_config = self._runtime_paths()
+        if any(path.exists() or path.is_symlink() for path in (name_file, marker_path, wg_config)):
+            raise RuntimeError("Stage 6 macOS direct manager 存在未清理运行材料")
+        _ensure_macos_stage6_directory(marker_path.parent)
+        self._write_wg_only_config(config_path, wg_config)
+        process = await asyncio.create_subprocess_exec(
+            str(self._tools_root / "wireguard-go"),
+            "-f",
+            "utun",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            env={
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "WG_TUN_NAME_FILE": str(name_file),
+            },
+            start_new_session=True,
+        )
+        self._wireguard_process = process
+        runtime_interface = await self._wait_runtime_name(name_file, process)
+        plan_hash, creation_nonce = self._operation_binding
+        _write_root_private_json(
+            marker_path,
+            {
+                "schema_version": _MACOS_STAGE6_RUNTIME_SCHEMA,
+                "interface_name": self._desired.interface_name,
+                "revision": self._desired.revision,
+                "runtime_interface": runtime_interface,
+                "pid": process.pid,
+                "started_at": datetime.now(UTC).isoformat(),
+                "wireguard_go_hash": f"sha256:{_MACOS_STAGE6_TOOL_HASHES['wireguard-go']}",
+                "plan_hash": plan_hash,
+                "creation_nonce_hash": canonical_sha256({"creation_nonce": creation_nonce}),
+                "public_key_hash": self._config_public_key_hash(config_path),
+            },
+        )
+        try:
+            await self._run_private_command(
+                (str(self._paths.wg), "setconf", runtime_interface, str(wg_config))
+            )
+            await self._run_private_command(
+                (
+                    str(self._paths.ifconfig),
+                    runtime_interface,
+                    "inet",
+                    address.removesuffix("/32"),
+                    address.removesuffix("/32"),
+                    "netmask",
+                    "255.255.255.255",
+                )
+            )
+            await self._run_private_command((str(self._paths.ifconfig), runtime_interface, "up"))
+            await self._run_private_command(
+                (
+                    str(self._route_path),
+                    "-q",
+                    "-n",
+                    "add",
+                    "-inet",
+                    host_route,
+                    "-interface",
+                    runtime_interface,
+                )
+            )
+        except BaseException:
+            try:
+                await asyncio.shield(self._direct_down(config_path))
+            except BaseException:
+                raise RuntimeError(
+                    "Stage 6 macOS direct manager apply 状态不确定且必须恢复"
+                ) from None
+            raise
+
+    async def _direct_down(self, config_path: Path) -> None:
+        del config_path
+        _, host_route = self._direct_parameters()
+        name_file, marker_path, wg_config = self._runtime_paths()
+        marker = _load_macos_runtime_marker(marker_path)
+        runtime_interface = cast(str, marker["runtime_interface"])
+        current_process_owned = (
+            self._wireguard_process is not None
+            and marker["pid"] == self._wireguard_process.pid
+            and self._wireguard_process.returncode is None
+        )
+        if not current_process_owned and marker[
+            "public_key_hash"
+        ] != await self._runtime_public_key_hash(runtime_interface):
+            raise RuntimeError("Stage 6 macOS runtime 接口所有权不匹配")
+        route_table = await self._run_private_command(
+            (str(self._paths.netstat), "-rn", "-f", "inet")
+        )
+        route_interfaces = _exact_macos_route_interfaces(route_table or "", host_route)
+        if route_interfaces:
+            if route_interfaces != (runtime_interface,):
+                raise RuntimeError("Stage 6 macOS host route 所有权不匹配")
+            await self._run_private_command(
+                (
+                    str(self._route_path),
+                    "-q",
+                    "-n",
+                    "delete",
+                    "-inet",
+                    host_route,
+                    "-interface",
+                    runtime_interface,
+                )
+            )
+        socket_path = self._runtime_root / f"{runtime_interface}.sock"
+        _assert_root_owned_socket(socket_path)
+        socket_path.unlink()
+        await self._wait_interface_absent(runtime_interface)
+        for path in (name_file, marker_path, wg_config):
+            if path.exists() or path.is_symlink():
+                _assert_root_owned_path(path, regular_file=True)
+                path.unlink()
+        self._wireguard_process = None
+
+    async def _run_private_command(
+        self, command: tuple[str, ...], *, allow_failure: bool = False
+    ) -> str | None:
+        for path in (Path(command[0]),):
+            _assert_root_owned_path(path, regular_file=True)
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            start_new_session=True,
+        )
+        stdout, _ = await process.communicate()
+        if process.returncode != 0:
+            if allow_failure:
+                return None
+            raise RuntimeError("Stage 6 macOS 固定网络步骤失败")
+        return stdout.decode("utf-8", errors="strict")
+
+    async def _wait_runtime_name(self, name_file: Path, process: asyncio.subprocess.Process) -> str:
+        for _ in range(100):
+            if process.returncode is not None:
+                raise RuntimeError("Stage 6 macOS wireguard-go 启动失败")
+            if name_file.exists():
+                _assert_root_owned_path(name_file, regular_file=True)
+                runtime = name_file.read_text(encoding="ascii", errors="strict").strip()
+                if re.fullmatch(r"utun[0-9]+", runtime) is None:
+                    raise RuntimeError("Stage 6 macOS runtime 接口名称无效")
+                return runtime
+            await asyncio.sleep(0.05)
+        raise RuntimeError("Stage 6 macOS runtime 接口创建超时")
+
+    async def _wait_interface_absent(self, runtime_interface: str) -> None:
+        for _ in range(100):
+            result = await self._run_private_command((str(self._paths.wg), "show", "interfaces"))
+            if result is not None and runtime_interface not in result.split():
+                process = self._wireguard_process
+                if process is not None:
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2)
+                    except TimeoutError:
+                        raise RuntimeError("Stage 6 macOS wireguard-go 未确认退出") from None
+                return
+            await asyncio.sleep(0.05)
+        raise RuntimeError("Stage 6 macOS runtime 接口未确认清理")
+
+    async def _runtime_public_key_hash(self, runtime_interface: str) -> str:
+        value = await self._run_private_command(
+            (str(self._paths.wg), "show", runtime_interface, "public-key")
+        )
+        if value is None or not value.strip():
+            raise RuntimeError("Stage 6 macOS runtime 公开身份不可读取")
+        return canonical_sha256({"public_key": value.strip()})
+
+    def _config_public_key_hash(self, config_path: Path) -> str:
+        private_value = next(
+            (
+                line.removeprefix("PrivateKey = ")
+                for line in config_path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("PrivateKey = ")
+            ),
+            "",
+        )
+        try:
+            private_bytes = base64.b64decode(private_value, validate=True)
+            public_bytes = (
+                X25519PrivateKey.from_private_bytes(private_bytes)
+                .public_key()
+                .public_bytes(
+                    serialization.Encoding.Raw,
+                    serialization.PublicFormat.Raw,
+                )
+            )
+        except (ValueError, TypeError):
+            raise RuntimeError("Stage 6 macOS 配置公开身份不可导出") from None
+        public_text = base64.b64encode(public_bytes).decode("ascii")
+        return canonical_sha256({"public_key": public_text})
+
+    def _write_wg_only_config(self, source: Path, target: Path) -> None:
+        lines = source.read_text(encoding="utf-8", errors="strict").splitlines()
+        filtered = [line for line in lines if not line.startswith("Address = ")]
+        if len(lines) - len(filtered) != 1:
+            raise RuntimeError("Stage 6 macOS Address 配置数量无效")
+        _write_root_private_bytes(target, ("\n".join(filtered) + "\n").encode("utf-8"))
 
     @staticmethod
     async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
@@ -408,7 +668,9 @@ def _macos_stage6_paths() -> MacOSProviderPaths:
     tools = _MACOS_STAGE6_ROOT / "tools"
     return MacOSProviderPaths(
         wg=tools / "wg",
-        wg_quick=tools / "wg-quick",
+        # 通用 backend 仍把此槽位当 manager；Stage 6 runner 拦截 up/down，
+        # 实际只执行下面这个 hash-pinned wireguard-go 和固定系统 argv。
+        wg_quick=tools / "wireguard-go",
         ifconfig=Path("/sbin/ifconfig"),
         netstat=Path("/usr/sbin/netstat"),
         config_root=_MACOS_STAGE6_ROOT / "configs",
@@ -428,6 +690,17 @@ def _expected_redacted_config(desired: DesiredNetworkConfig) -> tuple[str, ...]:
         if peer.persistent_keepalive_seconds is not None:
             lines.append(f"PersistentKeepalive = {peer.persistent_keepalive_seconds}")
     return tuple(lines)
+
+
+def _exact_macos_route_interfaces(stdout: str, host_route: str) -> tuple[str, ...]:
+    """只提取批准 `/32` 的接口列；不把宽路由当成可删除目标。"""
+    host = host_route.removesuffix("/32")
+    interfaces: list[str] = []
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0] in {host, host_route}:
+            interfaces.append(parts[-1])
+    return tuple(interfaces)
 
 
 def _sha256_file(path: Path) -> str:
@@ -458,6 +731,104 @@ def _assert_root_owned_path(
         raise RuntimeError("Stage 6 macOS 固定文件身份不可信")
     if exact_mode is not None and mode != exact_mode:
         raise RuntimeError("Stage 6 macOS 固定文件权限不匹配")
+
+
+def _assert_root_owned_socket(path: Path) -> None:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        raise RuntimeError("Stage 6 macOS WireGuard control socket 不存在") from None
+    if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or not stat.S_ISSOCK(info.st_mode):
+        raise RuntimeError("Stage 6 macOS WireGuard control socket 身份不可信")
+
+
+def _write_root_private_bytes(path: Path, payload: bytes) -> None:
+    """在已验证的 Stage 6 根目录内原子写入 root-only 文件。"""
+    if _MACOS_STAGE6_ROOT not in path.parents:
+        raise RuntimeError("Stage 6 macOS 私有文件路径越界")
+    _assert_root_owned_path(path.parent)
+    temporary = path.parent / f".{path.name}.{secrets.token_hex(16)}.tmp"
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            view = view[written:]
+        os.fchmod(descriptor, 0o600)  # pyright: ignore
+        os.fchown(descriptor, 0, 0)  # pyright: ignore
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temporary, path)
+        _assert_root_owned_path(path, regular_file=True, exact_mode=0o600)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+
+
+def _write_root_private_json(path: Path, payload: dict[str, object]) -> None:
+    _write_root_private_bytes(
+        path,
+        (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+    )
+
+
+def _load_macos_runtime_marker(path: Path) -> dict[str, object]:
+    _assert_root_owned_path(path, regular_file=True, exact_mode=0o600)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise RuntimeError("Stage 6 macOS runtime marker 不可验证") from None
+    if not isinstance(raw, dict):
+        raise RuntimeError("Stage 6 macOS runtime marker schema 不匹配")
+    payload = cast(dict[str, object], raw)
+    expected_keys = {
+        "schema_version",
+        "interface_name",
+        "revision",
+        "runtime_interface",
+        "pid",
+        "started_at",
+        "wireguard_go_hash",
+        "plan_hash",
+        "creation_nonce_hash",
+        "public_key_hash",
+    }
+    hashes = (
+        payload.get("wireguard_go_hash"),
+        payload.get("plan_hash"),
+        payload.get("creation_nonce_hash"),
+        payload.get("public_key_hash"),
+    )
+    try:
+        started_at = datetime.fromisoformat(cast(str, payload.get("started_at")))
+    except (TypeError, ValueError):
+        started_at = None
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema_version") != _MACOS_STAGE6_RUNTIME_SCHEMA
+        or payload.get("interface_name") != _CONFIGS["macos"].interface_name
+        or payload.get("revision") != 1
+        or not isinstance(payload.get("pid"), int)
+        or cast(int, payload["pid"]) <= 0
+        or started_at is None
+        or started_at.tzinfo is None
+        or started_at.utcoffset() != timedelta(0)
+        or re.fullmatch(r"utun[0-9]+", str(payload.get("runtime_interface"))) is None
+        or any(
+            not isinstance(value, str) or _HASH_PATTERN.fullmatch(value) is None for value in hashes
+        )
+        or payload.get("wireguard_go_hash") != f"sha256:{_MACOS_STAGE6_TOOL_HASHES['wireguard-go']}"
+    ):
+        raise RuntimeError("Stage 6 macOS runtime marker schema 不匹配")
+    return payload
 
 
 def _ensure_macos_stage6_directory(path: Path) -> None:

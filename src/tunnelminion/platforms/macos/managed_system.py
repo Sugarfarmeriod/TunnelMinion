@@ -8,7 +8,7 @@ import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Self
+from typing import Protocol, Self, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -27,8 +27,15 @@ _MANAGED_INTERFACE = re.compile(r"^tmn-[a-z0-9-]{1,48}$")
 _RUNTIME_INTERFACE = re.compile(r"^(?:utun[0-9]+|tmn-[a-z0-9-]{1,48})$")
 
 
+@runtime_checkable
+class MacOSOperationBinder(Protocol):
+    """允许受限 runner 绑定已核准计划；普通 runner 无需实现。"""
+
+    def bind_operation(self, plan_hash: str, creation_nonce: str) -> None: ...
+
+
 class MacOSProviderPreflight(WindowsProviderPreflight):
-    """沿用跨平台 Provider 前置状态字段；manager 表示 `wg-quick`。"""
+    """沿用跨平台 Provider 前置状态字段；manager 为固定平台管理器。"""
 
 
 class MacOSPeerSnapshot(WindowsPeerSnapshot):
@@ -104,6 +111,11 @@ class FixedMacOSWireGuardCommands:
             administrator=administrator,
             error_code=error,
         )
+
+    def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
+        """仅在 runner 明确支持时传递计划绑定。"""
+        if isinstance(self._runner, MacOSOperationBinder):
+            self._runner.bind_operation(plan_hash, creation_nonce)
 
     async def interfaces(self) -> CommandResult:
         return await self._runner.run((str(self.paths.wg), "show", "interfaces"), 5)

@@ -54,7 +54,7 @@ BARRIER_ID = "a" * 32
 def _stage6_test_paths(root: Path) -> subject.MacOSProviderPaths:
     return subject.MacOSProviderPaths(
         wg=root / "tools" / "wg",
-        wg_quick=root / "tools" / "wg-quick",
+        wg_quick=root / "tools" / "wireguard-go",
         ifconfig=root / "system" / "ifconfig",
         netstat=root / "system" / "netstat",
         config_root=root / "configs",
@@ -764,7 +764,8 @@ def test_macos_login_keychain_store_redacts_failures() -> None:
 def test_macos_stage6_runner_accepts_only_exact_public_and_mutation_argv(
     tmp_path: Path,
 ) -> None:
-    desired = _plan().desired
+    plan = _plan()
+    desired = plan.desired
     paths = _stage6_test_paths(tmp_path)
     runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
         desired,
@@ -846,6 +847,200 @@ def test_macos_stage6_runner_validates_root_config_grammar_without_exposing_key(
     assert private_text not in str(hook_error.value)
 
 
+def test_macos_stage6_direct_manager_uses_only_fixed_narrow_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    desired = plan.desired
+    paths = _stage6_test_paths(tmp_path)
+    runtime_root = tmp_path / "wireguard-runtime"
+    runtime_root.mkdir()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=runtime_root,
+        route_path=tmp_path / "system" / "route",
+    )
+    config = paths.config_root / f"{desired.interface_name}.r{desired.revision}.conf"
+    runner.bind_operation(plan.plan_hash, "a" * 32)
+    process = _FakeMacOSProcess(output=(b"", b""))
+    commands: list[tuple[str, ...]] = []
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    async def process_factory(*args: object, **kwargs: object) -> _FakeMacOSProcess:
+        command = tuple(str(value) for value in args)
+        assert command == (str(paths.wg_quick), "-f", "utun")
+        assert kwargs["env"] == {
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "WG_TUN_NAME_FILE": str(
+                runtime_root / f"{desired.interface_name}.r{desired.revision}.name"
+            ),
+        }
+        return process
+
+    async def fixed_runtime_name(name_file: Path, started: _FakeMacOSProcess) -> str:
+        del name_file
+        assert started is process
+        return "utun9"
+
+    async def record_command(command: tuple[str, ...], *, allow_failure: bool = False) -> str:
+        assert not allow_failure
+        commands.append(command)
+        return ""
+
+    def ignore_directory(path: Path) -> None:
+        del path
+
+    def ignore_json(path: Path, data: dict[str, object]) -> None:
+        del path, data
+
+    def ignore_config(source: Path, target: Path) -> None:
+        del source, target
+
+    def fixed_public_hash(path: Path) -> str:
+        del path
+        return f"sha256:{'b' * 64}"
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(subject, "_ensure_macos_stage6_directory", ignore_directory)
+    monkeypatch.setattr(subject, "_write_root_private_json", ignore_json)
+    monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", process_factory)
+    monkeypatch.setattr(
+        runner,
+        "_runtime_paths",
+        lambda: (
+            runtime_root / "tmn-stage6-b.r1.name",
+            tmp_path / "runtime" / "tmn-stage6-b.r1.json",
+            paths.config_root / "tmn-stage6-b.r1.wg.conf",
+        ),
+    )
+    monkeypatch.setattr(runner, "_write_wg_only_config", ignore_config)
+    monkeypatch.setattr(runner, "_wait_runtime_name", fixed_runtime_name)
+    monkeypatch.setattr(runner, "_config_public_key_hash", fixed_public_hash)
+    monkeypatch.setattr(runner, "_run_private_command", record_command)
+
+    asyncio.run(runner._direct_up(config))  # pyright: ignore[reportPrivateUsage]
+
+    assert commands == [
+        (str(paths.wg), "setconf", "utun9", str(paths.config_root / "tmn-stage6-b.r1.wg.conf")),
+        (
+            str(paths.ifconfig),
+            "utun9",
+            "inet",
+            "192.0.2.2",
+            "192.0.2.2",
+            "netmask",
+            "255.255.255.255",
+        ),
+        (str(paths.ifconfig), "utun9", "up"),
+        (
+            str(tmp_path / "system" / "route"),
+            "-q",
+            "-n",
+            "add",
+            "-inet",
+            "192.0.2.1/32",
+            "-interface",
+            "utun9",
+        ),
+    ]
+    rendered = " ".join(value for command in commands for value in command).lower()
+    assert all(
+        forbidden not in rendered
+        for forbidden in ("bash", "wg-quick", "dns", "default", "firewall", "murus")
+    )
+
+
+def test_macos_stage6_direct_manager_deletes_only_owned_route_and_socket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    paths = _stage6_test_paths(tmp_path)
+    runtime_root = tmp_path / "wireguard-runtime"
+    runtime_root.mkdir()
+    runner = subject._MacOSStage6CommandRunner(  # pyright: ignore[reportPrivateUsage]
+        plan.desired,
+        paths=paths,
+        platform_name="darwin",
+        effective_uid=lambda: 0,
+        runtime_root=runtime_root,
+        route_path=tmp_path / "system" / "route",
+    )
+    name_file = runtime_root / "tmn-stage6-b.r1.name"
+    marker_file = tmp_path / "runtime" / "tmn-stage6-b.r1.json"
+    wg_config = paths.config_root / "tmn-stage6-b.r1.wg.conf"
+    for item in (name_file, marker_file, wg_config, runtime_root / "utun9.sock"):
+        item.parent.mkdir(parents=True, exist_ok=True)
+        item.write_text("fixture", encoding="utf-8")
+    deleted_commands: list[tuple[str, ...]] = []
+
+    def accept_root_path(
+        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
+    ) -> None:
+        del path, regular_file, exact_mode
+
+    async def public_hash(_runtime: str) -> str:
+        return f"sha256:{'b' * 64}"
+
+    async def command_result(command: tuple[str, ...], *, allow_failure: bool = False) -> str:
+        assert not allow_failure
+        if command == (str(paths.netstat), "-rn", "-f", "inet"):
+            return "192.0.2.1 link#20 UHS utun9\n"
+        deleted_commands.append(command)
+        return ""
+
+    async def absent(_runtime: str) -> None:
+        return None
+
+    def accept_socket(path: Path) -> None:
+        del path
+
+    def runtime_marker(path: Path) -> dict[str, object]:
+        del path
+        return {
+            "runtime_interface": "utun9",
+            "public_key_hash": f"sha256:{'b' * 64}",
+            "pid": 4242,
+        }
+
+    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(subject, "_assert_root_owned_socket", accept_socket)
+    monkeypatch.setattr(
+        subject,
+        "_load_macos_runtime_marker",
+        runtime_marker,
+    )
+    monkeypatch.setattr(runner, "_runtime_paths", lambda: (name_file, marker_file, wg_config))
+    monkeypatch.setattr(runner, "_runtime_public_key_hash", public_hash)
+    monkeypatch.setattr(runner, "_run_private_command", command_result)
+    monkeypatch.setattr(runner, "_wait_interface_absent", absent)
+
+    asyncio.run(runner._direct_down(wg_config))  # pyright: ignore[reportPrivateUsage]
+
+    assert deleted_commands == [
+        (
+            str(tmp_path / "system" / "route"),
+            "-q",
+            "-n",
+            "delete",
+            "-inet",
+            "192.0.2.1/32",
+            "-interface",
+            "utun9",
+        )
+    ]
+    assert all(not item.exists() for item in (name_file, marker_file, wg_config))
+    assert not (runtime_root / "utun9.sock").exists()
+
+
 class _FakeMacOSProcess:
     def __init__(self, *, output: tuple[bytes, bytes] | None = None) -> None:
         self.pid = 4242
@@ -865,7 +1060,7 @@ class _FakeMacOSProcess:
         return self.returncode
 
 
-def test_macos_stage6_runner_timeout_and_cancel_reap_process_group(
+def test_macos_stage6_runner_read_timeout_and_cancel_reap_process_group(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -877,18 +1072,17 @@ def test_macos_stage6_runner_timeout_and_cancel_reap_process_group(
         platform_name="darwin",
         effective_uid=lambda: 0,
     )
-    command = (str(commands.wg_quick), "up", str(commands.config_root / "config.conf"))
+    command = (str(commands.wg), "show", "interfaces")
 
     def accept_command(value: tuple[str, ...]) -> bool:
         del value
-        return True
+        return False
 
     def accept_path(value: Path) -> None:
         del value
 
     monkeypatch.setattr(runner, "_validate_command", accept_command)
     monkeypatch.setattr(runner, "_verify_tool", accept_path)
-    monkeypatch.setattr(runner, "_validate_config", accept_path)
     killed: list[tuple[int, int]] = []
 
     def kill_group(pid: int, sig: int) -> None:
@@ -903,8 +1097,8 @@ def test_macos_stage6_runner_timeout_and_cancel_reap_process_group(
         return timeout_process
 
     monkeypatch.setattr(subject.asyncio, "create_subprocess_exec", timeout_factory)
-    with pytest.raises(RuntimeError, match="状态不确定"):
-        asyncio.run(runner.run(command, 0.001))
+    result = asyncio.run(runner.run(command, 0.001))
+    assert result.returncode == 124
     assert timeout_process.returncode == -15
     assert killed == [(4242, subject.signal.SIGTERM)]
 

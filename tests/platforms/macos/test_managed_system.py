@@ -35,6 +35,15 @@ class FakeRunner:
         return self.results.get(command, CommandResult(returncode=0, stdout="", stderr=""))
 
 
+class BindingRunner(FakeRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.binding: tuple[str, str] | None = None
+
+    def bind_operation(self, plan_hash: str, creation_nonce: str) -> None:
+        self.binding = (plan_hash, creation_nonce)
+
+
 def fixed(
     tmp_path: Path,
     runner: FakeRunner,
@@ -83,6 +92,16 @@ def test_paths_preflight_and_fixed_commands(tmp_path: Path) -> None:
     asyncio.run(commands.up("tmn-test-b", config))
     asyncio.run(commands.down("tmn-test-b", config))
     assert all(isinstance(command, tuple) and "sudo" not in command for command in runner.commands)
+
+
+def test_fixed_commands_delegate_optional_operation_binding(tmp_path: Path) -> None:
+    runner = BindingRunner()
+    commands = fixed(tmp_path, runner)
+
+    commands.bind_operation(f"sha256:{'a' * 64}", "b" * 32)
+
+    assert runner.binding == (f"sha256:{'a' * 64}", "b" * 32)
+    fixed(tmp_path, FakeRunner()).bind_operation(f"sha256:{'c' * 64}", "d" * 32)
 
 
 def test_fixed_commands_reject_dynamic_values(tmp_path: Path) -> None:

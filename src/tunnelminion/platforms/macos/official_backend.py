@@ -377,6 +377,7 @@ class OfficialMacOSManagedBackend:
             return self._materials.write(desired, secret_reference, creation_nonce)
         if step.kind is PlanStepKind.CREATE_INTERFACE:
             before = await self._interfaces()
+            self._commands.bind_operation(plan.plan_hash, creation_nonce)
             result = await self._commands.up(desired.interface_name, config)
             self._require_success(result.returncode, step)
             after = await self._interfaces()
