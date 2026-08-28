@@ -133,6 +133,21 @@ _ARCHIVE_FILES = (
     "managed-network-ledger.sqlite3-shm",
     "managed-network-ledger.sqlite3-journal",
 )
+_ARCHIVE_RUN_STATE_FILES = (
+    "stage6-apply-evidence.json",
+    "stage6-apply-ready.json",
+    "stage6-apply-go.json",
+    "stage6-apply-peer-ready.json",
+    "stage6-apply-governance.sqlite3",
+    "stage6-apply-governance.sqlite3-wal",
+    "stage6-apply-governance.sqlite3-shm",
+    "stage6-apply-governance.sqlite3-journal",
+    "stage6-rollback-evidence.json",
+    "stage6-target-primary-attempt.json",
+    "stage6-target-primary-result.json",
+    "stage6-target-fallback-attempt.json",
+    "stage6-target-fallback-result.json",
+)
 _ARCHIVE_PROVIDER_FILES = {
     "windows": "windows-operations.sqlite3",
     "macos": "macos-operations.sqlite3",
@@ -1915,11 +1930,34 @@ def _archive_rolled_back_run(
     resources_absent: Callable[[str, Path], bool] | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """只在回滚、claim 释放且批准资源消失后封存一次旧运行。"""
+    """安全确认无运行，或在完整回滚且资源消失后封存旧运行。"""
     data_dir = _APPROVED_DATA_DIRS[platform]
     _assert_trusted_data_dir(data_dir, data_dir)
     evidence_path = data_dir / "stage6-apply-evidence.json"
     database = data_dir / "stage6-apply-governance.sqlite3"
+    evidence_exists = evidence_path.exists() or evidence_path.is_symlink()
+    database_exists = database.exists() or database.is_symlink()
+    checker = resources_absent or _approved_stage6_resources_absent
+    if not evidence_exists and not database_exists:
+        residual = tuple(
+            name
+            for name in _ARCHIVE_RUN_STATE_FILES
+            if (data_dir / name).exists() or (data_dir / name).is_symlink()
+        )
+        if residual:
+            raise SystemExit("阶段 6 存在不完整运行制品，拒绝按无运行状态处理")
+        if not checker(platform, data_dir):
+            raise SystemExit("阶段 6 批准接口、地址或 host route 仍存在，拒绝归档")
+        return {
+            "archive": None,
+            "archived_files": 0,
+            "identity_preserved": (data_dir / "public-identity.json").is_file(),
+            "platform": platform,
+            "status": "no_run",
+            "success": True,
+        }
+    if evidence_exists != database_exists:
+        raise SystemExit("阶段 6 evidence 与治理数据库不完整，拒绝归档")
     _assert_archive_regular_file(evidence_path, "阶段 6 归档缺少可信的 apply evidence")
     _assert_archive_regular_file(database, "阶段 6 归档缺少可信的治理数据库")
     evidence_raw = _read_regular_file(evidence_path)
@@ -1958,7 +1996,6 @@ def _archive_rolled_back_run(
         raise SystemExit("阶段 6 apply claim 尚未全部 released，拒绝归档")
     if not phases or set(phases) != {NetworkGovernancePhase.ROLLED_BACK.value}:
         raise SystemExit("阶段 6 治理记录尚未全部 rolled_back，拒绝归档")
-    checker = resources_absent or _approved_stage6_resources_absent
     if not checker(platform, data_dir):
         raise SystemExit("阶段 6 批准接口、地址或 host route 仍存在，拒绝归档")
 

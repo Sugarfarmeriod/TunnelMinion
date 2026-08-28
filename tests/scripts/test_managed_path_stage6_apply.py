@@ -294,6 +294,47 @@ def test_archive_rolled_back_run_moves_artifacts_and_preserves_public_identity(
     assert "public-identity.json" not in manifest["files"]
 
 
+def test_archive_without_run_is_successful_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "windows"
+    root.mkdir()
+    identity = root / "public-identity.json"
+    identity.write_text("{}", encoding="utf-8")
+    ledger = root / "managed-network-ledger.sqlite3"
+    ledger.write_bytes(b"identity-infrastructure")
+    provider = root / "managed-network" / "windows-operations.sqlite3"
+    provider.parent.mkdir()
+    provider.write_bytes(b"identity-infrastructure")
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    result = subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+        "windows", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "no_run"
+    assert result["archived_files"] == 0
+    assert identity.is_file()
+    assert ledger.is_file()
+    assert provider.is_file()
+    assert not (root / "stage6-run-archives").exists()
+
+
+def test_archive_without_evidence_rejects_partial_run_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "windows"
+    root.mkdir()
+    (root / "stage6-apply-ready.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    with pytest.raises(SystemExit, match="存在不完整运行制品"):
+        subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+            "windows", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+        )
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
