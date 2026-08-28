@@ -7,7 +7,9 @@ param(
     [ValidatePattern("^[0-9a-f]{32}$")]
     [string]$BarrierId,
 
-    [string]$IdentityPipeName
+    [string]$IdentityPipeName,
+
+    [string]$ArchiveOutputPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +25,13 @@ if ($Mode -eq "archive") {
         throw "Archive mode does not accept a barrier or identity pipe."
     }
 }
-elseif (-not $BarrierId) {
-    throw "BarrierId is required for $Mode mode."
+else {
+    if ($ArchiveOutputPath) {
+        throw "ArchiveOutputPath is only valid for archive mode."
+    }
+    if (-not $BarrierId) {
+        throw "BarrierId is required for $Mode mode."
+    }
 }
 
 $principal = New-Object Security.Principal.WindowsPrincipal(
@@ -38,28 +45,23 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
             "-File", "`"$PSCommandPath`"",
             "-Mode", "archive"
         )
-        $stdoutPath = [IO.Path]::GetTempFileName()
-        $stderrPath = [IO.Path]::GetTempFileName()
+        $outputPath = [IO.Path]::GetTempFileName()
         try {
-            $process = Start-Process powershell.exe `
-                -Verb RunAs `
-                -ArgumentList $arguments `
-                -RedirectStandardOutput $stdoutPath `
-                -RedirectStandardError $stderrPath `
-                -PassThru `
-                -Wait
-            $stdout = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
-            $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
-            if ($stdout) {
-                Write-Output $stdout.TrimEnd()
-            }
-            if ($stderr) {
-                [Console]::Error.WriteLine($stderr.TrimEnd())
+            $arguments += @("-ArchiveOutputPath", "`"$outputPath`"")
+            $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -PassThru -Wait
+            $output = Get-Content -LiteralPath $outputPath -Raw -ErrorAction SilentlyContinue
+            if ($output) {
+                if ($process.ExitCode -eq 0) {
+                    Write-Output $output.TrimEnd()
+                }
+                else {
+                    [Console]::Error.WriteLine($output.TrimEnd())
+                }
             }
             exit $process.ExitCode
         }
         finally {
-            Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
         }
     }
     & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --serve
@@ -81,9 +83,22 @@ function Invoke-Stage6 {
 Push-Location $repoRoot
 try {
     if ($Mode -eq "archive") {
-        & $python -m scripts.managed_path_stage6_apply --platform windows --archive-rolled-back
-        if ($LASTEXITCODE -ne 0) {
-            throw "Stage 6 rolled-back run archive failed (exit code $LASTEXITCODE)."
+        $archiveOutput = (& $python -m scripts.managed_path_stage6_apply `
+            --platform windows `
+            --archive-rolled-back 2>&1 | Out-String).TrimEnd()
+        $archiveExitCode = $LASTEXITCODE
+        if ($ArchiveOutputPath) {
+            [IO.File]::WriteAllText(
+                $ArchiveOutputPath,
+                $archiveOutput,
+                [Text.UTF8Encoding]::new($false)
+            )
+        }
+        elseif ($archiveOutput) {
+            Write-Output $archiveOutput
+        }
+        if ($archiveExitCode -ne 0) {
+            exit $archiveExitCode
         }
         return
     }
