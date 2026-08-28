@@ -38,8 +38,29 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
             "-File", "`"$PSCommandPath`"",
             "-Mode", "archive"
         )
-        $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -PassThru -Wait
-        exit $process.ExitCode
+        $stdoutPath = [IO.Path]::GetTempFileName()
+        $stderrPath = [IO.Path]::GetTempFileName()
+        try {
+            $process = Start-Process powershell.exe `
+                -Verb RunAs `
+                -ArgumentList $arguments `
+                -RedirectStandardOutput $stdoutPath `
+                -RedirectStandardError $stderrPath `
+                -PassThru `
+                -Wait
+            $stdout = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+            $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+            if ($stdout) {
+                Write-Output $stdout.TrimEnd()
+            }
+            if ($stderr) {
+                [Console]::Error.WriteLine($stderr.TrimEnd())
+            }
+            exit $process.ExitCode
+        }
+        finally {
+            Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        }
     }
     & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --serve
     exit $LASTEXITCODE
