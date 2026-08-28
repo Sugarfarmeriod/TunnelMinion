@@ -193,6 +193,37 @@ def test_elevated_process_rejects_identity_echo(
     assert private_text not in str(connection.sent)
 
 
+def test_elevated_process_returns_sanitized_admin_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_text = "private-material-for-test"
+    connection = _Connection(private_text)
+
+    def connect(*_args: object, **_kwargs: object) -> _Connection:
+        return connection
+
+    def path_exists(_self: Path) -> bool:
+        return True
+
+    def run(*_args: object, **_kwargs: object) -> NoReturn:
+        raise RuntimeError(f"failed near {private_text}")
+
+    monkeypatch.setattr(subject, "_is_admin", lambda: True)
+    monkeypatch.setattr(subject.multiprocessing.connection, "Client", connect)
+    monkeypatch.setattr(Path, "is_file", path_exists)
+    monkeypatch.setattr(subject.subprocess, "run", run)
+
+    assert (
+        subject._run_elevated(  # pyright: ignore[reportPrivateUsage]
+            "recover", "b" * 32, r"\\.\pipe\tunnelminion-stage6-test"
+        )
+        == 1
+    )
+    assert private_text not in str(connection.sent)
+    assert "RuntimeError" in str(connection.sent)
+    assert "<redacted>" in str(connection.sent)
+
+
 def test_elevated_process_rejects_non_admin_before_connecting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

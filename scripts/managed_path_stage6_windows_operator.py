@@ -81,7 +81,14 @@ def _serve_identity(mode: str, barrier_id: str) -> int:
         connection = listener.accept()
         try:
             connection.send(private_text)
-            result = connection.recv()
+            try:
+                result = connection.recv()
+            except (EOFError, OSError) as exc:
+                elevated_returncode = elevated.wait()
+                raise SystemExit(
+                    "Windows Stage 6 管理员子流程未回传结果 "
+                    f"(exit code {elevated_returncode})"
+                ) from exc
         finally:
             connection.close()
             private_text = ""
@@ -126,18 +133,25 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
     connection = multiprocessing.connection.Client(pipe_name, family="AF_PIPE", authkey=b"")
     private_text = connection.recv()
     if not isinstance(private_text, str):
+        connection.send(
+            {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "Windows Stage 6 身份管道内容无效。\n",
+            }
+        )
         connection.close()
-        raise SystemExit("Windows Stage 6 身份管道内容无效")
+        return 1
     action = {
         "apply": "--apply",
         "recover": "--recover",
         "rollback": "--rollback-create",
     }[mode]
-    repo_root = Path(__file__).resolve().parent.parent
-    python = repo_root / ".venv" / "Scripts" / "python.exe"
-    if not python.is_file():
-        raise SystemExit(f"Project virtual-environment Python was not found: {python}")
     try:
+        repo_root = Path(__file__).resolve().parent.parent
+        python = repo_root / ".venv" / "Scripts" / "python.exe"
+        if not python.is_file():
+            raise RuntimeError(f"Project virtual-environment Python was not found: {python}")
         completed = subprocess.run(
             [
                 str(python),
@@ -171,10 +185,23 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
                 "stderr": completed.stderr[-_MAX_PUBLIC_OUTPUT:],
             }
         )
+        return completed.returncode
+    except Exception as exc:
+        message = str(exc).replace(private_text, "<redacted>")
+        connection.send(
+            {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": (
+                    "Windows Stage 6 管理员子流程异常："
+                    f"{type(exc).__name__}: {message}\n"
+                )[-_MAX_PUBLIC_OUTPUT:],
+            }
+        )
+        return 1
     finally:
         private_text = ""
         connection.close()
-    return completed.returncode
 
 
 def _is_admin() -> bool:
