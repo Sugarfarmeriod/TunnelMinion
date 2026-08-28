@@ -302,6 +302,32 @@ def test_exact_provider_journal_finalizes_absent_manual_intervention(
     assert normalized.status is ReceiptStatus.ROLLED_BACK
 
 
+def test_publish_or_preserve_public_identity_keeps_existing_evidence(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "stage6-apply-evidence.json"
+    original = '{"phase":"path_degraded"}\n'
+    evidence.write_text(original, encoding="utf-8")
+
+    subject._publish_or_preserve_public_identity(  # pyright: ignore[reportPrivateUsage]
+        evidence, {"phase": "rolled_back"}
+    )
+
+    assert evidence.read_text(encoding="utf-8") == original
+
+
+def test_publish_or_preserve_public_identity_creates_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "stage6-apply-evidence.json"
+
+    subject._publish_or_preserve_public_identity(  # pyright: ignore[reportPrivateUsage]
+        evidence, {"phase": "rolled_back"}
+    )
+
+    assert json.loads(evidence.read_text(encoding="utf-8")) == {"phase": "rolled_back"}
+
+
 def _orphan_governance_fixture(
     path: Path, journal: WindowsOperationJournal, *, state: str = "active"
 ) -> None:

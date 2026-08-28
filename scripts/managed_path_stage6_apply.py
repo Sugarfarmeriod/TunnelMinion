@@ -18,7 +18,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -2426,6 +2426,14 @@ def _assert_archive_regular_file(path: Path, message: str) -> None:
         raise SystemExit(message)
 
 
+def _publish_or_preserve_public_identity(output: Path, payload: Mapping[str, object]) -> None:
+    """公开证据已存在时保持不可变；只在缺失时创建。"""
+    if output.exists() or output.is_symlink():
+        _assert_archive_regular_file(output, "阶段 6 已有公开证据不是可信普通文件")
+        return
+    _publish_public_identity(output, payload)
+
+
 async def _run(
     platform: str,
     barrier_id: str,
@@ -2578,7 +2586,7 @@ async def _run(
                 },
             )
             if existing is None:
-                _publish_public_identity(
+                _publish_or_preserve_public_identity(
                     evidence_path,
                     {
                         "schema_version": "managed-path-stage6-apply/v1",
