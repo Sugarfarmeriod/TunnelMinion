@@ -20,6 +20,7 @@ from tunnelminion.network.contracts import (
 from tunnelminion.network.fakes import InMemoryNetworkProvider
 from tunnelminion.platforms.windows.managed_system import (
     FixedWindowsWireGuardCommands,
+    WindowsPeerSnapshot,
     WindowsProviderPaths,
     WindowsTunnelSnapshot,
 )
@@ -361,6 +362,43 @@ def test_official_backend_waits_for_managed_interface_settlement(tmp_path: Path)
             store,
             settle_delay_seconds=-1,
         )
+
+
+def test_official_backend_waits_for_managed_host_routes(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    store = materials(tmp_path, MemorySecrets(), runner)
+    reference = store.ensure_secret(desired()).secret_reference
+    asyncio.run(store.write(desired(), reference, "b" * 32))
+    peer = WindowsPeerSnapshot(
+        public_key="peer-key",
+        allowed_host_routes=("10.70.0.2/32",),
+        allowed_networks=("10.70.0.2/32",),
+    )
+    base = WindowsTunnelSnapshot(
+        interface_name="tmn-test-a.r1",
+        interface_present=True,
+        interface_up=True,
+        service_present=True,
+        service_running=True,
+        peers=(peer,),
+        public_key_hash="sha256:" + "a" * 64,
+        stable_interface_id="windows:tmn-test-a.r1",
+    )
+    observer = SequenceObserver(
+        [base, base.model_copy(update={"host_routes": ("10.70.0.2/32",)})]
+    )
+    backend = OfficialWindowsManagedBackend(
+        fixed(tmp_path, runner),
+        observer,
+        store,
+        settle_attempts=3,
+        settle_delay_seconds=0,
+    )
+
+    snapshot = asyncio.run(backend.observe("tmn-test-a"))
+
+    assert snapshot.host_routes == ("10.70.0.2/32",)
+    assert observer.calls == 2
 
 
 def test_official_backend_confirms_async_uninstall_convergence(tmp_path: Path) -> None:

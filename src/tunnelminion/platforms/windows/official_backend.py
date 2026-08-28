@@ -374,10 +374,14 @@ class OfficialWindowsManagedBackend:
     ) -> WindowsTunnelSnapshot:
         snapshot = await self._observer.observe(runtime_name)
         for _attempt in range(1, self._settle_attempts):
+            expected_routes = {
+                route for peer in snapshot.peers for route in peer.allowed_host_routes
+            }
             if not wait_for_managed or (
                 snapshot.interface_present
                 and snapshot.stable_interface_id is not None
                 and snapshot.public_key_hash is not None
+                and expected_routes <= set(snapshot.host_routes)
             ):
                 break
             await self._sleeper(self._settle_delay_seconds)

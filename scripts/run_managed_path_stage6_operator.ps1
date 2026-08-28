@@ -172,7 +172,18 @@ try {
     Write-Host "Copy this entire line into the macOS root script:"
     Write-Host $readyJson
     Write-Host ""
-    $peerReady = Read-Host "Paste the complete ready JSON line from the macOS script here"
+    $peerReady = [Environment]::GetEnvironmentVariable(
+        "TUNNELMINION_STAGE6_PEER_READY_JSON",
+        [EnvironmentVariableTarget]::Process
+    )
+    if (-not $peerReady) {
+        $peerReady = Read-Host "Paste the complete ready JSON line from the macOS script here"
+    }
+    [Environment]::SetEnvironmentVariable(
+        "TUNNELMINION_STAGE6_PEER_READY_JSON",
+        $null,
+        [EnvironmentVariableTarget]::Process
+    )
     $peerReady | & $python -m scripts.managed_path_stage6_apply `
         --platform windows `
         --barrier-id $BarrierId `
