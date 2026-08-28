@@ -32,6 +32,8 @@ from tunnelminion.network.contracts import (
     OwnershipState,
     ProviderKind,
     ProviderMode,
+    ReceiptStatus,
+    StepReceipt,
     VerificationResult,
     canonical_sha256,
 )
@@ -46,7 +48,11 @@ from tunnelminion.platforms.macos.official_backend import (
     OfficialMacOSManagedBackend,
     RestrictedMacOSConfigStore,
 )
-from tunnelminion.platforms.windows.network_provider import WindowsNetworkProvider
+from tunnelminion.platforms.windows.network_provider import (
+    SQLiteWindowsOperationJournal,
+    WindowsNetworkProvider,
+    WindowsOperationJournal,
+)
 from tunnelminion.platforms.windows.official_backend import (
     AclRestrictedWindowsConfigStore,
     OfficialWindowsManagedBackend,
@@ -181,6 +187,94 @@ def _grant(plan: NetworkPlan) -> NetworkAuthorizationGrant:
         approved_at=NOW,
         expires_at=expires_at,
     )
+
+
+def _operation_journal(plan: NetworkPlan, *, status: ReceiptStatus) -> WindowsOperationJournal:
+    return WindowsOperationJournal(
+        plan=plan,
+        idempotency_key=f"netop_{'c' * 64}",
+        secret_reference="stage6-test-reference",
+        creation_nonce="d" * 32,
+        baseline_snapshot_hash=f"sha256:{'e' * 64}",
+        baseline_runtime_hash=f"sha256:{'f' * 64}",
+        steps=tuple(
+            StepReceipt(
+                index=index,
+                kind=step.kind,
+                succeeded=True,
+                system_receipt_hash=f"sha256:{index:064x}",
+            )
+            for index, step in enumerate(plan.steps)
+        ),
+        status=status,
+        updated_at=NOW,
+    )
+
+
+def _orphan_governance_fixture(
+    path: Path, journal: WindowsOperationJournal, *, state: str = "active"
+) -> None:
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("CREATE TABLE network_governance(payload TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE network_apply_claims(
+                network_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                plan_hash TEXT NOT NULL,
+                lease_expires_at TEXT NOT NULL,
+                state TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO network_apply_claims VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(journal.plan.desired.network_id),
+                str(journal.plan.desired.target_node_id),
+                journal.plan.desired.revision,
+                journal.idempotency_key,
+                journal.plan.plan_hash,
+                (NOW - timedelta(minutes=1)).isoformat(),
+                state,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _write_operation_journal(path: Path, journal: WindowsOperationJournal) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE windows_network_operations(
+                idempotency_key TEXT PRIMARY KEY,
+                plan_hash TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                status TEXT,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO windows_network_operations VALUES (?, ?, ?, ?, ?)",
+            (
+                journal.idempotency_key,
+                journal.plan.plan_hash,
+                journal.plan.desired.revision,
+                journal.status.value if journal.status is not None else None,
+                journal.model_dump_json(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def test_provider_verification_dimensions_are_redacted_booleans() -> None:
@@ -372,6 +466,98 @@ def test_archive_rolled_back_run_rejects_present_resources(
         subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
             "windows", resources_absent=lambda _platform, _root: False, now=ARCHIVE_NOW
         )
+
+
+def test_orphan_recover_accepts_unique_verified_journal_without_claim(
+    tmp_path: Path,
+) -> None:
+    plan = _plan()
+    journal = _operation_journal(plan, status=ReceiptStatus.VERIFIED)
+    provider_path = tmp_path / "managed-network" / "windows-operations.sqlite3"
+    SQLiteWindowsOperationJournal(provider_path).put(journal)
+    database = tmp_path / "stage6-apply-governance.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("CREATE TABLE network_governance(payload TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE network_apply_claims(
+                network_id TEXT, node_id TEXT, revision INTEGER,
+                idempotency_key TEXT, plan_hash TEXT,
+                lease_expires_at TEXT, state TEXT
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    loaded = subject._load_exact_provider_journal(  # pyright: ignore[reportPrivateUsage]
+        "windows",
+        provider_path,
+        allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
+    )
+    assert loaded == journal
+    assert (
+        subject._validate_orphan_claim(  # pyright: ignore[reportPrivateUsage]
+            database, loaded, now=ARCHIVE_NOW
+        )
+        == ()
+    )
+
+
+def test_orphan_recover_rejects_conflicting_claim(tmp_path: Path) -> None:
+    journal = _operation_journal(_plan(), status=ReceiptStatus.VERIFIED)
+    database = tmp_path / "stage6-apply-governance.sqlite3"
+    _orphan_governance_fixture(database, journal)
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("UPDATE network_apply_claims SET plan_hash=?", (f"sha256:{'9' * 64}",))
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SystemExit, match="claim 绑定不匹配"):
+        subject._validate_orphan_claim(  # pyright: ignore[reportPrivateUsage]
+            database, journal, now=ARCHIVE_NOW
+        )
+
+
+def test_archive_accepts_completed_orphan_recover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "windows"
+    root.mkdir(parents=True)
+    (root / "public-identity.json").write_text("{}", encoding="utf-8")
+    journal = _operation_journal(_plan(), status=ReceiptStatus.ROLLED_BACK)
+    database = root / "stage6-apply-governance.sqlite3"
+    _orphan_governance_fixture(database, journal)
+    provider_path = root / "managed-network" / "windows-operations.sqlite3"
+    _write_operation_journal(provider_path, journal)
+    (root / "managed-network-ledger.sqlite3").write_bytes(b"ledger")
+    (root / "stage6-apply-evidence.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "managed-path-stage6-apply/v1",
+                "mode": "orphan_recover",
+                "platform": "windows",
+                "phase": "rolled_back",
+                "commit": "a" * 40,
+                "plan_hash": journal.plan.plan_hash,
+                "provider_receipt": {"status": "rolled_back"},
+                "private_material_exported": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    result = subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+        "windows", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+    )
+
+    assert result["success"] is True
+    assert Path(cast(str, result["archive"])).is_dir()
 
 
 def test_archive_mode_rejects_barrier_and_identity_without_reading_identity(

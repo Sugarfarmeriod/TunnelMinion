@@ -57,6 +57,7 @@ from tunnelminion.network.contracts import (
     NetworkPlan,
     OwnershipState,
     ProviderReceipt,
+    ReceiptStatus,
     VerificationResult,
     canonical_sha256,
 )
@@ -86,6 +87,10 @@ from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_p
 from tunnelminion.platforms.macos.managed_system import MacOSProviderPaths
 from tunnelminion.platforms.macos.system import CommandResult, CommandRunner
 from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
+from tunnelminion.platforms.windows.network_provider import (
+    SQLiteWindowsOperationJournal,
+    WindowsOperationJournal,
+)
 from tunnelminion.tools.contracts import ToolCancellationToken
 
 _BARRIER_TIMEOUT_SECONDS = 180
@@ -2008,10 +2013,17 @@ def _archive_rolled_back_run(
             connection.close()
     except sqlite3.Error as exc:
         raise SystemExit("阶段 6 治理状态无法只读验证") from exc
-    if not claim_states or set(claim_states) != {"released"}:
-        raise SystemExit("阶段 6 apply claim 尚未全部 released，拒绝归档")
-    if not phases or set(phases) != {NetworkGovernancePhase.ROLLED_BACK.value}:
-        raise SystemExit("阶段 6 治理记录尚未全部 rolled_back，拒绝归档")
+    orphan_recover = evidence.get("mode") == "orphan_recover"
+    if orphan_recover:
+        plan_hash = evidence.get("plan_hash")
+        if not isinstance(plan_hash, str):
+            raise SystemExit("阶段 6 orphan recover evidence 缺少 plan hash")
+        _validate_archived_orphan_state(platform, data_dir, database, plan_hash)
+    else:
+        if not claim_states or set(claim_states) != {"released"}:
+            raise SystemExit("阶段 6 apply claim 尚未全部 released，拒绝归档")
+        if not phases or set(phases) != {NetworkGovernancePhase.ROLLED_BACK.value}:
+            raise SystemExit("阶段 6 治理记录尚未全部 rolled_back，拒绝归档")
     if not checker(platform, data_dir):
         raise SystemExit("阶段 6 批准接口、地址或 host route 仍存在，拒绝归档")
 
@@ -2074,6 +2086,119 @@ def _archive_rolled_back_run(
         "platform": platform,
         "success": True,
     }
+
+
+def _load_exact_provider_journal(
+    platform: str,
+    path: Path,
+    *,
+    allowed_statuses: frozenset[ReceiptStatus],
+) -> WindowsOperationJournal:
+    """只接受数据库中唯一且处于明确状态的 Provider journal。"""
+    del platform
+    try:
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+        try:
+            rows = connection.execute(
+                "SELECT plan_hash, status, payload FROM windows_network_operations"
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise SystemExit("阶段 6 Provider journal 无法只读验证") from exc
+    if len(rows) != 1:
+        raise SystemExit("阶段 6 Provider journal 不是唯一精确目标，拒绝恢复")
+    plan_hash, raw_status, payload = str(rows[0][0]), str(rows[0][1]), str(rows[0][2])
+    if raw_status not in {status.value for status in allowed_statuses}:
+        raise SystemExit("阶段 6 Provider journal 状态不允许自动恢复")
+    try:
+        SQLiteWindowsOperationJournal._reject_secrets(  # pyright: ignore[reportPrivateUsage]
+            payload
+        )
+        journal = WindowsOperationJournal.model_validate_json(payload)
+    except ValueError as exc:
+        raise SystemExit("阶段 6 Provider journal payload 无法验证") from exc
+    if journal.plan.plan_hash != plan_hash or journal.status not in allowed_statuses:
+        raise SystemExit("阶段 6 Provider journal payload 与索引不一致")
+    return journal
+
+
+def _stage6_desired_matches(actual: DesiredNetworkConfig, expected: DesiredNetworkConfig) -> bool:
+    """比较固定 Stage 6 配置；仅忽略本轮重新计算的候选时间窗。"""
+    actual_value = actual.model_dump(mode="json")
+    expected_value = expected.model_dump(mode="json")
+    for value in (actual_value, expected_value):
+        peers = cast(list[dict[str, object]], value["peers"])
+        for peer in peers:
+            candidates = cast(list[dict[str, object]], peer["candidates"])
+            for candidate in candidates:
+                candidate.pop("observed_at", None)
+                candidate.pop("expires_at", None)
+    return actual_value == expected_value
+
+
+def _validate_orphan_claim(
+    database: Path,
+    journal: WindowsOperationJournal,
+    *,
+    now: datetime,
+) -> tuple[str, ...]:
+    """治理记录缺失时，仅拒绝与唯一 Provider journal 冲突的 claim。"""
+    try:
+        connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+        try:
+            governance_count = int(
+                connection.execute("SELECT count(*) FROM network_governance").fetchone()[0]
+            )
+            rows = connection.execute(
+                """
+                SELECT network_id, node_id, revision, idempotency_key, plan_hash,
+                       lease_expires_at, state
+                FROM network_apply_claims
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+    except (sqlite3.Error, TypeError, ValueError) as exc:
+        raise SystemExit("阶段 6 orphan recover 治理状态无法只读验证") from exc
+    if governance_count != 0 or len(rows) > 1:
+        raise SystemExit("阶段 6 orphan recover 存在冲突治理记录，拒绝恢复")
+    if not rows:
+        return ()
+    row = rows[0]
+    desired = journal.plan.desired
+    if (
+        str(row[0]) != str(desired.network_id)
+        or str(row[1]) != str(desired.target_node_id)
+        or int(row[2]) != desired.revision
+        or str(row[3]) != journal.idempotency_key
+        or str(row[4]) != journal.plan.plan_hash
+        or str(row[6]) not in {"active", "uncertain", "resolved", "released"}
+    ):
+        raise SystemExit("阶段 6 orphan recover claim 绑定不匹配")
+    try:
+        datetime.fromisoformat(str(row[5])).astimezone(UTC)
+        now.astimezone(UTC)
+    except ValueError as exc:
+        raise SystemExit("阶段 6 orphan recover claim 时间无效") from exc
+    return (str(row[6]),)
+
+
+def _validate_archived_orphan_state(
+    platform: str,
+    data_dir: Path,
+    database: Path,
+    plan_hash: str,
+) -> None:
+    provider_path = data_dir / "managed-network" / _ARCHIVE_PROVIDER_FILES[platform]
+    journal = _load_exact_provider_journal(
+        platform,
+        provider_path,
+        allowed_statuses=frozenset({ReceiptStatus.ROLLED_BACK}),
+    )
+    if journal.plan.plan_hash != plan_hash:
+        raise SystemExit("阶段 6 orphan recover evidence 与 Provider journal 不匹配")
+    _validate_orphan_claim(database, journal, now=datetime.now(UTC))
 
 
 def _approved_stage6_resources_absent(platform: str, data_dir: Path) -> bool:
@@ -2347,7 +2472,80 @@ async def _run(
         }
     if recover:
         existing = store.get(_NETWORK_ID, config.node_id, 1)
-        if existing is None or existing.authorization_id is None:
+        if existing is None:
+            journal = _load_exact_provider_journal(
+                platform,
+                provider_journal,
+                allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
+            )
+            if (
+                journal.plan.action is not NetworkAction.CREATE
+                or not _stage6_desired_matches(journal.plan.desired, desired)
+                or journal.in_flight_step_index is not None
+                or len(journal.steps) != len(journal.plan.steps)
+            ):
+                raise SystemExit("阶段 6 orphan recover Provider 目标或步骤不匹配")
+            claim_states = _validate_orphan_claim(database, journal, now=now)
+            original_receipt = ProviderReceipt(
+                idempotency_key=journal.idempotency_key,
+                plan_hash=journal.plan.plan_hash,
+                revision=journal.plan.desired.revision,
+                provider=journal.plan.desired.provider,
+                observation_fingerprint=journal.plan.observed_fingerprint,
+                status=cast(ReceiptStatus, journal.status),
+                steps=journal.steps,
+            )
+            rolled = await provider.rollback(
+                journal.plan,
+                original_receipt,
+                cancellation=ToolCancellationToken(),
+            )
+            success = bool(
+                rolled.status is ReceiptStatus.ROLLED_BACK
+                and rolled.observation_after is not None
+                and rolled.observation_after.ownership is OwnershipState.ABSENT
+                and provider.apply_calls == 0
+                and provider.rollback_calls == 1
+            )
+            _publish_public_identity(
+                evidence_path,
+                {
+                    "schema_version": "managed-path-stage6-apply/v1",
+                    "mode": "orphan_recover",
+                    "platform": platform,
+                    "commit": _git_commit(),
+                    "entrypoint": "python -m scripts.managed_path_stage6_apply --recover",
+                    "started_at": now.isoformat(),
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "phase": NetworkGovernancePhase.ROLLED_BACK.value,
+                    "plan_hash": journal.plan.plan_hash,
+                    "claim_states": claim_states,
+                    "provider_apply_calls": provider.apply_calls,
+                    "provider_rollback_calls": provider.rollback_calls,
+                    "provider_receipt": {
+                        "present": True,
+                        "status": rolled.status.value,
+                        "step_count": len(rolled.steps),
+                    },
+                    "final_ownership": (
+                        rolled.observation_after.ownership.value
+                        if rolled.observation_after is not None
+                        else None
+                    ),
+                    "real_network_writes_performed": provider.rollback_calls == 1,
+                    "private_material_exported": False,
+                },
+            )
+            if not success:
+                raise RuntimeError("阶段 6 orphan recover 未证明完整安全回滚")
+            return {
+                "orphan_provider_recovered": True,
+                "platform": platform,
+                "provider_apply_calls": provider.apply_calls,
+                "rollback_calls": provider.rollback_calls,
+                "success": True,
+            }
+        if existing.authorization_id is None:
             raise SystemExit("阶段 6.3 recover 没有精确的已授权治理记录")
         grant = repository.get(existing.authorization_id)
         if grant is None:
