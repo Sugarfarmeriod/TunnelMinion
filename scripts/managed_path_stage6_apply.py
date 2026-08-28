@@ -41,7 +41,6 @@ from scripts.managed_path_stage6_preview import (
     _CONFIGS,  # pyright: ignore[reportPrivateUsage]
     _assert_safe_existing_database,  # pyright: ignore[reportPrivateUsage]
     _desired_config,  # pyright: ignore[reportPrivateUsage]
-    _git_commit,  # pyright: ignore[reportPrivateUsage]
     _load_peer_identity,  # pyright: ignore[reportPrivateUsage]
     _read_regular_file,  # pyright: ignore[reportPrivateUsage]
     _signed_envelope,  # pyright: ignore[reportPrivateUsage]
@@ -2123,6 +2122,22 @@ def _load_exact_provider_journal(
     return journal
 
 
+def _stage6_git_commit() -> str:
+    """root 仅为当前工作树放行一次 Git 所有权检查，不修改全局配置。"""
+    worktree = Path.cwd().resolve()
+    result = subprocess.run(
+        ("git", "-c", f"safe.directory={worktree}", "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    commit = result.stdout.strip()
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RuntimeError("阶段 6 无法读取可信 Git commit")
+    return commit
+
+
 def _stage6_desired_matches(actual: DesiredNetworkConfig, expected: DesiredNetworkConfig) -> bool:
     """比较固定 Stage 6 配置；仅忽略本轮重新计算的候选时间窗。"""
     actual_value = actual.model_dump(mode="json")
@@ -2414,7 +2429,7 @@ async def _run(
                 "schema_version": "managed-path-stage6-rollback/v1",
                 "mode": "rollback_create",
                 "platform": platform,
-                "commit": _git_commit(),
+                "commit": _stage6_git_commit(),
                 "plan_hash": existing.plan.plan_hash,
                 "governance_phase": rolled_record.phase.value,
                 "receipt_status": rolled.status.value,
@@ -2442,7 +2457,9 @@ async def _run(
             journal = _load_exact_provider_journal(
                 platform,
                 provider_journal,
-                allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
+                allowed_statuses=frozenset(
+                    {ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED, ReceiptStatus.ROLLED_BACK}
+                ),
             )
             if (
                 journal.plan.action is not NetworkAction.CREATE
@@ -2452,34 +2469,50 @@ async def _run(
             ):
                 raise SystemExit("阶段 6 orphan recover Provider 目标或步骤不匹配")
             claim_states = _orphan_claim_states(database)
-            original_receipt = ProviderReceipt(
-                idempotency_key=journal.idempotency_key,
-                plan_hash=journal.plan.plan_hash,
-                revision=journal.plan.desired.revision,
-                provider=journal.plan.desired.provider,
-                observation_fingerprint=journal.plan.observed_fingerprint,
-                status=cast(ReceiptStatus, journal.status),
-                steps=journal.steps,
-            )
-            rolled = await provider.rollback(
-                journal.plan,
-                original_receipt,
-                cancellation=ToolCancellationToken(),
-            )
-            success = bool(
-                rolled.status is ReceiptStatus.ROLLED_BACK
-                and rolled.observation_after is not None
-                and rolled.observation_after.ownership is OwnershipState.ABSENT
-                and provider.apply_calls == 0
-                and provider.rollback_calls == 1
-            )
+            already_rolled_back = journal.status is ReceiptStatus.ROLLED_BACK
+            if already_rolled_back:
+                success = _approved_stage6_resources_absent(platform, data_dir)
+                receipt_status = ReceiptStatus.ROLLED_BACK
+                receipt_step_count = len(journal.steps)
+                final_ownership = OwnershipState.ABSENT.value if success else None
+            else:
+                original_receipt = ProviderReceipt(
+                    idempotency_key=journal.idempotency_key,
+                    plan_hash=journal.plan.plan_hash,
+                    revision=journal.plan.desired.revision,
+                    provider=journal.plan.desired.provider,
+                    observation_fingerprint=journal.plan.observed_fingerprint,
+                    status=cast(ReceiptStatus, journal.status),
+                    steps=journal.steps,
+                )
+                rolled = await provider.rollback(
+                    journal.plan,
+                    original_receipt,
+                    cancellation=ToolCancellationToken(),
+                )
+                success = bool(
+                    rolled.status is ReceiptStatus.ROLLED_BACK
+                    and rolled.observation_after is not None
+                    and rolled.observation_after.ownership is OwnershipState.ABSENT
+                    and provider.apply_calls == 0
+                    and provider.rollback_calls == 1
+                )
+                receipt_status = rolled.status
+                receipt_step_count = len(rolled.steps)
+                final_ownership = (
+                    rolled.observation_after.ownership.value
+                    if rolled.observation_after is not None
+                    else None
+                )
+            if not success:
+                raise RuntimeError("阶段 6 orphan recover 未证明完整安全回滚")
             _publish_public_identity(
                 evidence_path,
                 {
                     "schema_version": "managed-path-stage6-apply/v1",
                     "mode": "orphan_recover",
                     "platform": platform,
-                    "commit": _git_commit(),
+                    "commit": _stage6_git_commit(),
                     "entrypoint": "python -m scripts.managed_path_stage6_apply --recover",
                     "started_at": now.isoformat(),
                     "finished_at": datetime.now(UTC).isoformat(),
@@ -2490,20 +2523,16 @@ async def _run(
                     "provider_rollback_calls": provider.rollback_calls,
                     "provider_receipt": {
                         "present": True,
-                        "status": rolled.status.value,
-                        "step_count": len(rolled.steps),
+                        "status": receipt_status.value,
+                        "step_count": receipt_step_count,
                     },
-                    "final_ownership": (
-                        rolled.observation_after.ownership.value
-                        if rolled.observation_after is not None
-                        else None
+                    "final_ownership": final_ownership,
+                    "real_network_writes_performed": (
+                        provider.rollback_calls == 1 or already_rolled_back
                     ),
-                    "real_network_writes_performed": provider.rollback_calls == 1,
                     "private_material_exported": False,
                 },
             )
-            if not success:
-                raise RuntimeError("阶段 6 orphan recover 未证明完整安全回滚")
             return {
                 "orphan_provider_recovered": True,
                 "platform": platform,
@@ -2743,7 +2772,7 @@ def _evidence(
         "schema_version": "managed-path-stage6-apply/v1",
         "mode": mode,
         "platform": platform,
-        "commit": _git_commit(),
+        "commit": _stage6_git_commit(),
         "entrypoint": f"python -m scripts.managed_path_stage6_apply --{mode}",
         "started_at": observed_at.isoformat(),
         "finished_at": datetime.now(UTC).isoformat(),
