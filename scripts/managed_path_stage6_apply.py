@@ -54,7 +54,9 @@ from tunnelminion.network.contracts import (
     NetworkAcknowledgement,
     NetworkAction,
     NetworkPlan,
+    OwnershipState,
     ProviderReceipt,
+    VerificationResult,
     canonical_sha256,
 )
 from tunnelminion.network.governance import (
@@ -2258,6 +2260,7 @@ def _evidence(
     path_evidence = record.path_evidence
     selection = record.path_selection
     acknowledgement_delivered = record.acknowledgement_delivered
+    verification_dimensions = _provider_verification_dimensions(record.plan, verification)
     return {
         "schema_version": "managed-path-stage6-apply/v1",
         "mode": mode,
@@ -2300,6 +2303,7 @@ def _evidence(
         "provider_verification": {
             "present": verification is not None,
             "succeeded": bool(verification and verification.succeeded),
+            **verification_dimensions,
         },
         "path": {
             "probe_runs": verifier.probe_runs,
@@ -2346,6 +2350,26 @@ def _evidence(
         },
         "real_network_writes_performed": (provider.apply_calls > 0 or provider.rollback_calls > 0),
         "private_material_exported": False,
+    }
+
+
+def _provider_verification_dimensions(
+    plan: NetworkPlan,
+    verification: VerificationResult | None,
+) -> dict[str, bool | None]:
+    """只记录 Provider verify 的脱敏逐维结果，不导出系统事实正文。"""
+    if verification is None:
+        return {
+            "ownership_matches": None,
+            "address_present": None,
+            "host_routes_present": None,
+        }
+    observation = verification.observation
+    expected_routes = {route for peer in plan.desired.peers for route in peer.allowed_host_routes}
+    return {
+        "ownership_matches": observation.ownership is OwnershipState.MANAGED_OWNED,
+        "address_present": plan.desired.address in observation.addresses,
+        "host_routes_present": expected_routes <= set(observation.host_routes),
     }
 
 

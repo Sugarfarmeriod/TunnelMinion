@@ -23,11 +23,14 @@ from tunnelminion.network.contracts import (
     EndpointCandidate,
     LocalNetworkKeyMaterial,
     NetworkAction,
+    NetworkError,
+    NetworkErrorCode,
     NetworkObservation,
     NetworkPlan,
     OwnershipState,
     ProviderKind,
     ProviderMode,
+    VerificationResult,
     canonical_sha256,
 )
 from tunnelminion.network.fakes import InMemoryNetworkProvider
@@ -175,6 +178,48 @@ def _grant(plan: NetworkPlan) -> NetworkAuthorizationGrant:
         approved_at=NOW,
         expires_at=expires_at,
     )
+
+
+def test_provider_verification_dimensions_are_redacted_booleans() -> None:
+    plan = _plan()
+    observation = NetworkObservation(
+        provider=plan.desired.provider,
+        mode=ProviderMode.MANAGED,
+        interface_name=plan.desired.interface_name,
+        ownership=OwnershipState.ABSENT,
+        system_fingerprint=canonical_sha256({"fixture": "verify-mismatch"}),
+        observed_at=NOW,
+    )
+    verification = VerificationResult(
+        idempotency_key=f"netop_{'a' * 64}",
+        plan_hash=plan.plan_hash,
+        revision=plan.desired.revision,
+        provider=plan.desired.provider,
+        observation_fingerprint=observation.system_fingerprint,
+        succeeded=False,
+        checked_dimensions=("ownership", "address", "host_route"),
+        observation=observation,
+        error=NetworkError(
+            code=NetworkErrorCode.VERIFY_FAILED,
+            message="fixture",
+            correlation_id=plan.plan_hash,
+        ),
+    )
+
+    assert subject._provider_verification_dimensions(  # pyright: ignore[reportPrivateUsage]
+        plan, verification
+    ) == {
+        "ownership_matches": False,
+        "address_present": False,
+        "host_routes_present": False,
+    }
+    assert subject._provider_verification_dimensions(  # pyright: ignore[reportPrivateUsage]
+        plan, None
+    ) == {
+        "ownership_matches": None,
+        "address_present": None,
+        "host_routes_present": None,
+    }
 
 
 def _release(
