@@ -2536,7 +2536,12 @@ async def _run(
     )
     if rollback_create:
         existing = store.get(_NETWORK_ID, config.node_id, 1)
-        if existing is None:
+        exact_provider_recovery = existing is None or (
+            existing.plan.action is NetworkAction.CREATE
+            and existing.receipt is not None
+            and existing.phase is NetworkGovernancePhase.MANUAL_INTERVENTION
+        )
+        if exact_provider_recovery:
             (
                 journal,
                 receipt_status,
@@ -2549,6 +2554,8 @@ async def _run(
                 desired,
                 provider,
             )
+            if existing is not None and existing.plan.plan_hash != journal.plan.plan_hash:
+                raise SystemExit("阶段 6 rollback 治理记录与 Provider journal 不匹配")
             identity_name = _identity_secret_name(platform)
             identity_store.get(identity_name)
             finished_at = datetime.now(UTC)
@@ -2570,37 +2577,41 @@ async def _run(
                     "finished_at": finished_at.isoformat(),
                 },
             )
-            _publish_public_identity(
-                evidence_path,
-                {
-                    "schema_version": "managed-path-stage6-apply/v1",
-                    "mode": "orphan_recover",
-                    "platform": platform,
-                    "commit": _stage6_git_commit(),
-                    "entrypoint": "python -m scripts.managed_path_stage6_apply --rollback-create",
-                    "started_at": now.isoformat(),
-                    "finished_at": finished_at.isoformat(),
-                    "phase": NetworkGovernancePhase.ROLLED_BACK.value,
-                    "plan_hash": journal.plan.plan_hash,
-                    "claim_states": _orphan_claim_states(database),
-                    "provider_apply_calls": provider.apply_calls,
-                    "provider_rollback_calls": provider.rollback_calls,
-                    "provider_receipt": {
-                        "present": True,
-                        "status": receipt_status.value,
-                        "step_count": receipt_step_count,
+            if existing is None:
+                _publish_public_identity(
+                    evidence_path,
+                    {
+                        "schema_version": "managed-path-stage6-apply/v1",
+                        "mode": "orphan_recover",
+                        "platform": platform,
+                        "commit": _stage6_git_commit(),
+                        "entrypoint": (
+                            "python -m scripts.managed_path_stage6_apply --rollback-create"
+                        ),
+                        "started_at": now.isoformat(),
+                        "finished_at": finished_at.isoformat(),
+                        "phase": NetworkGovernancePhase.ROLLED_BACK.value,
+                        "plan_hash": journal.plan.plan_hash,
+                        "claim_states": _orphan_claim_states(database),
+                        "provider_apply_calls": provider.apply_calls,
+                        "provider_rollback_calls": provider.rollback_calls,
+                        "provider_receipt": {
+                            "present": True,
+                            "status": receipt_status.value,
+                            "step_count": receipt_step_count,
+                        },
+                        "final_ownership": final_ownership.value,
+                        "real_network_writes_performed": True,
+                        "private_material_exported": False,
                     },
-                    "final_ownership": final_ownership.value,
-                    "real_network_writes_performed": True,
-                    "private_material_exported": False,
-                },
-            )
+                )
             return {
                 "platform": platform,
                 "provider_apply_calls": provider.apply_calls,
                 "rollback_calls": provider.rollback_calls,
                 "success": True,
             }
+        assert existing is not None
         if (
             existing.plan.action is not NetworkAction.CREATE
             or existing.receipt is None
