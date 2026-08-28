@@ -148,7 +148,7 @@ def _repair_windows_identity(config: _PlatformConfig) -> int:
         payload = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise SystemExit("Windows 阶段 6 旧公开身份不可验证") from exc
-    name = f"wireguard/{_NETWORK_ID}/{config.node_id}"
+    name = _identity_secret_name("windows")
     if (
         payload.get("schema_version") != "managed-path-stage6-public-identity/v1"
         or payload.get("network_id") != str(_NETWORK_ID)
@@ -186,6 +186,14 @@ def _repair_windows_identity(config: _PlatformConfig) -> int:
         )
     )
     return 0
+
+
+def _identity_secret_name(platform: str) -> str:
+    """返回与各平台生产 Provider 完全一致的固定秘密名称。"""
+    config = _CONFIGS[platform]
+    if platform == "windows":
+        return f"tunnelminion/{_NETWORK_ID}/{config.node_id}/wg"
+    return f"wireguard/{_NETWORK_ID}/{config.node_id}"
 
 
 def _private_matches_public(private_text: str, payload: Mapping[str, object]) -> bool:

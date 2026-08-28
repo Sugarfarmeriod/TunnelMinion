@@ -29,6 +29,7 @@ from scripts.managed_path_stage6_identity import (
     _APPROVED_DATA_DIRS,  # pyright: ignore[reportPrivateUsage]
     _NETWORK_ID,  # pyright: ignore[reportPrivateUsage]
     _assert_trusted_data_dir,  # pyright: ignore[reportPrivateUsage]
+    _identity_secret_name,  # pyright: ignore[reportPrivateUsage]
     _publish_public_identity,  # pyright: ignore[reportPrivateUsage]
     _require_matching_platform,  # pyright: ignore[reportPrivateUsage]
 )
@@ -1997,7 +1998,7 @@ async def _run(
         rolled = rolled_record.receipt
         if rolled is None:
             raise RuntimeError("阶段 6 rollback 未返回 Provider receipt")
-        identity_name = f"wireguard/{_NETWORK_ID}/{config.node_id}"
+        identity_name = _identity_secret_name(platform)
         identity_store.get(identity_name)
         success = rolled_record.phase is NetworkGovernancePhase.ROLLED_BACK
         _publish_public_identity(
@@ -2196,7 +2197,7 @@ def _require_elevated(platform: str) -> None:
 
 def _read_identity_stdin(platform: str) -> _ProvidedSecretStore:
     """从匿名 stdin 读取一次固定身份，不回显也不持久化。"""
-    name = f"wireguard/{_NETWORK_ID}/{_IDENTITY_CONFIGS[platform].node_id}"
+    name = _identity_secret_name(platform)
     value = sys.stdin.readline(257).rstrip("\r\n")
     if not value or len(value) > 128 or any(char.isspace() for char in value):
         value = ""
@@ -2219,7 +2220,7 @@ def _assert_existing_identity(
         or not isinstance(payload.get("public_key_hash"), str)
     ):
         raise SystemExit("阶段 6 本机公开身份绑定不一致")
-    name = f"wireguard/{_NETWORK_ID}/{config.node_id}"
+    name = _identity_secret_name(platform)
     try:
         selected_backend = backend
         if selected_backend is None:

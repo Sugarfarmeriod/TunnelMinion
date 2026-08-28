@@ -17,6 +17,7 @@ from scripts.managed_path_stage6_identity import (
     _CONFIGS,  # pyright: ignore[reportPrivateUsage]
     _NETWORK_ID,  # pyright: ignore[reportPrivateUsage]
     _assert_trusted_data_dir,  # pyright: ignore[reportPrivateUsage]
+    _identity_secret_name,  # pyright: ignore[reportPrivateUsage]
     _PlatformConfig,  # pyright: ignore[reportPrivateUsage]
     _publish_public_identity,  # pyright: ignore[reportPrivateUsage]
     _repair_windows_identity,  # pyright: ignore[reportPrivateUsage]
@@ -48,6 +49,14 @@ def test_stage6_identity_resources_are_fixed() -> None:
     assert str(macos.node_id) == "node_6000000000000000000000000000000b"
     assert windows.provider.value == "windows"
     assert macos.provider.value == "macos"
+    assert _identity_secret_name("windows") == (
+        "tunnelminion/network_60000000000000000000000000000000/"
+        "node_6000000000000000000000000000000a/wg"
+    )
+    assert _identity_secret_name("macos") == (
+        "wireguard/network_60000000000000000000000000000000/"
+        "node_6000000000000000000000000000000b"
+    )
 
 
 def test_stage6_identity_rejects_wrong_platform(monkeypatch: pytest.MonkeyPatch) -> None:

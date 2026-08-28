@@ -14,8 +14,7 @@ from scripts.managed_path_stage6_apply import (
     _assert_existing_identity,  # pyright: ignore[reportPrivateUsage]
 )
 from scripts.managed_path_stage6_identity import (
-    _CONFIGS,  # pyright: ignore[reportPrivateUsage]
-    _NETWORK_ID,  # pyright: ignore[reportPrivateUsage]
+    _identity_secret_name,  # pyright: ignore[reportPrivateUsage]
 )
 
 
@@ -44,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _serve_identity(mode: str, barrier_id: str) -> int:
     store = _assert_existing_identity("windows")
-    name = f"wireguard/{_NETWORK_ID}/{_CONFIGS['windows'].node_id}"
+    name = _identity_secret_name("windows")
     private_text = store.get(name)
     if private_text is None:
         raise SystemExit("Windows Stage 6 身份不可用")
