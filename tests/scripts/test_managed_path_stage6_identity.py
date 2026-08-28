@@ -26,6 +26,7 @@ from scripts.managed_path_stage6_identity import (
 )
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.model.secrets import SecretStoreError
 from tunnelminion.network.contracts import (
     LocalNetworkKeyMaterial,
     ProviderKind,
@@ -347,12 +348,50 @@ def test_windows_repair_rejects_still_readable_identity(
         "public_key_hash": canonical_sha256({"public_key": public}),
     }
     (tmp_path / "public-identity.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def read_existing(_name: str) -> str:
+        return private_text
+
     monkeypatch.setattr(
         "scripts.managed_path_stage6_identity.KeyringSecretStore",
-        lambda: SimpleNamespace(get=lambda _name: private_text),
+        lambda: SimpleNamespace(get=read_existing),
     )
 
     with pytest.raises(SystemExit, match="仍可用"):
         _repair_windows_identity(config)
 
+    assert not (tmp_path / "public-identity.pre-repair.json").exists()
+
+
+def test_windows_repair_stops_on_credential_manager_read_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = _PlatformConfig(
+        provider=ProviderKind.WINDOWS,
+        node_id=NodeId("node_6000000000000000000000000000000a"),
+        data_dir=tmp_path,
+    )
+    payload = {
+        "schema_version": "managed-path-stage6-public-identity/v1",
+        "network_id": str(_NETWORK_ID),
+        "node_id": str(config.node_id),
+        "provider": "windows",
+        "public_key": "B" * 43 + "=",
+        "public_key_hash": canonical_sha256({"public_key": "B" * 43 + "="}),
+    }
+    output = tmp_path / "public-identity.json"
+    output.write_text(json.dumps(payload), encoding="utf-8")
+
+    def read_failure(_name: str) -> None:
+        raise SecretStoreError("backend unavailable")
+
+    monkeypatch.setattr(
+        "scripts.managed_path_stage6_identity.KeyringSecretStore",
+        lambda: SimpleNamespace(get=read_failure),
+    )
+
+    with pytest.raises(SecretStoreError, match="backend unavailable"):
+        _repair_windows_identity(config)
+
+    assert output.is_file()
     assert not (tmp_path / "public-identity.pre-repair.json").exists()

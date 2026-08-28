@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from tunnelminion.domain.identifiers import NetworkId, NodeId
-from tunnelminion.model.secrets import KeyringSecretStore, SecretStoreError
+from tunnelminion.model.secrets import KeyringSecretStore
 from tunnelminion.network.contracts import LocalNetworkKeyMaterial, ProviderKind
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
@@ -159,10 +159,7 @@ def _repair_windows_identity(config: _PlatformConfig) -> int:
     ):
         raise SystemExit("Windows 阶段 6 旧公开身份绑定不一致")
     secrets_store = KeyringSecretStore()
-    try:
-        existing = secrets_store.get(name)
-    except SecretStoreError:
-        existing = None
+    existing = secrets_store.get(name)
     if existing is not None and _private_matches_public(existing, payload):
         existing = ""
         raise SystemExit("Windows 阶段 6 身份仍可用，不允许重建")
