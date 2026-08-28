@@ -2137,51 +2137,17 @@ def _stage6_desired_matches(actual: DesiredNetworkConfig, expected: DesiredNetwo
     return actual_value == expected_value
 
 
-def _validate_orphan_claim(
-    database: Path,
-    journal: WindowsOperationJournal,
-    *,
-    now: datetime,
-) -> tuple[str, ...]:
-    """治理记录缺失时，仅拒绝与唯一 Provider journal 冲突的 claim。"""
+def _orphan_claim_states(database: Path) -> tuple[str, ...]:
+    """恢复证据只记录陈旧 claim 状态，不让治理残片否决 Provider 回滚。"""
     try:
         connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
         try:
-            governance_count = int(
-                connection.execute("SELECT count(*) FROM network_governance").fetchone()[0]
-            )
-            rows = connection.execute(
-                """
-                SELECT network_id, node_id, revision, idempotency_key, plan_hash,
-                       lease_expires_at, state
-                FROM network_apply_claims
-                """
-            ).fetchall()
+            rows = connection.execute("SELECT state FROM network_apply_claims").fetchall()
         finally:
             connection.close()
-    except (sqlite3.Error, TypeError, ValueError) as exc:
-        raise SystemExit("阶段 6 orphan recover 治理状态无法只读验证") from exc
-    if governance_count != 0 or len(rows) > 1:
-        raise SystemExit("阶段 6 orphan recover 存在冲突治理记录，拒绝恢复")
-    if not rows:
+    except sqlite3.Error:
         return ()
-    row = rows[0]
-    desired = journal.plan.desired
-    if (
-        str(row[0]) != str(desired.network_id)
-        or str(row[1]) != str(desired.target_node_id)
-        or int(row[2]) != desired.revision
-        or str(row[3]) != journal.idempotency_key
-        or str(row[4]) != journal.plan.plan_hash
-        or str(row[6]) not in {"active", "uncertain", "resolved", "released"}
-    ):
-        raise SystemExit("阶段 6 orphan recover claim 绑定不匹配")
-    try:
-        datetime.fromisoformat(str(row[5])).astimezone(UTC)
-        now.astimezone(UTC)
-    except ValueError as exc:
-        raise SystemExit("阶段 6 orphan recover claim 时间无效") from exc
-    return (str(row[6]),)
+    return tuple(str(row[0]) for row in rows)
 
 
 def _validate_archived_orphan_state(
@@ -2198,7 +2164,7 @@ def _validate_archived_orphan_state(
     )
     if journal.plan.plan_hash != plan_hash:
         raise SystemExit("阶段 6 orphan recover evidence 与 Provider journal 不匹配")
-    _validate_orphan_claim(database, journal, now=datetime.now(UTC))
+    _orphan_claim_states(database)
 
 
 def _approved_stage6_resources_absent(platform: str, data_dir: Path) -> bool:
@@ -2485,7 +2451,7 @@ async def _run(
                 or len(journal.steps) != len(journal.plan.steps)
             ):
                 raise SystemExit("阶段 6 orphan recover Provider 目标或步骤不匹配")
-            claim_states = _validate_orphan_claim(database, journal, now=now)
+            claim_states = _orphan_claim_states(database)
             original_receipt = ProviderReceipt(
                 idempotency_key=journal.idempotency_key,
                 plan_hash=journal.plan.plan_hash,

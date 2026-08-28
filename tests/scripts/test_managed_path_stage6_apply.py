@@ -498,15 +498,10 @@ def test_orphan_recover_accepts_unique_verified_journal_without_claim(
         allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
     )
     assert loaded == journal
-    assert (
-        subject._validate_orphan_claim(  # pyright: ignore[reportPrivateUsage]
-            database, loaded, now=ARCHIVE_NOW
-        )
-        == ()
-    )
+    assert subject._orphan_claim_states(database) == ()  # pyright: ignore[reportPrivateUsage]
 
 
-def test_orphan_recover_rejects_conflicting_claim(tmp_path: Path) -> None:
+def test_orphan_recover_records_but_does_not_trust_stale_claim(tmp_path: Path) -> None:
     journal = _operation_journal(_plan(), status=ReceiptStatus.VERIFIED)
     database = tmp_path / "stage6-apply-governance.sqlite3"
     _orphan_governance_fixture(database, journal)
@@ -517,10 +512,9 @@ def test_orphan_recover_rejects_conflicting_claim(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    with pytest.raises(SystemExit, match="claim 绑定不匹配"):
-        subject._validate_orphan_claim(  # pyright: ignore[reportPrivateUsage]
-            database, journal, now=ARCHIVE_NOW
-        )
+    assert subject._orphan_claim_states(database) == (  # pyright: ignore[reportPrivateUsage]
+        "active",
+    )
 
 
 def test_archive_accepts_completed_orphan_recover(
