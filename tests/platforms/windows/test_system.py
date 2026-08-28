@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import locale
 import socket
 import sys
 from types import SimpleNamespace
@@ -27,6 +29,31 @@ def test_subprocess_runner_and_default_paths() -> None:
     assert result.stdout.strip() == "ready"
     assert default_wg_path().replace("\\", "/").endswith("WireGuard/wg.exe")
     assert default_docker_path().replace("\\", "/").endswith("bin/docker.exe")
+
+
+def test_subprocess_runner_decodes_windows_localized_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = base64.b64encode("活动路由: 在链路上".encode("cp936")).decode("ascii")
+
+    def preferred_encoding(_do_setlocale: bool) -> str:
+        return "cp936"
+
+    monkeypatch.setattr(locale, "getpreferredencoding", preferred_encoding)
+
+    result = asyncio.run(
+        SubprocessCommandRunner().run(
+            (
+                sys.executable,
+                "-c",
+                f"import base64,sys;sys.stdout.buffer.write(base64.b64decode('{payload}'))",
+            ),
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "活动路由: 在链路上"
 
 
 def test_interface_reader_handles_missing_and_ipv6_scope(

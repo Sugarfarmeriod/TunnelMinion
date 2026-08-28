@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import locale
 import socket
 import subprocess
 from pathlib import Path
@@ -50,7 +51,7 @@ class SubprocessCommandRunner:
             check=False,
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            encoding=locale.getpreferredencoding(False),
             errors="replace",
             timeout=timeout_seconds,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
