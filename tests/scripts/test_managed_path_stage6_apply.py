@@ -517,6 +517,25 @@ def test_orphan_recover_records_but_does_not_trust_stale_claim(tmp_path: Path) -
     )
 
 
+def test_orphan_recover_normalizes_terminal_journal_after_resources_are_absent(
+    tmp_path: Path,
+) -> None:
+    journal = _operation_journal(_plan(), status=ReceiptStatus.MANUAL_INTERVENTION)
+    provider_path = tmp_path / "managed-network" / "windows-operations.sqlite3"
+    _write_operation_journal(provider_path, journal)
+
+    subject._mark_provider_journal_rolled_back(  # pyright: ignore[reportPrivateUsage]
+        provider_path, journal
+    )
+
+    loaded = subject._load_exact_provider_journal(  # pyright: ignore[reportPrivateUsage]
+        "windows",
+        provider_path,
+        allowed_statuses=frozenset({ReceiptStatus.ROLLED_BACK}),
+    )
+    assert loaded.status is ReceiptStatus.ROLLED_BACK
+
+
 def test_archive_accepts_completed_orphan_recover(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

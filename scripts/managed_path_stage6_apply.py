@@ -2138,6 +2138,40 @@ def _stage6_git_commit() -> str:
     return commit
 
 
+def _mark_provider_journal_rolled_back(path: Path, journal: WindowsOperationJournal) -> None:
+    """资源已确认消失后，把唯一孤儿 journal 规范化为 rolled_back。"""
+    normalized = journal.model_copy(
+        update={"status": ReceiptStatus.ROLLED_BACK, "updated_at": datetime.now(UTC)}
+    )
+    payload = normalized.model_dump_json()
+    SQLiteWindowsOperationJournal._reject_secrets(  # pyright: ignore[reportPrivateUsage]
+        payload
+    )
+    try:
+        connection = sqlite3.connect(path, timeout=5)
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE windows_network_operations
+                SET status=?, payload=?
+                WHERE idempotency_key=? AND plan_hash=?
+                """,
+                (
+                    ReceiptStatus.ROLLED_BACK.value,
+                    payload,
+                    journal.idempotency_key,
+                    journal.plan.plan_hash,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("阶段 6 Provider journal 规范化目标不唯一")
+            connection.commit()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise RuntimeError("阶段 6 Provider journal 无法规范化") from exc
+
+
 def _stage6_desired_matches(actual: DesiredNetworkConfig, expected: DesiredNetworkConfig) -> bool:
     """比较固定 Stage 6 配置；仅忽略本轮重新计算的候选时间窗。"""
     actual_value = actual.model_dump(mode="json")
@@ -2458,23 +2492,35 @@ async def _run(
                 platform,
                 provider_journal,
                 allowed_statuses=frozenset(
-                    {ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED, ReceiptStatus.ROLLED_BACK}
+                    {
+                        ReceiptStatus.APPLIED,
+                        ReceiptStatus.VERIFIED,
+                        ReceiptStatus.FAILED,
+                        ReceiptStatus.CANCELLED,
+                        ReceiptStatus.MANUAL_INTERVENTION,
+                        ReceiptStatus.ROLLED_BACK,
+                    }
                 ),
             )
-            if (
-                journal.plan.action is not NetworkAction.CREATE
-                or not _stage6_desired_matches(journal.plan.desired, desired)
-                or journal.in_flight_step_index is not None
-                or len(journal.steps) != len(journal.plan.steps)
+            if journal.plan.action is not NetworkAction.CREATE or not _stage6_desired_matches(
+                journal.plan.desired, desired
             ):
                 raise SystemExit("阶段 6 orphan recover Provider 目标或步骤不匹配")
             claim_states = _orphan_claim_states(database)
-            already_rolled_back = journal.status is ReceiptStatus.ROLLED_BACK
-            if already_rolled_back:
+            active_write = journal.status in {ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}
+            if active_write and (
+                journal.in_flight_step_index is not None
+                or len(journal.steps) != len(journal.plan.steps)
+            ):
+                raise SystemExit("阶段 6 orphan recover Provider 步骤不完整")
+            already_absent = not active_write
+            if already_absent:
                 success = _approved_stage6_resources_absent(platform, data_dir)
                 receipt_status = ReceiptStatus.ROLLED_BACK
                 receipt_step_count = len(journal.steps)
                 final_ownership = OwnershipState.ABSENT.value if success else None
+                if success and journal.status is not ReceiptStatus.ROLLED_BACK:
+                    _mark_provider_journal_rolled_back(provider_journal, journal)
             else:
                 original_receipt = ProviderReceipt(
                     idempotency_key=journal.idempotency_key,
@@ -2528,7 +2574,7 @@ async def _run(
                     },
                     "final_ownership": final_ownership,
                     "real_network_writes_performed": (
-                        provider.rollback_calls == 1 or already_rolled_back
+                        provider.rollback_calls == 1 or already_absent
                     ),
                     "private_material_exported": False,
                 },
