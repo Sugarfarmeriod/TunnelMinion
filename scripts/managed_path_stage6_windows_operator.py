@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 from scripts.managed_path_stage6_apply import (
     _assert_existing_identity,  # pyright: ignore[reportPrivateUsage]
@@ -16,6 +17,8 @@ from scripts.managed_path_stage6_apply import (
 from scripts.managed_path_stage6_identity import (
     _identity_secret_name,  # pyright: ignore[reportPrivateUsage]
 )
+
+_MAX_PUBLIC_OUTPUT = 64 * 1024
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,10 +81,35 @@ def _serve_identity(mode: str, barrier_id: str) -> int:
         connection = listener.accept()
         try:
             connection.send(private_text)
+            result = connection.recv()
         finally:
             connection.close()
             private_text = ""
-        return elevated.wait()
+        elevated_returncode = elevated.wait()
+        if not isinstance(result, dict):
+            raise SystemExit("Windows Stage 6 管理员结果管道无效")
+        public_result = cast(dict[object, object], result)
+        returncode = public_result.get("returncode")
+        stdout = public_result.get("stdout")
+        stderr = public_result.get("stderr")
+        if (
+            set(public_result) != {"returncode", "stdout", "stderr"}
+            or not isinstance(returncode, int)
+            or not isinstance(stdout, str)
+            or not isinstance(stderr, str)
+            or len(stdout) > _MAX_PUBLIC_OUTPUT
+            or len(stderr) > _MAX_PUBLIC_OUTPUT
+        ):
+            raise SystemExit("Windows Stage 6 管理员结果管道无效")
+        if stdout:
+            print(stdout, end="" if stdout.endswith("\n") else "\n")
+        if stderr:
+            print(
+                stderr,
+                end="" if stderr.endswith("\n") else "\n",
+                file=sys.stderr,
+            )
+        return returncode if elevated_returncode == 0 else elevated_returncode
     finally:
         listener.close()
         private_text = ""
@@ -96,11 +124,9 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
     if not _is_admin():
         raise SystemExit("Windows Stage 6 管理员子流程必须使用已提升令牌")
     connection = multiprocessing.connection.Client(pipe_name, family="AF_PIPE", authkey=b"")
-    try:
-        private_text = connection.recv()
-    finally:
-        connection.close()
+    private_text = connection.recv()
     if not isinstance(private_text, str):
+        connection.close()
         raise SystemExit("Windows Stage 6 身份管道内容无效")
     action = {
         "apply": "--apply",
@@ -111,33 +137,44 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
     python = repo_root / ".venv" / "Scripts" / "python.exe"
     if not python.is_file():
         raise SystemExit(f"Project virtual-environment Python was not found: {python}")
-    process = subprocess.Popen(
-        [
-            str(python),
-            "-m",
-            "scripts.managed_path_stage6_apply",
-            "--platform",
-            "windows",
-            "--barrier-id",
-            barrier_id,
-            "--identity-stdin",
-            action,
-        ],
-        stdin=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-    )
-    if process.stdin is None:
-        private_text = ""
-        process.kill()
-        raise SystemExit("无法建立 Windows 匿名身份管道")
     try:
-        process.stdin.write(private_text + "\n")
-        process.stdin.flush()
+        completed = subprocess.run(
+            [
+                str(python),
+                "-m",
+                "scripts.managed_path_stage6_apply",
+                "--platform",
+                "windows",
+                "--barrier-id",
+                barrier_id,
+                "--identity-stdin",
+                action,
+            ],
+            input=private_text + "\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if private_text in completed.stdout or private_text in completed.stderr:
+            connection.send(
+                {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": "Windows Stage 6 管理员输出包含禁止的身份材料，已拒绝回传。\n",
+                }
+            )
+            return 1
+        connection.send(
+            {
+                "returncode": completed.returncode,
+                "stdout": completed.stdout[-_MAX_PUBLIC_OUTPUT:],
+                "stderr": completed.stderr[-_MAX_PUBLIC_OUTPUT:],
+            }
+        )
     finally:
         private_text = ""
-        process.stdin.close()
-    return process.wait()
+        connection.close()
+    return completed.returncode
 
 
 def _is_admin() -> bool:

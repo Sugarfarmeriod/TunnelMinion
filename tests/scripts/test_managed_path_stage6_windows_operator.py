@@ -16,6 +16,8 @@ class _Connection:
         self.closed = False
 
     def send(self, value: object) -> None:
+        if self.closed:
+            raise AssertionError("cannot send after closing the pipe")
         self.sent.append(value)
 
     def recv(self) -> object:
@@ -37,27 +39,13 @@ class _Listener:
         self.closed = True
 
 
-class _Stdin:
-    def __init__(self) -> None:
-        self.value = ""
-        self.closed = False
-
-    def write(self, value: str) -> int:
-        self.value += value
-        return len(value)
-
-    def flush(self) -> None:
-        return
-
-    def close(self) -> None:
-        self.closed = True
-
-
 def test_user_identity_server_sends_private_material_once_without_printing_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     private_text = "private-material-for-test"
-    connection = _Connection()
+    connection = _Connection(
+        {"returncode": 0, "stdout": "RECOVERED\n", "stderr": ""}
+    )
     listener = _Listener(connection)
     captured: dict[str, object] = {}
 
@@ -100,6 +88,7 @@ def test_user_identity_server_sends_private_material_once_without_printing_it(
     output = capsys.readouterr().out
     assert private_text not in output
     assert "UAC" in output
+    assert "RECOVERED" in output
     command = cast(tuple[str, ...], captured["command"])
     assert command[:5] == (
         "powershell.exe",
@@ -121,20 +110,12 @@ def test_elevated_process_receives_identity_only_over_pipe_and_stdin(
 ) -> None:
     private_text = "private-material-for-test"
     connection = _Connection(private_text)
-    stdin = _Stdin()
     captured: dict[str, object] = {}
 
-    class _Process:
-        def __init__(self, command: list[str], **kwargs: object) -> None:
-            captured["command"] = command
-            captured["kwargs"] = kwargs
-            self.stdin: _Stdin | None = stdin
-
-        def kill(self) -> None:
-            raise AssertionError("stdin should be available")
-
-        def wait(self) -> int:
-            return 0
+    def run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0, stdout="RECOVERED\n", stderr="")
 
     monkeypatch.setattr(subject, "_is_admin", lambda: True)
 
@@ -149,7 +130,7 @@ def test_elevated_process_receives_identity_only_over_pipe_and_stdin(
         "Client",
         connect,
     )
-    monkeypatch.setattr(subject.subprocess, "Popen", _Process)
+    monkeypatch.setattr(subject.subprocess, "run", run)
     monkeypatch.setattr(Path, "is_file", path_exists)
 
     assert (
@@ -164,13 +145,52 @@ def test_elevated_process_receives_identity_only_over_pipe_and_stdin(
     assert "--identity-stdin" in command
     assert "--apply" in command
     assert captured["kwargs"] == {
-        "stdin": subject.subprocess.PIPE,
+        "input": private_text + "\n",
+        "capture_output": True,
         "text": True,
         "encoding": "utf-8",
     }
-    assert stdin.value == private_text + "\n"
-    assert stdin.closed
+    assert connection.sent == [
+        {"returncode": 0, "stdout": "RECOVERED\n", "stderr": ""}
+    ]
     assert connection.closed
+
+
+def test_elevated_process_rejects_identity_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_text = "private-material-for-test"
+    connection = _Connection(private_text)
+
+    def connect(*_args: object, **_kwargs: object) -> _Connection:
+        return connection
+
+    def path_exists(_self: Path) -> bool:
+        return True
+
+    def run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=0, stdout=private_text, stderr="")
+
+    monkeypatch.setattr(subject, "_is_admin", lambda: True)
+    monkeypatch.setattr(
+        subject.multiprocessing.connection,
+        "Client",
+        connect,
+    )
+    monkeypatch.setattr(Path, "is_file", path_exists)
+    monkeypatch.setattr(
+        subject.subprocess,
+        "run",
+        run,
+    )
+
+    assert (
+        subject._run_elevated(  # pyright: ignore[reportPrivateUsage]
+            "recover", "b" * 32, r"\\.\pipe\tunnelminion-stage6-test"
+        )
+        == 1
+    )
+    assert private_text not in str(connection.sent)
 
 
 def test_elevated_process_rejects_non_admin_before_connecting(
