@@ -2124,15 +2124,22 @@ def _load_exact_provider_journal(
 
 async def _rollback_exact_stage6_provider_run(
     platform: str,
+    data_dir: Path,
     provider_journal: Path,
     desired: DesiredNetworkConfig,
     provider: _CountingProvider,
-) -> tuple[WindowsOperationJournal, ProviderReceipt]:
+) -> tuple[WindowsOperationJournal, ReceiptStatus, int, OwnershipState]:
     """治理正文无法跨进程恢复时，按唯一 Provider journal 精确回滚。"""
     journal = _load_exact_provider_journal(
         platform,
         provider_journal,
-        allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
+        allowed_statuses=frozenset(
+            {
+                ReceiptStatus.APPLIED,
+                ReceiptStatus.VERIFIED,
+                ReceiptStatus.MANUAL_INTERVENTION,
+            }
+        ),
     )
     if journal.plan.action is not NetworkAction.CREATE or not _stage6_desired_matches(
         journal.plan.desired, desired
@@ -2140,6 +2147,11 @@ async def _rollback_exact_stage6_provider_run(
         raise SystemExit("阶段 6 rollback Provider 目标或步骤不匹配")
     if journal.in_flight_step_index is not None or len(journal.steps) != len(journal.plan.steps):
         raise SystemExit("阶段 6 rollback Provider 步骤不完整")
+    if journal.status is ReceiptStatus.MANUAL_INTERVENTION:
+        if not _approved_stage6_resources_absent(platform, data_dir):
+            raise RuntimeError("阶段 6 rollback 后批准资源仍然存在")
+        _mark_provider_journal_rolled_back(provider_journal, journal)
+        return journal, ReceiptStatus.ROLLED_BACK, len(journal.steps), OwnershipState.ABSENT
     original_receipt = ProviderReceipt(
         idempotency_key=journal.idempotency_key,
         plan_hash=journal.plan.plan_hash,
@@ -2154,15 +2166,23 @@ async def _rollback_exact_stage6_provider_run(
         original_receipt,
         cancellation=ToolCancellationToken(),
     )
-    if not (
+    if (
         rolled.status is ReceiptStatus.ROLLED_BACK
         and rolled.observation_after is not None
         and rolled.observation_after.ownership is OwnershipState.ABSENT
         and provider.apply_calls == 0
         and provider.rollback_calls == 1
     ):
+        return journal, rolled.status, len(rolled.steps), rolled.observation_after.ownership
+    if not _approved_stage6_resources_absent(platform, data_dir):
         raise RuntimeError("阶段 6 rollback 未证明完整安全回滚")
-    return journal, rolled
+    terminal = _load_exact_provider_journal(
+        platform,
+        provider_journal,
+        allowed_statuses=frozenset({ReceiptStatus.MANUAL_INTERVENTION}),
+    )
+    _mark_provider_journal_rolled_back(provider_journal, terminal)
+    return journal, ReceiptStatus.ROLLED_BACK, len(rolled.steps), OwnershipState.ABSENT
 
 
 def _stage6_git_commit() -> str:
@@ -2482,15 +2502,18 @@ async def _run(
     if rollback_create:
         existing = store.get(_NETWORK_ID, config.node_id, 1)
         if existing is None:
-            journal, rolled = await _rollback_exact_stage6_provider_run(
+            (
+                journal,
+                receipt_status,
+                receipt_step_count,
+                final_ownership,
+            ) = await _rollback_exact_stage6_provider_run(
                 platform,
+                data_dir,
                 provider_journal,
                 desired,
                 provider,
             )
-            observation_after = rolled.observation_after
-            if observation_after is None:  # pragma: no cover - helper 已验证
-                raise RuntimeError("阶段 6 rollback 缺少最终观察")
             identity_name = _identity_secret_name(platform)
             identity_store.get(identity_name)
             finished_at = datetime.now(UTC)
@@ -2503,12 +2526,12 @@ async def _run(
                     "commit": _stage6_git_commit(),
                     "plan_hash": journal.plan.plan_hash,
                     "governance_phase": NetworkGovernancePhase.ROLLED_BACK.value,
-                    "receipt_status": rolled.status.value,
+                    "receipt_status": receipt_status.value,
                     "stable_error_code": None,
                     "rollback_calls": provider.rollback_calls,
                     "provider_apply_calls": provider.apply_calls,
                     "precreated_identity_preserved": True,
-                    "final_ownership": observation_after.ownership.value,
+                    "final_ownership": final_ownership.value,
                     "finished_at": finished_at.isoformat(),
                 },
             )
@@ -2529,10 +2552,10 @@ async def _run(
                     "provider_rollback_calls": provider.rollback_calls,
                     "provider_receipt": {
                         "present": True,
-                        "status": rolled.status.value,
-                        "step_count": len(rolled.steps),
+                        "status": receipt_status.value,
+                        "step_count": receipt_step_count,
                     },
-                    "final_ownership": observation_after.ownership.value,
+                    "final_ownership": final_ownership.value,
                     "real_network_writes_performed": True,
                     "private_material_exported": False,
                 },

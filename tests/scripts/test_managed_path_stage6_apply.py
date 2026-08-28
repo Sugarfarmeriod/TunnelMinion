@@ -251,9 +251,10 @@ def test_exact_provider_journal_rollback_survives_missing_governance_body(
     SQLiteWindowsOperationJournal(provider_path).put(journal)
     provider = subject._CountingProvider(_ExactRollbackProvider())  # pyright: ignore[reportPrivateUsage]
 
-    loaded, rolled = asyncio.run(
+    loaded, status, step_count, ownership = asyncio.run(
         subject._rollback_exact_stage6_provider_run(  # pyright: ignore[reportPrivateUsage]
             "macos",
+            tmp_path,
             provider_path,
             plan.desired,
             provider,
@@ -261,9 +262,44 @@ def test_exact_provider_journal_rollback_survives_missing_governance_body(
     )
 
     assert loaded == journal
-    assert rolled.status is ReceiptStatus.ROLLED_BACK
+    assert status is ReceiptStatus.ROLLED_BACK
+    assert step_count == len(journal.steps)
+    assert ownership is OwnershipState.ABSENT
     assert provider.apply_calls == 0
     assert provider.rollback_calls == 1
+
+
+def test_exact_provider_journal_finalizes_absent_manual_intervention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def approved_resources_absent(platform: str, data_dir: Path) -> bool:
+        del platform, data_dir
+        return True
+
+    plan = _plan()
+    journal = _operation_journal(plan, status=ReceiptStatus.MANUAL_INTERVENTION)
+    provider_path = tmp_path / "managed-network" / "macos-operations.sqlite3"
+    provider_store = SQLiteWindowsOperationJournal(provider_path)
+    provider_store.put(journal)
+    provider = subject._CountingProvider(_ExactRollbackProvider())  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(subject, "_approved_stage6_resources_absent", approved_resources_absent)
+
+    _, status, _, ownership = asyncio.run(
+        subject._rollback_exact_stage6_provider_run(  # pyright: ignore[reportPrivateUsage]
+            "macos",
+            tmp_path,
+            provider_path,
+            plan.desired,
+            provider,
+        )
+    )
+
+    assert status is ReceiptStatus.ROLLED_BACK
+    assert ownership is OwnershipState.ABSENT
+    assert provider.rollback_calls == 0
+    normalized = provider_store.get(journal.idempotency_key)
+    assert normalized is not None
+    assert normalized.status is ReceiptStatus.ROLLED_BACK
 
 
 def _orphan_governance_fixture(
