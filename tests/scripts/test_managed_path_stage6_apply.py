@@ -32,6 +32,7 @@ from tunnelminion.network.contracts import (
     OwnershipState,
     ProviderKind,
     ProviderMode,
+    ProviderReceipt,
     ReceiptStatus,
     StepReceipt,
     VerificationResult,
@@ -209,6 +210,60 @@ def _operation_journal(plan: NetworkPlan, *, status: ReceiptStatus) -> WindowsOp
         status=status,
         updated_at=NOW,
     )
+
+
+class _ExactRollbackProvider:
+    async def rollback(
+        self,
+        plan: NetworkPlan,
+        receipt: ProviderReceipt,
+        *,
+        cancellation: object,
+    ) -> ProviderReceipt:
+        del cancellation
+        assert receipt.plan_hash == plan.plan_hash
+        observation = NetworkObservation(
+            provider=plan.desired.provider,
+            mode=ProviderMode.MANAGED,
+            interface_name=plan.desired.interface_name,
+            ownership=OwnershipState.ABSENT,
+            system_fingerprint=canonical_sha256({"fixture": "rolled-back"}),
+            observed_at=NOW,
+        )
+        return ProviderReceipt(
+            idempotency_key=receipt.idempotency_key,
+            plan_hash=plan.plan_hash,
+            revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=observation.system_fingerprint,
+            status=ReceiptStatus.ROLLED_BACK,
+            steps=receipt.steps,
+            observation_after=observation,
+        )
+
+
+def test_exact_provider_journal_rollback_survives_missing_governance_body(
+    tmp_path: Path,
+) -> None:
+    plan = _plan()
+    journal = _operation_journal(plan, status=ReceiptStatus.APPLIED)
+    provider_path = tmp_path / "managed-network" / "macos-operations.sqlite3"
+    SQLiteWindowsOperationJournal(provider_path).put(journal)
+    provider = subject._CountingProvider(_ExactRollbackProvider())  # pyright: ignore[reportPrivateUsage]
+
+    loaded, rolled = asyncio.run(
+        subject._rollback_exact_stage6_provider_run(  # pyright: ignore[reportPrivateUsage]
+            "macos",
+            provider_path,
+            plan.desired,
+            provider,
+        )
+    )
+
+    assert loaded == journal
+    assert rolled.status is ReceiptStatus.ROLLED_BACK
+    assert provider.apply_calls == 0
+    assert provider.rollback_calls == 1
 
 
 def _orphan_governance_fixture(

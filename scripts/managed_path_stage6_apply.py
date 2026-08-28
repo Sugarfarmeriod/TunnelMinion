@@ -2122,6 +2122,49 @@ def _load_exact_provider_journal(
     return journal
 
 
+async def _rollback_exact_stage6_provider_run(
+    platform: str,
+    provider_journal: Path,
+    desired: DesiredNetworkConfig,
+    provider: _CountingProvider,
+) -> tuple[WindowsOperationJournal, ProviderReceipt]:
+    """治理正文无法跨进程恢复时，按唯一 Provider journal 精确回滚。"""
+    journal = _load_exact_provider_journal(
+        platform,
+        provider_journal,
+        allowed_statuses=frozenset({ReceiptStatus.APPLIED, ReceiptStatus.VERIFIED}),
+    )
+    if journal.plan.action is not NetworkAction.CREATE or not _stage6_desired_matches(
+        journal.plan.desired, desired
+    ):
+        raise SystemExit("阶段 6 rollback Provider 目标或步骤不匹配")
+    if journal.in_flight_step_index is not None or len(journal.steps) != len(journal.plan.steps):
+        raise SystemExit("阶段 6 rollback Provider 步骤不完整")
+    original_receipt = ProviderReceipt(
+        idempotency_key=journal.idempotency_key,
+        plan_hash=journal.plan.plan_hash,
+        revision=journal.plan.desired.revision,
+        provider=journal.plan.desired.provider,
+        observation_fingerprint=journal.plan.observed_fingerprint,
+        status=cast(ReceiptStatus, journal.status),
+        steps=journal.steps,
+    )
+    rolled = await provider.rollback(
+        journal.plan,
+        original_receipt,
+        cancellation=ToolCancellationToken(),
+    )
+    if not (
+        rolled.status is ReceiptStatus.ROLLED_BACK
+        and rolled.observation_after is not None
+        and rolled.observation_after.ownership is OwnershipState.ABSENT
+        and provider.apply_calls == 0
+        and provider.rollback_calls == 1
+    ):
+        raise RuntimeError("阶段 6 rollback 未证明完整安全回滚")
+    return journal, rolled
+
+
 def _stage6_git_commit() -> str:
     """root 仅为当前工作树放行一次 Git 所有权检查，不修改全局配置。"""
     worktree = Path.cwd().resolve()
@@ -2438,9 +2481,70 @@ async def _run(
     )
     if rollback_create:
         existing = store.get(_NETWORK_ID, config.node_id, 1)
+        if existing is None:
+            journal, rolled = await _rollback_exact_stage6_provider_run(
+                platform,
+                provider_journal,
+                desired,
+                provider,
+            )
+            observation_after = rolled.observation_after
+            if observation_after is None:  # pragma: no cover - helper 已验证
+                raise RuntimeError("阶段 6 rollback 缺少最终观察")
+            identity_name = _identity_secret_name(platform)
+            identity_store.get(identity_name)
+            finished_at = datetime.now(UTC)
+            _publish_public_identity(
+                rollback_evidence_path,
+                {
+                    "schema_version": "managed-path-stage6-rollback/v1",
+                    "mode": "exact_provider_journal",
+                    "platform": platform,
+                    "commit": _stage6_git_commit(),
+                    "plan_hash": journal.plan.plan_hash,
+                    "governance_phase": NetworkGovernancePhase.ROLLED_BACK.value,
+                    "receipt_status": rolled.status.value,
+                    "stable_error_code": None,
+                    "rollback_calls": provider.rollback_calls,
+                    "provider_apply_calls": provider.apply_calls,
+                    "precreated_identity_preserved": True,
+                    "final_ownership": observation_after.ownership.value,
+                    "finished_at": finished_at.isoformat(),
+                },
+            )
+            _publish_public_identity(
+                evidence_path,
+                {
+                    "schema_version": "managed-path-stage6-apply/v1",
+                    "mode": "orphan_recover",
+                    "platform": platform,
+                    "commit": _stage6_git_commit(),
+                    "entrypoint": "python -m scripts.managed_path_stage6_apply --rollback-create",
+                    "started_at": now.isoformat(),
+                    "finished_at": finished_at.isoformat(),
+                    "phase": NetworkGovernancePhase.ROLLED_BACK.value,
+                    "plan_hash": journal.plan.plan_hash,
+                    "claim_states": _orphan_claim_states(database),
+                    "provider_apply_calls": provider.apply_calls,
+                    "provider_rollback_calls": provider.rollback_calls,
+                    "provider_receipt": {
+                        "present": True,
+                        "status": rolled.status.value,
+                        "step_count": len(rolled.steps),
+                    },
+                    "final_ownership": observation_after.ownership.value,
+                    "real_network_writes_performed": True,
+                    "private_material_exported": False,
+                },
+            )
+            return {
+                "platform": platform,
+                "provider_apply_calls": provider.apply_calls,
+                "rollback_calls": provider.rollback_calls,
+                "success": True,
+            }
         if (
-            existing is None
-            or existing.plan.action is not NetworkAction.CREATE
+            existing.plan.action is not NetworkAction.CREATE
             or existing.receipt is None
             or existing.phase
             not in {NetworkGovernancePhase.VERIFIED, NetworkGovernancePhase.PATH_DEGRADED}
