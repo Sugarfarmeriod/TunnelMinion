@@ -224,6 +224,34 @@ def test_elevated_process_returns_sanitized_admin_exception(
     assert "<redacted>" in str(connection.sent)
 
 
+def test_elevated_process_normalizes_missing_public_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _Connection("private-material-for-test")
+
+    def connect(*_args: object, **_kwargs: object) -> _Connection:
+        return connection
+
+    def path_exists(_self: Path) -> bool:
+        return True
+
+    def run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=0, stdout=None, stderr=None)
+
+    monkeypatch.setattr(subject, "_is_admin", lambda: True)
+    monkeypatch.setattr(subject.multiprocessing.connection, "Client", connect)
+    monkeypatch.setattr(Path, "is_file", path_exists)
+    monkeypatch.setattr(subject.subprocess, "run", run)
+
+    assert (
+        subject._run_elevated(  # pyright: ignore[reportPrivateUsage]
+            "recover", "b" * 32, r"\\.\pipe\tunnelminion-stage6-test"
+        )
+        == 0
+    )
+    assert connection.sent == [{"returncode": 0, "stdout": "", "stderr": ""}]
+
+
 def test_elevated_process_rejects_non_admin_before_connecting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

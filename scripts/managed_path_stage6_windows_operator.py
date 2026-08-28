@@ -169,7 +169,9 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
             text=True,
             encoding="utf-8",
         )
-        if private_text in completed.stdout or private_text in completed.stderr:
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        if private_text in stdout or private_text in stderr:
             connection.send(
                 {
                     "returncode": 1,
@@ -181,8 +183,8 @@ def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:
         connection.send(
             {
                 "returncode": completed.returncode,
-                "stdout": completed.stdout[-_MAX_PUBLIC_OUTPUT:],
-                "stderr": completed.stderr[-_MAX_PUBLIC_OUTPUT:],
+                "stdout": stdout[-_MAX_PUBLIC_OUTPUT:],
+                "stderr": stderr[-_MAX_PUBLIC_OUTPUT:],
             }
         )
         return completed.returncode
