@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import sqlite3
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -52,6 +53,7 @@ from tunnelminion.platforms.windows.official_backend import (
 
 NOW = datetime(2026, 8, 26, 8, 0, tzinfo=UTC)
 BARRIER_ID = "a" * 32
+ARCHIVE_NOW = datetime(2026, 8, 28, 8, 0, tzinfo=UTC)
 
 
 def _stage6_test_paths(root: Path) -> subject.MacOSProviderPaths:
@@ -220,6 +222,136 @@ def test_provider_verification_dimensions_are_redacted_booleans() -> None:
         "address_present": None,
         "host_routes_present": None,
     }
+
+
+def _rolled_back_archive_fixture(
+    root: Path,
+    *,
+    phase: str = "rolled_back",
+    receipt_status: str = "rolled_back",
+    claim_state: str = "released",
+    governance_phase: str = "rolled_back",
+) -> None:
+    root.mkdir(parents=True)
+    (root / "public-identity.json").write_text(
+        json.dumps({"schema_version": "managed-path-stage6-public-identity/v1"}),
+        encoding="utf-8",
+    )
+    (root / "stage6-apply-evidence.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "managed-path-stage6-apply/v1",
+                "platform": "windows",
+                "phase": phase,
+                "commit": "a" * 40,
+                "provider_receipt": {"status": receipt_status},
+                "private_material_exported": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = root / "stage6-apply-governance.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("CREATE TABLE network_apply_claims(state TEXT NOT NULL)")
+        connection.execute("INSERT INTO network_apply_claims VALUES (?)", (claim_state,))
+        connection.execute("CREATE TABLE network_governance(payload TEXT NOT NULL)")
+        connection.execute(
+            "INSERT INTO network_governance VALUES (?)",
+            (json.dumps({"phase": governance_phase}),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    (root / "managed-network-ledger.sqlite3").write_bytes(b"ledger")
+    provider = root / "managed-network" / "windows-operations.sqlite3"
+    provider.parent.mkdir()
+    provider.write_bytes(b"journal")
+
+
+def test_archive_rolled_back_run_moves_artifacts_and_preserves_public_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "windows"
+    _rolled_back_archive_fixture(root)
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    result = subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+        "windows", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+    )
+
+    archive = Path(cast(str, result["archive"]))
+    assert result["success"] is True
+    assert (root / "public-identity.json").is_file()
+    assert not (root / "stage6-apply-evidence.json").exists()
+    assert (archive / "stage6-apply-evidence.json").is_file()
+    assert (archive / "stage6-apply-governance.sqlite3").is_file()
+    assert (archive / "managed-network-ledger.sqlite3").is_file()
+    assert (archive / "managed-network" / "windows-operations.sqlite3").is_file()
+    manifest = json.loads((archive / "archive-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["private_material_exported"] is False
+    assert manifest["identity_preserved"] is True
+    assert "public-identity.json" not in manifest["files"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"phase": "applying"}, "未证明完整回滚"),
+        ({"receipt_status": "applied"}, "未证明完整回滚"),
+        ({"claim_state": "held"}, "claim 尚未全部 released"),
+        ({"governance_phase": "failed"}, "治理记录尚未全部 rolled_back"),
+    ],
+)
+def test_archive_rolled_back_run_rejects_incomplete_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: dict[str, str],
+    message: str,
+) -> None:
+    root = tmp_path / "windows"
+    _rolled_back_archive_fixture(root, **overrides)
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    with pytest.raises(SystemExit, match=message):
+        subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+            "windows", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+        )
+
+
+def test_archive_rolled_back_run_rejects_present_resources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "windows"
+    _rolled_back_archive_fixture(root)
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "windows", root)  # pyright: ignore[reportPrivateUsage]
+
+    with pytest.raises(SystemExit, match="批准接口、地址或 host route 仍存在"):
+        subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+            "windows", resources_absent=lambda _platform, _root: False, now=ARCHIVE_NOW
+        )
+
+
+def test_archive_mode_rejects_barrier_and_identity_without_reading_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_elevated(_platform: str) -> None:
+        return None
+
+    monkeypatch.setattr(subject, "_require_elevated", allow_elevated)
+
+    with pytest.raises(SystemExit, match="不得接收 barrier"):
+        subject.main(
+            [
+                "--platform",
+                "windows",
+                "--barrier-id",
+                BARRIER_ID,
+                "--archive-rolled-back",
+            ]
+        )
+    with pytest.raises(SystemExit, match="不得接收 barrier"):
+        subject.main(["--platform", "windows", "--identity-stdin", "--archive-rolled-back"])
 
 
 def _release(

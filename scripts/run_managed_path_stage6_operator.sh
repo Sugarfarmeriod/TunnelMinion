@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "用法：$0 <install|apply|recover|rollback> <32位小写十六进制 barrier-id>" >&2
+  echo "用法：$0 archive | $0 <install|apply|recover|rollback> <32位小写十六进制 barrier-id>" >&2
 }
 
 root_mode=0
@@ -10,26 +10,34 @@ if [ "${1:-}" = "--root" ]; then
   root_mode=1
   shift
 fi
-if [ "$#" -ne 2 ]; then
+if [ "$#" -lt 1 ]; then
   usage
   exit 2
 fi
 
 mode="$1"
-barrier_id="$2"
 case "$mode" in
-  install|apply|recover|rollback) ;;
+  archive)
+    if [ "$#" -ne 1 ]; then usage; exit 2; fi
+    barrier_id=
+    ;;
+  install|apply|recover|rollback)
+    if [ "$#" -ne 2 ]; then usage; exit 2; fi
+    barrier_id="$2"
+    ;;
   *) usage; exit 2 ;;
 esac
-case "$barrier_id" in
-  *[!0-9a-f]*)
+if [ "$mode" != "archive" ]; then
+  case "$barrier_id" in
+    *[!0-9a-f]*)
+      echo "barrier id 必须是 32 位小写十六进制。" >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#barrier_id}" -ne 32 ]; then
     echo "barrier id 必须是 32 位小写十六进制。" >&2
     exit 2
-    ;;
-esac
-if [ "${#barrier_id}" -ne 32 ]; then
-  echo "barrier id 必须是 32 位小写十六进制。" >&2
-  exit 2
+  fi
 fi
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -48,6 +56,9 @@ if [ "$root_mode" -eq 0 ]; then
     echo "请以普通登录用户运行；脚本会显示系统 sudo 提示。" >&2
     exit 1
   fi
+  if [ "$mode" = "archive" ]; then
+    exec /usr/bin/sudo "$0" --root archive
+  fi
   if [ "$mode" = "install" ]; then
     exec /usr/bin/sudo "$0" --root install "$barrier_id"
   fi
@@ -57,6 +68,11 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
   echo "Stage 6 root 子流程必须由 sudo 启动。" >&2
   exit 1
+fi
+if [ "$mode" = "archive" ]; then
+  exec "$python_bin" -m scripts.managed_path_stage6_apply \
+    --platform macos \
+    --archive-rolled-back
 fi
 
 run_stage6() {

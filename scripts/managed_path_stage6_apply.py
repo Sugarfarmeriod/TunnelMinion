@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import signal
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -112,6 +113,30 @@ _MACOS_STAGE6_LEGACY_WG_QUICK_HASH = (
 _MACOS_STAGE6_PUBLIC_FIELDS = frozenset(
     {"public-key", "peers", "endpoints", "allowed-ips", "latest-handshakes"}
 )
+_ARCHIVE_SCHEMA = "managed-path-stage6-run-archive/v1"
+_ARCHIVE_FILES = (
+    "stage6-apply-evidence.json",
+    "stage6-apply-ready.json",
+    "stage6-apply-go.json",
+    "stage6-apply-peer-ready.json",
+    "stage6-apply-governance.sqlite3",
+    "stage6-apply-governance.sqlite3-wal",
+    "stage6-apply-governance.sqlite3-shm",
+    "stage6-apply-governance.sqlite3-journal",
+    "stage6-rollback-evidence.json",
+    "stage6-target-primary-attempt.json",
+    "stage6-target-primary-result.json",
+    "stage6-target-fallback-attempt.json",
+    "stage6-target-fallback-result.json",
+    "managed-network-ledger.sqlite3",
+    "managed-network-ledger.sqlite3-wal",
+    "managed-network-ledger.sqlite3-shm",
+    "managed-network-ledger.sqlite3-journal",
+)
+_ARCHIVE_PROVIDER_FILES = {
+    "windows": "windows-operations.sqlite3",
+    "macos": "macos-operations.sqlite3",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1823,7 +1848,7 @@ class _BarrierPathVerifier:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=tuple(_CONFIGS), required=True)
-    parser.add_argument("--barrier-id", required=True)
+    parser.add_argument("--barrier-id")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--release-barrier", action="store_true")
@@ -1831,10 +1856,20 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--rollback-create", action="store_true")
     mode.add_argument("--install-macos-execution-materials", action="store_true")
     mode.add_argument("--import-peer-ready", action="store_true")
+    mode.add_argument("--archive-rolled-back", action="store_true")
     parser.add_argument("--identity-stdin", action="store_true")
     args = parser.parse_args(argv)
-    if len(args.barrier_id) != 32 or any(
-        char not in "0123456789abcdef" for char in args.barrier_id
+    if args.archive_rolled_back:
+        if args.barrier_id is not None or args.identity_stdin:
+            raise SystemExit("归档已回滚运行不得接收 barrier 或阶段 6 身份")
+        _require_matching_platform(args.platform)
+        _require_elevated(args.platform)
+        print(json.dumps(_archive_rolled_back_run(args.platform), sort_keys=True))
+        return 0
+    if (
+        args.barrier_id is None
+        or len(args.barrier_id) != 32
+        or any(char not in "0123456789abcdef" for char in args.barrier_id)
     ):
         raise SystemExit("barrier id 必须是 32 位小写十六进制")
     _require_matching_platform(args.platform)
@@ -1872,6 +1907,232 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(json.dumps(result, sort_keys=True))
     return 0 if result.get("success") is True else 2
+
+
+def _archive_rolled_back_run(
+    platform: str,
+    *,
+    resources_absent: Callable[[str, Path], bool] | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """只在回滚、claim 释放且批准资源消失后封存一次旧运行。"""
+    data_dir = _APPROVED_DATA_DIRS[platform]
+    _assert_trusted_data_dir(data_dir, data_dir)
+    evidence_path = data_dir / "stage6-apply-evidence.json"
+    database = data_dir / "stage6-apply-governance.sqlite3"
+    _assert_archive_regular_file(evidence_path, "阶段 6 归档缺少可信的 apply evidence")
+    _assert_archive_regular_file(database, "阶段 6 归档缺少可信的治理数据库")
+    evidence_raw = _read_regular_file(evidence_path)
+    try:
+        evidence_value: object = json.loads(evidence_raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("阶段 6 apply evidence 无法解析") from exc
+    if not isinstance(evidence_value, dict):
+        raise SystemExit("阶段 6 apply evidence schema 不匹配")
+    evidence = cast(dict[str, object], evidence_value)
+    receipt_value = evidence.get("provider_receipt")
+    receipt = cast(dict[str, object], receipt_value) if isinstance(receipt_value, dict) else None
+    if (
+        evidence.get("schema_version") != "managed-path-stage6-apply/v1"
+        or evidence.get("platform") != platform
+        or evidence.get("phase") != NetworkGovernancePhase.ROLLED_BACK.value
+        or receipt is None
+        or receipt.get("status") != "rolled_back"
+        or evidence.get("private_material_exported") is not False
+    ):
+        raise SystemExit("阶段 6 运行未证明完整回滚，拒绝归档")
+    try:
+        connection = sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True)
+        try:
+            claim_rows = connection.execute("SELECT state FROM network_apply_claims").fetchall()
+            phase_rows = connection.execute(
+                "SELECT json_extract(payload, '$.phase') FROM network_governance"
+            ).fetchall()
+            claim_states = tuple(str(row[0]) for row in claim_rows)
+            phases = tuple(str(row[0]) for row in phase_rows)
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise SystemExit("阶段 6 治理状态无法只读验证") from exc
+    if not claim_states or set(claim_states) != {"released"}:
+        raise SystemExit("阶段 6 apply claim 尚未全部 released，拒绝归档")
+    if not phases or set(phases) != {NetworkGovernancePhase.ROLLED_BACK.value}:
+        raise SystemExit("阶段 6 治理记录尚未全部 rolled_back，拒绝归档")
+    checker = resources_absent or _approved_stage6_resources_absent
+    if not checker(platform, data_dir):
+        raise SystemExit("阶段 6 批准接口、地址或 host route 仍存在，拒绝归档")
+
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    commit = str(evidence.get("commit", "unknown"))
+    commit_token = commit[:12] if re.fullmatch(r"[0-9a-f]{7,64}", commit) else "unknown"
+    archive_name = f"{current.strftime('%Y%m%dT%H%M%SZ')}-{commit_token}-{platform}"
+    archive_root = data_dir / "stage6-run-archives"
+    archive_dir = archive_root / archive_name
+    if archive_root.exists() and (not archive_root.is_dir() or archive_root.is_symlink()):
+        raise SystemExit("阶段 6 归档根目录不可信")
+    archive_root.mkdir(mode=0o700, exist_ok=True)
+    if archive_dir.exists() or archive_dir.is_symlink():
+        raise SystemExit("阶段 6 归档目标已存在，拒绝覆盖")
+    archive_dir.mkdir(mode=0o700)
+
+    relative_paths = [Path(name) for name in _ARCHIVE_FILES]
+    provider_name = _ARCHIVE_PROVIDER_FILES[platform]
+    relative_paths.extend(
+        Path("managed-network") / f"{provider_name}{suffix}"
+        for suffix in ("", "-wal", "-shm", "-journal")
+    )
+    moved: list[str] = []
+    try:
+        for relative in relative_paths:
+            source = data_dir / relative
+            if not source.exists() and not source.is_symlink():
+                continue
+            _assert_archive_regular_file(source, f"阶段 6 运行制品不可信：{relative.as_posix()}")
+            destination = archive_dir / relative
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            source.replace(destination)
+            moved.append(relative.as_posix())
+        manifest = {
+            "schema_version": _ARCHIVE_SCHEMA,
+            "platform": platform,
+            "source_commit": evidence.get("commit"),
+            "source_phase": evidence.get("phase"),
+            "claim_states": sorted(set(claim_states)),
+            "resources_absent": True,
+            "identity_preserved": (data_dir / "public-identity.json").is_file(),
+            "archived_at": current.isoformat(),
+            "files": sorted(moved),
+            "private_material_exported": False,
+        }
+        _publish_public_identity(archive_dir / "archive-manifest.json", manifest)
+    except BaseException:
+        for relative_text in reversed(moved):
+            relative = Path(relative_text)
+            archived = archive_dir / relative
+            original = data_dir / relative
+            if archived.is_file() and not original.exists():
+                original.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                archived.replace(original)
+        raise
+    return {
+        "archive": str(archive_dir),
+        "archived_files": len(moved),
+        "identity_preserved": (data_dir / "public-identity.json").is_file(),
+        "platform": platform,
+        "success": True,
+    }
+
+
+def _approved_stage6_resources_absent(platform: str, data_dir: Path) -> bool:
+    """用固定系统只读查询确认批准接口、地址与 host route 均不存在。"""
+    del data_dir
+    config = _CONFIGS[platform]
+    address = config.address.removesuffix("/32")
+    route = config.peer_host_route.removesuffix("/32")
+    try:
+        if platform == "windows":
+            import psutil
+
+            if config.interface_name in psutil.net_if_stats():
+                return False
+            if any(
+                item.address.split("%", maxsplit=1)[0] == address
+                for values in psutil.net_if_addrs().values()
+                for item in values
+            ):
+                return False
+            service = subprocess.run(
+                (
+                    r"C:\Windows\System32\sc.exe",
+                    "query",
+                    f"WireGuardTunnel${config.interface_name}",
+                ),
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if service.returncode not in {0, 1060}:
+                return False
+            if service.returncode == 0:
+                return False
+            route_result = subprocess.run(
+                (r"C:\Windows\System32\route.exe", "print", route),
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if route_result.returncode != 0:
+                return False
+            return not any(
+                len(parts) >= 2 and parts[0] == route and parts[1] == "255.255.255.255"
+                for parts in (line.split() for line in route_result.stdout.splitlines())
+            )
+
+        runtime_stem = f"{config.interface_name}.r1"
+        runtime_paths = (
+            _MACOS_WIREGUARD_RUNTIME_ROOT / f"{runtime_stem}.name",
+            _MACOS_STAGE6_ROOT / "runtime" / f"{runtime_stem}.json",
+            _MACOS_STAGE6_ROOT / "configs" / f"{runtime_stem}.wg.conf",
+        )
+        if any(path.exists() or path.is_symlink() for path in runtime_paths):
+            return False
+        interface_result = subprocess.run(
+            ("/sbin/ifconfig", "-a"),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+        )
+        route_result = subprocess.run(
+            ("/usr/sbin/netstat", "-rn", "-f", "inet"),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+        )
+        if interface_result.returncode != 0 or route_result.returncode != 0:
+            return False
+        address_present = any(
+            len(parts) >= 2 and parts[0] == "inet" and parts[1] == address
+            for parts in (line.split() for line in interface_result.stdout.splitlines())
+        )
+        route_present = any(
+            parts and parts[0] in {route, config.peer_host_route}
+            for parts in (line.split() for line in route_result.stdout.splitlines())
+        )
+        return not address_present and not route_present
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _assert_archive_regular_file(path: Path, message: str) -> None:
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        raise SystemExit(message) from None
+    attributes = getattr(info, "st_file_attributes", 0)
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or stat.S_ISLNK(info.st_mode)
+        or attributes & reparse
+        or getattr(info, "st_nlink", 0) != 1
+    ):
+        raise SystemExit(message)
 
 
 async def _run(

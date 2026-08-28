@@ -1,10 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("apply", "recover", "rollback")]
+    [ValidateSet("apply", "recover", "rollback", "archive")]
     [string]$Mode,
 
-    [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9a-f]{32}$")]
     [string]$BarrierId,
 
@@ -19,11 +18,29 @@ $python = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Project virtual-environment Python was not found: $python"
 }
+if ($Mode -eq "archive") {
+    if ($BarrierId -or $IdentityPipeName) {
+        throw "Archive mode does not accept a barrier or identity pipe."
+    }
+}
+elseif (-not $BarrierId) {
+    throw "BarrierId is required for $Mode mode."
+}
 
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent()
 )
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    if ($Mode -eq "archive") {
+        $arguments = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", "`"$PSCommandPath`"",
+            "-Mode", "archive"
+        )
+        $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -PassThru -Wait
+        exit $process.ExitCode
+    }
     & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --serve
     exit $LASTEXITCODE
 }
@@ -42,6 +59,13 @@ function Invoke-Stage6 {
 
 Push-Location $repoRoot
 try {
+    if ($Mode -eq "archive") {
+        & $python -m scripts.managed_path_stage6_apply --platform windows --archive-rolled-back
+        if ($LASTEXITCODE -ne 0) {
+            throw "Stage 6 rolled-back run archive failed (exit code $LASTEXITCODE)."
+        }
+        return
+    }
     if ($Mode -eq "recover") {
         if ($IdentityPipeName) {
             & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --elevated --pipe-name $IdentityPipeName
