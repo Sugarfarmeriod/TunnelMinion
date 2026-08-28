@@ -51,22 +51,45 @@ def _serve_identity(mode: str, barrier_id: str) -> int:
     listener = multiprocessing.connection.Listener(pipe_name, family="AF_PIPE", authkey=b"")
     try:
         script = Path(__file__).with_name("run_managed_path_stage6_operator.ps1")
-        print("请在新的管理员 PowerShell 窗口中执行：", flush=True)
-        print(
-            f"& '{script}' -Mode {mode} -BarrierId {barrier_id} -IdentityPipeName '{pipe_name}'",
-            flush=True,
+        command = (
+            f"$script = '{_quote_powershell(str(script))}'; "
+            f"$pipe = '{_quote_powershell(pipe_name)}'; "
+            "$arguments = @("
+            "'-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "
+            "('\"' + $script + '\"'), "
+            f"'-Mode', '{mode}', '-BarrierId', '{barrier_id}', "
+            "'-IdentityPipeName', $pipe"
+            "); "
+            "$process = Start-Process powershell.exe -Verb RunAs "
+            "-ArgumentList $arguments -PassThru -Wait; "
+            "exit $process.ExitCode"
         )
-        print("保持本窗口开启，等待管理员窗口连接一次性身份管道。", flush=True)
+        print("正在打开 Windows UAC；请批准一次管理员运行。", flush=True)
+        elevated = subprocess.Popen(
+            (
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                command,
+            )
+        )
         connection = listener.accept()
         try:
             connection.send(private_text)
         finally:
             connection.close()
             private_text = ""
-        return 0
+        return elevated.wait()
     finally:
         listener.close()
         private_text = ""
+
+
+def _quote_powershell(value: str) -> str:
+    """转义 PowerShell 单引号字符串，不把值解释成命令。"""
+    return value.replace("'", "''")
 
 
 def _run_elevated(mode: str, barrier_id: str, pipe_name: str) -> int:

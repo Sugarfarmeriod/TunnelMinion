@@ -59,6 +59,12 @@ def test_user_identity_server_sends_private_material_once_without_printing_it(
     private_text = "private-material-for-test"
     connection = _Connection()
     listener = _Listener(connection)
+    captured: dict[str, object] = {}
+
+    class _Process:
+        @staticmethod
+        def wait() -> int:
+            return 0
 
     def existing_identity(_platform: str) -> SimpleNamespace:
         def read_identity(_name: str) -> str:
@@ -72,6 +78,10 @@ def test_user_identity_server_sends_private_material_once_without_printing_it(
     def build_listener(*_args: object, **_kwargs: object) -> _Listener:
         return listener
 
+    def launch(command: tuple[str, ...]) -> _Process:
+        captured["command"] = command
+        return _Process()
+
     monkeypatch.setattr(
         subject,
         "_assert_existing_identity",
@@ -83,12 +93,24 @@ def test_user_identity_server_sends_private_material_once_without_printing_it(
         "Listener",
         build_listener,
     )
+    monkeypatch.setattr(subject.subprocess, "Popen", launch)
 
     assert subject._serve_identity("apply", "b" * 32) == 0  # pyright: ignore[reportPrivateUsage]
 
     output = capsys.readouterr().out
     assert private_text not in output
-    assert "IdentityPipeName" in output
+    assert "UAC" in output
+    command = cast(tuple[str, ...], captured["command"])
+    assert command[:5] == (
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+    )
+    assert "Start-Process powershell.exe -Verb RunAs" in command[5]
+    assert "IdentityPipeName" in command[5]
+    assert private_text not in command[5]
     assert connection.sent == [private_text]
     assert connection.closed
     assert listener.closed
