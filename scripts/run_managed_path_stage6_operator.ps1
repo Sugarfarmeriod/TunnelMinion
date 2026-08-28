@@ -6,23 +6,26 @@ param(
 
     [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9a-f]{32}$")]
-    [string]$BarrierId
+    [string]$BarrierId,
+
+    [string]$IdentityPipeName
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$principal = New-Object Security.Principal.WindowsPrincipal(
-    [Security.Principal.WindowsIdentity]::GetCurrent()
-)
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw "Run this script from a PowerShell window opened as Administrator."
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $python = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Project virtual-environment Python was not found: $python"
+}
+
+$principal = New-Object Security.Principal.WindowsPrincipal(
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --serve
+    exit $LASTEXITCODE
 }
 
 function Invoke-Stage6 {
@@ -40,10 +43,18 @@ function Invoke-Stage6 {
 Push-Location $repoRoot
 try {
     if ($Mode -eq "recover") {
+        if ($IdentityPipeName) {
+            & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --elevated --pipe-name $IdentityPipeName
+            exit $LASTEXITCODE
+        }
         Invoke-Stage6 "--recover"
         return
     }
     if ($Mode -eq "rollback") {
+        if ($IdentityPipeName) {
+            & $python -m scripts.managed_path_stage6_windows_operator $Mode $BarrierId --elevated --pipe-name $IdentityPipeName
+            exit $LASTEXITCODE
+        }
         Invoke-Stage6 "--rollback-create"
         return
     }
@@ -69,6 +80,12 @@ try {
         "--barrier-id", $BarrierId,
         "--apply"
     )
+    if ($IdentityPipeName) {
+        $arguments = @(
+            "-m", "scripts.managed_path_stage6_windows_operator",
+            "apply", $BarrierId, "--elevated", "--pipe-name", $IdentityPipeName
+        )
+    }
     $applyProcess = Start-Process `
         -FilePath $python `
         -ArgumentList $arguments `
