@@ -62,6 +62,9 @@ if [ "$root_mode" -eq 0 ]; then
   if [ "$mode" = "install" ]; then
     exec /usr/bin/sudo "$0" --root install "$barrier_id"
   fi
+  if [ "$mode" = "apply" ]; then
+    /usr/bin/sudo "$0" --root install "$barrier_id"
+  fi
   exec "$python_bin" -m scripts.managed_path_stage6_macos_operator "$mode" "$barrier_id"
 fi
 

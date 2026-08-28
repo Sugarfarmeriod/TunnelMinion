@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import scripts.managed_path_stage6_macos_operator as subject
 
 from tunnelminion.model.secrets import SecretStore
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class _Pipe:
@@ -97,3 +101,16 @@ def test_launcher_rejects_root_before_reading_keychain(
 
     with pytest.raises(SystemExit, match="普通登录用户"):
         subject.main(["apply", "a" * 32])
+
+
+def test_operator_apply_prepares_isolated_execution_materials_before_launcher() -> None:
+    script = (REPO_ROOT / "scripts" / "run_managed_path_stage6_operator.sh").read_text(
+        encoding="utf-8"
+    )
+    install = '/usr/bin/sudo "$0" --root install "$barrier_id"'
+    launcher = (
+        'exec "$python_bin" -m scripts.managed_path_stage6_macos_operator "$mode" "$barrier_id"'
+    )
+
+    apply_branch = script.index('if [ "$mode" = "apply" ]; then')
+    assert script.index(install, apply_branch) < script.index(launcher, apply_branch)
