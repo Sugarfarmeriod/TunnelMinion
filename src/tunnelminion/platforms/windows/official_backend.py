@@ -326,7 +326,7 @@ class OfficialWindowsManagedBackend:
         observer: WindowsSnapshotObserver,
         materials: AclRestrictedWindowsConfigStore,
         *,
-        settle_attempts: int = 12,
+        settle_attempts: int = 41,
         settle_delay_seconds: float = 0.25,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -381,6 +381,7 @@ class OfficialWindowsManagedBackend:
                 snapshot.interface_present
                 and snapshot.stable_interface_id is not None
                 and snapshot.public_key_hash is not None
+                and snapshot.peers
                 and expected_routes <= set(snapshot.host_routes)
             ):
                 break

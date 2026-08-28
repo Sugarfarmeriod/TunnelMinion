@@ -121,6 +121,14 @@ class SettlingObserver:
             interface_up=True,
             service_present=True,
             service_running=True,
+            peers=(
+                WindowsPeerSnapshot(
+                    public_key="peer-key",
+                    allowed_host_routes=("10.70.0.2/32",),
+                    allowed_networks=("10.70.0.2/32",),
+                ),
+            ),
+            host_routes=("10.70.0.2/32",),
             public_key_hash="sha256:" + "a" * 64,
             stable_interface_id="windows:tmn-test-a.r1",
         )
@@ -385,7 +393,11 @@ def test_official_backend_waits_for_managed_host_routes(tmp_path: Path) -> None:
         stable_interface_id="windows:tmn-test-a.r1",
     )
     observer = SequenceObserver(
-        [base, base.model_copy(update={"host_routes": ("10.70.0.2/32",)})]
+        [
+            base.model_copy(update={"peers": ()}),
+            base,
+            base.model_copy(update={"host_routes": ("10.70.0.2/32",)}),
+        ]
     )
     backend = OfficialWindowsManagedBackend(
         fixed(tmp_path, runner),
@@ -398,7 +410,7 @@ def test_official_backend_waits_for_managed_host_routes(tmp_path: Path) -> None:
     snapshot = asyncio.run(backend.observe("tmn-test-a"))
 
     assert snapshot.host_routes == ("10.70.0.2/32",)
-    assert observer.calls == 2
+    assert observer.calls == 3
 
 
 def test_official_backend_confirms_async_uninstall_convergence(tmp_path: Path) -> None:
