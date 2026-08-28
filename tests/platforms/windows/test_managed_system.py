@@ -640,6 +640,26 @@ def test_windows_route_parser_accepts_exact_ipv4_and_ipv6_rows() -> None:
     )
 
 
+def test_windows_route_parser_accepts_localized_active_route_with_zero_metric() -> None:
+    localized_ipv4 = (
+        "IPv4 路由表\n"
+        "===========================================================================\n"
+        "活动路由:\n"
+        "网络目标        网络掩码          网关       接口  跃点数\n"
+        "192.0.2.2  255.255.255.255  在链路上  192.0.2.1  0\n"
+        "===========================================================================\n"
+        "永久路由:\n"
+        "  无\n"
+    )
+
+    assert windows_route_contains_exact_host(
+        localized_ipv4,
+        "192.0.2.2/32",
+        interface_addresses=("192.0.2.1",),
+        interface_index=None,
+    )
+
+
 @pytest.mark.parametrize(
     ("stdout", "host_route", "interface_addresses", "interface_index"),
     [

@@ -23,6 +23,21 @@ _MAX_PEERS = 32
 _MAX_ROUTES = 256
 _MAX_SAFE_ALLOWED_NETWORK_ADDRESSES = 1 << 24
 MAX_SAFE_ALLOWED_NETWORKS = 32
+_ACTIVE_ROUTE_LABELS = frozenset({"active routes:", "活动路由:"})
+_PERSISTENT_ROUTE_LABELS = frozenset({"persistent routes:", "永久路由:"})
+_IPV4_ROUTE_HEADERS = frozenset(
+    {
+        ("network", "destination", "netmask", "gateway", "interface", "metric"),
+        ("网络目标", "网络掩码", "网关", "接口", "跃点数"),
+    }
+)
+_IPV6_ROUTE_HEADERS = frozenset(
+    {
+        ("if", "metric", "network", "destination", "gateway"),
+        ("接口", "跃点数", "网络目标", "网关"),
+    }
+)
+_ON_LINK_GATEWAYS = frozenset({"on-link", "在链路上"})
 
 
 class WindowsProviderPreflight(BaseModel):
@@ -461,25 +476,18 @@ def windows_route_contains_exact_host(
     for line in stdout.splitlines():
         text = line.strip()
         lowered = text.casefold()
-        if lowered == "active routes:":
+        if lowered in _ACTIVE_ROUTE_LABELS:
             active_routes = True
             header_seen = False
             continue
         if not active_routes:
             continue
-        if lowered == "persistent routes:":
+        if lowered in _PERSISTENT_ROUTE_LABELS:
             return False
         parts = text.split()
         lowered_parts = tuple(part.casefold() for part in parts)
         if network.version == 4:
-            if lowered_parts == (
-                "network",
-                "destination",
-                "netmask",
-                "gateway",
-                "interface",
-                "metric",
-            ):
+            if lowered_parts in _IPV4_ROUTE_HEADERS:
                 header_seen = True
                 continue
             if not header_seen or len(parts) != 5:
@@ -493,13 +501,13 @@ def windows_route_contains_exact_host(
                 continue
             gateway = parts[2]
             gateway_v4: ipaddress.IPv4Address | None = None
-            if gateway.casefold() != "on-link":
+            if gateway.casefold() not in _ON_LINK_GATEWAYS:
                 try:
                     gateway_v4 = ipaddress.IPv4Address(gateway)
                 except ValueError:
                     continue
             if (
-                metric < 1
+                metric < 0
                 or metric > 9999
                 or destination != network.network_address
                 or netmask != ipaddress.IPv4Address("255.255.255.255")
@@ -509,7 +517,7 @@ def windows_route_contains_exact_host(
                 continue
             return True
         else:
-            if lowered_parts == ("if", "metric", "network", "destination", "gateway"):
+            if lowered_parts in _IPV6_ROUTE_HEADERS:
                 header_seen = True
                 continue
             if not header_seen or len(parts) != 4:
@@ -522,7 +530,7 @@ def windows_route_contains_exact_host(
                 continue
             gateway = parts[3]
             gateway_v6: ipaddress.IPv6Address | None = None
-            if gateway.casefold() != "on-link":
+            if gateway.casefold() not in _ON_LINK_GATEWAYS:
                 try:
                     gateway_v6 = ipaddress.IPv6Address(gateway)
                 except ValueError:
@@ -531,7 +539,7 @@ def windows_route_contains_exact_host(
                 interface_index is None
                 or route_interface <= 0
                 or route_interface != interface_index
-                or metric < 1
+                or metric < 0
                 or metric > 9999
                 or destination.version != 6
                 or destination.prefixlen != 128
