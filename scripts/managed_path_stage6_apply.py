@@ -1078,6 +1078,22 @@ def _assert_root_owned_path(
         raise RuntimeError("Stage 6 macOS 固定文件权限不匹配")
 
 
+def _assert_root_owned_system_file(path: Path) -> None:
+    """验证只读 Apple 系统工具；APFS 系统文件允许拥有多个硬链接。"""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        raise RuntimeError("Stage 6 macOS 固定系统文件不存在") from None
+    mode = stat.S_IMODE(info.st_mode)
+    if (
+        info.st_uid != 0
+        or stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or mode & 0o022
+    ):
+        raise RuntimeError("Stage 6 macOS 固定系统文件身份不可信")
+
+
 def _assert_root_owned_socket(path: Path) -> None:
     try:
         info = os.lstat(path)
@@ -1307,7 +1323,7 @@ def _validate_macos_tool_closure(
     run_process: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
     """拒绝 Mach-O 加载任何非 Apple 绝对系统库或动态 rpath。"""
-    _assert_root_owned_path(_MACOS_OTOOL, regular_file=True)
+    _assert_root_owned_system_file(_MACOS_OTOOL)
     try:
         completed = run_process(
             (str(_MACOS_OTOOL), "-L", str(path)),

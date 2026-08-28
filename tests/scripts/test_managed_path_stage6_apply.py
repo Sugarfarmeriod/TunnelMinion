@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import sqlite3
+import stat
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -2168,12 +2169,10 @@ def test_macos_tool_closure_accepts_only_apple_absolute_dependencies(
     tool = tmp_path / "wg"
     tool.write_bytes(b"fixture")
 
-    def accept_root_path(
-        path: Path, *, regular_file: bool = False, exact_mode: int | None = None
-    ) -> None:
-        del path, regular_file, exact_mode
+    def accept_system_file(path: Path) -> None:
+        del path
 
-    monkeypatch.setattr(subject, "_assert_root_owned_path", accept_root_path)
+    monkeypatch.setattr(subject, "_assert_root_owned_system_file", accept_system_file)
 
     def apple_only(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
         del kwargs
@@ -2203,3 +2202,27 @@ def test_macos_tool_closure_accepts_only_apple_absolute_dependencies(
         subject._validate_macos_tool_closure(  # pyright: ignore[reportPrivateUsage]
             tool, run_process=homebrew_dependency
         )
+
+
+def test_macos_system_tool_accepts_apfs_multiple_hard_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata = type(
+        "Metadata",
+        (),
+        {
+            "st_uid": 0,
+            "st_mode": stat.S_IFREG | 0o755,
+            "st_nlink": 78,
+        },
+    )()
+
+    def fixed_metadata(path: Path) -> object:
+        del path
+        return metadata
+
+    monkeypatch.setattr(subject.os, "lstat", fixed_metadata)
+
+    subject._assert_root_owned_system_file(  # pyright: ignore[reportPrivateUsage]
+        Path("/usr/bin/otool")
+    )
