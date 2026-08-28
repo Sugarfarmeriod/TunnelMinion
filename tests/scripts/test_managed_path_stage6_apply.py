@@ -664,6 +664,62 @@ def test_archive_accepts_completed_orphan_recover(
     assert Path(cast(str, result["archive"])).is_dir()
 
 
+def test_archive_accepts_preserved_apply_with_separate_rollback_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "macos"
+    root.mkdir(parents=True)
+    (root / "public-identity.json").write_text("{}", encoding="utf-8")
+    journal = _operation_journal(_plan(), status=ReceiptStatus.ROLLED_BACK)
+    database = root / "stage6-apply-governance.sqlite3"
+    _orphan_governance_fixture(database, journal)
+    provider_path = root / "managed-network" / "macos-operations.sqlite3"
+    _write_operation_journal(provider_path, journal)
+    (root / "managed-network-ledger.sqlite3").write_bytes(b"ledger")
+    (root / "stage6-apply-evidence.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "managed-path-stage6-apply/v1",
+                "mode": "apply",
+                "platform": "macos",
+                "phase": "path_degraded",
+                "commit": "a" * 40,
+                "plan_hash": journal.plan.plan_hash,
+                "provider_receipt": {"status": "verified"},
+                "private_material_exported": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "stage6-rollback-evidence.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "managed-path-stage6-rollback/v1",
+                "mode": "exact_provider_journal",
+                "platform": "macos",
+                "commit": "b" * 40,
+                "plan_hash": journal.plan.plan_hash,
+                "governance_phase": "rolled_back",
+                "receipt_status": "rolled_back",
+                "stable_error_code": None,
+                "final_ownership": "absent",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(subject._APPROVED_DATA_DIRS, "macos", root)  # pyright: ignore[reportPrivateUsage]
+
+    result = subject._archive_rolled_back_run(  # pyright: ignore[reportPrivateUsage]
+        "macos", resources_absent=lambda _platform, _root: True, now=ARCHIVE_NOW
+    )
+
+    assert result["success"] is True
+    archive = Path(cast(str, result["archive"]))
+    assert archive.is_dir()
+    assert (archive / "stage6-apply-evidence.json").is_file()
+    assert (archive / "stage6-rollback-evidence.json").is_file()
+
+
 def test_archive_mode_rejects_barrier_and_identity_without_reading_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

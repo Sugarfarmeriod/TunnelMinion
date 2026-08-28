@@ -1990,13 +1990,37 @@ def _archive_rolled_back_run(
     evidence = cast(dict[str, object], evidence_value)
     receipt_value = evidence.get("provider_receipt")
     receipt = cast(dict[str, object], receipt_value) if isinstance(receipt_value, dict) else None
+    rollback_evidence_path = data_dir / "stage6-rollback-evidence.json"
+    rollback_evidence: dict[str, object] | None = None
+    if rollback_evidence_path.exists() or rollback_evidence_path.is_symlink():
+        _assert_archive_regular_file(
+            rollback_evidence_path, "阶段 6 归档缺少可信的 rollback evidence"
+        )
+        try:
+            rollback_value: object = json.loads(_read_regular_file(rollback_evidence_path))
+        except json.JSONDecodeError as exc:
+            raise SystemExit("阶段 6 rollback evidence 无法解析") from exc
+        if isinstance(rollback_value, dict):
+            rollback_evidence = cast(dict[str, object], rollback_value)
+    apply_proves_rollback = bool(
+        evidence.get("phase") == NetworkGovernancePhase.ROLLED_BACK.value
+        and receipt is not None
+        and receipt.get("status") == ReceiptStatus.ROLLED_BACK.value
+    )
+    separate_rollback_proves_completion = bool(
+        rollback_evidence is not None
+        and rollback_evidence.get("schema_version") == "managed-path-stage6-rollback/v1"
+        and rollback_evidence.get("platform") == platform
+        and rollback_evidence.get("governance_phase") == NetworkGovernancePhase.ROLLED_BACK.value
+        and rollback_evidence.get("receipt_status") == ReceiptStatus.ROLLED_BACK.value
+        and rollback_evidence.get("final_ownership") == OwnershipState.ABSENT.value
+        and rollback_evidence.get("stable_error_code") is None
+    )
     if (
         evidence.get("schema_version") != "managed-path-stage6-apply/v1"
         or evidence.get("platform") != platform
-        or evidence.get("phase") != NetworkGovernancePhase.ROLLED_BACK.value
-        or receipt is None
-        or receipt.get("status") != "rolled_back"
         or evidence.get("private_material_exported") is not False
+        or not (apply_proves_rollback or separate_rollback_proves_completion)
     ):
         raise SystemExit("阶段 6 运行未证明完整回滚，拒绝归档")
     try:
@@ -2013,10 +2037,17 @@ def _archive_rolled_back_run(
     except sqlite3.Error as exc:
         raise SystemExit("阶段 6 治理状态无法只读验证") from exc
     orphan_recover = evidence.get("mode") == "orphan_recover"
-    if orphan_recover:
-        plan_hash = evidence.get("plan_hash")
+    if orphan_recover or separate_rollback_proves_completion:
+        plan_hash = (
+            rollback_evidence.get("plan_hash")
+            if separate_rollback_proves_completion and rollback_evidence is not None
+            else evidence.get("plan_hash")
+        )
         if not isinstance(plan_hash, str):
             raise SystemExit("阶段 6 orphan recover evidence 缺少 plan hash")
+        apply_plan_hash = evidence.get("plan_hash")
+        if isinstance(apply_plan_hash, str) and apply_plan_hash != plan_hash:
+            raise SystemExit("阶段 6 apply 与 rollback evidence plan hash 不匹配")
         _validate_archived_orphan_state(platform, data_dir, database, plan_hash)
     else:
         if not claim_states or set(claim_states) != {"released"}:
@@ -2027,7 +2058,11 @@ def _archive_rolled_back_run(
         raise SystemExit("阶段 6 批准接口、地址或 host route 仍存在，拒绝归档")
 
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    commit = str(evidence.get("commit", "unknown"))
+    commit = str(
+        rollback_evidence.get("commit", "unknown")
+        if separate_rollback_proves_completion and rollback_evidence is not None
+        else evidence.get("commit", "unknown")
+    )
     commit_token = commit[:12] if re.fullmatch(r"[0-9a-f]{7,64}", commit) else "unknown"
     archive_name = f"{current.strftime('%Y%m%dT%H%M%SZ')}-{commit_token}-{platform}"
     archive_root = data_dir / "stage6-run-archives"
