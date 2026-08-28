@@ -96,6 +96,9 @@ try {
     while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) {
         $applyProcess.Refresh()
         if ($applyProcess.HasExited) {
+            # Refresh() 可能先报告 HasExited，退出码此时尚未可读；等待进程
+            # 完成后再读取，确保操作者看到真实状态。
+            $applyProcess.WaitForExit()
             throw "Windows apply exited before writing the ready marker (exit code $($applyProcess.ExitCode))."
         }
         if ([DateTime]::UtcNow -ge $deadline) {
