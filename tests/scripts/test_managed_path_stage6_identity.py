@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import stat
@@ -9,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from scripts.managed_path_stage6_identity import (
     _APPROVED_DATA_DIRS,  # pyright: ignore[reportPrivateUsage]
     _CONFIGS,  # pyright: ignore[reportPrivateUsage]
@@ -16,6 +19,7 @@ from scripts.managed_path_stage6_identity import (
     _assert_trusted_data_dir,  # pyright: ignore[reportPrivateUsage]
     _PlatformConfig,  # pyright: ignore[reportPrivateUsage]
     _publish_public_identity,  # pyright: ignore[reportPrivateUsage]
+    _repair_windows_identity,  # pyright: ignore[reportPrivateUsage]
     _require_matching_platform,  # pyright: ignore[reportPrivateUsage]
     _require_unprivileged,  # pyright: ignore[reportPrivateUsage]
     main,
@@ -260,3 +264,95 @@ def test_public_identity_publish_refuses_precreated_temporary_path(
 
     assert temporary.read_text(encoding="utf-8") == "sentinel"
     assert not output.exists()
+
+
+def test_windows_repair_replaces_only_missing_fixed_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    provider = _CreateOnlyProvider()
+    config = _PlatformConfig(
+        provider=ProviderKind.WINDOWS,
+        node_id=NodeId("node_6000000000000000000000000000000a"),
+        data_dir=tmp_path,
+    )
+    old = {
+        "schema_version": "managed-path-stage6-public-identity/v1",
+        "network_id": str(_NETWORK_ID),
+        "node_id": str(config.node_id),
+        "provider": "windows",
+        "public_key": "B" * 43 + "=",
+        "public_key_hash": canonical_sha256({"public_key": "B" * 43 + "="}),
+        "secret_reference_configured": True,
+    }
+    (tmp_path / "public-identity.json").write_text(json.dumps(old), encoding="utf-8")
+
+    class MissingStore:
+        def get(self, name: str) -> None:
+            assert str(config.node_id) in name
+            return None
+
+    store = MissingStore()
+    monkeypatch.setattr("scripts.managed_path_stage6_identity.KeyringSecretStore", lambda: store)
+
+    def build_platform(
+        data_dir: Path, ledger: SQLiteManagedResourceLedger, *, secret_store: object
+    ) -> SimpleNamespace:
+        assert data_dir == tmp_path
+        assert secret_store is store
+        del ledger
+        return SimpleNamespace(provider=provider)
+
+    monkeypatch.setattr(
+        "scripts.managed_path_stage6_identity.build_windows_managed_path_platform",
+        build_platform,
+    )
+
+    assert _repair_windows_identity(config) == 0
+    assert provider.calls == 1
+    assert json.loads((tmp_path / "public-identity.pre-repair.json").read_text()) == old
+    assert json.loads((tmp_path / "public-identity.json").read_text())["public_key"] == (
+        "A" * 43 + "="
+    )
+    assert not (tmp_path / ".identity-repair-in-progress").exists()
+    assert "must-not-be-exported" not in capsys.readouterr().out
+
+
+def test_windows_repair_rejects_still_readable_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    private = X25519PrivateKey.generate()
+    private_text = base64.b64encode(
+        private.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    ).decode()
+    public = base64.b64encode(
+        private.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    config = _PlatformConfig(
+        provider=ProviderKind.WINDOWS,
+        node_id=NodeId("node_6000000000000000000000000000000a"),
+        data_dir=tmp_path,
+    )
+    payload = {
+        "schema_version": "managed-path-stage6-public-identity/v1",
+        "network_id": str(_NETWORK_ID),
+        "node_id": str(config.node_id),
+        "provider": "windows",
+        "public_key": public,
+        "public_key_hash": canonical_sha256({"public_key": public}),
+    }
+    (tmp_path / "public-identity.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        "scripts.managed_path_stage6_identity.KeyringSecretStore",
+        lambda: SimpleNamespace(get=lambda _name: private_text),
+    )
+
+    with pytest.raises(SystemExit, match="仍可用"):
+        _repair_windows_identity(config)
+
+    assert not (tmp_path / "public-identity.pre-repair.json").exists()

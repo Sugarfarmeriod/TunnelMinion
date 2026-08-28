@@ -1571,6 +1571,27 @@ class _ExistingOnlySecretStore:
         raise SecretStoreError("阶段 6 验收禁止删除预置身份")
 
 
+class _ProvidedSecretStore:
+    """只在当前进程内提供一次固定身份，不允许任何写入。"""
+
+    def __init__(self, *, expected_name: str, value: str) -> None:
+        self._expected_name = expected_name
+        self._value = value
+
+    def get(self, name: str) -> str | None:
+        if name != self._expected_name:
+            raise SecretStoreError("阶段 6 stdin 身份引用不在批准范围")
+        return self._value
+
+    def set(self, name: str, value: str) -> None:
+        del name, value
+        raise SecretStoreError("阶段 6 stdin 身份禁止写入")
+
+    def delete(self, name: str) -> None:
+        del name
+        raise SecretStoreError("阶段 6 stdin 身份禁止删除")
+
+
 class _BarrierPathVerifier:
     """Provider verify 后等待双端 barrier，再执行一次声明顺序 target run。"""
 
@@ -1807,6 +1828,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--rollback-create", action="store_true")
     mode.add_argument("--install-macos-execution-materials", action="store_true")
     mode.add_argument("--import-peer-ready", action="store_true")
+    parser.add_argument("--identity-stdin", action="store_true")
     args = parser.parse_args(argv)
     if len(args.barrier_id) != 32 or any(
         char not in "0123456789abcdef" for char in args.barrier_id
@@ -1814,20 +1836,27 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("barrier id 必须是 32 位小写十六进制")
     _require_matching_platform(args.platform)
     if args.install_macos_execution_materials:
+        if args.identity_stdin:
+            raise SystemExit("安装固定工具不得接收阶段 6 身份")
         if args.platform != "macos":
             raise SystemExit("Stage 6 macOS 固定工具只允许在 macOS 安装")
         result = _install_macos_stage6_tools()
         print(json.dumps(result, sort_keys=True))
         return 0
     if args.import_peer_ready:
+        if args.identity_stdin:
+            raise SystemExit("导入 peer-ready 不得接收阶段 6 身份")
         _require_elevated(args.platform)
         result = _import_peer_ready(args.platform, args.barrier_id, sys.stdin.read())
         print(json.dumps(result, sort_keys=True))
         return 0
     if args.release_barrier:
+        if args.identity_stdin:
+            raise SystemExit("释放 barrier 不得接收阶段 6 身份")
         _require_elevated(args.platform)
         _release_barrier(args.platform, args.barrier_id)
         return 0
+    identity_backend = _read_identity_stdin(args.platform) if args.identity_stdin else None
     result = asyncio.run(
         _run(
             args.platform,
@@ -1835,6 +1864,7 @@ def main(argv: list[str] | None = None) -> int:
             now=datetime.now(UTC),
             recover=args.recover,
             rollback_create=args.rollback_create,
+            identity_backend=identity_backend,
         )
     )
     print(json.dumps(result, sort_keys=True))
@@ -1848,6 +1878,7 @@ async def _run(
     now: datetime,
     recover: bool = False,
     rollback_create: bool = False,
+    identity_backend: SecretStore | None = None,
 ) -> dict[str, object]:
     _require_elevated(platform)
     config = _CONFIGS[platform]
@@ -1891,7 +1922,7 @@ async def _run(
         or rollback_evidence_path.is_symlink()
     ):
         raise SystemExit("阶段 6 rollback 缺少治理记录或已有证据")
-    identity_store = _assert_existing_identity(platform)
+    identity_store = _assert_existing_identity(platform, backend=identity_backend)
     peer_identity = _load_peer_identity(data_dir / config.peer_identity_file, config)
     desired = _desired_config(config, peer_identity, now=now)
     envelope = _signed_envelope(desired, now=now)
@@ -2163,6 +2194,16 @@ def _require_elevated(platform: str) -> None:
         raise SystemExit("macOS 阶段 6.3 必须使用已授权的 root 进程")
 
 
+def _read_identity_stdin(platform: str) -> _ProvidedSecretStore:
+    """从匿名 stdin 读取一次固定身份，不回显也不持久化。"""
+    name = f"wireguard/{_NETWORK_ID}/{_IDENTITY_CONFIGS[platform].node_id}"
+    value = sys.stdin.readline(257).rstrip("\r\n")
+    if not value or len(value) > 128 or any(char.isspace() for char in value):
+        value = ""
+        raise SystemExit("阶段 6 stdin 身份格式无效")
+    return _ProvidedSecretStore(expected_name=name, value=value)
+
+
 def _assert_existing_identity(
     platform: str, *, backend: SecretStore | None = None
 ) -> _ExistingOnlySecretStore:
@@ -2195,7 +2236,7 @@ def _assert_existing_identity(
         )
         store.get(name)
     except SecretStoreError as exc:
-        raise SystemExit("当前管理员上下文中的阶段 6 身份不可用或不匹配") from exc
+        raise SystemExit("当前执行上下文中的阶段 6 身份不可用或不匹配") from exc
     return store
 
 

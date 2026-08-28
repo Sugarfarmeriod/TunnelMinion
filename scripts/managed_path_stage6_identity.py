@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import ctypes
 import json
 import os
@@ -14,7 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
 from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.model.secrets import KeyringSecretStore, SecretStoreError
 from tunnelminion.network.contracts import LocalNetworkKeyMaterial, ProviderKind
 from tunnelminion.network.ledger import SQLiteManagedResourceLedger
 from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
@@ -66,9 +71,10 @@ _CONFIGS = {
 
 
 def main(argv: list[str] | None = None) -> int:
-    """首次生成隔离身份；既有或中断状态一律拒绝复用。"""
+    """首次生成隔离身份，或显式修复 Windows 的固定隔离身份。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=tuple(_CONFIGS), required=True)
+    parser.add_argument("--repair-missing", action="store_true")
     args = parser.parse_args(argv)
     config = _CONFIGS[args.platform]
     _require_matching_platform(args.platform)
@@ -77,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
     _assert_trusted_data_dir(config.data_dir, approved_data_dir)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     _assert_trusted_data_dir(config.data_dir, approved_data_dir)
+    if args.repair_missing:
+        if args.platform != "windows":
+            raise SystemExit("阶段 6 身份修复目前只允许 Windows")
+        return _repair_windows_identity(config)
     intent = config.data_dir / ".identity-creation-in-progress"
     output = config.data_dir / "public-identity.json"
     if intent.exists() or intent.is_symlink() or output.exists() or output.is_symlink():
@@ -90,16 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     provider = cast(_IdentityProvider, dependencies.provider)
     material = provider.create_local_identity(_NETWORK_ID, config.node_id)
-    payload = {
-        "schema_version": "managed-path-stage6-public-identity/v1",
-        "network_id": str(_NETWORK_ID),
-        "node_id": str(config.node_id),
-        "provider": config.provider.value,
-        "public_key": material.public_key,
-        "public_key_hash": material.public_key_hash,
-        "secret_reference_configured": True,
-    }
-    _publish_public_identity(output, payload)
+    _publish_public_identity(output, _public_identity_payload(config, material))
     _assert_trusted_data_dir(config.data_dir, approved_data_dir)
     intent.unlink()
     _fsync_directory(config.data_dir)
@@ -116,6 +117,105 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0
+
+
+def _repair_windows_identity(config: _PlatformConfig) -> int:
+    """仅替换已不可用的 Windows Stage 6 身份，并保留旧公开身份。"""
+    data_dir = config.data_dir
+    output = data_dir / "public-identity.json"
+    backup = data_dir / "public-identity.pre-repair.json"
+    intent = data_dir / ".identity-repair-in-progress"
+    protected = (
+        "stage6-apply-evidence.json",
+        "stage6-apply-ready.json",
+        "stage6-apply-go.json",
+        "stage6-apply-peer-ready.json",
+        "stage6-apply-governance.sqlite3",
+        "stage6-rollback-evidence.json",
+    )
+    if any((data_dir / name).exists() or (data_dir / name).is_symlink() for name in protected):
+        raise SystemExit("阶段 6 已开始执行，拒绝修复身份")
+    if (
+        not output.is_file()
+        or output.is_symlink()
+        or backup.exists()
+        or backup.is_symlink()
+        or intent.exists()
+        or intent.is_symlink()
+    ):
+        raise SystemExit("Windows 阶段 6 身份修复状态不安全或已执行过")
+    try:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SystemExit("Windows 阶段 6 旧公开身份不可验证") from exc
+    name = f"wireguard/{_NETWORK_ID}/{config.node_id}"
+    if (
+        payload.get("schema_version") != "managed-path-stage6-public-identity/v1"
+        or payload.get("network_id") != str(_NETWORK_ID)
+        or payload.get("node_id") != str(config.node_id)
+        or payload.get("provider") != config.provider.value
+        or not isinstance(payload.get("public_key"), str)
+        or not isinstance(payload.get("public_key_hash"), str)
+    ):
+        raise SystemExit("Windows 阶段 6 旧公开身份绑定不一致")
+    secrets_store = KeyringSecretStore()
+    try:
+        existing = secrets_store.get(name)
+    except SecretStoreError:
+        existing = None
+    if existing is not None and _private_matches_public(existing, payload):
+        existing = ""
+        raise SystemExit("Windows 阶段 6 身份仍可用，不允许重建")
+    existing = ""
+    _write_creation_intent(intent)
+    output.replace(backup)
+    _fsync_directory(data_dir)
+    ledger = SQLiteManagedResourceLedger(data_dir / "managed-network-ledger.sqlite3")
+    dependencies = build_windows_managed_path_platform(data_dir, ledger, secret_store=secrets_store)
+    provider = cast(_IdentityProvider, dependencies.provider)
+    material = provider.create_local_identity(_NETWORK_ID, config.node_id)
+    _publish_public_identity(output, _public_identity_payload(config, material))
+    intent.unlink()
+    _fsync_directory(data_dir)
+    print(
+        json.dumps(
+            {
+                "identity_repaired": True,
+                "platform": "windows",
+                "old_public_identity_preserved": True,
+                "private_material_exported": False,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _private_matches_public(private_text: str, payload: Mapping[str, object]) -> bool:
+    try:
+        private = X25519PrivateKey.from_private_bytes(base64.b64decode(private_text, validate=True))
+        public = base64.b64encode(
+            private.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw
+            )
+        ).decode()
+    except (TypeError, ValueError):
+        return False
+    return public == payload["public_key"]
+
+
+def _public_identity_payload(
+    config: _PlatformConfig, material: LocalNetworkKeyMaterial
+) -> dict[str, object]:
+    return {
+        "schema_version": "managed-path-stage6-public-identity/v1",
+        "network_id": str(_NETWORK_ID),
+        "node_id": str(config.node_id),
+        "provider": config.provider.value,
+        "public_key": material.public_key,
+        "public_key_hash": material.public_key_hash,
+        "secret_reference_configured": True,
+    }
 
 
 def _require_matching_platform(platform: str) -> None:

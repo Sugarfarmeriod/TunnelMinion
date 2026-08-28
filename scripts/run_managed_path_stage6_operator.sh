@@ -2,9 +2,14 @@
 set -eu
 
 usage() {
-  echo "用法：sudo $0 <install|apply|recover|rollback> <32位小写十六进制 barrier-id>" >&2
+  echo "用法：$0 <install|apply|recover|rollback> <32位小写十六进制 barrier-id>" >&2
 }
 
+root_mode=0
+if [ "${1:-}" = "--root" ]; then
+  root_mode=1
+  shift
+fi
 if [ "$#" -ne 2 ]; then
   usage
   exit 2
@@ -27,11 +32,6 @@ if [ "${#barrier_id}" -ne 32 ]; then
   exit 2
 fi
 
-if [ "$(id -u)" -ne 0 ]; then
-  echo "请在 macOS Terminal 中使用 sudo 直接运行本脚本。" >&2
-  exit 1
-fi
-
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 if [ -x "$repo_root/.venv/bin/python" ]; then
   python_bin="$repo_root/.venv/bin/python"
@@ -43,11 +43,27 @@ fi
 
 cd "$repo_root"
 
+if [ "$root_mode" -eq 0 ]; then
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "请以普通登录用户运行；脚本会显示系统 sudo 提示。" >&2
+    exit 1
+  fi
+  if [ "$mode" = "install" ]; then
+    exec /usr/bin/sudo "$0" --root install "$barrier_id"
+  fi
+  exec "$python_bin" -m scripts.managed_path_stage6_macos_operator "$mode" "$barrier_id"
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Stage 6 root 子流程必须由 sudo 启动。" >&2
+  exit 1
+fi
+
 run_stage6() {
   "$python_bin" -m scripts.managed_path_stage6_apply \
     --platform macos \
     --barrier-id "$barrier_id" \
-    "$1"
+    "$@"
 }
 
 case "$mode" in
@@ -56,11 +72,15 @@ case "$mode" in
     exit 0
     ;;
   recover)
-    run_stage6 --recover
+    IFS= read -r private_identity
+    printf '%s\n' "$private_identity" | run_stage6 --identity-stdin --recover
+    private_identity=
     exit 0
     ;;
   rollback)
-    run_stage6 --rollback-create
+    IFS= read -r private_identity
+    printf '%s\n' "$private_identity" | run_stage6 --identity-stdin --rollback-create
+    private_identity=
     exit 0
     ;;
 esac
@@ -80,8 +100,10 @@ do
     exit 1
   fi
 done
-run_stage6 --apply &
+IFS= read -r private_identity
+printf '%s\n' "$private_identity" | run_stage6 --identity-stdin --apply &
 apply_pid=$!
+private_identity=
 deadline=$(( $(date +%s) + 120 ))
 while [ ! -f "$ready_path" ]; do
   if ! kill -0 "$apply_pid" 2>/dev/null; then
@@ -101,7 +123,7 @@ echo "把下面这一整行复制到 Windows 管理员脚本："
 echo "$ready_json"
 echo ""
 printf "再把 Windows 脚本输出的 ready JSON 整行粘贴到这里："
-IFS= read -r peer_ready
+IFS= read -r peer_ready </dev/tty
 printf '%s' "$peer_ready" | "$python_bin" -m scripts.managed_path_stage6_apply \
   --platform macos \
   --barrier-id "$barrier_id" \
