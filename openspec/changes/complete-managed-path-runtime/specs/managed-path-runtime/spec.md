@@ -110,21 +110,21 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 - **WHEN** 控制面和模型 Provider 均不可用但本机 checkpoint、授权与只读平台能力可用
 - **THEN** 本机 path freshness/selection、恢复和 static 降级继续工作，Gateway 与本地只读功能不因该故障停止
 
-### Requirement: 生产完成证据必须来自常规入口和批准资源
+### Requirement: 安全诊断预览必须来自常规入口且不得冒充真实写入
 
-真实 Provider 写入 MUST 在隔离 fake 的授权/故障/恢复矩阵通过后，才可使用明确批准的独立接口、地址、端口、数据目录和时间窗口验证。开发验收 MAY 使用操作者明确建立的临时 root/管理员或 SSH 管理权限上下文启动批准范围内的执行，但权限取得方式本身不构成完成证据。生产 path lifecycle 的完成证据 MUST 来自 Windows/macOS 常规入口，并记录代码提交、平台、入口、资源批准、来源和观测时间；fake、专用脚本、历史证据、仅有命令退出码、root/SSH 成功或仅有 Coordinator/cache 状态 MUST NOT 被标记为生产完成。
+本 change 的完成证据 MUST 来自 Windows/macOS 常规应用工厂、隔离数据目录和无网络写入的诊断状态读取，并记录代码提交、平台、入口、来源和观测时间。该证据 MUST 证明未配置、待授权、过期和平台能力降级被如实表达，且 MUST NOT 被标记为真实 Provider、真实 path 或跨机 A/B 完成。真实 Provider 写入与跨机 A/B SHALL 由未来独立 change 重新授权和验收。
 
 #### Scenario: fake lifecycle 全部通过
 
 - **WHEN** fake Provider 覆盖授权拒绝、apply、verify failure、rollback failure、崩溃恢复和故障隔离
-- **THEN** 系统只证明状态机门禁通过，不把结果声明为真实 Provider 或真实 A/B 完成
+- **THEN** 系统只证明状态机门禁通过，不把结果声明为真实 Provider 或跨机 A/B 完成
 
-#### Scenario: 未批准真实 A/B 资源
+#### Scenario: 常规入口处于干净未配置状态
 
-- **WHEN** 没有明确批准的隔离接口、地址、端口或 L3 授权窗口
-- **THEN** 验收停止在只读/fake 阶段，不修改现有 `HomeMac`、B 手写配置、客户防火墙、WireGuard 或用户路由
+- **WHEN** Windows 或 macOS 常规应用工厂使用新的隔离数据目录启动且没有 enrollment、managed config 或 L3 授权
+- **THEN** 资源 API 如实返回 unconfigured/runtime-absent/path-absent 诊断状态，不调用 Provider apply 且不修改网络
 
-#### Scenario: 常规入口真实闭环
+#### Scenario: 真实执行尚未另行授权
 
-- **WHEN** Windows 与 macOS 常规入口在批准的隔离资源上完成授权、Provider、独立验证、selection、刷新和恢复矩阵
-- **THEN** 证据可用于关闭生产 lifecycle 任务，并与 package、Gateway 监听和 `improve-local-product-experience` 的消费验收分别记录
+- **WHEN** 当前 change 没有未来真实执行 change 的明确授权、资源和退出条件
+- **THEN** 验收停止在 diagnostic-preview，不创建提权请求、真实写入窗口或跨机 A/B，并保持依赖真实 path 证据的下游任务未解锁
