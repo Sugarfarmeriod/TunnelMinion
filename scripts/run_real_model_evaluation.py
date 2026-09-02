@@ -132,6 +132,8 @@ async def record_scenario(
     scenario: EvaluationScenario,
     *,
     max_rounds: int = 6,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
 ) -> EvaluationScenario:
     """运行一个真模型场景，并转换成可由离线评分器重放的脚本。"""
     tools = _model_tools(scenario)
@@ -163,6 +165,12 @@ async def record_scenario(
                     input_tokens=0,
                     output_tokens=0,
                     total_tokens=0,
+                    estimated_cost=_estimated_cost(
+                        0,
+                        0,
+                        input_cost_per_million,
+                        output_cost_per_million,
+                    ),
                 ),
                 "recorded_total_latency_ms": round((perf_counter() - started) * 1000),
             }
@@ -238,6 +246,12 @@ async def record_scenario(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 total_tokens=total_tokens,
+                estimated_cost=_estimated_cost(
+                    input_tokens,
+                    output_tokens,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                ),
             ),
             "recorded_total_latency_ms": round((perf_counter() - started) * 1000),
         }
@@ -248,9 +262,22 @@ async def record_dataset(
     provider: ModelProvider,
     dataset: EvaluationDataset,
     model_name: str,
+    *,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
 ) -> EvaluationDataset:
     """串行运行固定数据集，避免并发改变本地模型的延迟与资源占用。"""
-    scenarios = tuple([await record_scenario(provider, scenario) for scenario in dataset.scenarios])
+    scenarios = tuple(
+        [
+            await record_scenario(
+                provider,
+                scenario,
+                input_cost_per_million=input_cost_per_million,
+                output_cost_per_million=output_cost_per_million,
+            )
+            for scenario in dataset.scenarios
+        ]
+    )
     return dataset.model_copy(
         update={
             "model_name": model_name,
@@ -270,7 +297,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--input-cost-per-million", type=float)
+    parser.add_argument("--output-cost-per-million", type=float)
     args = parser.parse_args(argv)
+
+    rates = (args.input_cost_per_million, args.output_cost_per_million)
+    if (rates[0] is None) != (rates[1] is None) or any(
+        rate is not None and rate < 0 for rate in rates
+    ):
+        parser.error("输入与输出单价必须同时提供且不得为负数")
 
     if args.data_dir is not None:
         if args.endpoint is not None or args.model is not None:
@@ -290,7 +325,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         model_name = args.model
-    recorded = asyncio.run(record_dataset(provider, load_dataset(args.dataset), model_name))
+    recorded = asyncio.run(
+        record_dataset(
+            provider,
+            load_dataset(args.dataset),
+            model_name,
+            input_cost_per_million=rates[0],
+            output_cost_per_million=rates[1],
+        )
+    )
     report = run_dataset(recorded)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -314,6 +357,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     return 0
+
+
+def _estimated_cost(
+    input_tokens: int,
+    output_tokens: int,
+    input_cost_per_million: float | None,
+    output_cost_per_million: float | None,
+) -> float | None:
+    """按调用时记录的每百万 token 单价计算保守估算成本。"""
+    if input_cost_per_million is None or output_cost_per_million is None:
+        return None
+    return (
+        input_tokens * input_cost_per_million + output_tokens * output_cost_per_million
+    ) / 1_000_000
 
 
 def _configured_provider(data_dir: Path) -> tuple[ModelProvider, str]:

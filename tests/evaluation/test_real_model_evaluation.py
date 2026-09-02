@@ -31,3 +31,8 @@ def test_configured_provider_reads_model_and_keyring_without_changing_them(
 
     assert model_name == "deepseek-test"
     assert provider.capabilities.tool_calls is True
+
+
+def test_estimated_cost_uses_separate_input_and_output_rates() -> None:
+    assert evaluation._estimated_cost(1_000, 500, 0.22, 0.66) == pytest.approx(0.00055)
+    assert evaluation._estimated_cost(1_000, 500, None, None) is None
