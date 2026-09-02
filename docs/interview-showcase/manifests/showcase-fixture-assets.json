@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "claim_id": "showcase-fixture-assets",
+  "claim": "隔离素材只演示只读降级与候选未授权界面，不代表真实 A/B 成功",
+  "status": "planned",
+  "source": {
+    "kind": "fixture",
+    "ref": "feature/interview-showcase",
+    "commit_sha": "6d9e98aa492e30c2ba064bdf3ef0a0085565799e",
+    "commit_role": "authoring-baseline"
+  },
+  "scope": {
+    "platforms": ["windows"],
+    "environment": "isolated-fastapi-fixture-and-headless-chromium",
+    "applies_to": "read-only degradation and awaiting-authorization presentation only"
+  },
+  "evidence": [
+    {
+      "evidence_id": "fixture-overview-screenshot",
+      "kind": "screenshot",
+      "reference": "docs/interview-showcase/assets/overview-readonly-fixture.png",
+      "captured_at": "2026-09-02T15:38:40.7186671Z",
+      "verification": {
+        "result": "passed",
+        "method": "SHA-256 20b23938bd81de559c23e296c7a554ca5f8a36973c48e345c2231c952750e79c；1440×900；人工查看顶部 fixture 标签"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "隔离临时数据、固定占位 ID、没有读取产品密钥环"
+      }
+    },
+    {
+      "evidence_id": "fixture-operation-screenshot",
+      "kind": "screenshot",
+      "reference": "docs/interview-showcase/assets/operation-awaiting-approval-fixture.png",
+      "captured_at": "2026-09-02T15:38:42.0660765Z",
+      "verification": {
+        "result": "passed",
+        "method": "SHA-256 46dd2af92d38301f2deebfa0bb0dd4a5d635807741285f3cc59e69428cc1fe9e；确认 awaiting_authorization 与尚未授权"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "固定 fixture Operation、节点和指纹，不含真实授权或临时凭据"
+      }
+    },
+    {
+      "evidence_id": "fixture-degraded-recording",
+      "kind": "recording",
+      "reference": "docs/interview-showcase/assets/degraded-fixture-flow.webm",
+      "captured_at": "2026-09-02T15:38:45.7747453Z",
+      "verification": {
+        "result": "passed",
+        "method": "SHA-256 3f48888db668ed2c9ea2bc254b9002bf51819e949d70a21881647c170cd06cd1；VP8 1280×720 6.76 秒；开始/中间/结束抽帧检查"
+      },
+      "redaction": {
+        "checked": true,
+        "method": "顶部持续标注离线 fixture；审批对话框仅打开后关闭，没有确认批准"
+      }
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "不得把这些素材作为真实 A/B、稳定 main、最终截图或成功录屏发布"
+  }
+}

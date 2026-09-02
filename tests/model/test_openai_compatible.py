@@ -106,7 +106,7 @@ def test_parses_structured_output_without_api_key() -> None:
     async def handler(http_request: httpx.Request) -> httpx.Response:
         payload = json.loads(http_request.content)
         assert "Authorization" not in http_request.headers
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": '{"status":"ok"}'}}]},
@@ -118,15 +118,68 @@ def test_parses_structured_output_without_api_key() -> None:
     assert response.usage.input_tokens is None
 
 
+def test_rejects_structured_output_that_violates_the_requested_schema() -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"status":"wrong"}'}}]},
+            )
+        ),
+    )
+    structured = ModelRequest(
+        messages=request().messages,
+        response_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string", "enum": ["ok"]}},
+            "required": ["status"],
+            "additionalProperties": False,
+        },
+    )
+
+    with pytest.raises(ProviderError) as caught:
+        run(provider.complete(structured))
+    assert caught.value.code == ProviderErrorCode.INVALID_RESPONSE
+
+
 def test_supports_requests_without_tools_and_optional_tool_choice() -> None:
     transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+        lambda _: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok", "tool_calls": None}}]},
+        )
     )
     provider = OpenAICompatibleProvider(config(), transport=transport)
     without_tools = ModelRequest(messages=(ModelMessage(role="user", content="你好"),))
     optional_tools = ModelRequest(messages=without_tools.messages, tools=request().tools)
     assert run(provider.complete(without_tools)).content == "ok"
     assert run(provider.complete(optional_tools)).content == "ok"
+
+
+def test_deepseek_disables_thinking_for_tool_and_structured_requests() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        payloads.append(cast(dict[str, object], json.loads(http_request.content)))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    provider = OpenAICompatibleProvider(
+        OpenAICompatibleConfig(endpoint="https://api.deepseek.com", model="deepseek-v4-flash"),
+        transport=httpx.MockTransport(handler),
+    )
+    run(provider.complete(ModelRequest(messages=request().messages, tools=request().tools)))
+    run(
+        provider.complete(
+            ModelRequest(
+                messages=request().messages,
+                response_schema={"type": "object"},
+            )
+        )
+    )
+
+    assert payloads[0]["thinking"] == {"type": "disabled"}
+    assert payloads[1]["thinking"] == {"type": "disabled"}
 
 
 def test_serializes_assistant_tool_calls_and_tool_results() -> None:
@@ -191,6 +244,32 @@ def test_classifies_http_errors(
         run(provider.complete(request()))
     assert caught.value.code == expected
     assert caught.value.retryable is retryable
+
+
+def test_http_error_detail_is_structured_truncated_and_secret_free() -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "type": "invalid_request_error",
+                        "param": "response_format",
+                        "message": "bad api_key=sk-secret-value " + "x" * 300,
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ProviderError) as caught:
+        run(provider.complete(request()))
+    message = str(caught.value)
+    assert "param=response_format" in message
+    assert "[REDACTED]" in message
+    assert "sk-secret-value" not in message
+    assert len(message) < 400
 
 
 def connect_error(request_value: httpx.Request) -> Exception:

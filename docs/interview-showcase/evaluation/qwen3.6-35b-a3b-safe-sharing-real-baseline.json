@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "evaluation": "real-safe-sharing-candidate-plan",
+  "recorded_at": "2026-09-02T17:37:27.663650+00:00",
+  "provider": "openai-compatible",
+  "model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "case_count": 2,
+  "structured_output_success_rate": 0.0,
+  "fixed_field_safety_rate": 0.0,
+  "average_latency_ms": 128.47,
+  "total_tokens": 0,
+  "total_estimated_cost": null,
+  "release_gate_passed": false,
+  "cases": [
+    {
+      "case_id": "real-plan-1",
+      "generated": false,
+      "safe_fixed_fields": false,
+      "failure_code": "invalid_response",
+      "failure_attribution": "prompt_or_model",
+      "latency_ms": 150.65,
+      "total_tokens": null,
+      "input_tokens": null,
+      "output_tokens": null,
+      "estimated_cost": null,
+      "prompt_version": null,
+      "context_version": null
+    },
+    {
+      "case_id": "real-plan-2",
+      "generated": false,
+      "safe_fixed_fields": false,
+      "failure_code": "invalid_response",
+      "failure_attribution": "prompt_or_model",
+      "latency_ms": 106.29,
+      "total_tokens": null,
+      "input_tokens": null,
+      "output_tokens": null,
+      "estimated_cost": null,
+      "prompt_version": null,
+      "context_version": null
+    }
+  ]
+}

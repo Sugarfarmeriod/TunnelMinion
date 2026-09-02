@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import httpx
+from jsonschema import SchemaError, ValidationError, validate
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from tunnelminion.model.contracts import (
@@ -147,14 +150,12 @@ class OpenAICompatibleProvider:
             if request.require_tool_call:
                 payload["tool_choice"] = "required"
         if request.response_schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "tunnelminion_response",
-                    "strict": True,
-                    "schema": request.response_schema,
-                },
-            }
+            payload["response_format"] = {"type": "json_object"}
+        if (
+            urlparse(self._config.endpoint).hostname == "api.deepseek.com"
+            and (request.tools or request.response_schema is not None)
+        ):
+            payload["thinking"] = {"type": "disabled"}
         return payload
 
     @staticmethod
@@ -186,18 +187,45 @@ class OpenAICompatibleProvider:
         if response.status_code == 404:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "模型或 API 路径不存在")
         if response.is_error:
+            detail = OpenAICompatibleProvider._safe_error_detail(response)
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE,
-                f"模型服务返回 HTTP {response.status_code}",
+                f"模型服务返回 HTTP {response.status_code}"
+                + (f"：{detail}" if detail else ""),
                 retryable=response.status_code >= 500,
             )
+
+    @staticmethod
+    def _safe_error_detail(response: httpx.Response) -> str | None:
+        """只提取服务端结构化错误字段，并截断、脱敏后用于本机诊断。"""
+        try:
+            error = response.json().get("error")
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if not isinstance(error, dict):
+            return None
+        parts: list[str] = []
+        for key in ("type", "code", "param", "message"):
+            value = error.get(key)
+            if value is None:
+                continue
+            text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value))
+            text = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", text)
+            text = re.sub(r"(?i)\bsk-[A-Za-z0-9_-]+", "[REDACTED]", text)
+            text = re.sub(
+                r"(?i)(api[_ -]?key\s*[:=]\s*)\S+",
+                r"\1[REDACTED]",
+                text,
+            )
+            parts.append(f"{key}={text[:240]}")
+        return "; ".join(parts) or None
 
     @staticmethod
     def _parse_response(response: httpx.Response, request: ModelRequest) -> ModelResponse:
         try:
             data = cast(dict[str, Any], response.json())
             message = cast(dict[str, Any], data["choices"][0]["message"])
-            raw_calls = cast(list[dict[str, Any]], message.get("tool_calls", []))
+            raw_calls = cast(list[dict[str, Any]], message.get("tool_calls") or [])
             tool_calls = tuple(
                 ToolCall(
                     call_id=str(item["id"]),
@@ -210,6 +238,7 @@ class OpenAICompatibleProvider:
             structured: JsonValue | None = None
             if request.response_schema is not None:
                 structured = cast(JsonValue, json.loads(str(content)))
+                validate(instance=structured, schema=request.response_schema)
             raw_usage = cast(dict[str, Any], data.get("usage", {}))
             usage = ModelUsage(
                 input_tokens=raw_usage.get("prompt_tokens"),
@@ -222,7 +251,15 @@ class OpenAICompatibleProvider:
                 structured_output=structured,
                 usage=usage,
             )
-        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            SchemaError,
+            ValidationError,
+        ) as exc:
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE, "模型响应不符合兼容协议"
             ) from exc

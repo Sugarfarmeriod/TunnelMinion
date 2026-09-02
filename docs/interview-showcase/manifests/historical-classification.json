@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "claim_id": "historical-planning-ci-proves-ab",
+  "claim": "历史 PR #62 规划 CI 可以证明当前真实 A/B 成功",
+  "status": "prohibited-claim",
+  "source": {
+    "kind": "main",
+    "ref": "origin/main",
+    "commit_sha": "e84781aafaa73d7d61e4756b758f7c1dd0d70fbb",
+    "commit_role": "contains-claim-source"
+  },
+  "scope": {
+    "platforms": ["cross-platform"],
+    "environment": "historical GitHub Actions run 32243201506",
+    "applies_to": "planning artifacts only, not product runtime"
+  },
+  "evidence": [
+    {
+      "evidence_id": "historical-pr-62-ci",
+      "kind": "ci-run",
+      "reference": "GitHub Actions run 32243201506",
+      "captured_at": "2026-08-19T18:54:57+08:00",
+      "verification": {"result": "passed", "method": "历史规划 PR Windows/macOS workflow"},
+      "redaction": {"checked": true, "method": "仅记录公开 run 与提交标识"}
+    }
+  ],
+  "publication": {
+    "include_in_final_metrics": false,
+    "include_in_success_media": false,
+    "notes": "该推断被禁止：规划 CI 不能外推为当前产品或真实 A/B 成功"
+  }
+}

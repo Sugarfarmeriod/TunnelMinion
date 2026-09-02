@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="600" viewBox="0 0 1440 600" role="img" aria-labelledby="title desc">
+  <title id="title">TunnelMinion 可审计安全闭环</title>
+  <desc id="desc">从只读诊断、候选处理、目标节点本地批准、执行和双重验证，到恢复或清理的生命周期。</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="600" rx="28" fill="url(#background)"/>
+  <text x="60" y="70" fill="#0f172a" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="34" font-weight="700">一次可审计的安全闭环</text>
+  <text x="60" y="108" fill="#475569" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="18">产品画面讲主线，生命周期图只负责最后十秒收束。</text>
+
+  <g fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)">
+    <path d="M250 245 H280"/>
+    <path d="M470 245 H500"/>
+    <path d="M690 245 H720"/>
+    <path d="M910 245 H940"/>
+    <path d="M1130 245 H1160"/>
+  </g>
+
+  <g filter="url(#shadow)" font-family="Inter, 'Microsoft YaHei', sans-serif">
+    <g transform="translate(60 165)">
+      <rect width="190" height="160" rx="18" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#0284c7"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">1</text>
+      <text x="22" y="78" fill="#0c4a6e" font-size="22" font-weight="700">只读诊断</text>
+      <text x="22" y="108" fill="#0369a1" font-size="15">Thread / Run</text>
+      <text x="22" y="134" fill="#475569" font-size="14">确定性工具证据</text>
+    </g>
+    <g transform="translate(280 165)">
+      <rect width="190" height="160" rx="18" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#0284c7"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">2</text>
+      <text x="22" y="78" fill="#0c4a6e" font-size="22" font-weight="700">候选处理</text>
+      <text x="22" y="108" fill="#0369a1" font-size="15">Operation: pending</text>
+      <text x="22" y="134" fill="#475569" font-size="14">此时没有执行权</text>
+    </g>
+    <g transform="translate(500 165)">
+      <rect width="190" height="160" rx="18" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#d97706"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">3</text>
+      <text x="22" y="74" fill="#78350f" font-size="20" font-weight="700">目标节点</text>
+      <text x="22" y="101" fill="#78350f" font-size="20" font-weight="700">本地批准</text>
+      <text x="22" y="134" fill="#92400e" font-size="14">拒绝 / 过期即停止</text>
+    </g>
+    <g transform="translate(720 165)">
+      <rect width="190" height="160" rx="18" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#7c3aed"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">4</text>
+      <text x="22" y="78" fill="#4c1d95" font-size="22" font-weight="700">Provider 执行</text>
+      <text x="22" y="108" fill="#6d28d9" font-size="15">范围与授权再检查</text>
+      <text x="22" y="134" fill="#475569" font-size="14">写入不等于成功</text>
+    </g>
+    <g transform="translate(940 165)">
+      <rect width="190" height="160" rx="18" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#16a34a"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">5</text>
+      <text x="22" y="78" fill="#14532d" font-size="22" font-weight="700">双重验证</text>
+      <text x="22" y="108" fill="#15803d" font-size="15">Provider + Path</text>
+      <text x="22" y="134" fill="#475569" font-size="14">独立确认服务可达</text>
+    </g>
+    <g transform="translate(1160 165)">
+      <rect width="220" height="160" rx="18" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <circle cx="30" cy="30" r="16" fill="#16a34a"/>
+      <text x="30" y="36" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700">6</text>
+      <text x="22" y="78" fill="#14532d" font-size="22" font-weight="700">恢复 / 清理</text>
+      <text x="22" y="108" fill="#15803d" font-size="15">仅 owned resources</text>
+      <text x="22" y="134" fill="#475569" font-size="14">不明确则转人工处理</text>
+    </g>
+  </g>
+
+  <g font-family="Inter, 'Microsoft YaHei', sans-serif">
+    <rect x="500" y="375" width="880" height="86" rx="16" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="528" y="410" fill="#334155" font-size="17" font-weight="700">失败路径同样是产品结果</text>
+    <text x="528" y="439" fill="#64748b" font-size="15">未批准：零写入　·　验证失败：回滚或恢复　·　所有权不明：停止自动清理并转人工处理</text>
+    <path d="M595 325 V375" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+    <text x="610" y="357" fill="#b91c1c" font-size="14">拒绝 / 过期</text>
+    <path d="M1035 325 V375" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+    <text x="1050" y="357" fill="#92400e" font-size="14">失败 / 中断</text>
+  </g>
+
+  <rect x="60" y="510" width="1320" height="52" rx="14" fill="#0f172a"/>
+  <text x="720" y="543" text-anchor="middle" fill="#f8fafc" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="16">面试工作包草图 · planned · 不代表 main 已交付 · 模型不能批准 · 只清理 TunnelMinion 明确拥有的资源</text>
+</svg>
