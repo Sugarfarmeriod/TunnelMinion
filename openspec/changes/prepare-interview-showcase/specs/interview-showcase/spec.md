@@ -36,13 +36,13 @@
 - **WHEN** 某项能力只有设计、fixture 或待授权计划
 - **THEN** 该项保持 `planned` 或 `prohibited-claim`，并且不进入成果数字、最终截图或成功录屏
 
-### Requirement: 规划与前置工作包必须与活动 change 保持单一写入边界
+### Requirement: 展示工作包必须保持单一写入边界
 
-在 `complete-managed-path-runtime` 与 `improve-local-product-experience` 未形成稳定基线期间，本 change 的唯一主写者 SHALL 仅修改本 change 的 artifacts 与仓库内非公开、非最终的 `docs/interview-showcase/**` 工作包。该阶段 MUST NOT 修改其他 change 的 proposal、design、specs、tasks，也 MUST NOT 修改根 README、产品前端、最终截图或录屏、公共发布材料或外部图纸。
+本 change 的唯一主写者 SHALL 仅修改本 change 的 artifacts 与仓库内非公开、非最终的 `docs/interview-showcase/**` 工作包。根 README、产品前端、最终截图或录屏、公共发布材料和外部图纸 MUST 等待对应任务与授权门禁。
 
-#### Scenario: 依赖 PR 仍为 Draft
-- **WHEN** PR #40 或 PR #59 尚未稳定合并且公共文件所有权仍归对应 owner
-- **THEN** 本 change 只完成独立规划以及 `docs/interview-showcase/**` 内的依赖矩阵、证据 schema、脚本、fixture 设计和证据台账，不启动公共 UI、根 README、最终截图或录屏写入
+#### Scenario: 公共文件尚未分配 owner
+- **WHEN** 展示工作需要修改根 README、产品前端或外部图纸，但公共文件写入者尚未明确
+- **THEN** 本 change 只完成独立工作包和证据台账，不启动对应公共写入
 
 ### Requirement: 最终素材必须建立在稳定依赖与本轮证据上
 

@@ -1,7 +1,7 @@
 ## 1. 依赖、基线与单一写入边界
 
 - [x] 1.1 现场记录 `origin/main`、PR #40、PR #59、相关 OpenSpec 完成度、CI、review 和 worktree，建立依赖矩阵；Draft PR 证据只标记为 `draft-pr-verified`
-- [x] 1.2 为本 change 指定唯一主写者和公共文件写入顺序，确认不修改 `complete-managed-path-runtime`、`improve-local-product-experience` 的 artifacts 或任务状态
+- [x] 1.2 为本 change 指定唯一主写者和公共文件写入顺序，确认不修改已归档 LPE/managed-path artifacts
 - [x] 1.3 在写 README、前端或最终演示材料前，确认所需 PR 已进入明确稳定基线；未满足时只保留本 change 规划并记录 blocker
 - [x] 1.4 定义 claim-to-evidence manifest schema，覆盖状态分类、来源 SHA/PR、平台、环境、验证方式、采集时间、适用范围和脱敏资产
 
@@ -14,8 +14,8 @@
 
 ## 3. 展示素材与产品承载
 
-- [ ] 3.1 在稳定基线上设计 README 展示结构：一句话定位、闭环动图、五步主流程、证据表、生命周期图、安全边界、降级矩阵和深挖链接
-- [ ] 3.2 复核 PR #40 合并后的 Overview、Chat、Operations、Memories、Settings 是否足以承载完整故事；只有存在经证据确认的缺口时才规划最小只读聚合视图
+- [x] 3.1 在稳定基线上设计 README 展示结构：一句话定位、闭环动图、五步主流程、证据表、生命周期图、安全边界、降级矩阵和深挖链接
+- [x] 3.2 复核 PR #40 合并后的 Overview、Chat、Operations、Memories、Settings 是否足以承载完整故事；只有存在经证据确认的缺口时才规划最小只读聚合视图
 - [x] 3.3 生成现场演示、录屏和离线证据的素材清单，记录每项资产的 source SHA、采集环境、图源/导出关系和脱敏检查
 - [x] 3.4 按单一写入者和另行授权门禁处理 Penpot；仓库 Mermaid/SVG/manifest 必须离线可验证，主演示不以架构课件开场
 

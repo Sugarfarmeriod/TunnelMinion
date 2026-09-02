@@ -2,7 +2,7 @@
 
 ## 结论
 
-在 PR #40 的精确提交 `61398b76d01b3836dc6023f74b0ba3d17ef7cbb4` 上，独立只读验证证明：模型不可用时，确定性的设备/服务状态和已有操作入口仍可用。该结论仅属于 `draft-pr-verified`，不能描述为 `main` 已交付，也不能进入最终成果数字或成功画面。
+在稳定基线 `b21b00e68e2298bb5db6a5c75d3e8629a33e4d05` 上，定向验证证明：模型不可用时，确定性的设备/服务资源路由和已有操作控制仍可用。
 
 OpenSpec 任务 4.2 仍保持未完成。当前证据没有证明完整访问地址继续可见，也没有成品录屏可供核验“录屏播放不会被描述为当前现场成功”。
 
@@ -10,29 +10,25 @@ OpenSpec 任务 4.2 仍保持未完成。当前证据没有证明完整访问地
 
 | 要求 | 当前状态 | 证据或缺口 |
 | --- | --- | --- |
-| 设备/服务状态在无模型时继续可用 | PR #40 Draft 已验证 | 后端降级、资源路由和 macOS 本地资源测试通过；Overview 降级端到端场景通过 |
-| 已有操作入口在无模型时继续可用 | PR #40 Draft 已验证 | 后端操作 API 与前端 Operations 页面测试通过 |
+| 设备/服务状态在无模型时继续可用 | 稳定 main 已验证 | `test_resource_routes_work_without_model_provider` 通过 |
+| 已有操作入口在无模型时继续可用 | 稳定 main 已验证 | `test_approval_is_persistent_idempotent_and_does_not_require_model` 通过 |
 | 访问地址在无模型时继续可用 | 未证明 | 当前 Overview 摘要只公开端口与可访问性，不公开 host；不能把端口冒充完整访问地址 |
 | 录屏播放不冒充当前现场成功 | 未证明 | 现阶段只有文字门禁和离线分类规则，尚无最终录屏资产可验收 |
 
 ## 独立验证
 
-验证工作树：`C:/Users/xffuv/.codex/worktrees/bc54/tunnelminion`
+验证工作树：`F:/Project/codex/tunnelminion-interview-showcase`
 
-基线：PR #40 `feature/local-product-experience@61398b76d01b3836dc6023f74b0ba3d17ef7cbb4`
+基线：`origin/main@b21b00e68e2298bb5db6a5c75d3e8629a33e4d05` 合入 PR #63 工作分支后的 `f347caa3bf1744e0c75954b5a42c65bc6653e96f`
 
 结果：
 
-- 后端定向测试使用 `--no-cov` 运行，3 项通过：模型故障时资源和操作控制可用、无模型 Provider 时资源路由可用、macOS 本地资源降级可用。
-- 前端 Overview 与 Operations 定向单元测试共 10 项通过。
-- Overview 降级 Playwright 场景在 Chromium 与 WebKit 共 12 项通过。
-- 验证前后该 detached worktree 保持干净，未修改 PR #40。
-
-第一次运行后端定向测试时，测试本身 3 项均通过，但全仓 100% 覆盖率门槛令命令退出失败；随后用 `--no-cov` 重跑同一组测试取得确定性通过结果。该覆盖率包装器失败不计作产品行为失败。
+- `uv run pytest --no-cov` 定向运行上述 2 项测试：`2 passed`。
+- PR #40 合并前的前端与浏览器证据保留为历史来源；本轮没有为 4.2 重跑测试洪水。
 
 ## 发布边界
 
-配套 manifest 为 [PR #40 无模型降级声明](manifests/pr40-no-model-degradation.json)。在 PR #40 进入稳定基线、访问地址得到实现与验证、并有真实录屏资产完成真实性标注核验以前：
+历史 manifest 为 [PR #40 无模型降级声明](manifests/pr40-no-model-degradation.json)。在访问地址得到实现与验证、并有真实录屏资产完成真实性标注核验以前：
 
 - 不勾选任务 4.2；
 - 不把本记录写成 `main-verified`；

@@ -41,7 +41,7 @@ REQUIRED_BOUNDARIES = {
     "path/service verify",
     "owned resources",
     "不播放录屏并称为当前成功",
-    "3.1 保持未完成",
+    "OpenSpec 3.1 已完成",
 }
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 

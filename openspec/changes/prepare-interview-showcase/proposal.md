@@ -25,5 +25,5 @@ TunnelMinion 已具备跨节点诊断、授权操作和证据链能力，但这�
 
 - 新增独立的面试展示规划、规范和任务清单。
 - 后续实现可能在依赖稳定后涉及 README、演示文档、离线素材以及最小展示信息聚合，但本 change 不改变现有 Agent、网络、授权、模型或跨节点协议语义。
-- `complete-managed-path-runtime` 与 `improve-local-product-experience` 仍由各自 owner 管理；本 change 不修改它们的 artifacts、任务状态或实现分支。
+- `complete-managed-path-runtime` 与 `improve-local-product-experience` 已同步主规格并归档；本 change 只引用稳定 `main`，不修改其归档 artifacts。
 - 自部署 Penpot 继续作为可编辑图源，仓库内离线 SVG 与脱敏 manifest 作为可审计发布证据；规划阶段不写入外部图纸。
