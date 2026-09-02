@@ -121,7 +121,11 @@ Node Runtime SHALL 通过环回地址提供统一 React 产品界面，并 SHALL
 
 #### Scenario: 防火墙日志不可读
 - **WHEN** 当前平台没有受支持的防火墙日志接口或用户未授予读取权限
-- **THEN** 页面把日志标为可选诊断不可用，并继续使用真实跨机请求表达 peer 是否可达
+- **THEN** 页面把日志标为可选诊断不可用；没有当前真实跨机证据时明确显示 peer 未验证/local-only，不用缓存、fixture 或平台能力降级冒充 peer 可达
+
+#### Scenario: 双平台安全诊断预览
+- **WHEN** Windows 或 macOS 正常产品入口没有真实 peer 直连授权或当前路径证据
+- **THEN** 总览、聊天、审批、记忆和设置继续可用并如实展示 local-only、未配置、陈旧或降级；验收不触发 managed-path 网络写入，也不把该结果声明为真实 A/B
 
 ### Requirement: 产品界面必须满足基础可访问性和窄窗口使用
 

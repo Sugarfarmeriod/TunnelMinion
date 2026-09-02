@@ -7,8 +7,14 @@
 
 前端只面向节点本机用户，继续由环回 FastAPI 同源提供。Windows 与 macOS 是本 change 的真实
 验收平台；Linux、新安装器产品和自动升级仍是独立工作；现有运行包校验/安装流程只做 v2 兼容扩展。
-产品设计与架构图协作统一使用用户自部署的 Penpot。Penpot 服务或写权限的临时不可用不作为 React
-源码开发工具依赖，但阶段关闭仍需遵守仓库的 Penpot 主图同步门禁和单一写入者约束。
+产品设计与实现可以在架构图工具之外推进；架构图不作为 React 源码开发工具依赖。
+当前可编辑的架构图权威源迁移为自部署 Penpot。2026-08-12 的只读现场核对确认当前连接的
+Penpot 文件包含 `TunnelMinion 架构总图`，以及带日期的 `主图 A · 当前系统架构（2026-08-12）`、
+`主图 B · Runtime 生命周期（2026-08-12）`、`主图 C · 请求与操作审批流程（2026-08-12）`；
+三张主图均已通过 Penpot 只读导出检查。仓库内的 Mermaid 源、`docs/assets/architecture/*.svg`
+和脱敏摘要/manifest 是可审计的发布证据，不取代 Penpot 的可编辑权威。当前连接器没有提供可确认的
+稳定公开深链，因此不在规划或文档中猜测 Penpot URL；Figma/FigJam 只作为历史 provenance 记录，
+不作为当前图源或合并门禁。
 
 ## Goals / Non-Goals
 
@@ -20,6 +26,7 @@
 - 无模型或外部组件故障时继续提供确定性资源、已有操作控制和清晰降级说明。
 - 保持所有远端文本为不可信数据，保持写操作的服务端授权、确认、幂等、验证和恢复边界。
 - 让前端生产构建可重复地进入 Windows/macOS package，并可回退到旧页面。
+- 用双平台正常产品入口完成安全诊断预览，证明 local-only、未配置、陈旧和能力降级不会被误报为 peer 可用；不在本 change 重启真实 managed-path A/B。
 
 **Non-Goals:**
 
@@ -29,6 +36,7 @@
 - 不新建安装器产品，不交付自动升级、开机自启、Linux 包或整体品牌官网；现有运行包消费者的
   manifest v1/v2 兼容属于本 change 的 package 接线。
 - 不重写后端领域模型，也不为了界面好看把陈旧、未知或离线状态伪装成正常。
+- 不以真实 peer 直连或 managed-path 网络写入作为本 change 的完成条件；需要时另建 change 重新批准资源、人工操作和退出条件。
 
 ## Decisions
 
@@ -205,6 +213,17 @@ Mermaid 源只来自受审文档；节点文本加引号并转义，禁止 init 
 图片/脚本和运行时不可信文本插值。使用锁定版本离线语法校验，生成 SVG 时扫描脚本、事件处理器、
 外链和 `foreignObject`；失败时保留文字说明，不绕过门禁。
 
+### 12. Penpot 与仓库离线证据分层
+
+自部署 Penpot 是唯一可编辑的当前架构图源。`improve-local-product-experience` 的 integration owner
+是本 change 在 Penpot 当前页面、OpenSpec tasks 和本 change 文档上的唯一写入者；PR #59 及其工作树
+没有 Penpot 写入范围。每次 Foundation 或发布阶段核对只读读取页面清单、当前/历史标记和导出结果，
+再对照仓库中的 Mermaid 源、离线 SVG、脱敏摘要和 package manifest；没有明确写入归属时不修改外部页面。
+
+当前发布核对以 `主图 A/B/C` 三页为准，`TunnelMinion 架构总图` 作为总览入口；其他精修或已废弃页面
+不自动晋升为发布权威。Penpot 文件名、页面 ID 和自部署地址只能使用现场实际返回的值，不能凭猜测补写
+链接。历史 Figma 图可以留作来源说明，但不影响代码合并、发布或 change 归档。
+
 ## Risks / Trade-offs
 
 - [新增 Node 构建链增加依赖与供应链面积] → 锁定依赖、最小依赖集、许可证/漏洞扫描和离线产物验收。
@@ -212,8 +231,9 @@ Mermaid 源只来自受审文档；节点文本加引号并转义，禁止 init 
 - [SSE 重连造成重复消息或泄漏连接] → 使用事件序号去重、显式关闭条件和 fake EventSource 测试。
 - [旧 API 形状不适合产品界面] → 先做契约 spike；只增加最小聚合读模型，不在浏览器复制领域逻辑。
 - [React 资源增大运行包] → 记录压缩前后体积与首次加载预算，禁止无收益的大型 UI 依赖。
-- [Penpot 服务或写权限临时不可用] → 代码侧先用设计 token、组件故事和截图基线推进；架构阶段关闭前
-  仍按 AGENTS.md 由唯一写入者补齐主图核对，不把外部工具不可用当作降低验收标准的理由。
+- [自部署 Penpot 暂时不可读或外部页面归属不明确] → 不猜测 URL、不修改未确认归属的页面；以已提交的
+  Mermaid 源、离线 SVG、脱敏摘要/manifest 和页面核对记录保持可审计，恢复只读访问后再由 integration
+  owner 处理必要更新。Figma 的历史链接或额度永远不构成当前合并 blocker。
 
 ## Migration Plan
 
@@ -224,16 +244,20 @@ Mermaid 源只来自受审文档；节点文本加引号并转义，禁止 init 
    Memories/Settings 串行整合。
 5. `package-manual-node-runtime` 分支栈进入 `main` 前只做 package 只读审计和 clean-room harness；合并后
    再接入唯一 frontend dist、manifest v2 与双平台 package，禁止复制第二套 builder。
-6. 在 Windows/macOS 开发运行与版本化 package 中执行无模型、Coordinator 离线、peer 离线、SSE
-   重连、操作超时、320 CSS px、200% zoom 和供应链验收。
+6. 在 Windows/macOS 开发运行与版本化 package 中执行无模型、Coordinator 离线、local-only/peer
+   未验证、SSE 重连、操作超时、320 CSS px、200% zoom 和供应链验收；不执行真实 managed-path 写入。
 7. 保留 legacy 页面并短时切换默认入口；失败立即只恢复旧入口映射。旧页保留一个完整发布周期，
    后续删除另建 change。
-8. Foundation 安全边界落地后和最终发布前各核对一次 Penpot 主图；Penpot 服务或写权限暂不可用不
-   阻塞独立功能切片，但必须记录 blocker，并阻止最终 change 关闭与发布 PR 合并。
+8. Foundation 安全边界落地后和最终发布前各只读核对一次自部署 Penpot 的当前主图；记录页面名、
+   页面 ID、核对日期、当前/历史标记、导出结果和仓库主图/摘要链接。只有本 integration owner 在
+   归属明确时才可更新 Penpot；不猜测深链，也不把历史 Figma 链接当作当前门禁。Penpot 现场核对与
+   本地离线证据必须保持一致，Figma 额度或访问状态不阻塞独立切片、合并或归档。
 
 ## Resolved Decisions and Remaining Question
 
 - 视觉基础固定为轻量自有 token 与少量无样式可访问 primitives；spike 只验证选型，不再决定是否使用大型 UI 库。
 - 浏览器 CI 固定 Chromium + WebKit；窄窗口固定 320 CSS px。
 - 旧页面固定保留一个完整发布周期。
+- 当前可编辑架构图权威固定为自部署 Penpot；仓库离线 SVG/摘要承担可审计发布证据，Figma 仅保留历史
+  provenance，不参与当前门禁。
 - 尚待产品确认：节点/服务首页首版是否需要搜索与排序；在确认前按小型家庭/实验室规模的分组列表实现。

@@ -29,7 +29,7 @@ placeholder="例如：本机 WireGuard 和模型状态如何？"></textarea><br>
 <button onclick="send()">发送</button><button onclick="cancelRun()">取消运行</button>
 <div id="events"></div><script>
 let currentThread=null,currentRun=null;
-async function api(path,options){const r=await fetch(path,options);if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
+async function api(path,options={}){const method=(options.method||'GET').toUpperCase();const headers=new Headers(options.headers||{});if(!['GET','HEAD','OPTIONS','TRACE'].includes(method))headers.set('X-TunnelMinion-Request','same-origin');const r=await fetch(path,{...options,headers});if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
 async function refresh(){const ts=await api('/api/threads');const root=document.getElementById('threads');root.innerHTML='';
 for(const t of ts){const b=document.createElement('button');b.textContent=t.thread_id+' ('+t.message_count+')';
 b.onclick=()=>openThread(t.thread_id);root.appendChild(b);root.appendChild(document.createElement('br'));}
@@ -137,4 +137,10 @@ def create_conversation_router(service: InMemoryConversationService) -> APIRoute
     router.add_api_route("/api/runs/{value}/cancel", cancel_run, methods=["POST"])
     router.add_api_route("/api/runs/{value}/events", events, methods=["GET"])
     router.add_api_route("/chat", chat_page, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route(
+        "/legacy/chat",
+        chat_page,
+        methods=["GET"],
+        response_class=HTMLResponse,
+    )
     return router

@@ -1,0 +1,40 @@
+{
+  "schema_version": "resource-overview/v1",
+  "http_status": 200,
+  "local": {
+    "runtime": "running",
+    "readiness": "ready",
+    "package_kind": "standalone",
+    "manifest_schema": "runtime-package-manifest/v2"
+  },
+  "model": {
+    "configured": false,
+    "status": "unconfigured",
+    "freshness": "not_applicable"
+  },
+  "coordinator": {
+    "configured": false,
+    "state": "unconfigured",
+    "freshness": "not_applicable"
+  },
+  "network_path": {
+    "configured": false,
+    "state": "unconfigured",
+    "handshake": "missing",
+    "route": "missing",
+    "probe": "missing",
+    "freshness": "not_applicable"
+  },
+  "nodes": [
+    {
+      "display_name": "本机",
+      "state": "local",
+      "service_count": 0,
+      "freshness": "live"
+    }
+  ],
+  "services": [],
+  "product_conclusion": "standalone 本机确定性页面可用；模型未配置、Coordinator 未配置、网络路径未配置/不可用时，页面仍返回结构化降级状态，不把这些外部条件当作启动前提。",
+  "generated_at": "2026-08-11T11:33:06.868Z",
+  "passed": true
+}

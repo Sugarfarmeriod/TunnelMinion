@@ -56,7 +56,13 @@ def _manifest(package_root: Path, entrypoint: str = "fixture.bin") -> dict[str, 
 
 
 def test_fixture_builds_real_local_and_gateway_apps(tmp_path: Path) -> None:
-    local = cast(ApiClient, TestClient(create_fixture_application("local", tmp_path / "local")))
+    local = cast(
+        ApiClient,
+        TestClient(
+            create_fixture_application("local", tmp_path / "local"),
+            base_url="http://127.0.0.1",
+        ),
+    )
     local_status = local.get("/__runtime_package_fixture__")
     assert local_status.status_code == 200
     assert local_status.json()["component"] == "local"
@@ -134,6 +140,20 @@ def test_environment_and_path_checks_remove_development_injection(tmp_path: Path
         }
     )
     assert cleaned == {"KEEP": "yes", "PYTHONNOUSERSITE": "1"}
+    isolated = acceptance.isolated_product_environment(
+        tmp_path / "empty-path", {"PATH": "node-bin", "PYTHONPATH": "bad"}
+    )
+    assert isolated["PATH"] == str((tmp_path / "empty-path").resolve())
+    assert "PYTHONPATH" not in isolated
+    assert isolated["HTTP_PROXY"] == "http://127.0.0.1:9"
+    assert isolated["NO_PROXY"] == "127.0.0.1,localhost"
+    assert acceptance._source_like_entries(  # pyright: ignore[reportPrivateUsage]
+        [
+            {"path": "_internal/app.py"},
+            {"path": "frontend/src/App.tsx"},
+            {"path": "_internal/app.js"},
+        ]
+    ) == ["_internal/app.py", "frontend/src/App.tsx"]
     forbidden = tmp_path / "repo"
     assert (
         acceptance._path_hits(  # pyright: ignore[reportPrivateUsage]
@@ -169,6 +189,32 @@ def test_environment_and_path_checks_remove_development_injection(tmp_path: Path
     )
 
 
+def test_runtime_package_evidence_is_minimal_and_requires_sections() -> None:
+    evidence = acceptance._runtime_package_evidence(  # pyright: ignore[reportPrivateUsage]
+        {
+            "local": {
+                "package": {
+                    "kind": "standalone",
+                    "version": "0.1.0",
+                    "manifest_schema": "runtime-package-manifest/v2",
+                    "private_path": "must-not-escape",
+                }
+            }
+        }
+    )
+    assert evidence == {
+        "kind": "standalone",
+        "version": "0.1.0",
+        "manifest_schema": "runtime-package-manifest/v2",
+    }
+    with pytest.raises(ValueError, match="local"):
+        acceptance._runtime_package_evidence({})  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="package"):
+        acceptance._runtime_package_evidence(  # pyright: ignore[reportPrivateUsage]
+            {"local": {}}
+        )
+
+
 def test_acceptance_relocates_package_and_reports_program_data_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -202,6 +248,7 @@ def test_acceptance_relocates_package_and_reports_program_data_boundary(
     )
     assert report["passed"] is True
     assert report["program_data_entries"] == []
+    assert report["source_entries"] == []
 
     (package_root / "model.json").write_text("{}", encoding="utf-8")
     manifest = _manifest(package_root)

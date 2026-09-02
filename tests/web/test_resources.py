@@ -46,6 +46,7 @@ from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 from tunnelminion.web.resources import (
     CoordinatorResourceState,
+    ManagedPathResourceView,
     coordinator_resource_view,
     create_resource_router,
 )
@@ -98,6 +99,7 @@ def test_resource_routes_work_without_model_provider() -> None:
     assert "即使模型不可用" in page.text
     assert "refreshAll" in page.text
     assert page.headers["cache-control"] == "no-store"
+    assert client.get("/legacy/resources").text == page.text
     assert client.get("/api/resources/network-path").json() == {
         "configured": False,
         "provider": None,
@@ -246,6 +248,7 @@ def test_managed_path_status_provider_projects_fresh_then_stale() -> None:
         create_resource_router(
             runtime,
             evidence.node_id,
+            network_path_status=lambda: ManagedPathResourceView(configured=False),
             managed_path_status=lambda: status,
             clock=lambda: now[0],
         )

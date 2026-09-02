@@ -1,0 +1,11 @@
+{
+  "schema": "manual-settings-diagnostics-screenshot/v1",
+  "platform": "windows",
+  "browser": {
+    "engine": "Chromium",
+    "version": "151.0.7922.34"
+  },
+  "file": "windows-settings-diagnostics.png",
+  "sha256": "bf3e888ae7656be4a59ad7e352e95b17d542c4229fa2c8ef2a9ffe7f02571ce7",
+  "visual_target": "diagnostics export and recovery guide"
+}

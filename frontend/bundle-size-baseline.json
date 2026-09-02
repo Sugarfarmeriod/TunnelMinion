@@ -1,0 +1,6 @@
+{
+  "schema": "tunnelminion/frontend-bundle-baseline/v1",
+  "acceptedBytes": 144987,
+  "acceptedCommit": "ecfd0a4",
+  "reviewNote": "真实 FastAPI 浏览器门禁落地后的首个已接受生产构建基线。"
+}

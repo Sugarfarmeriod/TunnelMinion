@@ -3,7 +3,11 @@
 这是一份面向项目所有者的“活文档”。它不假设读者熟悉 Agent、LangChain、LangGraph
 或后端框架。每完成一个阶段，都应更新“当前进度”和文末的“增量认知记录”。
 
-配套图：[TunnelMinion 双节点只读 Agent 架构（FigJam）](https://www.figma.com/board/8KODvoNqXZsLCHKO0J4nbU)
+配套图来自自部署 Penpot 当前连接文件：`TunnelMinion 架构总图`，以及
+`主图 A · 当前系统架构（2026-08-12）`、`主图 B · Runtime 生命周期（2026-08-12）`、
+`主图 C · 请求与操作审批流程（2026-08-12）`。当前页面 ID 和仓库离线 SVG/摘要证据见
+[《TunnelMinion 架构》](../architecture.md)；本文不猜测 Penpot URL。旧 Figma 图仅作历史 provenance，
+不影响当前门禁或合并。
 
 ## 先用一句话理解产品
 
@@ -394,7 +398,7 @@ uv run tunnelminion --port 8765
 - 故障隔离：临时移除 A 的模型配置后，AI run 正确返回 503，但 A 的本地资源和 A→B Gateway
   调用仍成功；脚本随后恢复 Qwen，AI run 回到 200。这证明“模型坏了”不等于“资源和工具层
   一起瘫痪”。
-- 可核验材料：新增 Figma 架构图、Windows 聊天截图、macOS 资源截图、两份脱敏 JSON 报告和
+- 可核验材料：自部署 Penpot 当前主图、仓库离线架构 SVG、Windows 聊天截图、macOS 资源截图、两份脱敏 JSON 报告和
   [《真实双机人工验收》](真实双机人工验收.md)。
 - 工程状态：216 个测试、严格类型检查、源代码与分支覆盖率 100%；GitHub Actions 的 Windows
   与 macOS 作业均通过。

@@ -18,6 +18,7 @@ TunnelMinion 已有聊天、资源、操作和记忆 API，但对应页面仍是
   `GET /api/operations/{operation_id}` 详情，使前端直接消费服务端给出的来源、新鲜度、稳定错误码、
   owned resources、verification、cleanup record 和 manual action，而不是自行拼装或猜测状态。
 - 修正 Windows/macOS 应用装配，让真实 Coordinator cache/status 与 network path evidence 进入总览。
+- 本 change 的双平台完成条件止于安全诊断预览：在 Windows/macOS 正常产品入口如实展示 local-only、未配置、陈旧和能力降级，不以真实 peer 直连或 managed-path 网络写入作为发布前置；真实跨机路径另由未来 change 验收。
 - 本机 Web 增加 Host、Origin、Fetch Metadata 和 `X-TunnelMinion-Request: same-origin` 写请求边界；
   旧页面同步遵守该边界，无 Origin/Fetch Metadata 的本机 CLI 保持兼容，且不开放跨站 CORS。
 - 固定 Node.js 22.14.0、npm 10.9.2、`package-lock.json` 与 `npm ci`；采用轻量自有设计系统和少量

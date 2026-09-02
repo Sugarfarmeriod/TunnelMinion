@@ -1,0 +1,354 @@
+{
+  "schema": "manual-memories-settings-focus-automation/v1",
+  "source_revision": "b8b9766e6f5f1c2ba00a733735ed63c3eb8e2da6",
+  "platform": "windows",
+  "browser": {
+    "engine": "chromium",
+    "version": "151.0.7922.34"
+  },
+  "runtime": {
+    "mode": "formal-offline-package",
+    "package_id": "tunnelminion-0-1-0-win32-amd64-51feef70609e-9a8a05a5d56d",
+    "manifest_schema": "runtime-package-manifest/v2",
+    "manifest_sha256": "169f8c59e53cf9023f5037daa30b4dcc355f4566dd1ef050685b3f4f7ea76001",
+    "package_frontend_sha256": "9a8a05a5d56d54e0ed64cda16a51d4cc81526d67a766e8d46a5423d961c06b22",
+    "fixture_node_id": "node_15467758826e40cfad90bc7a85b9c7fa",
+    "fixture_contains_secrets": false
+  },
+  "screenshots": [
+    {
+      "file": "chromium-focus-memories-home.png",
+      "sha256": "37a2267af0404b2fdcc7d4988eade2239aaffe65476d48c3ab5e5d5608f04ce1",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-memories-revise-dialog.png",
+      "sha256": "7b2890943620cea584087da03d09fdd1c78daa18e26ff04c94919b9af59b900c",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-memories-lab.png",
+      "sha256": "6102c54249b6a6a7de45b1134f72a1fb90968c85942ed5f821dce7e4f2805dd7",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-memories-clear-dialog.png",
+      "sha256": "d562d4105f9b20e0bda66e6501d55d7f3fdb1a49ec3a369075756c5622833081",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-memories-delete-dialog.png",
+      "sha256": "77e9eabc873aaa6b6ee4d21c6810edd16828e8ebf5a4f4945fb858a17d5348a3",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-settings-unconfigured.png",
+      "sha256": "a69e4f36ad6d65791e13772bb06224093ca852a540408f43b0f5c7cb69eb67ab",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-settings-save-dialog.png",
+      "sha256": "ff5f23e87d928245c86480a7984b03765ba7baa365192510141792451bfe5f65",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-settings-320.png",
+      "sha256": "18860a6c3bc8a9d4e4e0ca79f334cd305a53245ad98f22680af2c969b78b20f9",
+      "width": 320,
+      "height": 720
+    },
+    {
+      "file": "chromium-focus-memories-200pct-equivalent.png",
+      "sha256": "08867e6498925735ee5a816f4de149da2b2dcc01cf4a184672d9fa4857dfb824",
+      "width": 640,
+      "height": 360
+    }
+  ],
+  "focus_checks": [
+    {
+      "label": "memories-revise",
+      "states": [
+        {
+          "step": "initial",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认修正一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认修正一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        }
+      ],
+      "escapeClosed": true,
+      "restored": {
+        "sameElement": true,
+        "tag": "BUTTON",
+        "isBodyOrHtml": false
+      }
+    },
+    {
+      "label": "memories-clear",
+      "states": [
+        {
+          "step": "initial",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认清空一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认清空一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        }
+      ],
+      "escapeClosed": true,
+      "restored": {
+        "sameElement": true,
+        "tag": "BUTTON",
+        "isBodyOrHtml": false
+      }
+    },
+    {
+      "label": "memories-delete",
+      "states": [
+        {
+          "step": "initial",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认删除一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认删除一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        }
+      ],
+      "escapeClosed": true,
+      "restored": {
+        "sameElement": true,
+        "tag": "BUTTON",
+        "isBodyOrHtml": false
+      }
+    },
+    {
+      "label": "settings-save",
+      "states": [
+        {
+          "step": "initial",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认保存一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-forward-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-1",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "确认保存一次",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        },
+        {
+          "step": "tab-reverse-wrap",
+          "tag": "BUTTON",
+          "id": "",
+          "role": null,
+          "text": "取消",
+          "insideDialog": true,
+          "isBodyOrHtml": false
+        }
+      ],
+      "escapeClosed": true,
+      "restored": {
+        "sameElement": true,
+        "tag": "BUTTON",
+        "isBodyOrHtml": false
+      }
+    }
+  ],
+  "axe_checks": [
+    {
+      "label": "memories-home",
+      "seriousCritical": 0,
+      "totalViolations": 0
+    },
+    {
+      "label": "memories-lab",
+      "seriousCritical": 0,
+      "totalViolations": 0
+    },
+    {
+      "label": "settings-unconfigured",
+      "seriousCritical": 0,
+      "totalViolations": 0
+    },
+    {
+      "label": "settings-320",
+      "seriousCritical": 0,
+      "totalViolations": 0
+    },
+    {
+      "label": "memories-200pct-equivalent",
+      "seriousCritical": 0,
+      "totalViolations": 0
+    }
+  ],
+  "browser_storage": {
+    "local": [],
+    "session": [],
+    "databases": []
+  },
+  "diagnostics": {
+    "content_type": "application/json; charset=utf-8",
+    "byte_length": 2185,
+    "forbidden_pattern_findings": 0,
+    "console_forbidden_pattern_findings": 0
+  },
+  "viewports": {
+    "settings_320": {
+      "clientWidth": 320,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "noHorizontalOverflow": true
+    },
+    "memories_200pct_equivalent": {
+      "clientWidth": 640,
+      "scrollWidth": 640,
+      "bodyScrollWidth": 640,
+      "noHorizontalOverflow": true
+    }
+  },
+  "manual_visual_review_required": true,
+  "real_safari_or_screen_reader": "not_run; WebKit/Chromium browser and ARIA evidence only"
+}

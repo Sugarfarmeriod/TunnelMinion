@@ -84,6 +84,8 @@ def test_conversation_http_and_sse_success(monkeypatch: pytest.MonkeyPatch) -> N
         assert page.status_code == 200
         assert "TunnelMinion 只读诊断" in page.text
         assert "EventSource" in page.text
+        assert "X-TunnelMinion-Request" in page.text
+        assert client.get("/legacy/chat").text == page.text
         assert client.delete(f"/api/threads/{thread_id}").status_code == 204
 
 

@@ -22,6 +22,7 @@ from tunnelminion.runtime.install import (
     SwitchOutcome,
     default_runtime_install_root,
 )
+from tunnelminion.runtime.preflight import canonical_runtime_architecture
 
 
 def _sha256(path: Path) -> str:
@@ -73,6 +74,81 @@ def _package(tmp_path: Path, package_id: str, payload: bytes) -> tuple[Path, Pat
     return root, manifest_path
 
 
+def _v2_package(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "package-v2"
+    ui = root / "ui"
+    schemas = root / "schemas"
+    ui.mkdir(parents=True)
+    schemas.mkdir()
+    executable = root / "app.bin"
+    executable.write_bytes(b"v2")
+    (ui / "index.html").write_bytes(b"ui")
+    shutil.copy2(
+        "schemas/runtime-package-manifest-v2.schema.json",
+        schemas / "runtime-package-manifest-v2.schema.json",
+    )
+    files: list[dict[str, object]] = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative = path.relative_to(root).as_posix()
+        file_type = (
+            "entrypoint"
+            if relative == "app.bin"
+            else "frontend"
+            if relative.startswith("ui/")
+            else "schema"
+        )
+        files.append(
+            {
+                "path": relative,
+                "sha256": _sha256(path),
+                "size": path.stat().st_size,
+                "type": file_type,
+            }
+        )
+    frontend_digest = hashlib.sha256()
+    frontend_digest.update(b"index.html\0")
+    frontend_digest.update(bytes.fromhex(hashlib.sha256(b"ui").hexdigest()))
+    manifest = {
+        "schema_version": "runtime-package-manifest/v2",
+        "candidate": {
+            "id": "package-v2",
+            "layout": "onedir-freeze",
+            "platform": sys.platform,
+            "architecture": canonical_runtime_architecture(),
+            "python_version": "3.11.15",
+            "application_version": "0.1.0",
+        },
+        "build": {
+            "source_revision": "a" * 40,
+            "source_tree_sha256": "b" * 64,
+            "python_lock_sha256": "c" * 64,
+            "npm_lock_sha256": "d" * 64,
+            "builder": "fixture",
+        },
+        "frontend": {
+            "root": "ui",
+            "sha256": frontend_digest.hexdigest(),
+            "file_count": 1,
+        },
+        "entrypoint": "app.bin",
+        "entrypoint_args": [],
+        "files": files,
+        "licenses": [
+            {
+                "ecosystem": ecosystem,
+                "name": ecosystem,
+                "version": "1",
+                "license": "MIT",
+                "source": "fixture",
+            }
+            for ecosystem in ("python", "npm")
+        ],
+    }
+    manifest_path = tmp_path / "package-v2.manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return root, manifest_path
+
+
 def test_stage_activate_is_idempotent_and_state_contains_only_data_digest(
     tmp_path: Path,
 ) -> None:
@@ -90,6 +166,23 @@ def test_stage_activate_is_idempotent_and_state_contains_only_data_digest(
     serialized = (tmp_path / "program" / INSTALL_STATE_FILE).read_text(encoding="utf-8")
     assert str(data_dir) not in serialized
     assert "token" not in serialized
+
+
+def test_stage_and_activate_v2_package_without_rewriting_manifest(tmp_path: Path) -> None:
+    package, manifest = _v2_package(tmp_path / "sources")
+    before = manifest.read_bytes()
+    installer = RuntimePackageInstaller(tmp_path / "program", tmp_path / "data")
+    record = installer.stage(package, manifest)
+    installer.activate(record.package_id, lambda: True)
+    installed = installer.current_program_dir()
+    assert installed is not None
+    assert (
+        json.loads((installed / "runtime-package-manifest.json").read_text(encoding="utf-8"))[
+            "schema_version"
+        ]
+        == "runtime-package-manifest/v2"
+    )
+    assert manifest.read_bytes() == before
 
 
 def test_switch_health_failure_rolls_back_program_only_and_success_advances(

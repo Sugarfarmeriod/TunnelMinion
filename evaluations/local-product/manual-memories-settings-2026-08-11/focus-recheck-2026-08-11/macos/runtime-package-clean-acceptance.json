@@ -1,0 +1,36 @@
+{
+  "schema_version": "runtime-package-clean-acceptance/v1",
+  "candidate": {
+    "application_version": "0.1.0",
+    "architecture": "arm64",
+    "id": "tunnelminion-0-1-0-darwin-arm64-51feef70609e-9a8a05a5d56d",
+    "layout": "onedir-freeze",
+    "platform": "darwin",
+    "python_version": "3.12.11"
+  },
+  "manifest_sha256": "de5a6229c1c5ab8c9ced4f2a9c9ccca57acc3046cef65c3a3a3cf52c34eeada8",
+  "package_file_count": 143,
+  "package_size_bytes": 60166956,
+  "components": [
+    {
+      "component": "local-product",
+      "duration_ms": 7257.163,
+      "error_code": null,
+      "exit_code": null,
+      "health_status": 200,
+      "app_status": 200,
+      "node_available": false,
+      "source_environment_present": false,
+      "external_http_proxy_blocked": true,
+      "runtime_package": {
+        "kind": "standalone",
+        "version": "0.1.0",
+        "manifest_schema": "runtime-package-manifest/v2"
+      },
+      "passed": true
+    }
+  ],
+  "program_data_entries": [],
+  "source_entries": [],
+  "passed": true
+}
