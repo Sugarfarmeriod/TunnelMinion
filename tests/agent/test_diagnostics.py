@@ -496,6 +496,7 @@ def test_diagnostic_agent_generates_traced_candidate_plan_from_latest_evidence()
     assert provider.requests[0].response_schema is not None
     assert provider.requests[0].tools == ()
     assert "untrusted-tool-data" in provider.requests[0].messages[-1].content
+    assert "expected_change" in provider.requests[0].messages[0].content
 
 
 def test_candidate_plan_failure_does_not_remove_diagnostic_result() -> None:
