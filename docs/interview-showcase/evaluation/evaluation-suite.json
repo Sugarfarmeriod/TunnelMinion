@@ -200,6 +200,6 @@
   "publication": {
     "include_in_final_metrics": false,
     "include_in_success_media": false,
-    "notes": "当前只建立离线评估契约；fixture 数字不得冒充真实模型、稳定 main 或本轮 A/B 成果"
+    "notes": "真实模型阈值已在不可变 feature 提交完成；进入稳定 main 前不得作为最终发布指标，fixture 与 Qwen 未达标对照不得冒充本轮 A/B 成果"
   }
 }

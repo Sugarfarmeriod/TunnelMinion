@@ -24,6 +24,7 @@
 ## 当前 blocker
 
 - PR #66 已解除完整访问地址与 Chat→Operation 产品承载缺口；定向无模型验证后 4.2 已裁决完成。
-- 当前只复跑了确定性 fixture；没有读取模型配置或调用真实模型，因此 4.3 的真实模型基线和阈值仍未完成。
+- 4.3 已在同一不可变提交完成 Qwen Windows→macOS 对照、DeepSeek 发布基线、Safe Sharing 2/2、阈值与只读复算审计；该证据仍是 `draft-pr-verified`，不是 main 或真实 A/B。
+- 已采集顶部显著标注的 fixture 截图与降级短录屏，仅用于工作包复核，不计入最终成功素材。
 - 没有精确 A/B 资源授权；阶段 5 的真实执行、截图和录屏继续保持 `prohibited-claim`。
 - Penpot 未授权，本轮只保留仓库内离线 Mermaid/SVG。

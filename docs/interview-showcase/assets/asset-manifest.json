@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "publication_status": "planned",
+  "authoring_baseline": "6d9e98aa492e30c2ba064bdf3ef0a0085565799e",
+  "capture_environment": "Windows 11 · Chromium headless · isolated FastAPI fixture · 1440x900 viewport",
+  "display_label": "离线 fixture · 未执行真实 A/B · feature/interview-showcase@6d9e98a",
+  "capture_command": "npm ci --prefix frontend && npm run build --prefix frontend && node docs/interview-showcase/capture_assets.mjs",
+  "visual_review": {
+    "result": "passed",
+    "method": "逐张查看 PNG，并从 WebM 的开始、中间、结束抽帧检查标签、待审批状态和未确认按钮"
+  },
+  "assets": [
+    {
+      "id": "overview-readonly-fixture",
+      "kind": "screenshot",
+      "path": "overview-readonly-fixture.png",
+      "captured_at": "2026-09-02T15:38:40.7186671Z",
+      "sha256": "20b23938bd81de559c23e296c7a554ca5f8a36973c48e345c2231c952750e79c",
+      "bytes": 28081,
+      "width": 1440,
+      "height": 900,
+      "claim_boundary": "只证明隔离产品页面能展示无模型、无 Coordinator、无跨节点路径的确定性降级状态"
+    },
+    {
+      "id": "operation-awaiting-approval-fixture",
+      "kind": "screenshot",
+      "path": "operation-awaiting-approval-fixture.png",
+      "captured_at": "2026-09-02T15:38:42.0660765Z",
+      "sha256": "46dd2af92d38301f2deebfa0bb0dd4a5d635807741285f3cc59e69428cc1fe9e",
+      "bytes": 149454,
+      "width": 1440,
+      "height": 1559,
+      "claim_boundary": "只证明隔离候选 Operation 明确保持 awaiting_authorization；没有批准或执行"
+    },
+    {
+      "id": "degraded-fixture-flow",
+      "kind": "recording",
+      "path": "degraded-fixture-flow.webm",
+      "captured_at": "2026-09-02T15:38:45.7747453Z",
+      "sha256": "3f48888db668ed2c9ea2bc254b9002bf51819e949d70a21881647c170cd06cd1",
+      "bytes": 575265,
+      "width": 1280,
+      "height": 720,
+      "duration_seconds": 6.76,
+      "codec": "vp8",
+      "claim_boundary": "只演示降级总览、待审批详情和确认对话框；对话框被关闭，未确认批准"
+    }
+  ]
+}
