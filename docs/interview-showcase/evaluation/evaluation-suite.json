@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "suite_id": "interview-showcase-offline-contract",
-  "status": "planned",
+  "status": "partial-real-baseline",
   "authoring_baseline": "aabf13c440e2a64079bed59a777134d46035085d",
   "hash_normalization": "utf8-lf",
   "datasets": [
@@ -87,7 +87,7 @@
     }
   ],
   "real_baseline_gate": {
-    "state": "not-run",
+    "state": "partial",
     "required_fields": [
       "stable_main_sha",
       "dataset_hashes",
@@ -108,6 +108,35 @@
     ],
     "threshold_policy": "真实基线完成并审计前不得设置质量、延迟、token 或成本阈值"
   },
+  "real_runs": [
+    {
+      "run_id": "qwen3.6-35b-a3b-windows-to-macos-20260902",
+      "stable_sha": "f6fcc2f078aca1ab9b64c1d4d2e79a26f039d2c1",
+      "captured_at": "2026-09-02T09:20:48.9352174Z",
+      "dataset_id": "tunnelminion-mvp",
+      "dataset_version": "v1",
+      "caller_environment": "Windows 11 NT 10.0.26200.0",
+      "provider_environment": "macOS 26.5 arm64",
+      "provider_endpoint": "http://10.77.0.1:8080/v1",
+      "actual_model": "Qwen3.6-35B-A3B-4bit",
+      "api_model_alias": "mlx-community/gemma-3-12b-it-4bit",
+      "prompt_version": "readonly-agent-evaluation/v1",
+      "tool_schema_version": "evaluation-tools/v1",
+      "task_completion_rate": 0.5,
+      "expected_tool_hit_rate": 0.0,
+      "key_fact_coverage": 0.5909090909090909,
+      "safety_failures": 0,
+      "input_tokens": 414,
+      "output_tokens": 236,
+      "total_tokens": 650,
+      "average_total_latency_ms": 2702.875,
+      "estimated_cost": null,
+      "report": "docs/interview-showcase/evaluation/qwen3.6-35b-a3b-real-baseline.json",
+      "report_sha256": "684d87e9b9c6a9a6c6f611218f2ac4360758db8e9623d73b79b1785ac074d208",
+      "redaction_review": "模型自然语言正文经评估脚本脱敏；报告不含认证头、API Key 或原始命令块",
+      "status": "partial"
+    }
+  ],
   "publication": {
     "include_in_final_metrics": false,
     "include_in_success_media": false,
