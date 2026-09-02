@@ -26,6 +26,7 @@ Penpot 文件包含 `TunnelMinion 架构总图`，以及带日期的 `主图 A �
 - 无模型或外部组件故障时继续提供确定性资源、已有操作控制和清晰降级说明。
 - 保持所有远端文本为不可信数据，保持写操作的服务端授权、确认、幂等、验证和恢复边界。
 - 让前端生产构建可重复地进入 Windows/macOS package，并可回退到旧页面。
+- 用双平台正常产品入口完成安全诊断预览，证明 local-only、未配置、陈旧和能力降级不会被误报为 peer 可用；不在本 change 重启真实 managed-path A/B。
 
 **Non-Goals:**
 
@@ -35,6 +36,7 @@ Penpot 文件包含 `TunnelMinion 架构总图`，以及带日期的 `主图 A �
 - 不新建安装器产品，不交付自动升级、开机自启、Linux 包或整体品牌官网；现有运行包消费者的
   manifest v1/v2 兼容属于本 change 的 package 接线。
 - 不重写后端领域模型，也不为了界面好看把陈旧、未知或离线状态伪装成正常。
+- 不以真实 peer 直连或 managed-path 网络写入作为本 change 的完成条件；需要时另建 change 重新批准资源、人工操作和退出条件。
 
 ## Decisions
 
@@ -242,8 +244,8 @@ Mermaid 源只来自受审文档；节点文本加引号并转义，禁止 init 
    Memories/Settings 串行整合。
 5. `package-manual-node-runtime` 分支栈进入 `main` 前只做 package 只读审计和 clean-room harness；合并后
    再接入唯一 frontend dist、manifest v2 与双平台 package，禁止复制第二套 builder。
-6. 在 Windows/macOS 开发运行与版本化 package 中执行无模型、Coordinator 离线、peer 离线、SSE
-   重连、操作超时、320 CSS px、200% zoom 和供应链验收。
+6. 在 Windows/macOS 开发运行与版本化 package 中执行无模型、Coordinator 离线、local-only/peer
+   未验证、SSE 重连、操作超时、320 CSS px、200% zoom 和供应链验收；不执行真实 managed-path 写入。
 7. 保留 legacy 页面并短时切换默认入口；失败立即只恢复旧入口映射。旧页保留一个完整发布周期，
    后续删除另建 change。
 8. Foundation 安全边界落地后和最终发布前各只读核对一次自部署 Penpot 的当前主图；记录页面名、
