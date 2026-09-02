@@ -893,6 +893,12 @@ def test_service_sources_empty_cache_and_unknown_node_state() -> None:
         KnownNodeState.ONLINE,
     )
     assert ipv6.access_address == "http://[::1]:8082"
+    hostname = adapter.service_view(
+        service_summary(ServiceId.new()).model_copy(update={"host": "service.example"}),
+        REMOTE_NODE,
+        KnownNodeState.ONLINE,
+    )
+    assert hostname.access_address == "http://service.example:8082"
 
 
 @pytest.mark.parametrize(
