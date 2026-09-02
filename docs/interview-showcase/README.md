@@ -17,4 +17,4 @@
 
 运行 `uv run python docs/interview-showcase/verify_evidence.py` 可离线校验 schema、失败场景覆盖和声明分类边界；运行 `uv run python docs/interview-showcase/verify_diagrams.py` 可校验 Mermaid/SVG 追溯关系与外部引用风险；运行 `uv run python docs/interview-showcase/verify_evaluation.py` 可复算 fixture 基线；另外两个小检查验证 README 结构和稳定 main 页面承载结论。
 
-本目录仍不是最终 README、截图、录屏或真实 A/B 成果。完整访问地址、真实模型基线和真实资源门禁完成前，对应声明保持 `planned` 或 `prohibited-claim`。
+本目录仍不是最终 README、截图、录屏或真实 A/B 成果。真实模型基线和真实资源门禁完成前，对应声明保持 `planned` 或 `prohibited-claim`。

@@ -6,9 +6,10 @@
 
 | 对象 | 精确版本 | 状态与证据 | 展示分类 |
 |---|---|---|---|
-| `origin/main` | `b21b00e68e2298bb5db6a5c75d3e8629a33e4d05` | PR #40、#59、#64、#65 均已合并；当前 OpenSpec strict 22/22 | `main-verified`，仅覆盖已合并实现与规格 |
+| `origin/main` | `6c20fda5aa57f6f178569fc1aa1f5a34df65b3d2` | PR #40、#59、#64、#65、#66 均已合并；PR #66 CI 8/8 全绿 | `main-verified`，仅覆盖已合并实现与规格 |
 | PR #40 | head `2e9b7957307e9fb378b8c052c4704b6dc2363cad`；merge `aae69d4868e58f094a5ad5c002f4192afe762475` | 已合并；8 项 CI 全绿；LPE 55/55 后同步并归档 | `main-verified`，真实双机写入不在该交付声明内 |
 | PR #59 | head `535e2ff2ad7f02d46413b911e181a8e568230437`；merge `fe0f6b0601d53bc895558ee9d0b586858bad6063` | 已合并；Windows/macOS CI 全绿；后续 managed-path 已重划为诊断预览并归档 | `main-verified`，仅覆盖进入主线的能力 |
+| PR #66 | head `6bc468c269bdb7f348a833a56fe8e7f6963c5444`；merge `6c20fda5aa57f6f178569fc1aa1f5a34df65b3d2` | 已合并；Overview 完整地址与 Chat→Operation 链接进入 main；CI 8/8 全绿 | `main-verified`，不包含真实模型或真实 A/B |
 | PR #63 | merge baseline `f347caa3bf1744e0c75954b5a42c65bc6653e96f` | Draft/Open；本分支是 showcase 唯一写入者 | `draft-pr-verified`，不得冒充最终素材 |
 
 以上是带时间戳的快照。最终截图、录屏或指标发布前仍须重新记录当时的稳定 `main` SHA、平台、采集时间与验证方式。
@@ -22,7 +23,7 @@
 
 ## 当前 blocker
 
-- Overview 的 `KnownServiceOverview` 明确不公开 host，页面只有协议、端口和节点短 ID；完整访问地址尚未形成产品证据，阻塞 4.2 与最终主演示。
+- PR #66 已解除完整访问地址与 Chat→Operation 产品承载缺口；定向无模型验证后 4.2 已裁决完成。
 - 当前只复跑了确定性 fixture；没有读取模型配置或调用真实模型，因此 4.3 的真实模型基线和阈值仍未完成。
 - 没有精确 A/B 资源授权；阶段 5 的真实执行、截图和录屏继续保持 `prohibited-claim`。
 - Penpot 未授权，本轮只保留仓库内离线 Mermaid/SVG。

@@ -12,9 +12,9 @@ REQUIRED = {
     "Operations",
     "Memories",
     "Settings",
-    "完整访问地址未被当前服务摘要公开",
+    "完整只读访问地址",
     "Chat 到 Operation 的可追溯过渡",
-    "不新增聚合页面",
+    "无需聚合页面",
 }
 FORBIDDEN = {
     "task-3.2-complete: false",
@@ -29,7 +29,7 @@ def main() -> None:
     forbidden = {item for item in FORBIDDEN if item in text}
     if missing or forbidden:
         raise ValueError(f"missing={sorted(missing)}, forbidden={sorted(forbidden)}")
-    print("稳定 main 产品页面承载复核通过：5 个页面，2 个最小缺口")
+    print("稳定 main 产品页面承载复核通过：5 个页面，2 个最小缺口已关闭")
 
 
 if __name__ == "__main__":
