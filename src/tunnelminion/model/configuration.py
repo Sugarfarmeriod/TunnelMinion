@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from tunnelminion.agent.context_contracts import ContextRequest, ContextTaskType
 from tunnelminion.agent.context_runtime import ContextModelRuntime
 from tunnelminion.agent.prompts import (
-    PROVIDER_STRUCTURED_CAPABILITY_PROMPT,
+    PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT,
     PROVIDER_TOOL_CAPABILITY_PROMPT,
 )
 from tunnelminion.domain.identifiers import RunId, ThreadId
@@ -259,12 +259,12 @@ class ModelConfigurationService:
                     current_intent="验证 Provider 结构化输出能力",
                     thread_id=thread_id,
                     run_id=run_id,
-                    prompt_id=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.prompt_id,
-                    prompt_version=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.version,
+                    prompt_id=PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT.prompt_id,
+                    prompt_version=PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT.version,
                     messages=(
                         ModelMessage(
                             role="user",
-                            content=PROVIDER_STRUCTURED_CAPABILITY_PROMPT.template,
+                            content=PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT.template,
                         ),
                     ),
                     response_schema={

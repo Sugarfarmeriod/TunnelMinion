@@ -116,6 +116,14 @@ PROVIDER_STRUCTURED_CAPABILITY_PROMPT = _prompt(
     change_note="建立 Provider 结构化输出能力验证提示。",
 )
 
+PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT = _prompt(
+    prompt_id="provider-json-object-capability",
+    task_type=ContextTaskType.PROVIDER_VALIDATION,
+    role=PromptRole.USER,
+    template='仅返回 JSON 对象：{"status":"ok"}。',
+    change_note="使用 OpenAI-compatible Provider 的共同 JSON Object 格式验证结构化输出。",
+)
+
 
 class PromptRegistry:
     """按稳定 ID、兼容版本和任务类型解析生产 Prompt。"""
@@ -154,5 +162,6 @@ PROMPT_REGISTRY = PromptRegistry(
         TEMPORARY_SERVICE_PLAN_PROMPT,
         PROVIDER_TOOL_CAPABILITY_PROMPT,
         PROVIDER_STRUCTURED_CAPABILITY_PROMPT,
+        PROVIDER_JSON_OBJECT_CAPABILITY_PROMPT,
     )
 )

@@ -106,7 +106,7 @@ def test_parses_structured_output_without_api_key() -> None:
     async def handler(http_request: httpx.Request) -> httpx.Response:
         payload = json.loads(http_request.content)
         assert "Authorization" not in http_request.headers
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": '{"status":"ok"}'}}]},
@@ -116,6 +116,31 @@ def test_parses_structured_output_without_api_key() -> None:
     response = run(provider.complete(request(structured=True)))
     assert response.structured_output == {"status": "ok"}
     assert response.usage.input_tokens is None
+
+
+def test_rejects_structured_output_that_violates_the_requested_schema() -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"status":"wrong"}'}}]},
+            )
+        ),
+    )
+    structured = ModelRequest(
+        messages=request().messages,
+        response_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string", "enum": ["ok"]}},
+            "required": ["status"],
+            "additionalProperties": False,
+        },
+    )
+
+    with pytest.raises(ProviderError) as caught:
+        run(provider.complete(structured))
+    assert caught.value.code == ProviderErrorCode.INVALID_RESPONSE
 
 
 def test_supports_requests_without_tools_and_optional_tool_choice() -> None:

@@ -7,6 +7,7 @@ import json
 from typing import Any, cast
 
 import httpx
+from jsonschema import SchemaError, ValidationError, validate
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from tunnelminion.model.contracts import (
@@ -147,14 +148,7 @@ class OpenAICompatibleProvider:
             if request.require_tool_call:
                 payload["tool_choice"] = "required"
         if request.response_schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "tunnelminion_response",
-                    "strict": True,
-                    "schema": request.response_schema,
-                },
-            }
+            payload["response_format"] = {"type": "json_object"}
         return payload
 
     @staticmethod
@@ -210,6 +204,7 @@ class OpenAICompatibleProvider:
             structured: JsonValue | None = None
             if request.response_schema is not None:
                 structured = cast(JsonValue, json.loads(str(content)))
+                validate(instance=structured, schema=request.response_schema)
             raw_usage = cast(dict[str, Any], data.get("usage", {}))
             usage = ModelUsage(
                 input_tokens=raw_usage.get("prompt_tokens"),
@@ -222,7 +217,15 @@ class OpenAICompatibleProvider:
                 structured_output=structured,
                 usage=usage,
             )
-        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            SchemaError,
+            ValidationError,
+        ) as exc:
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE, "模型响应不符合兼容协议"
             ) from exc
