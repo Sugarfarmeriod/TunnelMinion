@@ -1,0 +1,109 @@
+## 0. 基线、归属与安全前置
+
+- [x] 0.1 从实现开始时最新 `origin/main` 创建/更新匹配的 `feature/complete-managed-path-runtime` 分支，确认工作树干净、基线已包含本提案且全程不读取或修改 `docs/questions/`
+  - 证据：2026-08-10 将干净分支以 `--ff-only` 从 `369c9b3` 快进到 `origin/main@5f00e073`；基线即合并提案的 PR #47，全程搜索均显式排除禁止目录。
+- [x] 0.2 固定单一主写 owner 负责公共 lifecycle、应用工厂、状态 schema 和本 change 的 OpenSpec tasks；记录与 `improve-local-product-experience` 应用工厂写入的串行合并顺序
+  - 归属：本任务是阶段 0–1 的唯一 OpenSpec tasks 与 `src/tunnelminion/network/**` 主写者；阶段 1 不修改应用工厂。未来应用工厂接线必须先合并本 change 的状态契约，再由 `improve-local-product-experience` owner 串行 rebase/接线，禁止同阶段并写 `app.py`/`macos_app.py`。
+- [x] 0.3 只读盘点现有 L3 authorization/policy repository、Provider/governance/ledger/journal、sync checkpoint 和 path controller 接口，产出 network/node/revision/Provider/资源/计划摘要/观察指纹/有效期字段映射
+  - 授权映射：`NetworkAuthorizationScope` 已绑定 network/node/provider/action、ownership resource/fingerprint、接口/地址池/host route/重叠路由/listen port/peer/relay、revision/parent revision 与 `plan_hash`；`NetworkAuthorizationGrant` 已绑定批准/过期/撤销时间并提供 `is_active`。
+  - 持久化缺口与决策：`NetworkOperationPolicy` 仅保存进程内 grant；`SQLiteNetworkGovernanceStore` 保存执行记录而不保存授权；operation preauthorization 仅覆盖 L2。因此在现有网络治理 SQLite 内新增独立 `network_authorization_grants` 表和单一 repository，作为唯一 L3 授权事实来源；不新建第二个授权数据库，不从执行记录、内存 grant、signed config 或 L2 preauthorization 推断授权。
+  - 执行映射：`NetworkProvider` 固定 observe/plan/apply/verify/rollback/recover；ledger 以 network/node 保存 provider、resource/stable interface、creation nonce、public key hash、parent revision、desired hash、system fingerprint；平台 journal 以幂等键保存逐步回执。
+  - 同步/路径映射：sync checkpoint 保存 pending/applied/last-known-good revision 与退避；path verifier/controller 已包含 provider/revision、候选哈希、handshake/route/target 时间维度、阈值与 last-known-good，但没有生产 probe、授权 repository 或 path checkpoint。
+- [x] 0.4 固定 Windows/macOS 只读 handshake/route/probe 能力、最低权限、稳定错误、TTL、超时、候选数量和刷新间隔矩阵；未验证能力标记为 spike 假设
+  - 已证实仓库能力：两端 `SystemReader` 只提供接口、监听器与进程读取；macOS 仅对监听器增加固定 `lsof` 降级。仓库没有生产 `PathProbe`、handshake reader 或精确 route reader，故这些平台能力与最低权限均标记为阶段 2 spike 假设，本轮绝不现场探测。
+  - 固定契约基线：候选上限 4、单候选 1s、target 2s、handshake 最大年龄 180s、连续失败/成功阈值 3/2、minimum dwell 30s；阶段 2 待验证假设为 evidence TTL 180s、最小刷新间隔 30s、只读权限不足映射 `permission_denied`、能力缺失映射 `unsupported`，不得用命令成功或旧证据替代。
+  - 稳定失败维度沿用 `no_approved_candidate`、`endpoint_unreachable`、`handshake_stale`、`host_route_missing`、`target_unreachable`；平台实现、权限与真实延迟在阶段 2 验证前均不宣称成立。
+- [x] 0.5 固定禁止修改清单与前后不变性采集：`HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动
+  - 本轮禁止调用任何真实 probe/Provider/平台写接口；禁止修改或读取客户网络正文。后续真实门禁必须分别采集接口/路由/listener/配置摘要的前后不变性，并保持 `HomeMac`、B 手写配置、防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密存储和自启动完全不变。
+
+## 1. 状态、授权端口与纯 fake 安全骨架
+
+- [x] 1.1 定义版本化脱敏 selection/evidence/authorization/freshness 状态、稳定错误和来源类别，拒绝 endpoint 正文、路由清单、desired config、token、refresh、私钥与预共享密钥
+- [x] 1.2 实现单写者 path checkpoint repository 的原子保存、兼容读取、损坏 fail-closed 和零秘密扫描；旧数据缺少 path 状态时不得推断 direct
+  - 证据：代码 HEAD `17a44c5` 将 owner/lock/load/secret scan/temp/replace/fsync 绑定可信目录句柄，移除路径型 SQLite 锁，并覆盖跨实例/进程 lease、真实 symlink/reparse、确定性目录替换 race、损坏恢复与元数据失败；远端 run `31336268697` 的 macOS job `93302528091`、Windows job `93302528124` 均全绿。
+- [x] 1.3 在现有网络治理 SQLite 内实现唯一权威 L3 grant repository：独立授权表、本机控制面原子 approve/revoke、policy/lifecycle 只读查询、空库迁移、重启恢复、不可逆撤销、损坏/冲突/秘密/读取失败 fail-closed；将 `NetworkOperationPolicy` 改为 repository 策略门面并复用现有精确匹配器，覆盖缺失、过期、撤销、revision/Provider/资源/摘要/指纹不匹配
+  - 规划约束：不得新建第二个授权数据库或并行事实来源；不得从 `network_governance` 执行记录、进程内 grant、signed desired config 或 operation L2 preauthorization 推断/迁移 L3 授权；普通消费者不得获得 repository 写端口。
+- [x] 1.4 用只读 fake probe、fake Provider 和 fake sinks 建立 lifecycle 骨架，证明无授权只保存 pending/显示 `awaiting-authorization` 且 Provider apply 调用数为零
+- [x] 1.5 覆盖启动、模型、对话、记忆、服务观察、Coordinator 和页面读取不能创建/扩大授权，刷新只合并只读 probe 且不重放 apply
+  - 证据：可执行架构测试实际启动 FastAPI lifespan，并读取模型配置、对话、记忆、服务观察、managed node、Coordinator、network-path 与资源页面；L3 `approve`/`revoke` 和平台 Provider `apply` 均由一旦调用即失败的 trap 保护且调用数为零。阶段一 lifecycle 的并发 refresh 测试继续证明请求只合并到单次只读 refresher、候选 evidence 不提交且 Provider 调用数为零；不再使用消费者字符串清单或源码搜索替代运行证据。
+- [x] 1.6 运行状态 schema、授权 repository/门禁、迁移、重启、并发、损坏、秘密扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前证据：Ruff format/check、Pyright strict、全量 `856 passed, 5 skipped`（`14,411` statements / `2,838` branches = 100%）、授权仓储迁移/重启/撤销不可逆/并发冲突/损坏/秘密与读取失败定向覆盖、`openspec validate complete-managed-path-runtime --strict` 均通过；本阶段未触碰 `docs/questions/`、平台探针、应用工厂、CI 或 Provider 写入。
+
+## 2. Windows/macOS 生产只读 PathProbe
+
+- [x] 2.1 先用受控 fixture 固定 `PathProbe` 共用契约：候选来源/网段/端口过滤、单并发、超时、取消、最小刷新间隔和四维证据时间
+  - 证据：`src/tunnelminion/network/path_probe.py` 固定候选上限 4、单候选 1s、target 2s、`min_refresh_interval_seconds` 精确固定为 30s（小于或大于 30s 均 fail closed）、单并发锁、取消传播和 endpoint/handshake/host-route/target 四维时间；`tests/network/test_path_probe.py` 以受控时钟推进刷新窗口并覆盖拒绝短间隔。
+- [x] 2.2 实现 Windows 只读 endpoint/handshake/唯一 peer 路由归属/target probe 适配，权限不足或工具缺失只返回稳定降级且不提权、不执行任意命令
+  - 证据：`WindowsPathProbe` 仅消费固定参数的 `wg show` 与 `route.exe print` 只读观察器；平台 route 读取继续识别精确 host route，唯一归属判定同时允许所选 peer 的安全网段覆盖目标，不接受竞争 peer、默认/超宽路由、格式错误、非目标接口或本机 target。受控 fixture 覆盖 IPv4/IPv6 精确与安全网段正例及负例，并将权限、能力缺失和读取失败稳定映射。
+- [x] 2.3 实现 macOS 同契约只读适配，明确官方/受支持读取边界，不调用 Murus、防火墙写接口、route 写命令或 WireGuard 配置命令
+  - 证据：`MacOSPathProbe` 仅消费固定参数的 `wg show` 与 `netstat -rn -f inet|inet6` 只读观察器，覆盖双地址族精确 host route 与安全网段唯一归属，稳定降级且不含 Murus、防火墙、route 写入或 WireGuard 配置调用；平台定向测试覆盖相同失败边界。
+- [x] 2.4 覆盖恶意/过期/超预算候选、对话 endpoint、IPv4/IPv6、路由归属缺失/竞争、本机 target、旧 handshake、target timeout、权限拒绝和取消矩阵
+  - 证据：网络 fixture 覆盖恶意/对话来源、批准网段和端口过滤、过期与超预算候选、IPv4/IPv6 endpoint、安全网段唯一归属、缺失/竞争/默认路由、本机 target、旧 handshake、target 超时、权限/unsupported、取消、缓存刷新和并发；Windows/macOS fixture 另覆盖平台错误映射。
+- [x] 2.5 在 Windows/macOS 只读环境保存批准远端 target 实际连通、探测前后网络不变性与来源证据；能读取完整平台事实时同时保存所选 peer 安全网段唯一归属，权限不足时允许保存明确标为 `target-connectivity` 的降级证据；不要求额外 `/32` route，不得用本机 target 或 fixture 代替
+  - Windows 与 macOS 现场证据均已通过独立 Sol/xhigh 只读审计：`evaluations/platform/managed-path-readonly-windows-20260824T093154Z.json` 与 `evaluations/platform/managed-path-readonly-macos-20260824T110452Z.json` 分别以明确标注的 `target-connectivity` 降级来源证明批准远端 target 实际连通、目标非本机、接口与路由摘要前后不变且 `writes_performed=false`；两份证据不冒充完整 `PathProbe`，也不授权阶段 6–7。
+- [x] 2.6 运行跨平台 probe 契约、架构无模型/无写入扫描、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前分支质量门禁已执行并通过：全量 `1145 passed, 5 skipped`、statement + branch coverage `100.00%`、跨平台 probe/只读证据脱敏契约与架构无模型/无写入定向测试 `72 passed`、Ruff format/check、Pyright strict、`git diff --check` 和 OpenSpec strict 均通过；首次全量运行仅因未安装项目声明的 `package` 依赖组缺少 PyInstaller 而出现两个环境失败，补齐该依赖组后未修改代码即全量通过。
+
+## 3. fake Provider 下的完整治理生命周期
+
+- [x] 3.1 将 synchronizer 保持为 pull/verify/pending 组件，新增共享 lifecycle 串联 authorization → observe → plan → recheck → apply → Provider verify → path verify/controller → sinks
+  - 证据：`ManagedPathLifecycle.reconcile` 串联授权、observe、plan、recheck、apply、Provider verify、path verify/controller 与 sinks；网络定向 `239 passed, 4 skipped`，并由真实 `DirectPathController` hysteresis 回归证明首次 STATIC 后下一次只重试 probe/controller、`Provider.apply_calls` 不增加并进入 DIRECT。
+- [x] 3.2 为 lifecycle 固定 revision/idempotency key、单并发、取消安全点、逐步回执、last-known-good 更新条件和 acknowledgement/path status 顺序
+  - 证据：固定 `netop_` 幂等键、SQLite journal、单写者锁、fencing/lease 续租与取消安全点、LKG 条件以及 ack 先于 path status；网络定向覆盖重复 apply、revoke/claim 冲突、response-lost 和长 apply 恢复。
+- [x] 3.3 用隔离 fake 覆盖授权成功、apply success、Provider verify failure、path verify failure、部分 apply、rollback failure、ownership conflict 和 `manual_intervention`
+  - 证据：隔离 fake 矩阵覆盖授权成功、apply success、`VERIFY_FAILURE`、path failure、`STEP_FAILURE`、rollback failure、ownership conflict 和 `manual_intervention`；无有效 L3 grant、普通 refresh 及伪造 capability 均断言 `Provider.apply=0`；正常 STOP/REMOVE lifecycle 与 fake Provider 均验证最终 `ABSENT`，未用 kill-switch 替代。
+- [x] 3.4 覆盖崩溃发生在 plan/apply/verify/ack 各边界时的恢复，证明先核对授权、journal、ledger 和实时状态且不盲目重放 apply
+  - 证据：plan/apply/verify/ack 四个注入崩溃边界均先核对授权、journal、ledger 与实时状态恢复；恢复断言 `apply_calls` 不再增加，并覆盖不确定写结果只查询/恢复、缺失/冲突 ledger fail-closed。
+- [x] 3.5 覆盖 sync、authorization、Provider、probe、controller、checkpoint 与 sink 独立失败，证明 pending/last-known-good/static、本地只读功能和 Gateway 边界不受连带破坏
+  - 证据：授权存储、Provider、probe、controller、LKG checkpoint、ack/path sink 及 pull/verify/pending 同步域分别故障时保持 fail-closed、static/pending/LKG 与只读边界；路径证据严格绑定 network/node/provider/revision/plan/target/TTL。
+- [x] 3.6 运行治理、Provider 合约、所有权、恢复、并发、秘密、格式、类型和分支覆盖门禁；明确 fake 仅证明状态机后，以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：Ruff format/check、Pyright strict、全量 `pytest`（`1004 passed、5 skipped、0 failed`，`15881/15881` statement、`3334/3334` branch、0 partial）、网络定向（`239 passed、4 skipped`）、生产 Windows/macOS/Web 契约定向（`33 passed`）、offline evaluation、限定范围秘密/debug/UTF-8 扫描及 OpenSpec strict 均通过；本阶段仅使用隔离 fake/只读契约测试，未宣称真实 Provider/A/B 完成。
+
+## 4. 证据 TTL、刷新与真实状态投影
+
+- [x] 4.1 将 `DirectPathVerifier`/`DirectPathController` 接入持久化状态，固定 direct 成功窗口、失败阈值、minimum dwell、fallback 和 rollback callback 边界
+  - 证据：`put_journal_step` 将 governance journal 与 `network_path_status` 放入同一 SQLite transaction；第二表 insert/update 由 SQLite trigger 注入失败时两表共同回滚。`test_journal_and_path_status_are_atomic_across_retry_and_recovery`、`test_atomic_journal_failure_after_apply_recovers_without_provider_replay` 覆盖失败、重试、恢复，Provider `apply_calls` 不增加；`test_persisted_real_controller_state_projects_stale_and_restores` 继续验证真实 `DirectPathController` checkpoint 重启恢复与首次 apply 仅 1 次。
+- [x] 4.2 实现 evidence TTL：过期后公开状态降为 stale/unverified 并保留 last-known-good 参考，只有新一轮成功只读 probe 才恢复 fresh direct
+  - 证据：`ManagedPathStatus.at()` 在 TTL 边界投影 `stale` 并保留 `expires_at`/last-known-good；严格 schema 校验顶层 `path_type`、selection/evidence DIRECT 绑定、freshness 与 observed/refreshed/expires 时间线，`currently_usable` 对矛盾状态 fail-closed。`test_managed_path_status_binding_and_freshness_matrix`、`test_persisted_real_controller_state_projects_stale_and_restores`、`test_stale_readonly_refresh_recovers_fresh_without_provider_apply_and_rate_replays` 覆盖 TTL、direct 矩阵和只读恢复。
+- [x] 4.3 实现刷新合并、并发抑制、取消和速率预算，证明 GET/refresh 不触发 Provider plan/apply、不延长旧证据时间
+  - 证据：`refresh_path` 按 network/node/revision single-flight 并以 shield 保持共享刷新；`last_refresh_attempt_at` 在 probe 前 journal 化并持久化，因此 timeout/异常/取消也消耗 30 秒预算。reconcile/recovery 在同进程和重启路径统一检查该预算，边界后只读 Provider verify 再执行恰一次 path probe，不调用 apply 或误走 recover rollback。`test_failed_refresh_consumes_persisted_attempt_budget_without_provider_apply`、`test_refresh_single_flight_survives_caller_cancellation`、`test_cancelled_refresh_recovery_obeys_persisted_budget_across_restart`、`test_refresh_completion_does_not_remove_replacement_task` 覆盖失败、重启、取消与并发，Provider apply 始终为 1。
+- [x] 4.4 让公开状态和 sinks 输出真实 selection/evidence/authorization/source/freshness/revision/stable error，并统一脱敏完整 endpoint、路由和秘密
+  - 证据：`ManagedPathStatus` sink 使用每个新状态的 delivery hash/CAS；refresh 后重新投影并递送新的 observed/evidence，独立 sink 失败重试先清除旧 `managed_path_status_sink_failed` 再发布 payload，且不重复 apply。`test_refresh_redelivers_new_managed_status_and_retries_independent_sink_failure`、`test_failed_refresh_keeps_last_known_good_and_rich_sink_retry_clears_own_error` 覆盖清错、refresh 递送和 apply 不增加；redacted payload/SQLite scan 仍拒绝 endpoint、路由、配置和秘密。
+- [x] 4.5 覆盖时钟边界、进程重启、checkpoint 损坏、旧 schema、刷新失败后旧缓存、上报失败后本地状态和零秘密导出
+  - 证据：`test_managed_path_status_binding_and_freshness_matrix` 覆盖 UTC、TTL、逆向绑定矩阵和 contradictory status fail-closed；`test_persisted_real_controller_state_projects_stale_and_restores`、`test_restart_path_checkpoint_mismatches_fail_closed` 覆盖重启/checkpoint；`test_path_status_v1_migration_verifies_raw_hash_and_is_atomic` 构造真实 v1 payload/hash，验证新代码显式读取、原子迁移、篡改 fail-closed、事务崩溃与 CAS 冲突不半写，`test_v1_path_status_restores_after_restart_without_apply_replay` 验证 lifecycle 重启恢复。原子 journal 失败注入、失败刷新预算、sink 失败重试和 redacted payload 测试共同验证旧缓存保留、apply 不重放、零秘密导出。
+- [x] 4.6 运行 controller、freshness、资源状态、恢复、秘密、格式、类型和分支覆盖门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 证据：tracked Python 文件 299 个的 Ruff check/format 全通过，Pyright `0 errors, 0 warnings, 0 informations`；本轮 managed path/lifecycle 定向 `53 passed`；全量 pytest `1024 passed, 5 skipped, 1 warning`，statement `16286/16286`、branch `3518/3518`、partial 0，coverage `100.00%`。`scripts/quality.py all` wrapper 曾被仓库内禁止处理的 untracked basetemp 目录阻断，组成门禁已按 tracked 文件清单和仓库外 basetemp 独立通过；`openspec validate complete-managed-path-runtime --strict` 通过。以上证据仅证明隔离 fake/只读状态生命周期，不宣称真实 Provider、平台现场或 A/B 完成。
+
+## 5. Windows/macOS 常规应用单一装配
+
+- [x] 5.1 抽取 Windows/macOS 共用 managed path 依赖工厂，只让平台层提供 probe、Provider/backend 与能力状态，避免两端产生不同语义
+  - 证据：`src/tunnelminion/agent/managed_path.py` 提供共用 `ManagedPathPlatformDependencies` 与 `build_managed_path_application`，Windows/macOS 仅在 `src/tunnelminion/platforms/{windows,macos}/managed_path.py` 提供 platform factory；`tests/agent/test_managed_path.py` 覆盖能力形状一致、结构化候选与安全 route fallback。平台命令与 probe 均只以 fake/fixture 或能力降级方式验证，未执行真实 Provider/probe。
+- [x] 5.2 在常规本地应用 lifespan 中托管唯一 lifecycle，未配置/enrollment-required/awaiting-authorization 时保持零写入且不改变环回绑定
+  - 当前证据：`managed_application_lifespan` 对 start 失败、stop 失败均保证 close，`ManagedPathApplication.close()` 幂等；`test_real_lifespan_releases_both_sqlite_databases_without_gc` 覆盖正常、start 异常、stop 异常，证明原始异常保留、close 恰好一次且 governance/managed-network-ledger 两个 SQLite 文件立即可删除。`test_ledger_closes_short_connections_without_gc` 与 `test_ledger_closes_connection_when_setup_fails` 覆盖账本所有短连接成功/异常及初始化失败的确定性 close；`test_common_factory_close_releases_windows_sqlite_handle` 覆盖 application.close() 连续两次；`test_cli_local_entries_retain_owner_after_bundle_is_collected` 覆盖 Windows/macOS runtime-child 与显式 data_dir 的 strong owner、资源 API 真实回调和双数据库无 GC 删除。`test_common_factory_keeps_awaiting_authorization_before_provider_apply`、双平台常规入口与完整安全矩阵继续证明 awaiting-authorization/能力降级不 observe/apply，未触碰真实网络或环回绑定。
+- [x] 5.3 将真实 lifecycle 状态接入现有资源 API provider，覆盖 configured 不再误报 `unconfigured`、过期不误报 fresh、授权缺失不误报 applied
+  - 当前证据：managed-node `resource_payload()` 与 Web `network-path` 均通过注入时钟投影 `ManagedPathStatus.at()`；过期 verified static/direct evidence 公开为 stale 且稳定错误为 `path_evidence_stale`，内部刷新失败仍保留原始 timeout。`test_common_factory_managed_node_payload_projects_ttl_with_injected_clock`、`test_managed_path_status_provider_projects_fresh_then_stale`、状态矩阵和资源契约通过，授权缺失继续显示 awaiting-authorization 而非 applied。
+- [x] 5.4 增加架构边界测试，证明 Gateway 仍是独立私网进程/监听器、不共享本机 lifecycle，模型、对话和 `improve-local-product-experience` 消费端不能反向驱动写入
+  - 证据：`src/tunnelminion/app.py` 与 `src/tunnelminion/macos_app.py` 只把 managed lifecycle 接入常规本地应用；Gateway builder 保持独立；`tests/architecture/test_managed_path_phase_one_boundary.py`、`tests/architecture/test_model_call_boundary.py`、`tests/architecture/test_coordinator_boundary.py` 与 Gateway 测试覆盖无模型/无反向写入和监听边界。未修改 LPE/package/Penpot/Figma。
+- [x] 5.5 覆盖 Windows/macOS 常规入口的未配置、凭据缺失、无模型、Coordinator 离线、probe 降级、重启和停止安全点矩阵
+  - 当前证据：Windows/macOS CLI 的 runtime-child 与显式 `data_dir` 入口均把 managed owner 强绑定到裸 FastAPI `app.state`；`test_cli_local_entries_retain_owner_after_bundle_is_collected` 在删除临时 bundle、GC 后验证 owner 存活，lifespan 启动/停止以及 managed-node/network-path 真实状态回调可用。既有双平台 unconfigured/enrollment-required/no-model/Coordinator/probe/restart/stop fake/fixture 矩阵全通过，不外推为真实平台验收。
+- [x] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+  - 当前证据：目标提交 `6d22c2e` 上允许范围全量 Python `1043 passed, 5 skipped, 1 warning`；coverage `16611/16611` statements、`3550/3550` branches，`100.00%`；阶段 5 定向 `274 passed, 4 skipped`，最终独立审计另有 `71 passed`；Ruff check/format、Pyright `0 errors, 0 warnings, 0 informations`、`openspec validate complete-managed-path-runtime --strict` 与 `git diff --check` 全部通过。提交链 `18acf05` → `3675335` → `6d22c2e` 已普通 push，`origin/feature/managed-path-stage5-app-wiring` 当前指向 `6d22c2e`。
+
+## 6. 真实 Provider 预览与止损边界
+
+- [x] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
+  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立资源、隔离数据目录、900 秒 L3 grant、停止方式和写前摘要，且记录 `real_network_writes_performed=false`。6.2 已用两端真实 Provider preview 与身份复用证据完成且经独立审计 ACCEPT；本 change 在此止损，不再建立新的真实写入窗口。
+- [x] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
+  - 证据：Windows 与 macOS 分别在批准的 `tmn-stage6-*.r1`、`192.0.2.0/30`、UDP `51888/51889` 和隔离数据目录上，通过生产 Provider 的真实 observe/plan 与共享 lifecycle 完成 900 秒授权、3 次权威 repository 读取和 apply 前 recheck/cancel；`evaluations/platform/managed-path-stage6-preview-{windows,macos}-20260826.json` 均记录 `provider_apply_calls=0`、`real_network_writes_performed=false`。两端现场已有 `192.0.0.0/9` 只以精确观察指纹批准为 overlap，不作为写步骤；五个计划步骤仅指向批准的受管接口。原运行提交分别为 `664a1aa`/`881715b`，完整 endpoint 经 `de78367` 改为 canonical hash 后入库；双平台证据已由独立 Sol/xhigh 只读审计 ACCEPT，未把 preview 冒充真实 apply/path 完成。
+
+## 7. 常规入口安全诊断预览与下游交接
+
+- [x] 7.1 在 Windows/macOS 新隔离数据目录中启动常规应用工厂，读取 `/resources`、`/api/resources/managed-node` 和 `/api/resources/network-path`；验证两端均如实返回 unconfigured/runtime-absent/path-absent，且不装配 Provider、probe 或触发网络写入
+  - 证据：目标提交 `6e9b24bfc8572b228b817e308dfa50c587787c2d` 上，Windows 与 macOS 常规生产应用工厂分别使用新临时数据目录启动；三个入口均返回 HTTP 200，状态均为 `enrollment_state=unconfigured`、`runtime_absent=true`、`managed_path_absent=true`、`path_configured=false`、`path_authorization_state=unconfigured`、`candidate_count=0`，未装配 Coordinator、PathProbe 或 Provider。临时目录已删除，未执行网络写入。
+- [x] 7.2 只运行支撑诊断契约的定向测试，覆盖待授权、证据 stale、平台能力降级、Coordinator/模型缺失与资源 API 投影；不得以全量测试或真机重试替代判断
+  - 证据：仓库 `.venv` 执行五个精确测试，覆盖未配置、待授权且 apply 为零、平台降级且 observe/apply 为零、fresh→stale 投影及无模型资源入口，结果 `5 passed, 1 warning`；使用 `--no-cov` 仅避免定向集触发全仓 100% coverage 门槛，未扩大测试范围。
+- [x] 7.3 将 status provider/schema 作为 `diagnostic-preview` 交接给 `improve-local-product-experience` 和 package change；明确其不满足 LPE 3.3 的真实 path 前置，不修改下游 tasks、前端、package、Penpot/Figma 或外部系统
+  - 证据：proposal、design 与 delta specs 已统一声明该 schema 仅为 `diagnostic-preview`，LPE 3.3 的真实 path 前置保持未满足；本阶段未修改任何下游 change、前端、package、Penpot/Figma 或外部系统。
+- [x] 7.4 运行 `openspec validate complete-managed-path-runtime --strict`、`git diff --check` 和精确 diff/status 核对；确认既有 Stage 6 修改保持原样且未进入 Stage 7 提交范围
+  - 证据：OpenSpec strict 与 `git diff --check` 通过；Windows HEAD、origin 与 macOS HEAD 均为 `6e9b24bfc8572b228b817e308dfa50c587787c2d`。Windows 原有 12 个 Stage 6 修改和 macOS 原有 9 个 Stage 6 修改仍在，各端差异保持原状；Stage 7 仅修改本 change 的 5 个 OpenSpec 文件。
+- [x] 7.5 仅提交并普通 push 本 change 的 OpenSpec 重划和 Stage 7 证据；不提交 Stage 6 脚本、评估或平台修改，不创建新的真实写入 barrier

@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pytest
-from tests.network.factories import NOW, candidate
+from tests.network.factories import NETWORK_ID, NODE_A, NOW, candidate
 
 from tunnelminion.network.contracts import CandidateSource, EndpointCandidate, ProviderKind
 from tunnelminion.network.path_controller import (
@@ -51,7 +51,10 @@ class FakeProbe:
 
 
 def policy(**updates: object) -> CandidateProbePolicy:
-    values: dict[str, object] = {"approved_networks": ("203.0.113.0/24",)}
+    values: dict[str, object] = {
+        "approved_networks": ("203.0.113.0/24", "10.0.0.0/24", "10.203.0.0/24"),
+        "approved_ports": (18889, 51820),
+    }
     values.update(updates)
     return CandidateProbePolicy.model_validate(values)
 
@@ -66,6 +69,10 @@ async def verify(
     candidate_policy: CandidateProbePolicy | None = None,
 ) -> DirectPathEvidence:
     return await DirectPathVerifier(candidate_policy or policy(), probe).verify(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        plan_hash=f"sha256:{'b' * 64}",
+        authorization_revision=2,
         provider=ProviderKind.WINDOWS,
         revision=2,
         candidates=(candidate(),) if candidates is None else candidates,
@@ -73,7 +80,7 @@ async def verify(
         observed_host_routes=routes,
         expected_host_route="10.203.0.2/32",
         target_host="10.203.0.2",
-        target_port=8787,
+        target_port=51820,
         now=now,
     )
 
@@ -86,8 +93,15 @@ def evidence(
     error: DirectPathErrorCode | None = None,
 ) -> DirectPathEvidence:
     return DirectPathEvidence(
+        network_id=NETWORK_ID,
+        node_id=NODE_A,
+        plan_hash=f"sha256:{'b' * 64}",
+        authorization_revision=revision,
         provider=ProviderKind.WINDOWS,
         revision=revision,
+        target_host_hash=f"sha256:{'c' * 64}",
+        target_port=51820,
+        route_identity_hash=f"sha256:{'d' * 64}",
         candidate_count=1,
         selected_candidate_hash=f"sha256:{'a' * 64}",
         endpoint_probe_at=at,
@@ -100,11 +114,16 @@ def evidence(
         verified=verified,
         stable_error_code=error,
         observed_at=at,
+        expires_at=at + timedelta(seconds=180),
     )
 
 
 def initial(path_type: NetworkPathType = NetworkPathType.STATIC) -> PathSelection:
     return PathSelection(
+        network_id=NETWORK_ID if path_type is NetworkPathType.DIRECT else None,
+        node_id=NODE_A if path_type is NetworkPathType.DIRECT else None,
+        plan_hash=(f"sha256:{'b' * 64}" if path_type is NetworkPathType.DIRECT else None),
+        authorization_revision=1 if path_type is NetworkPathType.DIRECT else None,
         path_type=path_type,
         provider=ProviderKind.WINDOWS,
         revision=1,
@@ -114,6 +133,10 @@ def initial(path_type: NetworkPathType = NetworkPathType.STATIC) -> PathSelectio
         consecutive_successes=0,
         selected_at=NOW,
         last_evidence_at=NOW,
+        target_host_hash=(f"sha256:{'c' * 64}" if path_type is NetworkPathType.DIRECT else None),
+        target_port=51820 if path_type is NetworkPathType.DIRECT else None,
+        route_identity_hash=(f"sha256:{'d' * 64}" if path_type is NetworkPathType.DIRECT else None),
+        expires_at=NOW + timedelta(seconds=180) if path_type is NetworkPathType.DIRECT else None,
     )
 
 
@@ -122,8 +145,15 @@ def test_candidate_policy_and_evidence_reject_invalid_states() -> None:
         policy(approved_networks=("0.0.0.0/0",))
     with pytest.raises(ValueError, match="四项证据"):
         DirectPathEvidence(
+            network_id=NETWORK_ID,
+            node_id=NODE_A,
+            plan_hash=f"sha256:{'b' * 64}",
+            authorization_revision=1,
             provider=ProviderKind.WINDOWS,
             revision=1,
+            target_host_hash=f"sha256:{'c' * 64}",
+            target_port=51820,
+            route_identity_hash=f"sha256:{'d' * 64}",
             candidate_count=0,
             endpoint_probe_succeeded=False,
             handshake_fresh=False,
@@ -131,9 +161,18 @@ def test_candidate_policy_and_evidence_reject_invalid_states() -> None:
             target_probe_succeeded=False,
             verified=True,
             observed_at=NOW,
+            expires_at=NOW + timedelta(seconds=180),
         )
     with pytest.raises(ValueError, match="错误码"):
         evidence(verified=False)
+    naive_time = evidence(verified=True).model_dump(mode="python")
+    naive_time["observed_at"] = NOW.replace(tzinfo=None)
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        DirectPathEvidence.model_validate(naive_time)
+    invalid_ttl = evidence(verified=True).model_dump(mode="python")
+    invalid_ttl["expires_at"] = NOW + timedelta(seconds=179)
+    with pytest.raises(ValueError, match="TTL"):
+        DirectPathEvidence.model_validate(invalid_ttl)
 
 
 def test_verifier_ranks_filters_bounds_and_verifies_joint_evidence() -> None:
@@ -160,8 +199,92 @@ def test_verifier_ranks_filters_bounds_and_verifies_joint_evidence() -> None:
         CandidateSource.ADMIN_EXPLICIT,
         CandidateSource.STUN_SAME_SOCKET,
     ]
-    assert probe.targets == [("10.203.0.2", 8787)]
+    assert probe.targets == [("10.203.0.2", 51820)]
     assert result.selected_candidate_hash is not None
+
+
+def test_verifier_rejects_private_unapproved_target_before_any_probe() -> None:
+    probe = FakeProbe(endpoint_results=[True])
+    with pytest.raises(ValueError, match="授权"):
+        asyncio.run(
+            DirectPathVerifier(policy(), probe).verify(
+                network_id=NETWORK_ID,
+                node_id=NODE_A,
+                plan_hash=f"sha256:{'b' * 64}",
+                authorization_revision=1,
+                provider=ProviderKind.WINDOWS,
+                revision=1,
+                candidates=(candidate(),),
+                last_handshake_at=NOW,
+                observed_host_routes=("10.203.0.2/32",),
+                expected_host_route="10.203.0.2/32",
+                target_host="192.168.1.77",
+                target_port=22,
+                now=NOW,
+            )
+        )
+    assert probe.endpoints == []
+    assert probe.targets == []
+
+
+@pytest.mark.parametrize(
+    ("target_host", "target_port"),
+    [
+        ("0.0.0.0", 51820),
+        ("224.0.0.1", 51820),
+        ("8.8.8.8", 51820),
+        ("10.0.0.2", 0),
+    ],
+)
+def test_verifier_rejects_unsafe_target_before_any_probe(
+    target_host: str,
+    target_port: int,
+) -> None:
+    probe = FakeProbe(endpoint_results=[True])
+    with pytest.raises(ValueError):
+        asyncio.run(
+            DirectPathVerifier(policy(), probe).verify(
+                network_id=NETWORK_ID,
+                node_id=NODE_A,
+                plan_hash=f"sha256:{'b' * 64}",
+                authorization_revision=1,
+                provider=ProviderKind.WINDOWS,
+                revision=1,
+                candidates=(candidate(),),
+                last_handshake_at=NOW,
+                observed_host_routes=("10.0.0.2/32",),
+                expected_host_route="10.0.0.2/32",
+                target_host=target_host,
+                target_port=target_port,
+                now=NOW,
+            )
+        )
+    assert probe.endpoints == []
+    assert probe.targets == []
+
+
+def test_verifier_rejects_non_host_or_unapproved_host_route_before_probe() -> None:
+    probe = FakeProbe(endpoint_results=[True])
+    for route in ("10.0.0.0/24", "192.168.1.1/32"):
+        with pytest.raises(ValueError, match=r"host route|network"):
+            asyncio.run(
+                DirectPathVerifier(policy(), probe).verify(
+                    network_id=NETWORK_ID,
+                    node_id=NODE_A,
+                    plan_hash=f"sha256:{'b' * 64}",
+                    authorization_revision=1,
+                    provider=ProviderKind.WINDOWS,
+                    revision=1,
+                    candidates=(candidate(),),
+                    last_handshake_at=NOW,
+                    observed_host_routes=("10.0.0.2/32",),
+                    expected_host_route=route,
+                    target_host="10.0.0.2",
+                    target_port=51820,
+                    now=NOW,
+                )
+            )
+    assert probe.endpoints == []
 
 
 @pytest.mark.parametrize(
@@ -332,6 +455,53 @@ def test_controller_dwell_revision_rollback_and_input_guards() -> None:
                 fallback=NetworkPathType.RELAYED,
             )
         )
+
+
+def test_path_selection_binding_validation_and_controller_conflict() -> None:
+    def selection_with(**updates: object) -> PathSelection:
+        values = initial().model_dump(mode="python")
+        values.update(updates)
+        return PathSelection.model_validate(values)
+
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        selection_with(selected_at=NOW.replace(tzinfo=None))
+    with pytest.raises(ValueError, match="完整目标身份"):
+        values = initial(NetworkPathType.DIRECT).model_dump(mode="python")
+        values["network_id"] = None
+        PathSelection.model_validate(values)
+    with pytest.raises(ValueError, match="authorization revision"):
+        selection_with(
+            network_id=NETWORK_ID,
+            node_id=NODE_A,
+            plan_hash=f"sha256:{'b' * 64}",
+            authorization_revision=2,
+            target_host_hash=f"sha256:{'c' * 64}",
+            target_port=51820,
+            route_identity_hash=f"sha256:{'d' * 64}",
+            expires_at=NOW + timedelta(seconds=180),
+            path_type=NetworkPathType.DIRECT,
+        )
+    with pytest.raises(ValueError, match="TTL"):
+        selection_with(
+            network_id=NETWORK_ID,
+            node_id=NODE_A,
+            plan_hash=f"sha256:{'b' * 64}",
+            authorization_revision=1,
+            target_host_hash=f"sha256:{'c' * 64}",
+            target_port=51820,
+            route_identity_hash=f"sha256:{'d' * 64}",
+            expires_at=NOW,
+            path_type=NetworkPathType.DIRECT,
+        )
+
+    controller = DirectPathController(
+        PathControllerPolicy(), initial=initial(NetworkPathType.DIRECT)
+    )
+    evidence_values = evidence(verified=True).model_dump(mode="python")
+    evidence_values["plan_hash"] = f"sha256:{'e' * 64}"
+    conflicting = DirectPathEvidence.model_validate(evidence_values)
+    with pytest.raises(ValueError, match="绑定冲突"):
+        asyncio.run(controller.reconcile(conflicting))
 
 
 def test_gateway_endpoint_selection_priority_freshness_and_validation() -> None:

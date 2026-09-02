@@ -13,6 +13,8 @@ from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
     build_managed_node_application,
     managed_application_lifespan,
+    managed_path_status_callback,
+    managed_resource_payload_callback,
 )
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.domain.identifiers import NodeId
@@ -40,6 +42,7 @@ from tunnelminion.platforms.windows.definitions import (
     WindowsToolAdapters,
     register_windows_tools,
 )
+from tunnelminion.platforms.windows.managed_path import build_windows_managed_path_platform
 from tunnelminion.platforms.windows.system import (
     PsutilSystemReader,
     SubprocessCommandRunner,
@@ -50,10 +53,18 @@ from tunnelminion.runtime.profile import default_runtime_data_dir
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.web.application_views import (
+    NetworkPathViewBindings,
+    build_application_view_bindings,
+)
 from tunnelminion.web.conversation import create_conversation_router
+from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
+from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
+from tunnelminion.web.spa import create_spa_router
 
 
 @dataclass(frozen=True)
@@ -99,7 +110,11 @@ def load_or_create_node_id(path: Path) -> NodeId:
     return node_id
 
 
-def build_windows_application(data_dir: Path | None = None) -> WindowsApplication:
+def build_windows_application(
+    data_dir: Path | None = None,
+    *,
+    network_path: NetworkPathViewBindings | None = None,
+) -> WindowsApplication:
     """组装模型配置、六个真实只读工具和本机 Web 入口。"""
     root = data_dir or default_data_dir()
     node_id = load_or_create_node_id(root / "node-id")
@@ -170,19 +185,41 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
         listeners,
         processes,
         docker,
+        managed_path_platform_factory=build_windows_managed_path_platform,
     )
     app = FastAPI(
         title="TunnelMinion",
         docs_url="/api/docs",
         lifespan=managed_application_lifespan(managed),
     )
+    install_local_request_guard(app)
+    current_managed_path_status = managed_path_status_callback(managed)
+    views = build_application_view_bindings(
+        node_id=node_id,
+        platform=Platform.WINDOWS,
+        model_service=model_service,
+        managed=managed,
+        network_path=network_path,
+        managed_path_status=current_managed_path_status,
+    )
     app.include_router(create_model_router(model_service))
     app.include_router(
-        create_resource_router(runtime, node_id, managed_status=managed.resource_payload)
+        create_resource_router(
+            runtime,
+            node_id,
+            coordinator_status=views.resource_bindings.coordinator_status,
+            coordinator_cache=views.resource_bindings.coordinator_cache,
+            network_path_status=views.resource_bindings.network_path,
+            managed_status=managed_resource_payload_callback(managed),
+            managed_path_status=current_managed_path_status,
+        )
     )
+    app.include_router(create_overview_router(views.overview_service))
+    app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
+    app.include_router(create_spa_router())
     return WindowsApplication(
         app,
         node_id,
@@ -199,4 +236,6 @@ def build_windows_application(data_dir: Path | None = None) -> WindowsApplicatio
 
 def create_app() -> FastAPI:
     """供 Uvicorn `--factory` 使用的应用工厂。"""
-    return build_windows_application().app
+    bundle = build_windows_application()
+    bundle.app.state.managed_node = bundle.managed_node
+    return bundle.app

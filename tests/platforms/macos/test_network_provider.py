@@ -6,12 +6,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from tests.network.factories import NETWORK_ID, NODE_A, desired
+from tests.network.factories import NETWORK_ID, NODE_A, NOW, desired
 
-from tunnelminion.domain.identifiers import NetworkId, NodeId
+from tunnelminion.domain.identifiers import NetworkId, NodeId, ResourceId
 from tunnelminion.network.contracts import (
     DesiredNetworkConfig,
     LocalNetworkKeyMaterial,
+    ManagedResourceOwnership,
     NetworkAction,
     NetworkPlan,
     NetworkPlanStep,
@@ -22,7 +23,7 @@ from tunnelminion.network.contracts import (
     ReceiptStatus,
     canonical_sha256,
 )
-from tunnelminion.network.ledger import SQLiteManagedResourceLedger
+from tunnelminion.network.ledger import ManagedResourceLedgerEntry, SQLiteManagedResourceLedger
 from tunnelminion.platforms.macos.managed_system import (
     MacOSPeerSnapshot,
     MacOSProviderPreflight,
@@ -197,6 +198,77 @@ def test_observe_protect_plan_apply_verify_and_journal(tmp_path: Path) -> None:
     journals.assert_no_secret_material()
     backend.snapshot = backend.snapshot.model_copy(update={"stable_interface_id": "utun-replaced"})
     assert asyncio.run(value.observe("tmn-test-b")).ownership is OwnershipState.OWNERSHIP_CONFLICT
+
+
+def test_parent_ledger_remains_owned_after_allowed_network_observation_upgrade(
+    tmp_path: Path,
+) -> None:
+    backend = FakeMacOSBackend()
+    backend.snapshot = MacOSTunnelSnapshot(
+        interface_name="tmn-test-b",
+        interface_present=True,
+        interface_up=True,
+        addresses=("10.203.0.1/32",),
+        service_present=True,
+        service_running=True,
+        peers=(
+            MacOSPeerSnapshot(
+                public_key="peer-a",
+                allowed_host_routes=("10.203.0.2/32",),
+                allowed_networks=("10.203.0.2/32", "10.203.0.0/24"),
+            ),
+        ),
+        host_routes=("10.203.0.2/32",),
+        public_key_hash=canonical_sha256({"public": "macos"}),
+        stable_interface_id="utun9",
+        creation_nonce="a" * 32,
+    )
+    value, ledger, _ = provider(tmp_path, backend)
+    legacy_fingerprint = canonical_sha256(
+        {
+            "interface_name": backend.snapshot.interface_name,
+            "interface_present": backend.snapshot.interface_present,
+            "addresses": backend.snapshot.addresses,
+            "peers": [
+                {
+                    "public_key": peer.public_key,
+                    "endpoint_host": peer.endpoint_host,
+                    "endpoint_port": peer.endpoint_port,
+                    "allowed_host_routes": peer.allowed_host_routes,
+                }
+                for peer in backend.snapshot.peers
+            ],
+            "host_routes": backend.snapshot.host_routes,
+            "public_key_hash": backend.snapshot.public_key_hash,
+            "stable_interface_id": backend.snapshot.stable_interface_id,
+            "creation_nonce": backend.snapshot.creation_nonce,
+        }
+    )
+    ledger.put(
+        ManagedResourceLedgerEntry(
+            ownership=ManagedResourceOwnership(
+                resource_id=ResourceId.new(),
+                network_id=NETWORK_ID,
+                node_id=NODE_A,
+                provider=ProviderKind.MACOS,
+                interface_name="tmn-test-b",
+                stable_interface_id="utun9",
+                creation_nonce="a" * 32,
+                public_key_hash=canonical_sha256({"public": "macos"}),
+                parent_revision=0,
+                desired_config_hash=canonical_sha256(config().model_dump(mode="json")),
+                system_fingerprint=legacy_fingerprint,
+            ),
+            secret_reference="keyring:macos/test",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+
+    observed = asyncio.run(value.observe("tmn-test-b"))
+
+    assert observed.ownership is OwnershipState.MANAGED_OWNED
+    assert backend.execute_calls == []
 
 
 def test_rejects_wrong_provider_and_untracked_managed_name(tmp_path: Path) -> None:

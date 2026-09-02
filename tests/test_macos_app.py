@@ -14,8 +14,15 @@ from fastapi.testclient import TestClient
 from keyring.errors import KeyringError
 from pydantic import JsonValue
 from tests.operation.factories import plan
+from tests.test_app import (
+    configured_managed_application,
+    real_managed_path_status,
+    real_path_bindings,
+)
 
+from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfiguration,
@@ -32,6 +39,7 @@ from tunnelminion.macos_app import (
     create_macos_app,
 )
 from tunnelminion.model.configuration import ModelConfigurationService
+from tunnelminion.network.path_status import ManagedPathStatus
 from tunnelminion.operation.contracts import (
     LeaseRecord,
     VerificationResult,
@@ -48,7 +56,13 @@ class ApiClient(Protocol):
 
     def get(self, url: str, *, headers: dict[str, str]) -> httpx.Response: ...
 
-    def post(self, url: str, *, json: object | None = None) -> httpx.Response: ...
+    def post(
+        self,
+        url: str,
+        *,
+        json: object | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response: ...
 
 
 def write_gateway_config(
@@ -122,7 +136,7 @@ def test_macos_gateway_exposes_only_authenticated_v1_tools(
     assert bundle.app.docs_url is None
     assert bundle.app.openapi_url is None
 
-    client = cast(ApiClient, TestClient(bundle.app))
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
     for local_path in ("/docs", "/resources", "/api/model-config"):
         assert client.get(local_path, headers={}).status_code == 404
     capabilities = client.get("/v1/capabilities", headers={"Authorization": f"Bearer {TOKEN}"})
@@ -182,7 +196,7 @@ def test_macos_gateway_enables_safe_sharing_only_with_explicit_peer_scope(
     assert bundle.bind.port == 18_883
     assert bundle.operation_service is not None
     assert bundle.operation_workflow is not None
-    with TestClient(bundle.app) as raw_client:
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as raw_client:
         client = cast(ApiClient, raw_client)
         response = client.get(
             "/v1/capabilities",
@@ -274,8 +288,18 @@ def test_macos_local_resources_degrade_without_model(
         no_interfaces,
     )
     bundle = build_macos_local_application(tmp_path / "local")
-    client = cast(ApiClient, TestClient(bundle.app))
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
 
+    paths = set(bundle.app.openapi()["paths"])
+    for original, legacy in (
+        ("/chat", "/legacy/chat"),
+        ("/resources", "/legacy/resources"),
+        ("/operations", "/legacy/operations"),
+        ("/memories", "/legacy/memories"),
+    ):
+        assert original in paths
+        assert legacy in paths
+    assert "/" in paths
     assert client.get("/resources", headers={}).status_code == 200
     summary = client.get("/api/resources/node-summary", headers={})
     assert summary.status_code == 200
@@ -285,8 +309,34 @@ def test_macos_local_resources_degrade_without_model(
     enrollment = cast(dict[str, object], managed_body["enrollment"])
     assert enrollment["state"] == "unconfigured"
     assert bundle.managed_node.runtime is None
+    overview = client.get("/api/resources/overview", headers={})
+    overview_body = cast(dict[str, object], overview.json())
+    assert overview.status_code == 200
+    assert cast(dict[str, object], overview_body["local"])["platform"] == "macos"
+    assert cast(dict[str, object], overview_body["coordinator"])["state"] == "unconfigured"
+    diagnostics = client.get("/api/diagnostics/export", headers={})
+    diagnostics_body = cast(dict[str, object], diagnostics.json())
+    assert diagnostics.status_code == 200
+    assert diagnostics.headers["cache-control"] == "no-store"
+    diagnostics_overview = cast(dict[str, object], diagnostics_body["overview"])
+    diagnostics_runtime = cast(dict[str, object], diagnostics_overview["runtime"])
+    assert diagnostics_runtime["platform"] == "macos"
+    assert [
+        cast(dict[str, object], item)["status"]
+        for item in cast(list[object], diagnostics_body["optional_sources"])
+    ] == ["unavailable", "unavailable"]
     model = client.get("/api/model-config", headers={})
     assert cast(dict[str, object], model.json())["status"] == "unconfigured"
+    cross_site = client.post(
+        "/api/threads",
+        headers={
+            "Origin": "https://attacker.example",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+    assert cross_site.status_code == 403
+    assert cross_site.json()["detail"]["code"] == "cross_site_request"
+    assert client.get("/resources", headers={"Host": "attacker.example"}).status_code == 403
     unavailable = client.post("/api/ai/runs/availability")
     assert unavailable.status_code == 503
     thread = cast(dict[str, object], client.post("/api/threads").json())
@@ -304,3 +354,77 @@ def test_macos_local_resources_degrade_without_model(
 
     monkeypatch.setattr("tunnelminion.macos_app.default_data_dir", lambda: tmp_path / "factory")
     assert create_macos_app().title == "TunnelMinion"
+
+
+def test_macos_factory_binds_configured_coordinator_and_real_path_views(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
+    bundle = build_macos_local_application(
+        tmp_path / "macos-bindings",
+        network_path=real_path_bindings(Platform.MACOS),
+    )
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
+
+    coordinator = client.get("/api/resources/coordinator", headers={}).json()
+    path = client.get("/api/resources/network-path", headers={}).json()
+    overview = client.get("/api/resources/overview", headers={}).json()
+    assert coordinator["configured"] is True
+    assert coordinator["state"] == "connecting"
+    assert path["configured"] is True
+    assert path["provider"] == "macos"
+    assert path["authorization_state"] == "authorized-l3"
+    assert overview["coordinator"]["state"] == "sync_not_started"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["probe"]["status"] == "passed"
+
+
+def test_macos_factory_prefers_managed_path_status_in_overview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status: ManagedPathStatus | None = None
+
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        nonlocal status
+        status = real_managed_path_status(node_id, platform)
+        return configured_managed_application(node_id, platform)
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
+
+    def current_managed_path_status(_self: ManagedNodeApplication) -> ManagedPathStatus | None:
+        return status
+
+    monkeypatch.setattr(
+        ManagedNodeApplication,
+        "current_managed_path_status",
+        current_managed_path_status,
+    )
+    bundle = build_macos_local_application(
+        tmp_path / "macos-managed-path",
+        network_path=real_path_bindings(Platform.WINDOWS),
+    )
+    client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
+
+    path = client.get("/api/resources/network-path", headers={}).json()
+    overview = client.get("/api/resources/overview", headers={}).json()
+    assert path["provider"] == "macos"
+    assert overview["network_path"]["provider"] == "macos"
+    assert overview["network_path"]["state"] == "direct"
+    assert overview["network_path"]["handshake"]["status"] == "passed"

@@ -22,6 +22,7 @@ from tunnelminion.network.contracts import (
     ProviderMode,
     ProviderReceipt,
     ReceiptStatus,
+    SignedDesiredConfig,
     StepReceipt,
     VerificationResult,
     canonical_sha256,
@@ -54,10 +55,14 @@ class InMemoryNetworkProvider:
         self._observation = observation
         self.behavior = behavior
         self.apply_calls = 0
+        self.observe_calls = 0
+        self.emergency_stop_calls = 0
         self.verify_calls = 0
         self.rollback_calls = 0
         self._receipts: dict[str, ProviderReceipt] = {}
         self._plans: dict[str, NetworkPlan] = {}
+        self._plan_idempotency: dict[str, str] = {}
+        self._operations: dict[tuple[str, str], tuple[SignedDesiredConfig, NetworkPlan]] = {}
         self._response_lost_keys: set[str] = set()
 
     def ensure_local_identity(
@@ -76,6 +81,7 @@ class InMemoryNetworkProvider:
 
     async def observe(self, interface_name: str) -> NetworkObservation:
         """返回指定接口的当前假状态。"""
+        self.observe_calls += 1
         if interface_name != self._observation.interface_name:
             raise ValueError("fake Provider 只观察已配置 fixture 接口")
         return self._observation
@@ -128,6 +134,24 @@ class InMemoryNetworkProvider:
         self._plans[plan.plan_hash] = plan
         return plan
 
+    def remember_operation(
+        self,
+        envelope: SignedDesiredConfig,
+        plan: NetworkPlan,
+        *,
+        idempotency_key: str,
+    ) -> None:
+        self._operations[(idempotency_key, plan.plan_hash)] = (envelope, plan)
+        self._plan_idempotency.setdefault(plan.plan_hash, idempotency_key)
+
+    def load_operation(
+        self,
+        *,
+        idempotency_key: str,
+        plan_hash: str,
+    ) -> tuple[SignedDesiredConfig, NetworkPlan] | None:
+        return self._operations.get((idempotency_key, plan_hash))
+
     async def apply(
         self,
         plan: NetworkPlan,
@@ -137,6 +161,7 @@ class InMemoryNetworkProvider:
     ) -> ProviderReceipt:
         """模拟串行应用、响应丢失、逐步失败、取消和崩溃。"""
         self.apply_calls += 1
+        self._plan_idempotency.setdefault(plan.plan_hash, idempotency_key)
         existing = self._receipts.get(idempotency_key)
         if existing is not None:
             return existing
@@ -179,13 +204,19 @@ class InMemoryNetworkProvider:
             return receipt
 
         step_receipts = tuple(self._step_receipt(step) for step in plan.steps)
-        self._observation = self._applied_observation(plan)
+        self._observation = (
+            self._stopped_observation(plan)
+            if plan.action in {NetworkAction.STOP, NetworkAction.REMOVE}
+            else self._applied_observation(plan)
+        )
         receipt = ProviderReceipt(
             idempotency_key=idempotency_key,
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
             status=ReceiptStatus.APPLIED,
             steps=step_receipts,
+            provider=plan.desired.provider,
+            observation_fingerprint=self._observation.system_fingerprint,
             observation_after=self._observation,
         )
         self._receipts[idempotency_key] = receipt
@@ -211,8 +242,13 @@ class InMemoryNetworkProvider:
                 else NetworkErrorCode.VERIFY_FAILED
             )
             return VerificationResult(
+                idempotency_key=self._plan_idempotency.get(
+                    plan.plan_hash, self._fallback_idempotency_key(plan)
+                ),
                 plan_hash=plan.plan_hash,
                 revision=plan.desired.revision,
+                provider=plan.desired.provider,
+                observation_fingerprint=self._observation.system_fingerprint,
                 succeeded=False,
                 checked_dimensions=checked,
                 observation=self._observation,
@@ -224,12 +260,19 @@ class InMemoryNetworkProvider:
             )
         expected_address = plan.desired.address
         succeeded = (
-            self._observation.ownership is OwnershipState.MANAGED_OWNED
+            self._observation.ownership is OwnershipState.ABSENT
+            if plan.action in {NetworkAction.STOP, NetworkAction.REMOVE}
+            else self._observation.ownership is OwnershipState.MANAGED_OWNED
             and expected_address in self._observation.addresses
         )
         return VerificationResult(
+            idempotency_key=self._plan_idempotency.get(
+                plan.plan_hash, self._fallback_idempotency_key(plan)
+            ),
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=self._observation.system_fingerprint,
             succeeded=succeeded,
             checked_dimensions=checked,
             observation=self._observation,
@@ -241,6 +284,42 @@ class InMemoryNetworkProvider:
                 correlation_id=plan.plan_hash,
             ),
         )
+
+    async def emergency_stop(
+        self,
+        plan: NetworkPlan,
+        *,
+        idempotency_key: str,
+        cancellation: ToolCancellationToken,
+    ) -> ProviderReceipt:
+        """通过独立 fake kill-switch 停止资源，不进入普通 apply 计数。"""
+        self.emergency_stop_calls += 1
+        existing = self._receipts.get(idempotency_key)
+        if existing is not None:
+            return existing
+        if cancellation.cancelled:
+            return self._store_error(
+                plan,
+                idempotency_key,
+                ReceiptStatus.CANCELLED,
+                NetworkErrorCode.CANCELLED,
+                "紧急停止在安全点前取消",
+            )
+        self._observation = self._stopped_observation(plan)
+        receipt = ProviderReceipt(
+            idempotency_key=idempotency_key,
+            plan_hash=plan.plan_hash,
+            revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=self._observation.system_fingerprint,
+            status=ReceiptStatus.APPLIED,
+            steps=tuple(self._step_receipt(step) for step in plan.steps),
+            observation_after=self._observation,
+        )
+        self._receipts[idempotency_key] = receipt
+        self._plans[plan.plan_hash] = plan
+        self._plan_idempotency.setdefault(plan.plan_hash, idempotency_key)
+        return receipt
 
     async def rollback(
         self,
@@ -311,6 +390,8 @@ class InMemoryNetworkProvider:
             revision=plan.desired.revision,
             status=ReceiptStatus.ROLLED_BACK,
             steps=rollback_steps,
+            provider=plan.desired.provider,
+            observation_fingerprint=self._observation.system_fingerprint,
             observation_after=self._observation,
         )
         self._receipts[receipt.idempotency_key] = rolled_back
@@ -435,6 +516,8 @@ class InMemoryNetworkProvider:
             idempotency_key=idempotency_key,
             plan_hash=plan.plan_hash,
             revision=plan.desired.revision,
+            provider=plan.desired.provider,
+            observation_fingerprint=plan.observed_fingerprint,
             status=status,
             steps=steps,
             error=NetworkError(
@@ -473,3 +556,22 @@ class InMemoryNetworkProvider:
                 "observed_at": datetime.now(UTC),
             }
         )
+
+    def _stopped_observation(self, plan: NetworkPlan) -> NetworkObservation:
+        return self._observation.model_copy(
+            update={
+                "addresses": (),
+                "host_routes": (),
+                "ownership": OwnershipState.ABSENT,
+                "stable_interface_id": None,
+                "public_key_hash": None,
+                "system_fingerprint": canonical_sha256(
+                    {"plan_hash": plan.plan_hash, "state": "absent"}
+                ),
+                "observed_at": datetime.now(UTC),
+            }
+        )
+
+    @staticmethod
+    def _fallback_idempotency_key(plan: NetworkPlan) -> str:
+        return "netop_" + canonical_sha256({"plan_hash": plan.plan_hash})[7:]

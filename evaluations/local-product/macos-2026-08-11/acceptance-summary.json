@@ -1,0 +1,107 @@
+{
+  "schema_version": "macos-local-product-acceptance/v1",
+  "generated_at": "2026-08-11T11:56:47Z",
+  "platform": {
+    "name": "macOS",
+    "version": "26.5",
+    "build": "25F71",
+    "architecture": "arm64",
+    "hardware": "Mac mini"
+  },
+  "source": {
+    "product_head": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+    "ci_merge_revision": "9d4bfbf348743e201cca440c45cf102bf752fac1",
+    "ci_merge_parents": [
+      "492d3dd8545e9f086de3ec277754bd4ea71cee84",
+      "d85c3288381d9e9d8fca74732a7aee4595574ade"
+    ],
+    "github_actions_run": 31485681899
+  },
+  "package": {
+    "schema": "runtime-package-manifest/v2",
+    "package_id": "tunnelminion-0-1-0-darwin-arm64-5afef13e6cd6-5fbb7ce67838",
+    "manifest_sha256": "6a8eef1b944e71325aca48b927ee528fca33f011e248a73364c2d877f6e9f11a",
+    "frontend_dist_sha256": "5fbb7ce67838a19d82a5e63b07a4beb4ae45cbb350c7424679adee526ad46ba2",
+    "file_count": 143,
+    "size_bytes": 62000708,
+    "clean_acceptance_passed": true,
+    "target_runtime_had_node": false,
+    "target_runtime_used_source_fallback": false,
+    "external_http_proxy_blocked": true
+  },
+  "harness": {
+    "portable_uv": "0.12.3",
+    "portable_node": "22.14.0",
+    "portable_npm": "10.9.2",
+    "browser": "Playwright WebKit 26.5 (webkit-2336)",
+    "note": "uv、Node 与 WebKit 只安装在仓库忽略的 build/acceptance 测试目录中，用于生成隔离夹具和驱动浏览器；被测 standalone package 本身不依赖这些工具。"
+  },
+  "browser_acceptance": {
+    "test": "frontend/e2e/package-product.spec.ts",
+    "expected": 1,
+    "passed": 1,
+    "failed": 0,
+    "duration_ms": 14040.278,
+    "assertions_covered": [
+      "强类型 overview API 返回 200 并通过 Zod schema",
+      "总览分别显示本机 ready、模型未配置、Coordinator 未配置和跨节点路径未配置",
+      "真实浏览器同源写请求成功创建聊天线程",
+      "按 operation ID 读取详情并打开对象明确的批准确认框",
+      "在全新隔离夹具中只提交一次批准，服务端返回 authorized，随后只允许 cancel",
+      "批准只改变 authorization 与 transition；lease、resource、verification、cleanup 均保持 0",
+      "home 与 lab 两个长期记忆作用域保持隔离",
+      "在原作用域内修正长期记忆并以服务端结果刷新",
+      "axe serious/critical 违规为 0",
+      "localStorage、sessionStorage 与 IndexedDB 均为空"
+    ],
+    "screenshots": [
+      "webkit-overview-loaded.png",
+      "operation-approve-submitted.png"
+    ],
+    "operation_approve_evidence": "operation-approve-safety.json"
+  },
+  "overview_latency_ms": {
+    "method": "真实 macOS WebKit 加载 packaged FastAPI 页面；初始加载等待 networkidle、总览标题和 ready 状态，刷新等待 overview API 200 与 ready 状态",
+    "initial": [
+      779,
+      571,
+      567,
+      565,
+      561
+    ],
+    "refresh": [
+      33,
+      44,
+      31,
+      37,
+      34
+    ],
+    "initial_p50": 567,
+    "initial_p95": 779,
+    "refresh_p50": 34,
+    "refresh_p95": 44
+  },
+  "security": {
+    "fixture_contains_secrets": false,
+    "repository_scanner_command": "python scripts/security_scan.py --root . --artifact build/acceptance/fixture/data --artifact build/acceptance/package",
+    "repository_scanner_passed": true,
+    "approval_package_and_fixture_files_scanned": 147,
+    "approval_package_and_fixture_bytes_scanned": 62201673,
+    "scanner_result": "no API key, gateway token, Bearer credential, or private key",
+    "qwen_contacted": false,
+    "external_model_api_called": false
+  },
+  "commands": [
+    "uv 0.12.3 sync --locked --all-groups --python 3.11",
+    "python scripts/prepare_local_product_package_fixture.py --data-dir <isolated>/data --allowed-root <isolated> --platform macos",
+    "npm ci with Node 22.14.0 and npm 10.9.2",
+    "playwright install webkit with browsers stored under ignored build/acceptance",
+    "playwright test --config playwright.package.config.ts --reporter=json",
+    "playwright screenshot --browser=webkit --full-page --wait-for-timeout=3000 http://127.0.0.1:<loopback>/app/overview"
+  ],
+  "scope_conclusion": "macOS arm64 正式离线包在真实 Mac 上启动成功；真实 packaged FastAPI、WebKit 产品主流程、隔离批准写入、降级表达、无障碍、浏览器零存储、加载/刷新延迟和秘密扫描在本切片范围内通过。",
+  "uncovered": [
+    "当前 SSH 会话没有 macOS Screen Recording/Apple Events 授权，系统 Safari 人工截图无法取得；未修改系统权限。WebKit 自动化结果不会被写成 Safari 人工验收。",
+    "没有修改或探测客户防火墙、WireGuard、路由、模型、秘密或自启动，也没有调用 Qwen 或外部模型 API。"
+  ]
+}

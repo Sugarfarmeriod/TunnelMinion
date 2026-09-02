@@ -9,6 +9,7 @@ from typing import Any, TypedDict, TypeVar, cast
 
 import pytest
 
+from tunnelminion.domain.identifiers import NetworkId, NodeId
 from tunnelminion.network.contracts import (
     CandidateSource,
     EndpointCandidate,
@@ -29,6 +30,10 @@ T = TypeVar("T")
 
 
 class ProbeArgs(TypedDict):
+    network_id: NetworkId
+    node_id: NodeId
+    plan_hash: str
+    authorization_revision: int
     revision: int
     candidates: tuple[EndpointCandidate, ...]
     expected_host_route: str
@@ -48,7 +53,7 @@ def run(awaitable: Coroutine[Any, Any, T]) -> T:
 def policy() -> PathProbePolicy:
     return PathProbePolicy(
         approved_networks=("10.0.0.0/24", "fd00::/64"),
-        approved_ports=(51820,),
+        approved_ports=(51820, 8787),
     )
 
 
@@ -91,6 +96,20 @@ class Observer:
         return self.value
 
 
+class PathObserver(Observer):
+    async def observe_path(
+        self,
+        interface_name: str,
+        *,
+        peer_public_key: str,
+        expected_host_route: str,
+    ) -> MacOSTunnelSnapshot:
+        assert interface_name == "utun9"
+        assert peer_public_key == PEER
+        assert expected_host_route == "10.0.0.2/32"
+        return await self.observe(interface_name)
+
+
 def make_probe(
     observer: Observer,
     *,
@@ -113,6 +132,10 @@ def make_probe(
 
 def args() -> ProbeArgs:
     return {
+        "network_id": NetworkId.new(),
+        "node_id": NodeId.new(),
+        "plan_hash": f"sha256:{'a' * 64}",
+        "authorization_revision": 1,
         "revision": 1,
         "candidates": (
             EndpointCandidate(
@@ -142,6 +165,47 @@ def test_macos_probe_returns_evidence_from_official_readonly_source() -> None:
     assert result.handshake_probe_at is not None
     assert result.host_route_probe_at is not None
     assert result.target_probe_at is not None
+
+
+def test_macos_probe_passes_exact_route_context_to_platform_observer() -> None:
+    observer = PathObserver(snapshot())
+    result = run(make_probe(cast(Observer, observer)).probe(**args()))
+    assert result.verified
+    assert observer.calls == 1
+
+
+def test_macos_probe_accepts_unique_safe_network_without_exact_route() -> None:
+    broad_peer = MacOSPeerSnapshot(
+        public_key=PEER,
+        endpoint_host="10.0.0.10",
+        endpoint_port=51820,
+        allowed_networks=("10.0.0.0/24",),
+        latest_handshake_epoch=int(NOW.timestamp()),
+    )
+    broad_snapshot = snapshot(peer=broad_peer).model_copy(update={"host_routes": ()})
+
+    result = run(make_probe(Observer(broad_snapshot)).probe(**args()))
+
+    assert result.verified
+    assert result.host_route_present
+
+
+def test_macos_probe_rejects_local_target_before_connect() -> None:
+    broad_peer = MacOSPeerSnapshot(
+        public_key=PEER,
+        endpoint_host="10.0.0.10",
+        endpoint_port=51820,
+        allowed_networks=("10.0.0.0/24",),
+        latest_handshake_epoch=int(NOW.timestamp()),
+    )
+    local_snapshot = snapshot(peer=broad_peer).model_copy(
+        update={"host_routes": (), "addresses": ("10.0.0.2/32",)}
+    )
+
+    result = run(make_probe(Observer(local_snapshot)).probe(**args()))
+
+    assert not result.verified
+    assert result.target_probe_at is None
 
 
 @pytest.mark.parametrize(

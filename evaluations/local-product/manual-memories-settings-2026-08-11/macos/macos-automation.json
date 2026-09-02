@@ -1,0 +1,215 @@
+{
+  "schema": "manual-memories-settings-automation/v1",
+  "source_revision": "d5eee8a4628214fa3ce1a58c937f69b7dc741e0e",
+  "platform": "macos",
+  "browser": {
+    "engine": "WebKit",
+    "version": "26.5"
+  },
+  "runtime": {
+    "mode": "source-fastapi-staged-frontend",
+    "base_url": "http://127.0.0.1:4174",
+    "fixture": {
+      "node_id": "node_66ff9b5882ae4b2da1677e47dae3a3ba",
+      "scopes": [
+        "acceptance-user/home",
+        "acceptance-user/lab"
+      ],
+      "contains_secrets": false
+    }
+  },
+  "screenshots": [
+    {
+      "file": "macos-memories-home.png",
+      "sha256": "8f3061617a085a54b5f6344323b5d654f4af834824e40c75bb5ae2686c0f3097",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-lab.png",
+      "sha256": "f7419b1ec6ea364ab5c0648a1695f4a8d7708f1b57d5ea215f90ad0026c728ad",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-revise-dialog.png",
+      "sha256": "8ddac204ecad0569db10c3216e62d316f0919075eeb9f931e4a25a50d4ed7ac9",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-home-revised.png",
+      "sha256": "b5c79e70bac634797cac4e1e6f4e0006672ddd78ed57717ed0728db42f177a31",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-delete-dialog.png",
+      "sha256": "4fb5dfc6206c6515f0be57ece72541c8b8e5b2f6d8705c3334b04f2d9b0cde4e",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-lab-empty.png",
+      "sha256": "0b76e0b8dec7900467d5069cafcab641d36aff72760382016fb687b841a9ea36",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-clear-dialog.png",
+      "sha256": "67ab4eaf9bb9a6dc06bcae37e12dc78f5ae938ce8f83cc2cbf2c9bea7291515c",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-home-empty.png",
+      "sha256": "9de8df26a996e377167c1ab96c1354b21d3630eb66bc6fab8fe819feaeee66cd",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-error.png",
+      "sha256": "9bc6ae0212936479561a63a820a637be8f5043504e7b2e931d4a26c2d419951d",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-settings-unconfigured.png",
+      "sha256": "e94a2304980bf11997991e245f2d31b571d461c9c311e4dfc6408fc021ffc0ae",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-settings-diagnostics.png",
+      "sha256": "7adc9165492d1279436f83a61a56fdc67e44dd344b2a2717ca32e26b89460b92",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-settings-error.png",
+      "sha256": "bbfc855f2af839e10a93157f855074322937fe31d9f959d89a4135825000a76d",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "macos-settings-320.png",
+      "sha256": "a561496da9b95c1a3214c936001e58a4088e04a15e8dfd153e671df6e4d92f54",
+      "width": 320,
+      "height": 720
+    },
+    {
+      "file": "macos-memories-200pct-equivalent.png",
+      "sha256": "3a8ddfb11db3adac39bc4a10a036566c0260048220efc0c5f57103ce6bef324a",
+      "width": 640,
+      "height": 360
+    }
+  ],
+  "checks": {
+    "memories": {
+      "homeScope": "用户“acceptance-user” / 网络“home” / 节点“node_66ff9b5882ae4b2da1677e47dae3a3ba”",
+      "homeVisible": true,
+      "labVisible": true,
+      "homeHiddenInLab": true,
+      "reviseDialogAria": {
+        "role": "dialog",
+        "modal": "true",
+        "labelledBy": "memory-confirm-title",
+        "describedBy": "memory-confirm-description"
+      },
+      "focusInitial": {
+        "tag": "BUTTON",
+        "role": null,
+        "name": null,
+        "text": "取消"
+      },
+      "focusAfterTab": {
+        "tag": "BODY",
+        "role": null,
+        "name": null,
+        "text": "本机控制台TunnelMinion只连接这台电脑上的 TunnelMinion总览聊天操作记忆设置独立于聊天记录长期记忆这里只管理用户确认过的稳定事实和偏好。删"
+      },
+      "focusAfterWrap": {
+        "tag": "INPUT",
+        "role": null,
+        "name": null,
+        "text": ""
+      },
+      "focusAfterReverseTab": {
+        "tag": "BODY",
+        "role": null,
+        "name": null,
+        "text": "本机控制台TunnelMinion只连接这台电脑上的 TunnelMinion总览聊天操作记忆设置独立于聊天记录长期记忆这里只管理用户确认过的稳定事实和偏好。删"
+      },
+      "reviseNotice": true,
+      "labEmptyAfterDelete": true,
+      "clearScopeText": "确认清空精确作用域将清空：用户“acceptance-user” / 网络“home” / 节点“node_66ff9b5882ae4b2da1677e47dae3a3ba”其他作用域和聊天线程不会被删除。取消确认清空一次",
+      "homeEmptyAfterClear": true,
+      "ariaAfterClear": [
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "服务端已用 204 明确确认：这个精确作用域已经清空。"
+        },
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "这个精确作用域还没有长期记忆。"
+        }
+      ],
+      "errorRole": "现在读不到长期记忆隔离验收故障：长期记忆暂时不可读取（memory_store_unavailable）重新读取"
+    },
+    "settings": {
+      "unconfiguredFallback": true,
+      "diagnosticsLink": "/api/diagnostics/export",
+      "aria": [
+        {
+          "role": "status",
+          "live": null,
+          "modal": null,
+          "labelledBy": null,
+          "text": "还没有模型配置。聊天的新 AI run 暂不可用，但长期记忆和确定性资源仍可管理。"
+        }
+      ],
+      "errorRole": "现在读不到模型配置隔离验收故障：模型配置暂时不可读取（model_configuration_unavailable）重新读取",
+      "narrow320": {
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "bodyScrollWidth": 320,
+        "noHorizontalOverflow": true
+      },
+      "zoomEquivalent": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "bodyScrollWidth": 640,
+        "noHorizontalOverflow": true
+      }
+    },
+    "browserStorage": [
+      {
+        "page": "memories-home",
+        "local": [],
+        "session": [],
+        "databases": []
+      },
+      {
+        "page": "settings-unconfigured",
+        "local": [],
+        "session": [],
+        "databases": []
+      }
+    ],
+    "diagnostics": {
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "containsForbiddenTokenPattern": false,
+      "containsFullChatMarker": false,
+      "byteLength": 2154
+    }
+  },
+  "manual_visual_review_required": true,
+  "real_safari_or_screen_reader": "not_run; WebKit and browser ARIA evidence only"
+}

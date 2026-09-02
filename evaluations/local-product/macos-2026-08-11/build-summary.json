@@ -1,0 +1,18 @@
+{
+  "application_version": "0.1.0",
+  "architecture": "arm64",
+  "file_count": 143,
+  "frontend_dist_sha256": "5fbb7ce67838a19d82a5e63b07a4beb4ae45cbb350c7424679adee526ad46ba2",
+  "frontend_file_count": 3,
+  "license_count": 287,
+  "manifest_sha256": "6a8eef1b944e71325aca48b927ee528fca33f011e248a73364c2d877f6e9f11a",
+  "npm_lock_sha256": "b51a16238da68741bff3c6f44bf7efc839cb53d2191546dc613dca48c5f52c6e",
+  "package_id": "tunnelminion-0-1-0-darwin-arm64-5afef13e6cd6-5fbb7ce67838",
+  "platform": "darwin",
+  "python_lock_sha256": "c1fdaf45e6c10804ebe46fefbefd638b0e090463bf1a0ef1015bc7decbce3477",
+  "schema_version": "runtime-package-build/v1",
+  "size_bytes": 62000708,
+  "source_revision": "9d4bfbf348743e201cca440c45cf102bf752fac1",
+  "source_tree_sha256": "5afef13e6cd6cd3e84b4371e81d2bbcfaadfff3e3eeb0d082a1cb43eeccaae29",
+  "unknown_license_count": 0
+}

@@ -1,0 +1,380 @@
+.operations-page {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.operations-page__header,
+.operation-detail-header,
+.operation-summary-card__heading,
+.operation-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.operations-page__header h2,
+.operations-page__header p,
+.operation-detail-header h2,
+.operation-detail-header p {
+  margin-bottom: var(--space-2);
+  margin-top: 0;
+}
+
+.operations-page button,
+.operation-link {
+  border-radius: var(--radius-pill);
+  font: inherit;
+  font-weight: 700;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+}
+
+.operations-page button {
+  background: var(--color-accent-strong);
+  border: 1px solid var(--color-accent-strong);
+  color: var(--color-surface);
+  cursor: pointer;
+}
+
+.operations-page button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.operations-callout {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) / 2);
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+}
+
+.operations-callout h3,
+.operations-callout p {
+  margin: 0;
+}
+
+.operations-callout button {
+  justify-self: start;
+  margin-top: var(--space-2);
+}
+
+.operations-callout--warning {
+  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
+  border-color: color-mix(in srgb, #b26a00 45%, var(--color-border));
+}
+
+.operations-callout--danger,
+.operation-detail-card--danger,
+.operation-manual-action,
+.operation-summary-card__error {
+  background: color-mix(in srgb, #b42318 10%, var(--color-surface));
+  border-color: color-mix(in srgb, #b42318 50%, var(--color-border));
+}
+
+.operations-callout--neutral {
+  background: color-mix(in srgb, var(--color-muted) 8%, var(--color-surface));
+}
+
+.operations-empty {
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius-panel) * 0.75);
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.operations-empty h3,
+.operations-empty p {
+  margin: var(--space-1) 0;
+}
+
+.operations-list,
+.operation-detail-list {
+  display: grid;
+  gap: var(--space-4);
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+}
+
+.operation-summary-card,
+.operation-detail-card {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) * 0.75);
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.operation-summary-card h3,
+.operation-summary-card p,
+.operation-detail-card h3,
+.operation-detail-card h4,
+.operation-detail-card p {
+  margin-bottom: var(--space-2);
+  margin-top: 0;
+}
+
+.operation-summary-card__tool,
+.operation-id,
+.operation-muted {
+  color: var(--color-muted);
+}
+
+.operation-status {
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.25;
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+}
+
+.operation-status--positive {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.operation-status--warning {
+  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
+  color: color-mix(in srgb, #b26a00 75%, var(--color-text));
+}
+
+.operation-status--danger {
+  background: color-mix(in srgb, #b42318 12%, var(--color-surface));
+  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+}
+
+.operation-status--neutral {
+  background: color-mix(in srgb, var(--color-muted) 10%, var(--color-surface));
+  color: var(--color-text);
+}
+
+.operation-summary-grid,
+.operation-detail-grid,
+.operation-dialog__object {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: var(--space-4) 0;
+}
+
+.operation-summary-grid div,
+.operation-detail-grid div,
+.operation-dialog__object div {
+  min-width: 0;
+}
+
+.operation-summary-grid dt,
+.operation-detail-grid dt,
+.operation-dialog__object dt {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.operation-summary-grid dd,
+.operation-detail-grid dd,
+.operation-dialog__object dd {
+  margin: var(--space-1) 0 0;
+}
+
+.operation-summary-card__error {
+  border: 1px solid;
+  border-radius: calc(var(--radius-panel) / 2);
+  padding: var(--space-3);
+}
+
+.operation-link {
+  border: 1px solid var(--color-accent-strong);
+  color: var(--color-accent-strong);
+  display: inline-flex;
+  margin-top: var(--space-2);
+  text-decoration: none;
+}
+
+.operation-back-link {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+}
+
+.operation-detail-header__controls {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.operation-detail-layout {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  margin-top: var(--space-5);
+}
+
+.operation-detail-list {
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
+.operation-detail-list li,
+.operation-history li {
+  background: color-mix(in srgb, var(--color-muted) 7%, var(--color-surface));
+  border-radius: calc(var(--radius-panel) / 2);
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.operation-detail-list li span,
+.operation-history li span,
+.operation-history time {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.operation-cleanup-record p {
+  margin: var(--space-1) 0;
+}
+
+.operation-manual-action {
+  border: 2px solid;
+  border-radius: calc(var(--radius-panel) / 2);
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+}
+
+.operation-history {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.operation-actions {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+.operation-actions h3,
+.operation-actions p {
+  margin: 0 0 var(--space-2);
+}
+
+.operation-actions__buttons,
+.operation-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.operation-dialog-backdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 55%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--space-3);
+  position: fixed;
+  z-index: 20;
+}
+
+.operation-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  max-height: calc(100vh - 2 * var(--space-3));
+  max-width: 40rem;
+  overflow: auto;
+  padding: clamp(var(--space-4), 5vw, var(--space-5));
+  width: 100%;
+}
+
+.operation-dialog h2,
+.operation-dialog p {
+  margin-bottom: var(--space-3);
+  margin-top: 0;
+}
+
+.operation-dialog__field {
+  display: grid;
+  font-weight: 700;
+  gap: var(--space-1);
+  margin: var(--space-4) 0;
+}
+
+.operation-dialog__field input,
+.operation-dialog__field textarea {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) / 2);
+  color: var(--color-text);
+  font: inherit;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-2);
+}
+
+.operation-dialog__warning {
+  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
+  border-radius: calc(var(--radius-panel) / 2);
+  padding: var(--space-3);
+}
+
+.operation-dialog__actions {
+  justify-content: flex-end;
+  margin-top: var(--space-5);
+}
+
+.operation-dialog__actions button:first-child {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.operations-page .operation-button--danger {
+  background: #8d1b14;
+  border-color: #8d1b14;
+  color: #ffffff;
+}
+
+@media (max-width: 32rem) {
+  .operations-page__header,
+  .operation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .operation-detail-header__controls {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .operations-page__header button,
+  .operation-actions__buttons button {
+    width: 100%;
+  }
+
+  .operation-summary-grid,
+  .operation-detail-grid,
+  .operation-dialog__object {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-dialog-backdrop {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .operation-dialog {
+    border-radius: 0;
+    max-height: 100vh;
+  }
+}

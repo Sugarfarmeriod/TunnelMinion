@@ -1,0 +1,58 @@
+{
+  "schema_version": "managed-path-readonly-evidence/v1",
+  "code_commit": "86f4682c5289ddf93eb6a666ac044d3bf9831962",
+  "platform": "windows",
+  "hostname": "Sugarfarmer-LAP",
+  "interface": "HomeMac",
+  "started_at": "2026-08-20T18:46:06.775165+00:00",
+  "finished_at": "2026-08-20T18:46:07.468625+00:00",
+  "authorization": {
+    "target_host_hash": "sha256:8cbb8cde55d6f84bc9fcf199ef36d876d78181179f3909577d1ff8772226a851",
+    "target_port": 18880,
+    "protocol": "tcp",
+    "max_target_attempts": 1,
+    "target_timeout_seconds": 2
+  },
+  "source": "windows:production-observer-path-probe",
+  "before": {
+    "interface_present": true,
+    "interface_up": true,
+    "service_present": true,
+    "service_running": true,
+    "peer_count": 0,
+    "host_route_count": 0,
+    "observed_error_code": "wireguard_query_failed",
+    "system_fingerprint": "sha256:42d4fb18964a4b49312a27fa64c9c405524760a8f13b852d8cb78d28af5257c4"
+  },
+  "after": {
+    "interface_present": true,
+    "interface_up": true,
+    "service_present": true,
+    "service_running": true,
+    "peer_count": 0,
+    "host_route_count": 0,
+    "observed_error_code": "wireguard_query_failed",
+    "system_fingerprint": "sha256:42d4fb18964a4b49312a27fa64c9c405524760a8f13b852d8cb78d28af5257c4"
+  },
+  "route_query_returncode_before": 0,
+  "route_query_returncode_after": 0,
+  "route_output_hash_before": "sha256:c0ff5e49bfaa411ede9788add9405f873bab8e0a277c709211141d4997b3a40c",
+  "route_output_hash_after": "sha256:c0ff5e49bfaa411ede9788add9405f873bab8e0a277c709211141d4997b3a40c",
+  "network_state_unchanged": true,
+  "path_evidence": {
+    "verified": false,
+    "stable_error_code": "unsupported",
+    "source": "windows:wg-show-route",
+    "candidate_count": 0,
+    "target_probe_succeeded": false,
+    "target_probe_executed": false,
+    "observed_at": "2026-08-20T18:46:07.036222+00:00",
+    "expires_at": "2026-08-20T18:49:07.036222+00:00"
+  },
+  "limitations": [
+    "raw command output not persisted",
+    "public keys and endpoints not persisted",
+    "firewall, DNS, and unrelated routes not observed"
+  ],
+  "writes_performed": false
+}

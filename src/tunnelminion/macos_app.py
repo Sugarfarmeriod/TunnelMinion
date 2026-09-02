@@ -19,6 +19,8 @@ from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
     build_managed_node_application,
     managed_application_lifespan,
+    managed_path_status_callback,
+    managed_resource_payload_callback,
 )
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.app import default_data_dir, load_or_create_node_id
@@ -62,6 +64,7 @@ from tunnelminion.platforms.macos.adapters import (
     ServiceReachabilityAdapter,
 )
 from tunnelminion.platforms.macos.definitions import MacOSToolAdapters, register_macos_tools
+from tunnelminion.platforms.macos.managed_path import build_macos_managed_path_platform
 from tunnelminion.platforms.macos.system import (
     MacOSSystemReader,
     SubprocessCommandRunner,
@@ -72,10 +75,18 @@ from tunnelminion.platforms.windows.system import SystemReader
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.web.application_views import (
+    NetworkPathViewBindings,
+    build_application_view_bindings,
+)
 from tunnelminion.web.conversation import create_conversation_router
+from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
+from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
+from tunnelminion.web.spa import create_spa_router
 
 
 @dataclass(frozen=True)
@@ -262,6 +273,7 @@ def build_macos_local_application(
     data_dir: Path | None = None,
     *,
     interface_name: str | None = None,
+    network_path: NetworkPathViewBindings | None = None,
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
     node = _build_macos_node(data_dir, interface_name=interface_name)
@@ -293,23 +305,41 @@ def build_macos_local_application(
         node.listeners,
         node.processes,
         node.docker,
+        managed_path_platform_factory=build_macos_managed_path_platform,
     )
     app = FastAPI(
         title="TunnelMinion",
         docs_url="/api/docs",
         lifespan=managed_application_lifespan(managed),
     )
+    install_local_request_guard(app)
+    current_managed_path_status = managed_path_status_callback(managed)
+    views = build_application_view_bindings(
+        node_id=node.node_id,
+        platform=Platform.MACOS,
+        model_service=node.model_service,
+        managed=managed,
+        network_path=network_path,
+        managed_path_status=current_managed_path_status,
+    )
     app.include_router(create_model_router(node.model_service))
     app.include_router(
         create_resource_router(
             node.tool_runtime,
             node.node_id,
-            managed_status=managed.resource_payload,
+            coordinator_status=views.resource_bindings.coordinator_status,
+            coordinator_cache=views.resource_bindings.coordinator_cache,
+            network_path_status=views.resource_bindings.network_path,
+            managed_status=managed_resource_payload_callback(managed),
+            managed_path_status=current_managed_path_status,
         )
     )
+    app.include_router(create_overview_router(views.overview_service))
+    app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
+    app.include_router(create_spa_router())
     return MacOSLocalApplication(
         app,
         node,
@@ -322,7 +352,9 @@ def build_macos_local_application(
 
 def create_macos_app() -> FastAPI:
     """供 macOS 本地 Uvicorn 工厂使用。"""
-    return build_macos_local_application().app
+    bundle = build_macos_local_application()
+    bundle.app.state.managed_node = bundle.managed_node
+    return bundle.app
 
 
 def build_macos_gateway_application(

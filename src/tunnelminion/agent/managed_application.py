@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from weakref import ref
 
 from fastapi import FastAPI
 from pydantic import JsonValue
@@ -30,6 +31,11 @@ from tunnelminion.agent.managed_node import (
     managed_node_secret_store,
     managed_node_status,
 )
+from tunnelminion.agent.managed_path import (
+    ManagedPathApplication,
+    ManagedPathPlatformFactory,
+    build_managed_path_application,
+)
 from tunnelminion.agent.managed_runtime import (
     MANAGED_RUNTIME_CHECKPOINT_FILE,
     FileManagedRuntimeCheckpointRepository,
@@ -44,6 +50,7 @@ from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialSt
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.network.path_status import ManagedPathStatus
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -56,6 +63,7 @@ class ManagedNodeApplication:
     runtime: ManagedNodeRuntime | None = None
     coordinator: ManagedCoordinatorLoops | None = None
     network: ManagedNetworkSyncLoop | None = None
+    managed_path: ManagedPathApplication | None = None
 
     def resource_payload(self) -> dict[str, JsonValue]:
         """生成不含 endpoint、凭据、签名和配置正文的分域资源状态。"""
@@ -83,7 +91,23 @@ class ManagedNodeApplication:
                 if checkpoint is not None and checkpoint.last_known_good is not None
                 else None
             ),
+            "managed_path": (
+                self.managed_path.resource_payload() if self.managed_path is not None else None
+            ),
         }
+
+    def current_managed_path_status(self) -> ManagedPathStatus | None:
+        """返回现有 lifecycle 的持久化 path status，不触发平台读取。"""
+        return (
+            self.managed_path.current_managed_path_status()
+            if self.managed_path is not None
+            else None
+        )
+
+    def close(self) -> None:
+        """显式释放常规应用持有的 managed path 本地资源。"""
+        if self.managed_path is not None:
+            self.managed_path.close()
 
 
 def build_managed_node_application(
@@ -97,6 +121,7 @@ def build_managed_node_application(
     *,
     coordinator_transport: CoordinatorTransport | None = None,
     network_transport: ManagedNetworkSyncTransport | None = None,
+    managed_path_platform_factory: ManagedPathPlatformFactory | None = None,
 ) -> ManagedNodeApplication:
     """仅在显式配置且已 enrollment 时创建三个真实后台循环。"""
     try:
@@ -150,6 +175,20 @@ def build_managed_node_application(
         network_transport or HttpManagedNetworkSyncTransport(coordinator_config),
         credentials,
     )
+    managed_path = None
+    if managed_path_platform_factory is not None:
+        synchronizer = network.synchronizer
+        managed_path = build_managed_path_application(
+            data_dir,
+            config.network_id,
+            config.node_id,
+            managed_path_platform_factory,
+            revision_source=lambda: synchronizer.checkpoint.applied_revision,
+            pending_source=lambda: synchronizer.checkpoint.pending_config,
+            acknowledgements=network.acknowledgement_sink,
+            commit_last_known_good=synchronizer.mark_verified,
+        )
+        network.attach_managed_path(managed_path)
     runtime = ManagedNodeRuntime(
         (coordinator.services, coordinator.directory, network),
         FileManagedRuntimeCheckpointRepository(data_dir / MANAGED_RUNTIME_CHECKPOINT_FILE),
@@ -162,6 +201,7 @@ def build_managed_node_application(
         runtime=runtime,
         coordinator=coordinator,
         network=network,
+        managed_path=managed_path,
     )
 
 
@@ -169,17 +209,52 @@ def managed_application_lifespan(
     managed: ManagedNodeApplication,
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     """未配置时零副作用，已就绪时严格托管 managed runtime。"""
+    managed_ref = ref(managed)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         del app
-        if managed.runtime is None:
+        current = managed_ref()
+        if current is None or current.runtime is None:
             yield
             return
-        await managed.runtime.start()
+        try:
+            await current.runtime.start()
+        except BaseException:
+            current.close()
+            raise
         try:
             yield
         finally:
-            await managed.runtime.stop()
+            try:
+                await current.runtime.stop()
+            finally:
+                current.close()
 
     return lifespan
+
+
+def managed_resource_payload_callback(
+    managed: ManagedNodeApplication,
+) -> Callable[[], dict[str, JsonValue]]:
+    """生成不把应用对象反向锁在 FastAPI 路由中的资源回调。"""
+    managed_ref = ref(managed)
+
+    def callback() -> dict[str, JsonValue]:
+        current = managed_ref()
+        return current.resource_payload() if current is not None else {}
+
+    return callback
+
+
+def managed_path_status_callback(
+    managed: ManagedNodeApplication,
+) -> Callable[[], ManagedPathStatus | None]:
+    """生成只持有 weak reference 的 managed path 状态回调。"""
+    managed_ref = ref(managed)
+
+    def callback() -> ManagedPathStatus | None:
+        current = managed_ref()
+        return current.current_managed_path_status() if current is not None else None
+
+    return callback

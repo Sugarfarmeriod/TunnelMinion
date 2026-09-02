@@ -85,6 +85,77 @@ def _package(tmp_path: Path) -> tuple[Path, Path]:
     return root, manifest_path
 
 
+def _v2_package(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "package-v2"
+    frontend = root / "ui"
+    frontend.mkdir(parents=True)
+    entrypoint = root / "tunnelminion.bin"
+    entrypoint.write_bytes(b"runtime")
+    index = frontend / "index.html"
+    index.write_bytes(b"frontend")
+    frontend_digest = hashlib.sha256()
+    frontend_digest.update(b"index.html\0")
+    frontend_digest.update(bytes.fromhex(hashlib.sha256(b"frontend").hexdigest()))
+    manifest = {
+        "schema_version": "runtime-package-manifest/v2",
+        "candidate": {
+            "id": "onedir-v2",
+            "layout": "onedir-freeze",
+            "platform": sys.platform,
+            "architecture": canonical_runtime_architecture(),
+            "python_version": "3.12.11",
+            "application_version": "0.1.0",
+        },
+        "build": {
+            "source_revision": "a" * 40,
+            "source_tree_sha256": "b" * 64,
+            "python_lock_sha256": "c" * 64,
+            "npm_lock_sha256": "d" * 64,
+            "builder": "test",
+        },
+        "frontend": {
+            "root": "ui",
+            "sha256": frontend_digest.hexdigest(),
+            "file_count": 1,
+        },
+        "entrypoint": entrypoint.name,
+        "entrypoint_args": [],
+        "files": [
+            {
+                "path": entrypoint.name,
+                "sha256": hashlib.sha256(b"runtime").hexdigest(),
+                "size": len(b"runtime"),
+                "type": "entrypoint",
+            },
+            {
+                "path": "ui/index.html",
+                "sha256": hashlib.sha256(b"frontend").hexdigest(),
+                "size": len(b"frontend"),
+                "type": "frontend",
+            },
+        ],
+        "licenses": [
+            {
+                "ecosystem": "python",
+                "name": "fastapi",
+                "version": "1",
+                "license": "MIT",
+                "source": "installed-python-metadata",
+            },
+            {
+                "ecosystem": "npm",
+                "name": "react",
+                "version": "1",
+                "license": "MIT",
+                "source": "frontend/package-lock.json",
+            },
+        ],
+    }
+    manifest_path = tmp_path / "manifest-v2.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return root, manifest_path
+
+
 def _preflight(tmp_path: Path, profile: RuntimeProfile) -> tuple[RuntimePreflight, RuntimePaths]:
     package_root, manifest_path = _package(tmp_path)
     profile_file = tmp_path / "config" / "runtime-profile.json"
@@ -115,6 +186,136 @@ def test_manifest_verifies_hash_and_rejects_corruption(tmp_path: Path) -> None:
     (package_root / "tunnelminion.bin").write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="校验失败"):
         verify_runtime_package(package_root, manifest_path, schema, ())
+
+
+def test_v2_manifest_selects_schema_directory_and_verifies_frontend(tmp_path: Path) -> None:
+    package_root, manifest_path = _v2_package(tmp_path)
+    verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    value["frontend"]["sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="前端摘要"):
+        verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+
+def test_manifest_version_selection_fails_closed(tmp_path: Path) -> None:
+    package_root, manifest_path = _v2_package(tmp_path)
+    with pytest.raises(ValueError, match="版本不匹配"):
+        verify_runtime_package(
+            package_root,
+            manifest_path,
+            Path("schemas/runtime-package-manifest-v1.schema.json"),
+            (),
+        )
+
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    value["schema_version"] = "runtime-package-manifest/v99"
+    manifest_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="版本不受支持"):
+        verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+
+def test_manifest_cannot_be_used_as_its_own_schema(tmp_path: Path) -> None:
+    package_root, source_manifest = _v2_package(tmp_path)
+    manifest_path = tmp_path / "runtime-package-manifest-v2.schema.json"
+    manifest_path.write_bytes(source_manifest.read_bytes())
+
+    with pytest.raises(ValueError, match="不能充当 schema"):
+        verify_runtime_package(package_root, manifest_path, manifest_path, ())
+
+
+def test_embedded_manifest_is_not_counted_as_payload(tmp_path: Path) -> None:
+    package_root, source_manifest = _v2_package(tmp_path)
+    manifest_path = package_root / "runtime-package-manifest.json"
+    manifest_path.write_bytes(source_manifest.read_bytes())
+
+    verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+
+@pytest.mark.parametrize(
+    ("frontend", "error"),
+    (
+        (None, "缺少前端摘要"),
+        ({"root": 1}, "前端根无效"),
+        ({"root": "missing"}, "缺少 index.html"),
+    ),
+)
+def test_v2_frontend_defensive_shapes_fail_closed(
+    tmp_path: Path, frontend: object, error: str
+) -> None:
+    package_root, _ = _v2_package(tmp_path)
+    manifest: dict[str, object] = {"frontend": frontend}
+
+    with pytest.raises(ValueError, match=error):
+        preflight_module._verify_v2_frontend(  # pyright: ignore[reportPrivateUsage]
+            package_root, manifest, []
+        )
+
+
+def test_v2_frontend_rejects_typed_file_outside_root(tmp_path: Path) -> None:
+    package_root, manifest_path = _v2_package(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    with pytest.raises(ValueError, match="文件类型或根目录"):
+        preflight_module._verify_v2_frontend(  # pyright: ignore[reportPrivateUsage]
+            package_root,
+            manifest,
+            [{"path": 1, "type": "frontend"}],
+        )
+    with pytest.raises(ValueError, match="文件类型或根目录"):
+        preflight_module._verify_v2_frontend(  # pyright: ignore[reportPrivateUsage]
+            package_root,
+            manifest,
+            [{"path": "outside.txt", "type": "frontend"}],
+        )
+
+
+@pytest.mark.parametrize(
+    ("licenses", "error"),
+    (
+        (None, "许可证清单无效"),
+        (["bad"], "许可证记录无效"),
+        ([{"ecosystem": 1, "license": "MIT"}], "许可证来源无效"),
+        ([{"ecosystem": "python", "license": 1}], "许可证来源无效"),
+    ),
+)
+def test_v2_license_defensive_shapes_fail_closed(
+    tmp_path: Path, licenses: object, error: str
+) -> None:
+    package_root, _ = _v2_package(tmp_path)
+    manifest: dict[str, object] = {"licenses": licenses}
+    records: list[dict[str, object]] = [{"path": "tunnelminion.bin", "type": "entrypoint"}]
+
+    with pytest.raises(ValueError, match=error):
+        preflight_module._verify_v2_semantics(  # pyright: ignore[reportPrivateUsage]
+            package_root, manifest, records, "tunnelminion.bin"
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    (
+        ("entrypoint", "入口类型"),
+        ("frontend-count", "前端摘要"),
+        ("unknown-license", "未知许可证"),
+        ("missing-ecosystem", "许可证"),
+    ),
+)
+def test_v2_semantic_cross_checks_fail_closed(tmp_path: Path, mutation: str, error: str) -> None:
+    package_root, manifest_path = _v2_package(tmp_path)
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "entrypoint":
+        value["files"][0]["type"] = "runtime"
+    elif mutation == "frontend-count":
+        value["frontend"]["file_count"] = 2
+    elif mutation == "unknown-license":
+        value["licenses"][0]["license"] = "UNKNOWN"
+    else:
+        value["licenses"][1]["ecosystem"] = "python"
+    manifest_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match=error):
+        verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
 
 
 def test_manifest_rejects_path_traversal(tmp_path: Path) -> None:
@@ -170,7 +371,7 @@ def test_manifest_rejects_invalid_target_metadata_with_permissive_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root, manifest_path = _package(tmp_path)
-    schema = tmp_path / "permissive-schema.json"
+    schema = tmp_path / "runtime-package-manifest-v1.schema.json"
     schema.write_text("{}", encoding="utf-8")
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
     value["candidate"] = None
@@ -262,10 +463,18 @@ def test_manifest_rejects_symlink_and_special_file_shapes(
     "manifest,error",
     [
         ([], "根节点"),
-        ({}, "缺少文件列表"),
-        ({"files": ["bad"], "entrypoint": "app"}, "文件记录无效"),
+        ({"schema_version": "runtime-package-manifest/v1"}, "缺少文件列表"),
         (
             {
+                "schema_version": "runtime-package-manifest/v1",
+                "files": ["bad"],
+                "entrypoint": "app",
+            },
+            "文件记录无效",
+        ),
+        (
+            {
+                "schema_version": "runtime-package-manifest/v1",
                 "files": [
                     {
                         "path": "app",
@@ -284,6 +493,7 @@ def test_manifest_rejects_symlink_and_special_file_shapes(
         ),
         (
             {
+                "schema_version": "runtime-package-manifest/v1",
                 "files": [
                     {
                         "path": "app",
@@ -305,7 +515,7 @@ def test_manifest_defensively_rejects_invalid_shapes(
     (package_root / "app").write_bytes(b"")
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    permissive_schema = tmp_path / "schema.json"
+    permissive_schema = tmp_path / "runtime-package-manifest-v1.schema.json"
     permissive_schema.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match=error):
         verify_runtime_package(package_root, manifest_path, permissive_schema, ())
@@ -313,12 +523,12 @@ def test_manifest_defensively_rejects_invalid_shapes(
 
 def test_manifest_rejects_non_object_schema_and_package_root_path(tmp_path: Path) -> None:
     package_root, manifest_path = _package(tmp_path)
-    list_schema = tmp_path / "schema.json"
+    list_schema = tmp_path / "runtime-package-manifest-v1.schema.json"
     list_schema.write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="schema 根节点"):
         verify_runtime_package(package_root, manifest_path, list_schema, ())
 
-    permissive_schema = tmp_path / "permissive.json"
+    permissive_schema = tmp_path / "runtime-package-manifest-v1.schema.json"
     permissive_schema.write_text("{}", encoding="utf-8")
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
     value["files"][0]["path"] = "."

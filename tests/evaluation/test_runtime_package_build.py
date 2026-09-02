@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tomllib
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -13,8 +15,29 @@ from pydantic import JsonValue
 from scripts import build_runtime_package as builder
 
 
-def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def _fake_builder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
     epochs: list[str] = []
+    frontend = tmp_path / "frontend-dist"
+    (frontend / "assets").mkdir(parents=True)
+    (frontend / "index.html").write_text("<main></main>", encoding="utf-8")
+    (frontend / "assets/app.js").write_text("export {};", encoding="utf-8")
+    (frontend / "assets/app.css").write_text("main{}", encoding="utf-8")
+    monkeypatch.setattr(builder, "FRONTEND_DIST", frontend)
+
+    def receipt(root: Path) -> dict[str, JsonValue]:
+        del root
+        return {
+            "dist_sha256": builder._frontend_digest(  # pyright: ignore[reportPrivateUsage]
+                frontend
+            ),
+            "file_count": 3,
+        }
+
+    monkeypatch.setattr(
+        builder,
+        "verify_frontend_dist",
+        receipt,
+    )
 
     def run(command: Sequence[str], *, environment: dict[str, str]) -> None:
         epochs.append(environment["SOURCE_DATE_EPOCH"])
@@ -26,6 +49,12 @@ def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         executable.write_bytes(b"deterministic-runtime")
         internal = dist / "_internal"
         internal.mkdir()
+        add_data = command[command.index("--add-data") + 1]
+        assert add_data == f"{frontend.resolve()}:tunnelminion/web/ui"
+        shutil.copytree(
+            frontend,
+            internal / "tunnelminion/web/ui",
+        )
         order = ("b.pyc", "a.pyc") if len(epochs) == 1 else ("a.pyc", "b.pyc")
         with zipfile.ZipFile(internal / "base_library.zip", "w") as archive:
             for name in order:
@@ -41,10 +70,7 @@ def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def licenses(work: Path) -> list[dict[str, JsonValue]]:
         del work
-        return [
-            {"name": "known", "version": "1", "license": "Apache-2.0"},
-            {"name": "unknown", "version": "2", "license": "UNKNOWN"},
-        ]
+        return [{"name": "known", "version": "1", "license": "Apache-2.0"}]
 
     monkeypatch.setattr(builder, "_run", run)
     monkeypatch.setattr(builder, "git_revision", revision)
@@ -56,7 +82,7 @@ def _fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_formal_build_is_deterministic_and_schema_valid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    epochs = _fake_builder(monkeypatch)
+    epochs = _fake_builder(monkeypatch, tmp_path)
     first_manifest = tmp_path / "first.manifest.json"
     first_summary = tmp_path / "first.summary.json"
     first = builder.build_runtime_package(tmp_path / "first-output", first_manifest, first_summary)
@@ -69,15 +95,86 @@ def test_formal_build_is_deterministic_and_schema_valid(
     assert first_manifest.read_bytes() == second_manifest.read_bytes()
     assert first_summary.read_bytes() == second_summary.read_bytes()
     assert epochs == ["1700000000", "1700000000"]
-    assert first["unknown_license_count"] == 1
+    assert first["unknown_license_count"] == 0
     manifest = json.loads(first_manifest.read_text(encoding="utf-8"))
     schema = json.loads(
-        Path("schemas/runtime-package-manifest-v1.schema.json").read_text(encoding="utf-8")
+        Path("schemas/runtime-package-manifest-v2.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator(schema).validate(manifest)  # pyright: ignore[reportUnknownMemberType]
     package_root = next((tmp_path / "first-output").iterdir())
     assert (package_root / "THIRD_PARTY_LICENSES.json").exists()
     assert (package_root / "schemas" / "runtime-profile-v1.schema.json").exists()
+    assert (package_root / "schemas" / "runtime-package-manifest-v2.schema.json").exists()
+    assert (package_root / "_internal/tunnelminion/web/ui/index.html").is_file()
+    assert first["frontend_file_count"] == 3
+    assert len(str(first["frontend_dist_sha256"])) == 64
+    assert manifest["schema_version"] == "runtime-package-manifest/v2"
+    assert manifest["frontend"]["sha256"] == first["frontend_dist_sha256"]
+    assert {item["ecosystem"] for item in manifest["licenses"]} == {"python", "npm"}
+    assert {item["type"] for item in manifest["files"]} >= {
+        "runtime",
+        "entrypoint",
+        "frontend",
+        "schema",
+        "license-evidence",
+    }
+
+
+def test_wheel_force_includes_the_unique_frontend_dist() -> None:
+    configuration = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    wheel = configuration["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert wheel["hooks"]["custom"] == {"path": "hatch_build.py"}
+    assert "force-include" not in wheel
+    hook = Path("hatch_build.py").read_text(encoding="utf-8")
+    assert 'if version != "standard"' in hook
+    assert 'build_data["force_include"][str(frontend)] = "tunnelminion/web/ui"' in hook
+
+
+def test_formal_build_rejects_missing_or_linked_frontend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(builder, "FRONTEND_DIST", tmp_path / "missing")
+    with pytest.raises(ValueError, match=r"frontend-dist/index\.html"):
+        builder.build_runtime_package(
+            tmp_path / "output",
+            tmp_path / "manifest.json",
+            tmp_path / "summary.json",
+        )
+
+
+def test_frontend_change_changes_package_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_builder(monkeypatch, tmp_path)
+    first = builder.build_runtime_package(
+        tmp_path / "first-output",
+        tmp_path / "first-manifest.json",
+        tmp_path / "first-summary.json",
+    )
+    (builder.FRONTEND_DIST / "assets/app.js").write_text("export const changed = 1;")
+    second = builder.build_runtime_package(
+        tmp_path / "second-output",
+        tmp_path / "second-manifest.json",
+        tmp_path / "second-summary.json",
+    )
+    assert first["package_id"] != second["package_id"]
+
+
+def test_npm_license_inventory_fails_closed_for_unknown_license(tmp_path: Path) -> None:
+    lock = tmp_path / "package-lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "": {},
+                    "node_modules/unsafe": {"version": "1.0.0", "license": "UNKNOWN"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="许可证"):
+        builder._npm_license_inventory(lock)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_formal_build_main_rejects_repository_targets_and_prints_summary(
@@ -97,7 +194,7 @@ def test_formal_build_main_rejects_repository_targets_and_prints_summary(
             ]
         )
 
-    _fake_builder(monkeypatch)
+    _fake_builder(monkeypatch, tmp_path)
     assert (
         builder.main(
             [

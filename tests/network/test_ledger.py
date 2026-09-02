@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -122,3 +123,65 @@ def test_ledger_integrity_check_detects_corrupted_secret_payload(tmp_path: Path)
         )
     with pytest.raises(ValueError, match="结构无效"):
         ledger.assert_no_secret_material()
+
+
+def test_ledger_closes_short_connections_without_gc(tmp_path: Path) -> None:
+    """成功和异常短事务结束后，Windows 也能立即删除账本文件。"""
+    path = tmp_path / "managed-network-ledger.sqlite3"
+    ledger = SQLiteManagedResourceLedger(path)
+    saved = entry()
+    ledger.put(saved)
+    assert ledger.get(NETWORK_ID, NODE_A) == saved
+    assert ledger.list_all() == (saved,)
+    assert ledger.export_public()
+    ledger.assert_no_secret_material()
+
+    replacement = saved.model_copy(
+        update={"ownership": saved.ownership.model_copy(update={"resource_id": ResourceId.new()})}
+    )
+    with pytest.raises(ValueError, match="另一受管资源"):
+        ledger.put(replacement)
+    assert ledger.delete(
+        NETWORK_ID,
+        NODE_A,
+        expected_system_fingerprint=saved.ownership.system_fingerprint,
+    )
+
+    path.unlink()
+    assert not path.exists()
+
+
+def test_ledger_closes_connection_when_setup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenConnection:
+        row_factory: object = None
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, statement: str) -> None:
+            del statement
+            raise RuntimeError("PRAGMA failed")
+
+        def close(self) -> None:
+            self.closed = True
+
+    broken = BrokenConnection()
+
+    def fake_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        del args, kwargs
+        return cast(sqlite3.Connection, broken)
+
+    monkeypatch.setattr(
+        sqlite3,
+        "connect",
+        fake_connect,
+    )
+    ledger = SQLiteManagedResourceLedger.__new__(SQLiteManagedResourceLedger)
+    ledger.path = tmp_path / "managed-network-ledger.sqlite3"
+
+    with pytest.raises(RuntimeError, match="PRAGMA failed"):
+        ledger._connect()  # pyright: ignore[reportPrivateUsage]
+    assert broken.closed

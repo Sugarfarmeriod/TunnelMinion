@@ -36,7 +36,8 @@ def _build_entry(root: Path, platform: Platform) -> tuple[ManagedNodeApplication
 
 
 def _config(root: Path, platform: Platform) -> ManagedNodeConfig:
-    _, node_id = _build_entry(root, platform)
+    managed, node_id = _build_entry(root, platform)
+    managed.close()
     return ManagedNodeConfig(
         coordinator_endpoint="http://10.77.0.1:8790",
         network_id=NetworkId.new(),
@@ -51,47 +52,57 @@ def _config(root: Path, platform: Platform) -> ManagedNodeConfig:
 
 def _accept_platform(root: Path, platform: Platform) -> dict[str, object]:
     first_managed, first_node_id = _build_entry(root, platform)
-    config = _config(root, platform)
-    FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE).save(config)
-    pending, _ = _build_entry(root, platform)
-    credentials = AgentRefreshCredentialStore(managed_node_secret_store(root, config.secret_store))
-    credentials.save(
-        NodeRegistrationResponse(
-            identity=config.identity(),
-            credential_id=RefreshCredentialId.new(),
-            refresh_credential=f"tmnr_{'r' * 43}",
-            server_revision=1,
-            issued_at=datetime(2026, 7, 31, tzinfo=UTC),
+    opened = [first_managed]
+    try:
+        config = _config(root, platform)
+        FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE).save(config)
+        pending, _ = _build_entry(root, platform)
+        opened.append(pending)
+        credentials = AgentRefreshCredentialStore(
+            managed_node_secret_store(root, config.secret_store)
         )
-    )
-    ready, _ = _build_entry(root, platform)
-    restarted, restarted_node_id = _build_entry(root, platform)
-    payload = restarted.resource_payload()
-    serialized = json.dumps(payload, ensure_ascii=False).lower()
-    forbidden = (
-        "tmnr_",
-        "refresh_credential",
-        "private_key",
-        "signature",
-        "fingerprint",
-        "10.77.",
-    )
-    return {
-        "platform": platform.value,
-        "states": (
-            first_managed.enrollment.state.value,
-            pending.enrollment.state.value,
-            ready.enrollment.state.value,
-            restarted.enrollment.state.value,
-        ),
-        "stable_identity": first_node_id == restarted_node_id == config.node_id,
-        "runtime_domains": tuple(item.domain.value for item in restarted.runtime.status.loops)
-        if restarted.runtime is not None
-        else (),
-        "model_configured": False,
-        "gateway_configuration_created": (root / "gateway.json").exists(),
-        "redacted_resource": not any(item in serialized for item in forbidden),
-    }
+        credentials.save(
+            NodeRegistrationResponse(
+                identity=config.identity(),
+                credential_id=RefreshCredentialId.new(),
+                refresh_credential=f"tmnr_{'r' * 43}",
+                server_revision=1,
+                issued_at=datetime(2026, 7, 31, tzinfo=UTC),
+            )
+        )
+        ready, _ = _build_entry(root, platform)
+        opened.append(ready)
+        restarted, restarted_node_id = _build_entry(root, platform)
+        opened.append(restarted)
+        payload = restarted.resource_payload()
+        serialized = json.dumps(payload, ensure_ascii=False).lower()
+        forbidden = (
+            "tmnr_",
+            "refresh_credential",
+            "private_key",
+            "signature",
+            "fingerprint",
+            "10.77.",
+        )
+        return {
+            "platform": platform.value,
+            "states": (
+                first_managed.enrollment.state.value,
+                pending.enrollment.state.value,
+                ready.enrollment.state.value,
+                restarted.enrollment.state.value,
+            ),
+            "stable_identity": first_node_id == restarted_node_id == config.node_id,
+            "runtime_domains": tuple(item.domain.value for item in restarted.runtime.status.loops)
+            if restarted.runtime is not None
+            else (),
+            "model_configured": False,
+            "gateway_configuration_created": (root / "gateway.json").exists(),
+            "redacted_resource": not any(item in serialized for item in forbidden),
+        }
+    finally:
+        for managed in reversed(opened):
+            managed.close()
 
 
 def run_acceptance(root: Path) -> dict[str, object]:

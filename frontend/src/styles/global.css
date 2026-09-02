@@ -1,0 +1,95 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.product-shell {
+  margin: 0 auto;
+  max-width: 76rem;
+  min-height: 100vh;
+  padding: var(--space-5);
+}
+
+.product-header {
+  align-items: end;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.product-header h1,
+.surface h2 {
+  margin: 0;
+}
+
+.eyebrow,
+.privacy-note {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  margin: 0 0 var(--space-1);
+}
+
+.primary-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+}
+
+.primary-navigation a {
+  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3);
+  text-decoration: none;
+}
+
+.primary-navigation a[aria-current="page"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  font-weight: 700;
+}
+
+.surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  padding: clamp(var(--space-4), 5vw, var(--space-7));
+}
+
+@media (max-width: 40rem) {
+  .product-shell {
+    padding: var(--space-3);
+  }
+
+  .product-header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .primary-navigation a {
+    flex: 1 1 calc(50% - var(--space-2));
+    text-align: center;
+  }
+}

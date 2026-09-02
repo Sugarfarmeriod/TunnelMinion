@@ -1,0 +1,120 @@
+{
+  "config": {
+    "argv": [
+      "/Users/mac/tunnelminion-local-product-acceptance/build/acceptance/tools/node-v22.14.0-darwin-arm64/bin/node",
+      "/Users/mac/tunnelminion-local-product-acceptance/frontend/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "playwright.package.config.ts",
+      "--reporter=json"
+    ],
+    "configFile": "/Users/mac/tunnelminion-local-product-acceptance/frontend/playwright.package.config.ts",
+    "rootDir": "/Users/mac/tunnelminion-local-product-acceptance/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/mac/tunnelminion-local-product-acceptance/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/mac/tunnelminion-local-product-acceptance/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "package-product.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 5,
+    "webServer": {
+      "command": "uv run --offline --project .. python ../scripts/run_runtime_package_browser_server.py --port 4175",
+      "url": "http://127.0.0.1:4175/app/overview",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "package-product.spec.ts",
+      "file": "package-product.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "正式包完整走通总览、聊天、审批、记忆与确定性降级",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2474,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-11T11:44:08.320Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "968ec7bd9c32676dbe50-7ea413f3cf466ad2401f",
+          "file": "package-product.spec.ts",
+          "line": 20,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-11T11:43:56.983Z",
+    "duration": 14040.277999999998,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

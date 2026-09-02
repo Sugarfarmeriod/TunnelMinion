@@ -1,0 +1,23 @@
+{
+  "schema_version": "windows-local-product-frontend-size/v1",
+  "files": [
+    {
+      "path": "assets/index-7Zp6Ac-c.css",
+      "bytes": 28879,
+      "gzip_bytes": 4524,
+      "sha256": "fb5c43b4c3f3d486ba1e5236ed512de42e5bd8c6bfe4288152a99d5e5898634b"
+    },
+    {
+      "path": "assets/index-CA2h1kyX.js",
+      "bytes": 473804,
+      "gzip_bytes": 140549,
+      "sha256": "68a462d7ed3c3fef61e0afd6e17d455d99a8b827adf6167e90b98bfbe1765343"
+    }
+  ],
+  "total_gzip_bytes": 145073,
+  "total_gzip_kib": 141.67,
+  "limit_bytes": 307200,
+  "passed": true,
+  "source": "build/frontend-dist",
+  "generated_at": "2026-08-11T11:29:16.577Z"
+}
