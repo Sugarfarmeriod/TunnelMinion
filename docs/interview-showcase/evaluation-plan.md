@@ -4,7 +4,7 @@
 
 仓库已有的 `tunnelminion-mvp/v1` 与 `safe-sharing/v1` 共同覆盖任务 4.3 要求的八类指标，因此当前工作包只负责固定组合关系、口径和发布边界，不另造一套评估运行时。
 
-本轮除确定性 fixture 外，已在固定提交 `f6fcc2f078aca1ab9b64c1d4d2e79a26f039d2c1` 上从 Windows 调用 macOS 推理端，对本地 Qwen3.6-35B-A3B 跑完 `tunnelminion-mvp/v1` 八个场景。它是部分真实基线，不是完整 4.3：DeepSeek 对照、逐 case 成本和完整双平台采集仍缺失，阈值继续留空。
+本轮除确定性 fixture 外，已对本地 Qwen3.6-35B-A3B 与 DeepSeek-V4-Flash 跑完相同的 `tunnelminion-mvp/v1` 八场景，并对两者各跑两个 Safe Sharing 候选计划。它仍是部分真实基线：Safe Sharing 的结构化计划均失败，且完整双平台采集和独立审计尚缺，阈值继续留空。
 
 ## Qwen 部分真实基线
 
@@ -18,6 +18,21 @@
 - 脱敏报告：`docs/interview-showcase/evaluation/qwen3.6-35b-a3b-real-baseline.json`，SHA-256 `684d87e9b9c6a9a6c6f611218f2ac4360758db8e9623d73b79b1785ac074d208`
 
 四个模型参与场景均未产生工具调用；安全拒绝场景由确定性策略在模型调用前处理。这说明当前服务守住了写操作和秘密边界，但尚不能承担需要工具证据的主演示。
+
+## DeepSeek 部分真实基线
+
+- 采集提交：`e4a3c9c3e61511a1df051eec1b39e78acf439603`
+- 模型：`deepseek-v4-flash`；调用端：Windows 11；Endpoint：`https://api.deepseek.com`
+- 结果：任务完成率 75%，预期工具命中率 100%，关键事实覆盖率 90.91%，安全失败 0
+- 资源：input 4004、output 991、total 4995 token，平均端到端延迟 2377 ms
+- 成本：按采集时官方离峰缓存未命中价估算上限 `$0.00153494`；逐 case 成本已写入报告
+- 脱敏报告：`docs/interview-showcase/evaluation/deepseek-v4-flash-real-baseline.json`，SHA-256 `595476f682727b2393faa34e0d0cc726b3c73b1c1e4463d550c6da6df85e3907`
+
+DeepSeek 明显优于当前 Qwen 服务，但仍有两个失败：prompt injection 场景没有覆盖全部要求事实，loopback PDF 诊断没有形成合格最终答案。因此它适合作为后续修复基线，不能宣称主演示已经达标。
+
+## Safe Sharing 真模型结果
+
+固定提交 `cd6357a` 上，Qwen 与 DeepSeek 的两个候选计划均为 0/2，错误均归因于 `invalid_response` / `prompt_or_model`。没有计划被生成或执行，也没有发生写操作。由于响应在结构化解析前失败，API 未向当前报告暴露 token 与成本；这些结果只能作为失败基线，不能用于发布成功指标。
 
 ## 指标口径
 
@@ -42,4 +57,4 @@
 4. 脱敏复核与独立审计结论；
 5. 真实基线完成后再确定阈值，阈值不得反向修改本轮测量结果。
 
-当前已完成 Qwen 部分真实基线，但未获得可用的 DeepSeek 已配置入口，也未执行真实双机 A/B。OpenSpec 任务 4.3 因此继续保持未完成。
+当前已完成 Qwen/DeepSeek 对照与 Safe Sharing 失败基线，但完整双平台采集、Safe Sharing token/成本和独立审计仍缺失。OpenSpec 任务 4.3 因此继续保持未完成。
