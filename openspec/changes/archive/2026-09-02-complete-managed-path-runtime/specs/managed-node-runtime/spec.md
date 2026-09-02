@@ -45,7 +45,7 @@ Windows 和 macOS 常规应用 MUST 使用相同 managed 配置、enrollment、�
 #### Scenario: 两端使用相同类型配置启动
 
 - **WHEN** 已 enrollment 的 Windows A 与 macOS B 分别通过常规入口启动
-- **THEN** 两端均完成心跳、服务快照、目录拉取和真实 managed config/authorization/path 状态展示，并在无模型时继续运行
+- **THEN** 两端均完成心跳、服务快照、目录拉取和 managed config/authorization/path 诊断状态展示；没有真实配置或平台能力时如实显示 unconfigured/degraded，并在无模型时继续运行
 
 #### Scenario: 一端缺少只读平台能力
 

@@ -10,7 +10,8 @@
 - 未找到与 network/node/revision/Provider/资源范围/计划摘要/观察指纹精确匹配的有效本机 L3 授权时，只保存 pending 并显示 `awaiting-authorization`；普通启动、模型、对话、记忆和服务观察均不得创建授权或触发网络写入。
 - 让 Windows/macOS 常规本地应用暴露真实 selection、evidence、authorization、freshness 和稳定错误；证据过期后降级，显式刷新成功后才恢复，不复用旧证据宣称当前可用。
 - 将同步、授权读取、Provider、probe、控制器、状态持久化和上报划分为独立故障域；保留 last-known-good/static 行为，失败不得扩大为 Gateway、模型或本地只读功能故障。
-- 真实 Provider 写操作先在隔离 fake 与受批准的独立资源上通过恢复/故障矩阵，再允许进入隔离真实 A/B 验收；fake 或历史证据不得作为生产完成证据。
+- 将本 change 的交付边界收敛为 managed path 安全诊断/运行时基础预览：用 fake、平台只读能力和 Windows/macOS 常规入口的隔离数据目录验证状态契约，不执行真实 Provider 写入或跨机 A/B。
+- 真实 Provider apply/verify/rollback/recover 与跨机 A/B 改由未来独立 change 自愿启用；本 change 的成功不得被解释为真实网络路径闭环。
 - 明确非目标：不修改客户防火墙、WireGuard、路由、模型、秘密、自启动、Coordinator/Gateway 协议或 Gateway 监听边界，也不承担前端、package 或 LPE 的 Penpot 外部图纸/图纸交付。
 
 ## Capabilities
@@ -27,6 +28,6 @@
 
 - 预计后续实现影响 `tunnelminion.agent` 的 managed runtime/application 装配、`tunnelminion.network` 的路径状态持久化与生命周期协调、Windows/macOS 只读系统适配，以及对应的单元、架构、恢复和隔离验收测试。
 - 复用现有 `managed-network-provider`、`operation-policy`、Provider plan/apply/verify/rollback/recover、所有权账本和网络治理 SQLite；在同一治理数据库中补齐 L3 grant 持久化，不从执行记录、内存 grant、signed config 或 operation L2 preauthorization 推断授权，也不改变本机控制面的唯一写权限与资源边界。
-- `improve-local-product-experience` 的 3.3 依赖本 change 提供真实后端 selection/evidence/authorization；PR #44 的 Coordinator/cache、overview 契约与 stale 展示不构成本 change 的生产 path 完成证据。
+- `improve-local-product-experience` 可把本 change 的 status provider/schema 作为诊断预览输入，但其 3.3 所需真实 path 证据仍由未来真实执行 change 提供；PR #44 的 Coordinator/cache、overview 契约与 stale 展示不构成真实 path 完成证据。
 - `package-manual-node-runtime` 只在本 change 合并后消费常规入口能力，不由本 change 修改构建、安装或自启动。Gateway 继续是独立私网进程与监听器，不复用本机环回生命周期，也不因本 change 扩大监听范围。
-- 真实 A/B 验收依赖先获得明确批准的隔离接口、地址、端口与本机 L3 授权；在这些前置条件满足前只能完成 fake/只读/恢复门禁，不能宣称真实 Provider 或生产路径闭环完成。
+- 本 change 不再以真实 A/B 为完成条件，也不创建新的真实写入窗口；任何后续真实 A/B 必须在独立 change 中重新获得明确授权、资源和退出条件。

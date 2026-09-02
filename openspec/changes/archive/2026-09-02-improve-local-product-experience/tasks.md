@@ -89,4 +89,5 @@
   - 证据（2026-08-12 第二次只读核对）：Penpot 页面清单仍包含 `TunnelMinion 架构总图`（`0efd9b42-439e-81c1-8008-783cf6466603`）及当前 `主图 A/B/C`（`3a9efb1a-235c-80d9-8008-7842023907bb`、`3a9efb1a-235c-80d9-8008-784202398c77`、`3a9efb1a-235c-80d9-8008-78420239cfc3`）；三张主图对应 board ID 仍为 `3a9efb1a-235c-80d9-8008-78424c387137`、`3a9efb1a-235c-80d9-8008-784296a69eec`、`3a9efb1a-235c-80d9-8008-7842e73658dd`，只读 PNG 导出成功（410600、379172、564948 bytes）。仓库 Mermaid/SVG/摘要证据仍通过离线校验；未修改外部 Penpot 图纸、未猜测 URL，Figma 仅为历史 provenance。
 - [x] 8.8 运行与安全诊断交付相称的定向质量、供应链、双平台 package、文档链接、Penpot 页面/导出证据与 OpenSpec strict 门禁，确认离线 SVG/摘要可审计；核对提交范围后提交推送并更新最终 PR，不用全量测试或真实 managed-path A/B 重试替代判断
   - 证据（2026-09-02）：Python 定向门禁覆盖 Mermaid/SVG 安全与链接、许可证规范化、唯一 frontend dist 进入 wheel、双平台 package evidence 精确匹配，结果 `4 passed`；前端 supply-chain `5 passed`；Windows/macOS managed-path Overview 接线分别现场通过，OpenSpec strict 与 `git diff --check` 通过。既有双平台正式离线 package、Penpot 页面/PNG 导出和仓库 SVG/摘要证据保持有效；本轮只提交本 change 的规划/任务文件并更新 Draft PR #40。
-- [ ] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
+- [x] 8.9 合并后同步 `local-product-interface` 主规格、复核发布分支构建与回退，再归档 change
+  - 证据（2026-09-02）：Draft PR #40 的 8 项双平台 Python、React 浏览器与运行包 CI 全绿后，以 merge commit `aae69d4` 合入 `main`；merge commit 与已验收 head `2e9b795` 树内容一致。`local-product-interface` delta 已同步为主规格，React 默认入口与 legacy 回退定向测试 `2 passed`，OpenSpec 全量 strict 通过；随后归档本 change。
