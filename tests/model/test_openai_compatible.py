@@ -157,6 +157,31 @@ def test_supports_requests_without_tools_and_optional_tool_choice() -> None:
     assert run(provider.complete(optional_tools)).content == "ok"
 
 
+def test_deepseek_disables_thinking_for_tool_and_structured_requests() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        payloads.append(cast(dict[str, object], json.loads(http_request.content)))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    provider = OpenAICompatibleProvider(
+        OpenAICompatibleConfig(endpoint="https://api.deepseek.com", model="deepseek-v4-flash"),
+        transport=httpx.MockTransport(handler),
+    )
+    run(provider.complete(ModelRequest(messages=request().messages, tools=request().tools)))
+    run(
+        provider.complete(
+            ModelRequest(
+                messages=request().messages,
+                response_schema={"type": "object"},
+            )
+        )
+    )
+
+    assert payloads[0]["thinking"] == {"type": "disabled"}
+    assert payloads[1]["thinking"] == {"type": "disabled"}
+
+
 def test_serializes_assistant_tool_calls_and_tool_results() -> None:
     """多轮 Agent 协议保留 call ID、工具名和结构化参数。"""
     captured: dict[str, object] = {}

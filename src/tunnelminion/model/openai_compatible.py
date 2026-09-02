@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import httpx
 from jsonschema import SchemaError, ValidationError, validate
@@ -150,6 +151,11 @@ class OpenAICompatibleProvider:
                 payload["tool_choice"] = "required"
         if request.response_schema is not None:
             payload["response_format"] = {"type": "json_object"}
+        if (
+            urlparse(self._config.endpoint).hostname == "api.deepseek.com"
+            and (request.tools or request.response_schema is not None)
+        ):
+            payload["thinking"] = {"type": "disabled"}
         return payload
 
     @staticmethod
