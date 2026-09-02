@@ -4,6 +4,39 @@ const timestamp = z.string().datetime({ offset: true });
 const optionalTimestamp = timestamp.nullable();
 const nodeId = z.string().regex(/^node_[0-9a-f]{32}$/);
 const serviceId = z.string().regex(/^service_[0-9a-f]{32}$/);
+const incidentId = z.string().regex(/^incident_[0-9a-f]{32}$/);
+const snapshotId = z.string().regex(/^snapshot_[0-9a-f]{32}$/);
+const toolRunId = z.string().regex(/^toolrun_[0-9a-f]{32}$/);
+const threadId = z.string().regex(/^thread_[0-9a-f]{32}$/);
+const incidentEventType = z.enum([
+  "service_added",
+  "service_removed",
+  "node_offline",
+  "state_stale",
+  "local_only",
+  "remote_unreachable",
+]);
+const incidentStatus = z.enum([
+  "pending",
+  "investigating",
+  "confirmed",
+  "insufficient_evidence",
+  "budget_exhausted",
+  "cancelled",
+  "failed",
+  "interrupted",
+  "investigation_unavailable",
+  "closed",
+]);
+const stopReason = z.enum([
+  "evidence_sufficient",
+  "insufficient_evidence",
+  "budget_exhausted",
+  "cancelled",
+  "failed",
+  "interrupted",
+  "model_unavailable",
+]);
 const freshness = z.enum([
   "live",
   "fresh",
@@ -178,7 +211,114 @@ export const resourceOverviewSchema = z
         ),
       })
       .strict(),
+    incidents: z
+      .object({
+        ...section,
+        items: z.array(
+          z
+            .object({
+              incident_id: incidentId,
+              event_type: incidentEventType,
+              object_kind: z.enum(["node", "service"]),
+              object_id: z.string(),
+              severity: z.enum(["info", "warning", "critical"]),
+              status: incidentStatus,
+              first_observed_at: timestamp,
+              last_observed_at: timestamp,
+              conclusion: z.string().nullable(),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
   })
   .strict();
 
 export type ResourceOverview = z.infer<typeof resourceOverviewSchema>;
+
+const evidenceReference = z
+  .object({
+    snapshot_id: snapshotId.nullable(),
+    tool_run_id: toolRunId.nullable(),
+    observed_at: timestamp,
+    summary: z.string(),
+  })
+  .strict();
+
+export const incidentDetailSchema = z
+  .object({
+    incident: z
+      .object({
+        schema_version: z.literal("incident/v1"),
+        incident_id: incidentId,
+        dedup_key: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        event: z
+          .object({
+            event_type: incidentEventType,
+            object_kind: z.enum(["node", "service"]),
+            object_id: z.string(),
+            target_node_id: nodeId,
+            baseline_snapshot_id: snapshotId,
+            current_snapshot_id: snapshotId,
+            baseline_revision: z.number().int().nonnegative(),
+            current_revision: z.number().int().nonnegative(),
+            observed_at: timestamp,
+            source,
+            before_state: z.string().nullable(),
+            after_state: z.string().nullable(),
+            dedup_key: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+          })
+          .strict(),
+        status: incidentStatus,
+        created_at: timestamp,
+        last_observed_at: timestamp,
+        run_id: z
+          .string()
+          .regex(/^run_[0-9a-f]{32}$/)
+          .nullable(),
+        hypotheses: z.array(
+          z
+            .object({
+              hypothesis_id: z.string().regex(/^hypothesis_[0-9a-f]{16}$/),
+              summary: z.string(),
+              status: z.enum(["candidate", "supported", "rejected", "unknown"]),
+              evidence: z.array(evidenceReference),
+            })
+            .strict(),
+        ),
+        trace: z.array(
+          z
+            .object({
+              occurred_at: timestamp,
+              kind: z.enum([
+                "status",
+                "hypothesis",
+                "tool",
+                "evidence",
+                "report",
+              ]),
+              summary: z.string(),
+              tool_name: z.string().nullable(),
+              evidence: z.array(evidenceReference),
+            })
+            .strict(),
+        ),
+        report: z
+          .object({
+            facts: z.array(z.string()),
+            candidate_explanations: z.array(z.string()),
+            unknowns: z.array(z.string()),
+            conclusion: z.string().nullable(),
+            stop_reason: stopReason,
+            evidence: z.array(evidenceReference),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+    suggested_questions: z.array(z.string()).max(3),
+    thread_id: threadId.nullable(),
+  })
+  .strict();
+
+export type IncidentDetail = z.infer<typeof incidentDetailSchema>;

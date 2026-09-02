@@ -15,8 +15,13 @@ from tunnelminion.coordinator.contracts import (
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.identifiers import NodeId, ServiceId
+from tunnelminion.domain.identifiers import IncidentId, NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.incident.contracts import (
+    IncidentEventType,
+    IncidentStatus,
+    SnapshotObjectKind,
+)
 from tunnelminion.network.contracts import ProviderKind
 
 StableErrorCode = Annotated[
@@ -280,6 +285,36 @@ class KnownServicesOverview(OverviewSection):
     items: tuple[KnownServiceOverview, ...] = Field(default=(), max_length=1024)
 
 
+class IncidentSeverity(StrEnum):
+    """Overview 使用的固定重要度，不由模型自由决定。"""
+
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class IncidentOverviewItem(BaseModel):
+    """Overview 卡片只包含 incident 状态和公开结论摘要。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    incident_id: IncidentId
+    event_type: IncidentEventType
+    object_kind: SnapshotObjectKind
+    object_id: str = Field(min_length=37, max_length=40)
+    severity: IncidentSeverity
+    status: IncidentStatus
+    first_observed_at: AwareDatetime
+    last_observed_at: AwareDatetime
+    conclusion: str | None = Field(default=None, min_length=1, max_length=320)
+
+
+class IncidentsOverview(OverviewSection):
+    """活动与近期 incident 的有界集合。"""
+
+    items: tuple[IncidentOverviewItem, ...] = Field(default=(), max_length=50)
+
+
 class ResourceOverview(BaseModel):
     """React 总览唯一消费的服务端聚合契约。"""
 
@@ -293,6 +328,7 @@ class ResourceOverview(BaseModel):
     network_path: NetworkPathOverview
     nodes: KnownNodesOverview
     services: KnownServicesOverview
+    incidents: IncidentsOverview
 
 
 SectionT = TypeVar("SectionT", bound=OverviewSection)
@@ -310,6 +346,7 @@ class OverviewService:
         network_path: Callable[[], NetworkPathOverview] | None = None,
         nodes: Callable[[], KnownNodesOverview] | None = None,
         services: Callable[[], KnownServicesOverview] | None = None,
+        incidents: Callable[[], IncidentsOverview] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._local = local
@@ -318,6 +355,7 @@ class OverviewService:
         self._network_path = network_path
         self._nodes = nodes
         self._services = services
+        self._incidents = incidents
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def view(self) -> ResourceOverview:
@@ -356,6 +394,11 @@ class OverviewService:
                 self._services,
                 KnownServicesOverview,
                 self._services_fallback,
+            ),
+            incidents=self._resolve(
+                self._incidents,
+                IncidentsOverview,
+                self._incidents_fallback,
             ),
         )
 
@@ -428,6 +471,14 @@ class OverviewService:
     @staticmethod
     def _services_fallback(error: OverviewError) -> KnownServicesOverview:
         return KnownServicesOverview(
+            source=OverviewSource.UNKNOWN,
+            freshness=OverviewFreshness.UNKNOWN,
+            error=error,
+        )
+
+    @staticmethod
+    def _incidents_fallback(error: OverviewError) -> IncidentsOverview:
+        return IncidentsOverview(
             source=OverviewSource.UNKNOWN,
             freshness=OverviewFreshness.UNKNOWN,
             error=error,

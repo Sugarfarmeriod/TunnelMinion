@@ -131,6 +131,8 @@ export function ChatPage({
   streamIdleTimeoutMs,
   streamReconnectDelayMs,
 }: ChatPageProps = {}) {
+  const requestedThreadId =
+    new URLSearchParams(window.location.search).get("thread") ?? undefined;
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
@@ -215,7 +217,7 @@ export function ChatPage({
   useEffect(() => {
     const controller = new AbortController();
     setLoadingThreads(true);
-    void refreshThreads(controller.signal)
+    void refreshThreads(controller.signal, requestedThreadId)
       .catch((error: unknown) => {
         if (!isAbortError(error)) {
           setPageError("无法读取聊天线程，请确认 TunnelMinion 仍在运行。");
@@ -227,7 +229,7 @@ export function ChatPage({
         }
       });
     return () => controller.abort();
-  }, [refreshThreads]);
+  }, [refreshThreads, requestedThreadId]);
 
   useEffect(() => {
     if (selectedThreadId === null) {

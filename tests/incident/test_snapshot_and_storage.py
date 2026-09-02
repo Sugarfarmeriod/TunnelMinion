@@ -13,7 +13,14 @@ from tunnelminion.coordinator.contracts import (
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.identifiers import IncidentId, NodeId, RunId, ServiceId, SnapshotId
+from tunnelminion.domain.identifiers import (
+    IncidentId,
+    NodeId,
+    RunId,
+    ServiceId,
+    SnapshotId,
+    ThreadId,
+)
 from tunnelminion.incident.contracts import (
     EvidenceReference,
     Incident,
@@ -276,3 +283,19 @@ def test_incident_rejects_invalid_state_transition() -> None:
             IncidentStatus.CONFIRMED,
             at=NOW + timedelta(seconds=1),
         )
+
+
+def test_incident_thread_binding_is_separate_and_stable(tmp_path: Path) -> None:
+    store = SQLiteIncidentStore(tmp_path / "threads.sqlite3")
+    baseline, current = _changed_pair()
+    event = SnapshotDiffDetector(confirmations_required=1).compare(baseline, current)[0]
+    incident = store.record_event(event)
+    thread = ThreadId("thread_0123456789abcdef0123456789abcdef")
+
+    store.bind_thread(incident.incident_id, thread)
+    store.bind_thread(incident.incident_id, thread)
+
+    assert store.thread_for(incident.incident_id) == thread
+    assert store.get(incident.incident_id) == incident
+    with pytest.raises(ValueError, match="另一追问线程"):
+        store.bind_thread(incident.incident_id, ThreadId.new())

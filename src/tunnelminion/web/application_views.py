@@ -116,6 +116,7 @@ def build_application_view_bindings(
     managed: ManagedNodeApplication,
     network_path: NetworkPathViewBindings | None = None,
     managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
+    incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -129,6 +130,7 @@ def build_application_view_bindings(
         runtime_package or detect_runtime_package(),
         network_path,
         managed_path_status,
+        incidents,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -187,6 +189,7 @@ class _ApplicationViewAdapter:
         package: overview_contracts.RuntimePackageOverview,
         network_path: NetworkPathViewBindings | None = None,
         managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
+        incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
@@ -194,6 +197,7 @@ class _ApplicationViewAdapter:
         self.managed = managed
         self.path_bindings = network_path
         self.managed_path_status_provider = managed_path_status
+        self.incidents_provider = incidents
         self.clock = clock
         self.package = package
 
@@ -205,6 +209,7 @@ class _ApplicationViewAdapter:
             network_path=self.network_path,
             nodes=self.nodes,
             services=self.services,
+            incidents=self.incidents_provider,
             clock=self.clock,
         )
 

@@ -80,10 +80,17 @@ function makeOverview(): ResourceOverview {
       error: null,
       items: [],
     },
+    incidents: {
+      source: "local_observation",
+      evidence_at: null,
+      freshness: "not_applicable",
+      error: null,
+      items: [],
+    },
   };
 }
 
-function jsonResponse(payload: ResourceOverview): Promise<Response> {
+function jsonResponse(payload: unknown): Promise<Response> {
   return Promise.resolve(
     new Response(JSON.stringify(payload), {
       status: 200,
@@ -264,6 +271,135 @@ describe("OverviewPage", () => {
     expect(screen.getByText(/https:\/\/service\.example:443/)).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("展示 incident 详情、未知项和建议追问，并把不可信轨迹只当文本", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 320,
+    });
+    const payload = makeOverview();
+    const incidentId = `incident_${"4".repeat(32)}`;
+    const snapshotA = `snapshot_${"5".repeat(32)}`;
+    const snapshotB = `snapshot_${"6".repeat(32)}`;
+    const runId = `run_${"7".repeat(32)}`;
+    const threadId = `thread_${"8".repeat(32)}`;
+    const malicious = "<script>alert('incident')</script>";
+    payload.incidents = {
+      source: "local_observation",
+      evidence_at: evidenceAt,
+      freshness: "live",
+      error: null,
+      items: [
+        {
+          incident_id: incidentId,
+          event_type: "local_only",
+          object_kind: "service",
+          object_id: serviceA,
+          severity: "warning",
+          status: "insufficient_evidence",
+          first_observed_at: evidenceAt,
+          last_observed_at: generatedAt,
+          conclusion: null,
+        },
+      ],
+    };
+    const detail = {
+      incident: {
+        schema_version: "incident/v1",
+        incident_id: incidentId,
+        dedup_key: `sha256:${"a".repeat(64)}`,
+        event: {
+          event_type: "local_only",
+          object_kind: "service",
+          object_id: serviceA,
+          target_node_id: nodeA,
+          baseline_snapshot_id: snapshotA,
+          current_snapshot_id: snapshotB,
+          baseline_revision: 1,
+          current_revision: 2,
+          observed_at: evidenceAt,
+          source: "local_observation",
+          before_state: "network",
+          after_state: "loopback",
+          dedup_key: `sha256:${"a".repeat(64)}`,
+        },
+        status: "insufficient_evidence",
+        created_at: evidenceAt,
+        last_observed_at: generatedAt,
+        run_id: null,
+        hypotheses: [],
+        trace: [
+          {
+            occurred_at: generatedAt,
+            kind: "report",
+            summary: malicious,
+            tool_name: null,
+            evidence: [],
+          },
+        ],
+        report: {
+          facts: [],
+          candidate_explanations: [],
+          unknowns: ["还不知道监听进程"],
+          conclusion: null,
+          stop_reason: "insufficient_evidence",
+          evidence: [],
+        },
+      },
+      suggested_questions: ["哪个进程持有这个监听端口？"],
+      thread_id: null,
+    };
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(payload))
+      .mockReturnValueOnce(jsonResponse(detail))
+      .mockReturnValueOnce(
+        jsonResponse({
+          run_id: runId,
+          thread_id: threadId,
+          status: "running",
+          created_at: generatedAt,
+          finished_at: null,
+          result: null,
+          error_code: null,
+          error_message: null,
+          failure: null,
+        }),
+      );
+    const user = userEvent.setup();
+    const { container } = renderOverview();
+
+    await user.click(
+      await screen.findByRole("button", { name: "查看调查详情" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "调查详情" }),
+    ).toBeVisible();
+    expect(screen.getByText(malicious)).toBeVisible();
+    expect(screen.getByText("还不知道监听进程")).toBeVisible();
+    expect(container.querySelector("script")).toBeNull();
+
+    const composer = screen.getByLabelText("针对这个事件追问");
+    const suggestion = screen.getByRole("button", {
+      name: "哪个进程持有这个监听端口？",
+    });
+    await user.tab();
+    expect(composer).toHaveFocus();
+    await user.tab();
+    expect(suggestion).toHaveFocus();
+    await user.click(suggestion);
+    expect(composer).toHaveValue("哪个进程持有这个监听端口？");
+    await user.click(screen.getByRole("button", { name: "开始只读追问" }));
+    expect(
+      await screen.findByRole("link", { name: "打开对应聊天线程" }),
+    ).toHaveAttribute("href", `/app/chat?thread=${threadId}`);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/incidents/${incidentId}/follow-up`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      }),
+    );
   });
 
   it("刷新失败时把旧结果标为缓存，并允许再次刷新后恢复", async () => {

@@ -1,11 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { requestJson } from "../../api/client";
 import {
+  incidentDetailSchema,
   resourceOverviewSchema,
   type ResourceOverview,
 } from "../../api/schemas/overview";
+import { runSchema } from "../chat/contracts";
 
 import "./overview.css";
 
@@ -120,6 +123,44 @@ const serviceStateLabels: Record<
   stopped: "已停止",
   unknown: "状态未知",
 };
+
+const incidentEventLabels: Record<
+  ResourceOverview["incidents"]["items"][number]["event_type"],
+  string
+> = {
+  service_added: "发现新增服务",
+  service_removed: "服务已经消失",
+  node_offline: "节点已经离线",
+  state_stale: "状态证据已经陈旧",
+  local_only: "服务只能从本机访问",
+  remote_unreachable: "远端无法访问服务",
+};
+
+const incidentStatusLabels: Record<
+  ResourceOverview["incidents"]["items"][number]["status"],
+  string
+> = {
+  pending: "等待调查",
+  investigating: "正在调查",
+  confirmed: "已确认根因",
+  insufficient_evidence: "证据不足",
+  budget_exhausted: "调查预算已用完",
+  cancelled: "调查已取消",
+  failed: "调查失败",
+  interrupted: "调查被中断",
+  investigation_unavailable: "模型调查不可用",
+  closed: "已关闭",
+};
+
+const stopReasonLabels = {
+  evidence_sufficient: "证据充分",
+  insufficient_evidence: "证据不足",
+  budget_exhausted: "预算已用完",
+  cancelled: "用户取消",
+  failed: "调查失败",
+  interrupted: "运行中断",
+  model_unavailable: "模型不可用",
+} as const;
 
 const platformLabels: Record<
   NonNullable<ResourceOverview["local"]["platform"]>,
@@ -544,6 +585,187 @@ function ServiceList({ data }: { data: ResourceOverview["services"] }) {
   );
 }
 
+function IncidentList({ data }: { data: ResourceOverview["incidents"] }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
+  const detail = useQuery({
+    queryKey: ["incident", selectedId],
+    queryFn: () =>
+      requestJson(
+        `/api/incidents/${encodeURIComponent(selectedId ?? "")}`,
+        incidentDetailSchema,
+      ),
+    enabled: selectedId !== null,
+  });
+  const followUp = useMutation({
+    mutationFn: (value: string) =>
+      requestJson(
+        `/api/incidents/${encodeURIComponent(selectedId ?? "")}/follow-up`,
+        runSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: value }),
+        },
+      ),
+  });
+
+  function openIncident(incidentId: string) {
+    setSelectedId(incidentId);
+    setQuestion("");
+    followUp.reset();
+  }
+
+  function submitFollowUp(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = question.trim();
+    if (value !== "") {
+      followUp.mutate(value);
+    }
+  }
+
+  return (
+    <SectionCard
+      id="overview-incidents"
+      meta={data}
+      nextStep={
+        data.items.length === 0
+          ? "继续正常使用；普通刷新不会调用模型。"
+          : "先看证据化结论和未知项，再决定是否追问或处理。"
+      }
+      summary={
+        data.items.length === 0
+          ? "没有检测到重要变化"
+          : `${data.items.length} 个近期事件`
+      }
+      title="事件与自主调查"
+      tone={collectionTone(
+        data,
+        data.items.map((item) =>
+          item.severity === "critical"
+            ? "danger"
+            : item.severity === "warning"
+              ? "warning"
+              : "neutral",
+        ),
+      )}
+    >
+      {data.items.length === 0 ? (
+        <p className="overview-empty">暂无需要调查的异常或重要变化。</p>
+      ) : (
+        <ul className="overview-resource-list">
+          {data.items.map((incident) => (
+            <li key={incident.incident_id}>
+              <div className="overview-resource-list__heading">
+                <strong>{incidentEventLabels[incident.event_type]}</strong>
+                <StatusBadge
+                  tone={
+                    incident.severity === "critical"
+                      ? "danger"
+                      : incident.severity === "warning"
+                        ? "warning"
+                        : "neutral"
+                  }
+                >
+                  {incidentStatusLabels[incident.status]}
+                </StatusBadge>
+              </div>
+              <p>{incident.conclusion ?? "尚无证据充分的结论"}</p>
+              <p>最后观测：{formatTimestamp(incident.last_observed_at)}</p>
+              <button
+                aria-expanded={selectedId === incident.incident_id}
+                type="button"
+                onClick={() => openIncident(incident.incident_id)}
+              >
+                查看调查详情
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {selectedId !== null ? (
+        <section aria-live="polite" className="incident-detail">
+          {detail.isPending ? <p>正在读取调查详情……</p> : null}
+          {detail.isError ? <p role="alert">调查详情暂时无法读取。</p> : null}
+          {detail.data !== undefined ? (
+            <>
+              <h4>调查详情</h4>
+              <p>
+                <strong>结论：</strong>
+                {detail.data.incident.report?.conclusion ?? "尚未确认根因"}
+              </p>
+              <p>
+                <strong>停止原因：</strong>
+                {detail.data.incident.report === null
+                  ? "调查尚未停止"
+                  : stopReasonLabels[detail.data.incident.report.stop_reason]}
+              </p>
+              <h5>公开调查轨迹</h5>
+              {detail.data.incident.trace.length === 0 ? (
+                <p>尚无工具或报告轨迹。</p>
+              ) : (
+                <ol>
+                  {detail.data.incident.trace.map((item, index) => (
+                    <li key={`${item.occurred_at}-${index}`}>{item.summary}</li>
+                  ))}
+                </ol>
+              )}
+              <h5>未知项</h5>
+              {detail.data.incident.report?.unknowns.length ? (
+                <ul>
+                  {detail.data.incident.report.unknowns.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>没有已记录的未知项。</p>
+              )}
+              <form className="incident-follow-up" onSubmit={submitFollowUp}>
+                <label htmlFor="incident-question">针对这个事件追问</label>
+                <textarea
+                  id="incident-question"
+                  maxLength={2000}
+                  value={question}
+                  onChange={(event) => setQuestion(event.target.value)}
+                />
+                <div className="incident-suggestions">
+                  {detail.data.suggested_questions.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setQuestion(item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  disabled={question.trim() === "" || followUp.isPending}
+                  type="submit"
+                >
+                  {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
+                </button>
+              </form>
+              {followUp.isError ? (
+                <p role="alert">追问当前不可用；原 incident 证据没有改变。</p>
+              ) : null}
+              {followUp.data !== undefined ? (
+                <p role="status">
+                  追问已在原有聊天能力中开始。{" "}
+                  <Link to={`/app/chat?thread=${followUp.data.thread_id}`}>
+                    打开对应聊天线程
+                  </Link>
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+    </SectionCard>
+  );
+}
+
 function readableRequestError(error: Error): string {
   return error.name === "ZodError"
     ? "服务返回的数据不符合总览契约，页面不会猜测状态。"
@@ -626,6 +848,7 @@ export function OverviewPage() {
         <NetworkPathCard data={data.network_path} />
         <NodeList data={data.nodes} />
         <ServiceList data={data.services} />
+        <IncidentList data={data.incidents} />
       </div>
     </section>
   );

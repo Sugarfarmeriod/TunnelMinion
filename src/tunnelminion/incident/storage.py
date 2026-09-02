@@ -12,7 +12,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from tunnelminion.domain.identifiers import IncidentId
+from tunnelminion.domain.identifiers import IncidentId, ThreadId
 from tunnelminion.incident.contracts import (
     Incident,
     IncidentReport,
@@ -58,6 +58,12 @@ class SQLiteIncidentStore:
                 );
                 CREATE INDEX IF NOT EXISTS incidents_recent
                     ON incidents(last_observed_at DESC);
+                CREATE TABLE IF NOT EXISTS incident_threads (
+                    incident_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL UNIQUE,
+                    FOREIGN KEY(incident_id) REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE
+                );
                 """
             )
 
@@ -161,6 +167,29 @@ class SQLiteIncidentStore:
                 (limit,),
             ).fetchall()
         return tuple(Incident.model_validate_json(row[0]) for row in rows)
+
+    def thread_for(self, incident_id: IncidentId) -> ThreadId | None:
+        """读取 incident 已绑定的上下文追问线程。"""
+        with self._connection_scope() as connection:
+            row = connection.execute(
+                "SELECT thread_id FROM incident_threads WHERE incident_id=?",
+                (str(incident_id),),
+            ).fetchone()
+        return ThreadId(row[0]) if row is not None else None
+
+    def bind_thread(self, incident_id: IncidentId, thread_id: ThreadId) -> None:
+        """每个 incident 只绑定一个现有 conversation thread。"""
+        if self.get(incident_id) is None:
+            raise KeyError("incident_not_found")
+        current = self.thread_for(incident_id)
+        if current is not None and current != thread_id:
+            raise ValueError("incident 已绑定另一追问线程")
+        with self._connection_scope() as connection:
+            connection.execute(
+                """INSERT INTO incident_threads(incident_id, thread_id) VALUES (?, ?)
+                ON CONFLICT(incident_id) DO NOTHING""",
+                (str(incident_id), str(thread_id)),
+            )
 
     def recover_interrupted(self, *, at: datetime) -> tuple[Incident, ...]:
         """把重启前运行中的调查标记为中断；不自动重放任何调用。"""

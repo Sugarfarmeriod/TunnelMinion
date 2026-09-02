@@ -142,6 +142,30 @@ def test_continued_run_includes_prior_thread_messages() -> None:
     assert contents[-1] == "继续刚才的检查"
 
 
+def test_incident_run_injects_context_but_stores_only_public_question() -> None:
+    provider = ScriptedProvider()
+    conversations = InMemoryConversationService(
+        NodeId.new(),
+        lambda: build_agent(provider)[0],
+    )
+    thread = conversations.create_thread()
+
+    async def scenario() -> None:
+        started = await conversations.start_incident_run(
+            thread.thread_id,
+            StartRunInput(question="还缺什么证据？", tool_names=("probe_service",)),
+            '{"event_type":"local_only"}',
+        )
+        _ = await collect(conversations.stream_events(started.run_id))
+
+    run(scenario())
+
+    assert "local_only" in provider.requests[0].messages[-1].content
+    detail = conversations.get_thread(thread.thread_id)
+    assert detail.messages[0].content == "还缺什么证据？"
+    assert "local_only" not in detail.messages[0].content
+
+
 def test_run_retrieves_only_relevant_memory_for_current_node(tmp_path: Path) -> None:
     """生产会话入口只注入当前五层作用域内的相关确认记忆。"""
     stores = SQLiteStores.open(tmp_path / "memory-context.sqlite3")

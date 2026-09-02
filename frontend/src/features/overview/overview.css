@@ -196,6 +196,48 @@
   color: var(--color-muted);
 }
 
+.incident-detail {
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.incident-detail h4,
+.incident-detail h5,
+.incident-detail p {
+  margin: 0;
+}
+
+.incident-follow-up {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.incident-follow-up textarea {
+  box-sizing: border-box;
+  font: inherit;
+  min-height: 5rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.incident-follow-up > button {
+  justify-self: start;
+}
+
+.incident-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.incident-suggestions button {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  font-size: 0.875rem;
+}
+
 @media (max-width: 32rem) {
   .overview-page__header {
     align-items: stretch;
@@ -209,5 +251,10 @@
   .overview-details,
   .overview-metadata {
     grid-template-columns: 1fr;
+  }
+
+  .incident-suggestions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
