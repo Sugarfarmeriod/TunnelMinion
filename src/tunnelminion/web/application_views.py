@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from ipaddress import IPv6Address, ip_address
 from pathlib import Path
 from typing import cast
 
@@ -537,11 +538,17 @@ class _ApplicationViewAdapter:
             overview_contracts.KnownNodeState.ONLINE,
         }:
             state = overview_contracts.KnownServiceState.AVAILABLE
+        try:
+            is_ipv6 = isinstance(ip_address(service.host), IPv6Address)
+        except ValueError:
+            is_ipv6 = False
+        address_host = f"[{service.host}]" if is_ipv6 else service.host
         return overview_contracts.KnownServiceOverview(
             service_id=service.service_id,
             node_id=node_id,
             protocol=service.protocol,
             port=service.port,
+            access_address=f"{service.protocol.value}://{address_host}:{service.port}",
             accessibility=service.accessibility,
             lifecycle=service.lifecycle,
             state=state,

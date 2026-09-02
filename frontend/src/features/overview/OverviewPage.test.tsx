@@ -246,6 +246,7 @@ describe("OverviewPage", () => {
         display_name: maliciousService,
         protocol: "https",
         port: 443,
+        access_address: "https://service.example:443",
         accessibility: "network",
         lifecycle: "active",
         state: "available",
@@ -260,6 +261,7 @@ describe("OverviewPage", () => {
 
     expect(await screen.findByText(maliciousNode)).toBeVisible();
     expect(screen.getByText(maliciousService)).toBeVisible();
+    expect(screen.getByText(/https:\/\/service\.example:443/)).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
   });

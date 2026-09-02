@@ -31,6 +31,8 @@ import type {
 } from "./contracts";
 import type { RunEventState } from "./eventReducer";
 import { useRunEvents } from "./useRunEvents";
+import { listOperations } from "../operations/operationsApi";
+import type { OperationSummary } from "../operations/schemas";
 
 const toolLabels: Record<AllowedToolName, string> = {
   get_node_summary: "节点摘要",
@@ -747,6 +749,59 @@ interface RunPanelProps {
   onRefresh: () => void;
 }
 
+function RelatedOperations({
+  toolRunIds,
+}: {
+  toolRunIds: string[] | undefined;
+}) {
+  const [operations, setOperations] = useState<OperationSummary[]>([]);
+
+  useEffect(() => {
+    if (toolRunIds === undefined || toolRunIds.length === 0) {
+      setOperations([]);
+      return;
+    }
+    let current = true;
+    const ids = new Set(toolRunIds);
+    void listOperations()
+      .then((items) => {
+        if (current) {
+          setOperations(
+            items.filter((item) => item.tool_run_ids.some((id) => ids.has(id))),
+          );
+        }
+      })
+      .catch(() => {
+        if (current) {
+          setOperations([]);
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, [toolRunIds]);
+
+  if (operations.length === 0) {
+    return null;
+  }
+  return (
+    <div className="chat-evidence">
+      <h4>相关操作</h4>
+      <ul>
+        {operations.map((operation) => (
+          <li key={operation.operation_id}>
+            <a
+              href={`/app/operations/${encodeURIComponent(operation.operation_id)}`}
+            >
+              {operation.tool_name} · {operation.status}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RunPanel({
   activeRun,
   effectiveStatus,
@@ -903,6 +958,8 @@ function RunPanel({
           </ul>
         </div>
       )}
+
+      <RelatedOperations toolRunIds={activeRun.result?.tool_run_ids} />
 
       {terminalEvent?.message === null ||
       terminalEvent?.message === undefined ? null : (

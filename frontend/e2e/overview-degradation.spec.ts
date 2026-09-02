@@ -188,6 +188,7 @@ function staleCacheOverview(): ResourceOverview {
       display_name: "缓存中的只读服务",
       protocol: "https",
       port: 443,
+      access_address: "https://service.example:443",
       accessibility: "network",
       lifecycle: "active",
       state: "available",
