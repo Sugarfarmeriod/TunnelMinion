@@ -221,6 +221,32 @@ def test_classifies_http_errors(
     assert caught.value.retryable is retryable
 
 
+def test_http_error_detail_is_structured_truncated_and_secret_free() -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "type": "invalid_request_error",
+                        "param": "response_format",
+                        "message": "bad api_key=sk-secret-value " + "x" * 300,
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ProviderError) as caught:
+        run(provider.complete(request()))
+    message = str(caught.value)
+    assert "param=response_format" in message
+    assert "[REDACTED]" in message
+    assert "sk-secret-value" not in message
+    assert len(message) < 400
+
+
 def connect_error(request_value: httpx.Request) -> Exception:
     return httpx.ConnectError("secret-value", request=request_value)
 

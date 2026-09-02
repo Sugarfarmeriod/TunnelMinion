@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any, cast
 
 import httpx
@@ -180,11 +181,38 @@ class OpenAICompatibleProvider:
         if response.status_code == 404:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "模型或 API 路径不存在")
         if response.is_error:
+            detail = OpenAICompatibleProvider._safe_error_detail(response)
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE,
-                f"模型服务返回 HTTP {response.status_code}",
+                f"模型服务返回 HTTP {response.status_code}"
+                + (f"：{detail}" if detail else ""),
                 retryable=response.status_code >= 500,
             )
+
+    @staticmethod
+    def _safe_error_detail(response: httpx.Response) -> str | None:
+        """只提取服务端结构化错误字段，并截断、脱敏后用于本机诊断。"""
+        try:
+            error = response.json().get("error")
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if not isinstance(error, dict):
+            return None
+        parts: list[str] = []
+        for key in ("type", "code", "param", "message"):
+            value = error.get(key)
+            if value is None:
+                continue
+            text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value))
+            text = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", text)
+            text = re.sub(r"(?i)\bsk-[A-Za-z0-9_-]+", "[REDACTED]", text)
+            text = re.sub(
+                r"(?i)(api[_ -]?key\s*[:=]\s*)\S+",
+                r"\1[REDACTED]",
+                text,
+            )
+            parts.append(f"{key}={text[:240]}")
+        return "; ".join(parts) or None
 
     @staticmethod
     def _parse_response(response: httpx.Response, request: ModelRequest) -> ModelResponse:
