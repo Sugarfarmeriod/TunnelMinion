@@ -29,6 +29,10 @@ from tunnelminion.evaluation import (
 )
 from tunnelminion.evaluation.cli import load_dataset
 from tunnelminion.evaluation.fakes import FakeToolRuntime
+from tunnelminion.model.configuration import (
+    FileModelConfigurationRepository,
+    ModelConfigurationService,
+)
 from tunnelminion.model.contracts import (
     ModelMessage,
     ModelProvider,
@@ -38,6 +42,7 @@ from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
 )
+from tunnelminion.model.secrets import KeyringSecretStore
 
 PROMPT_VERSION = (
     f"{EVALUATION_READONLY_AGENT_PROMPT.prompt_id}/"
@@ -260,20 +265,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     """解析连接参数，运行评估并保存不含凭据的 JSON 报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path)
-    parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--endpoint")
+    parser.add_argument("--model")
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
 
-    provider = OpenAICompatibleProvider(
-        OpenAICompatibleConfig(
-            endpoint=args.endpoint,
-            model=args.model,
-            timeout_seconds=args.timeout_seconds,
+    if args.data_dir is not None:
+        if args.endpoint is not None or args.model is not None:
+            parser.error("--data-dir 不能与 --endpoint 或 --model 同时使用")
+        try:
+            provider, model_name = _configured_provider(args.data_dir)
+        except ValueError:
+            parser.error("--data-dir 中没有模型配置")
+    else:
+        if args.endpoint is None or args.model is None:
+            parser.error("必须提供 --data-dir，或同时提供 --endpoint 和 --model")
+        provider = OpenAICompatibleProvider(
+            OpenAICompatibleConfig(
+                endpoint=args.endpoint,
+                model=args.model,
+                timeout_seconds=args.timeout_seconds,
+            )
         )
-    )
-    recorded = asyncio.run(record_dataset(provider, load_dataset(args.dataset), args.model))
+        model_name = args.model
+    recorded = asyncio.run(record_dataset(provider, load_dataset(args.dataset), model_name))
     report = run_dataset(recorded)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -297,6 +314,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     return 0
+
+
+def _configured_provider(data_dir: Path) -> tuple[ModelProvider, str]:
+    """从非秘密配置和系统密钥环创建 Provider，不回显密钥。"""
+    service = ModelConfigurationService(
+        FileModelConfigurationRepository(data_dir / "model.json"),
+        KeyringSecretStore(),
+    )
+    view = service.view()
+    if view.model is None:
+        raise ValueError("模型未配置")
+    return service.create_provider(), view.model
 
 
 if __name__ == "__main__":
