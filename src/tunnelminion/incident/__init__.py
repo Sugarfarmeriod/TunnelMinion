@@ -20,19 +20,32 @@ from tunnelminion.incident.contracts import (
     SnapshotServiceState,
     SnapshotSource,
 )
+from tunnelminion.incident.investigation import (
+    READ_ONLY_INVESTIGATION_TOOLS,
+    IncidentInvestigator,
+    InvestigationCancellation,
+    InvestigationLimits,
+)
+from tunnelminion.incident.observer import IncidentObservationService, ObservationResult
 from tunnelminion.incident.snapshot import SnapshotDiffDetector, assemble_overview_snapshot
 from tunnelminion.incident.storage import SQLiteIncidentStore
 
 __all__ = [
+    "READ_ONLY_INVESTIGATION_TOOLS",
     "EvidenceReference",
     "HypothesisStatus",
     "Incident",
     "IncidentEventType",
     "IncidentHypothesis",
+    "IncidentInvestigator",
+    "IncidentObservationService",
     "IncidentReport",
     "IncidentStatus",
+    "InvestigationCancellation",
+    "InvestigationLimits",
     "InvestigationStopReason",
     "NormalizedSnapshot",
+    "ObservationResult",
     "PublicTraceEntry",
     "SQLiteIncidentStore",
     "SnapshotDiffDetector",

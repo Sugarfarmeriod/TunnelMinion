@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
-from tunnelminion.domain.identifiers import SnapshotId
+from tunnelminion.domain.identifiers import NodeId, SnapshotId
 from tunnelminion.incident.contracts import (
     IncidentEventType,
     NormalizedSnapshot,
@@ -82,6 +82,11 @@ class SnapshotDiffDetector:
         self._pending: dict[str, int] = {}
         self._confirmed: set[str] = set()
 
+    @property
+    def has_pending(self) -> bool:
+        """返回是否存在尚未达到确认窗口的变化。"""
+        return bool(self._pending)
+
     def compare(
         self,
         baseline: NormalizedSnapshot,
@@ -119,6 +124,7 @@ class SnapshotDiffDetector:
                     IncidentEventType.SERVICE_ADDED,
                     SnapshotObjectKind.SERVICE,
                     object_id,
+                    item.node_id,
                     baseline,
                     current,
                     item.source,
@@ -133,6 +139,7 @@ class SnapshotDiffDetector:
                     IncidentEventType.SERVICE_REMOVED,
                     SnapshotObjectKind.SERVICE,
                     object_id,
+                    item.node_id,
                     baseline,
                     current,
                     item.source,
@@ -152,6 +159,7 @@ class SnapshotDiffDetector:
                         IncidentEventType.NODE_OFFLINE,
                         SnapshotObjectKind.NODE,
                         object_id,
+                        after.node_id,
                         baseline,
                         current,
                         after.source,
@@ -165,6 +173,7 @@ class SnapshotDiffDetector:
                         IncidentEventType.STATE_STALE,
                         SnapshotObjectKind.NODE,
                         object_id,
+                        after.node_id,
                         baseline,
                         current,
                         after.source,
@@ -181,6 +190,7 @@ class SnapshotDiffDetector:
                         IncidentEventType.STATE_STALE,
                         SnapshotObjectKind.SERVICE,
                         object_id,
+                        after.node_id,
                         baseline,
                         current,
                         after.source,
@@ -194,6 +204,7 @@ class SnapshotDiffDetector:
                         IncidentEventType.LOCAL_ONLY,
                         SnapshotObjectKind.SERVICE,
                         object_id,
+                        after.node_id,
                         baseline,
                         current,
                         after.source,
@@ -210,6 +221,7 @@ class SnapshotDiffDetector:
                         IncidentEventType.REMOTE_UNREACHABLE,
                         SnapshotObjectKind.SERVICE,
                         object_id,
+                        after.node_id,
                         baseline,
                         current,
                         after.source,
@@ -224,6 +236,7 @@ class SnapshotDiffDetector:
         event_type: IncidentEventType,
         object_kind: SnapshotObjectKind,
         object_id: str,
+        target_node_id: NodeId,
         baseline: NormalizedSnapshot,
         current: NormalizedSnapshot,
         source: SnapshotSource,
@@ -237,6 +250,7 @@ class SnapshotDiffDetector:
             event_type=event_type,
             object_kind=object_kind,
             object_id=object_id,
+            target_node_id=target_node_id,
             baseline_snapshot_id=baseline.snapshot_id,
             current_snapshot_id=current.snapshot_id,
             baseline_revision=baseline.revision,

@@ -21,6 +21,7 @@ class ContextTaskType(StrEnum):
 
     LOCAL_CONVERSATION = "local-conversation"
     CROSS_NODE_DIAGNOSTIC = "cross-node-diagnostic"
+    INCIDENT_INVESTIGATION = "incident-investigation"
     OPERATION_PLAN = "operation-plan"
     PROVIDER_VALIDATION = "provider-validation"
     EVALUATION = "evaluation"

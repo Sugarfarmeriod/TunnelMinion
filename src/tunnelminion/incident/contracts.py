@@ -165,6 +165,7 @@ class SnapshotDiffEvent(BaseModel):
     event_type: IncidentEventType
     object_kind: SnapshotObjectKind
     object_id: str = Field(min_length=37, max_length=40)
+    target_node_id: NodeId
     baseline_snapshot_id: SnapshotId
     current_snapshot_id: SnapshotId
     baseline_revision: int = Field(ge=0)
@@ -360,6 +361,7 @@ class Incident(BaseModel):
                 IncidentStatus.CANCELLED,
                 IncidentStatus.FAILED,
                 IncidentStatus.INTERRUPTED,
+                IncidentStatus.INVESTIGATION_UNAVAILABLE,
             },
             IncidentStatus.INTERRUPTED: {
                 IncidentStatus.INVESTIGATING,
