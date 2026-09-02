@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.evaluation.cli import load_dataset
 from tunnelminion.evaluation.operations import (
@@ -15,7 +16,7 @@ from tunnelminion.evaluation.operations import (
     OperationEvaluationMetrics,
     run_operation_evaluation,
 )
-from tunnelminion.evaluation.runner import EvaluationMetrics, run_dataset
+from tunnelminion.evaluation.runner import EvaluationMetrics, EvaluationReport, run_dataset
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK_PACKAGE = Path(__file__).resolve().parent
@@ -58,7 +59,7 @@ EXPECTED_METRIC_STATUS = {
     "estimated-cost": "partial-fixture",
 }
 EXPECTED_REAL_FIELDS = {
-    "stable_main_sha",
+    "stable_source_sha",
     "dataset_hashes",
     "model_provider_and_version",
     "prompt_and_tool_versions",
@@ -96,6 +97,10 @@ EXPECTED_DATASETS = {
         "case_count": 5,
     },
 }
+REAL_RUN_ID = "deepseek-v4-flash-release-20260902"
+SAFE_RUN_ID = "deepseek-v4-flash-safe-sharing-release-20260902"
+QWEN_RUN_ID = "qwen3.6-35b-a3b-windows-to-macos-20260902"
+QWEN_SAFE_RUN_ID = "qwen3.6-35b-a3b-safe-sharing-20260902"
 
 
 class DatasetSpec(BaseModel):
@@ -114,8 +119,20 @@ class DatasetSpec(BaseModel):
     role: str
 
 
+class Threshold(BaseModel):
+    """真实基线完成后固定的单项发布阈值。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operator: Literal["gte", "lte"]
+    value: float
+    unit: str
+    baseline_value: float
+    source_run_id: str
+
+
 class MetricSpec(BaseModel):
-    """真实基线前不得预设阈值的指标定义。"""
+    """真实基线后的指标与发布阈值。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -123,17 +140,18 @@ class MetricSpec(BaseModel):
     offline_sources: tuple[str, ...] = Field(min_length=1)
     offline_status: Literal["supporting-only", "measured-fixture", "partial-fixture"]
     real_baseline_required: Literal[True]
-    threshold: None
+    threshold: Threshold
 
 
 class RealBaselineGate(BaseModel):
-    """真实模型基线尚未执行的门禁。"""
+    """真实模型基线的完整性门禁。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    state: Literal["not-run"]
+    state: Literal["passed"]
     required_fields: tuple[str, ...] = Field(min_length=1)
     threshold_policy: str
+    independent_audit: str
 
 
 class Publication(BaseModel):
@@ -153,12 +171,13 @@ class EvaluationSuite(BaseModel):
 
     schema_version: Literal[1]
     suite_id: str
-    status: Literal["planned"]
+    status: Literal["real-baseline-thresholded"]
     authoring_baseline: str = Field(pattern=r"^[0-9a-f]{40}$")
     hash_normalization: Literal["utf8-lf"]
     datasets: tuple[DatasetSpec, ...] = Field(min_length=2, max_length=2)
     metrics: tuple[MetricSpec, ...] = Field(min_length=8, max_length=8)
     real_baseline_gate: RealBaselineGate
+    real_runs: tuple[dict[str, JsonValue], ...] = Field(min_length=2)
     publication: Publication
 
 
@@ -229,8 +248,28 @@ def _normalized_digest(path: Path) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _raw_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _close(actual: float, expected: float) -> bool:
     return math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def _real_run(suite: EvaluationSuite, run_id: str) -> dict[str, JsonValue]:
+    matches = tuple(item for item in suite.real_runs if item.get("run_id") == run_id)
+    if len(matches) != 1:
+        raise ValueError(f"真实基线 run_id 不唯一或不存在：{run_id}")
+    return matches[0]
+
+
+def _report_path(run: dict[str, JsonValue]) -> Path:
+    path = (ROOT / cast(str, run["report"])).resolve()
+    if ROOT.resolve() not in path.parents or not path.is_file():
+        raise ValueError("真实基线报告路径越界或不存在")
+    if _raw_digest(path) != run.get("report_sha256"):
+        raise ValueError(f"真实基线报告哈希不匹配：{run['run_id']}")
+    return path
 
 
 def main() -> None:
@@ -264,6 +303,115 @@ def main() -> None:
             raise ValueError(f"评估数据集路径越界或不存在：{dataset.dataset_id}")
         if _normalized_digest(path) != dataset.normalized_sha256:
             raise ValueError(f"评估数据集哈希不匹配：{dataset.dataset_id}")
+
+    real_run = _real_run(suite, REAL_RUN_ID)
+    safe_run = _real_run(suite, SAFE_RUN_ID)
+    qwen_run = _real_run(suite, QWEN_RUN_ID)
+    qwen_safe_run = _real_run(suite, QWEN_SAFE_RUN_ID)
+    if len(
+        {
+            cast(str, real_run.get("stable_sha")),
+            cast(str, safe_run.get("stable_sha")),
+            cast(str, qwen_run.get("stable_sha")),
+            cast(str, qwen_safe_run.get("stable_sha")),
+        }
+    ) != 1:
+        raise ValueError("主评估、Safe Sharing 与跨平台对照不是同一稳定提交")
+    qwen_report_path = _report_path(qwen_run)
+    qwen_safe_report_path = _report_path(qwen_safe_run)
+    if (
+        "Windows" not in cast(str, qwen_run.get("caller_environment"))
+        or "macOS" not in cast(str, qwen_run.get("provider_environment"))
+    ):
+        raise ValueError("Qwen 对照没有覆盖 Windows 调用端与 macOS 推理端")
+    qwen_report = EvaluationReport.model_validate_json(
+        qwen_report_path.read_text(encoding="utf-8")
+    )
+    qwen_safe_report = cast(
+        dict[str, JsonValue],
+        json.loads(qwen_safe_report_path.read_text(encoding="utf-8")),
+    )
+    if (
+        qwen_report.metrics.task_completion_rate >= 1.0
+        or qwen_safe_report.get("release_gate_passed") is not False
+    ):
+        raise ValueError("Qwen 未达标对照的分类与原始报告不一致")
+    real_report = EvaluationReport.model_validate_json(
+        _report_path(real_run).read_text(encoding="utf-8")
+    )
+    safe_report = cast(
+        dict[str, JsonValue],
+        json.loads(_report_path(safe_run).read_text(encoding="utf-8")),
+    )
+    if not all(
+        item.input_tokens is not None
+        and item.output_tokens is not None
+        and item.total_tokens is not None
+        and item.estimated_cost is not None
+        and item.model_rounds >= 1
+        and item.total_latency_ms >= 0
+        for item in real_report.scenarios
+    ):
+        raise ValueError("主评估逐 case 资源字段不完整")
+    safe_cases = safe_report.get("cases")
+    if (
+        safe_report.get("release_gate_passed") is not True
+        or safe_report.get("structured_output_success_rate") != 1.0
+        or safe_report.get("fixed_field_safety_rate") != 1.0
+        or not isinstance(safe_cases, list)
+        or len(safe_cases) != 2
+        or not all(
+            isinstance(item, dict)
+            and item.get("input_tokens") is not None
+            and item.get("output_tokens") is not None
+            and item.get("total_tokens") is not None
+            and item.get("estimated_cost") is not None
+            and item.get("safe_fixed_fields") is True
+            for item in safe_cases
+        )
+    ):
+        raise ValueError("Safe Sharing 真实门禁或逐 case 资源字段不完整")
+
+    metrics = real_report.metrics
+    actual_values = {
+        "tool-selection-accuracy": metrics.expected_tool_hit_rate,
+        "task-completion-rate": metrics.task_completion_rate,
+        "tool-parameter-error-rate": 1 - metrics.parameter_validity_rate,
+        "safety-interception-rate": 1 - metrics.safety_failures / metrics.scenario_count,
+        "end-to-end-latency": metrics.average_total_latency_ms,
+        "model-call-count": metrics.average_model_rounds,
+        "token-usage": float(cast(int, metrics.total_tokens)),
+        "estimated-cost": cast(float, metrics.total_estimated_cost),
+    }
+    for metric in suite.metrics:
+        threshold = metric.threshold
+        actual = actual_values[metric.metric_id]
+        if threshold.source_run_id != REAL_RUN_ID or not _close(
+            threshold.baseline_value, actual
+        ):
+            raise ValueError(f"阈值基线不能从真实报告复算：{metric.metric_id}")
+        passed = (
+            actual >= threshold.value
+            if threshold.operator == "gte"
+            else actual <= threshold.value
+        )
+        if not passed:
+            raise ValueError(f"真实基线未达到发布阈值：{metric.metric_id}")
+
+    audit_path = (ROOT / suite.real_baseline_gate.independent_audit).resolve()
+    if ROOT.resolve() not in audit_path.parents or not audit_path.is_file():
+        raise ValueError("独立审计记录不存在或路径越界")
+    audit_text = audit_path.read_text(encoding="utf-8")
+    for evidence in (
+        cast(str, real_run["stable_sha"]),
+        cast(str, real_run["report_sha256"]),
+        cast(str, safe_run["report_sha256"]),
+        cast(str, qwen_run["report_sha256"]),
+        cast(str, qwen_safe_run["report_sha256"]),
+        "审计结论：通过",
+    ):
+        if evidence not in audit_text:
+            raise ValueError("独立审计记录缺少当前真实基线证据")
 
     agent_spec = datasets[baseline.agent.dataset_id]
     if baseline.agent.dataset_version != agent_spec.dataset_version:

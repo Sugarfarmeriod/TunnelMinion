@@ -34,7 +34,7 @@
       "output_tokens": 4,
       "total_tokens": 106,
       "tool_duration_ms": 0,
-      "total_latency_ms": 1513,
+      "total_latency_ms": 1556,
       "estimated_cost": null
     },
     {
@@ -59,7 +59,7 @@
       "output_tokens": 105,
       "total_tokens": 209,
       "tool_duration_ms": 0,
-      "total_latency_ms": 8701,
+      "total_latency_ms": 8731,
       "estimated_cost": null
     },
     {
@@ -84,7 +84,7 @@
       "output_tokens": 18,
       "total_tokens": 120,
       "tool_duration_ms": 0,
-      "total_latency_ms": 2393,
+      "total_latency_ms": 2434,
       "estimated_cost": null
     },
     {
@@ -209,7 +209,7 @@
       "output_tokens": 109,
       "total_tokens": 215,
       "tool_duration_ms": 0,
-      "total_latency_ms": 9016,
+      "total_latency_ms": 9074,
       "estimated_cost": null
     }
   ],
@@ -231,7 +231,7 @@
     "output_tokens": 236,
     "total_tokens": 650,
     "average_tool_duration_ms": 0.0,
-    "average_total_latency_ms": 2702.875,
+    "average_total_latency_ms": 2724.375,
     "total_estimated_cost": null
   }
 }
