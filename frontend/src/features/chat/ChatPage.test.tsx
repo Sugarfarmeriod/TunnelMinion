@@ -14,6 +14,7 @@ import {
 } from "vitest";
 
 import { ChatPage } from "./ChatPage";
+import { makeOperationSummary } from "../operations/testFixtures";
 import type {
   RunEvent,
   RunStatus,
@@ -151,6 +152,7 @@ function installBackend(initialMessages: ThreadMessage[] = []): Backend {
         ? HttpResponse.json({ detail: "运行不存在" }, { status: 404 })
         : HttpResponse.json(run);
     }),
+    http.get("/api/operations", () => HttpResponse.json([])),
   );
   return backend;
 }
@@ -353,6 +355,26 @@ describe("ChatPage", () => {
     expect(longText).toHaveClass("chat-untrusted-text");
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("把共享工具证据的操作链接到现有详情页", async () => {
+    const backend = installBackend([makeMessage("assistant", "检查完成")]);
+    backend.runs.set(runId, completedRun("检查完成"));
+    const related = makeOperationSummary({
+      tool_run_ids: [toolRun3],
+      tool_name: "share_local_http_service",
+    });
+    server.use(http.get("/api/operations", () => HttpResponse.json([related])));
+
+    render(<ChatPage />);
+
+    const link = await screen.findByRole("link", {
+      name: "share_local_http_service · awaiting_authorization",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      `/app/operations/${related.operation_id}`,
+    );
   });
 
   it("发起 run、按 after 恢复缺口、去重工具事件并在终态关闭", async () => {

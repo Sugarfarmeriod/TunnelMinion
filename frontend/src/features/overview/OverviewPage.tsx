@@ -529,6 +529,9 @@ function ServiceList({ data }: { data: ResourceOverview["services"] }) {
                 {` · 节点 ${service.node_id.slice(0, 8)}`}
               </p>
               <p className="overview-resource-list__evidence">
+                访问地址：{service.access_address ?? "未知"}
+              </p>
+              <p className="overview-resource-list__evidence">
                 {sourceLabels[service.source]} ·{" "}
                 {formatTimestamp(service.evidence_at)} ·{" "}
                 {freshnessLabels[service.freshness]}

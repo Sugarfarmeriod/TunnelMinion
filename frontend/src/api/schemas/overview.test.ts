@@ -79,6 +79,7 @@ describe("overview 运行时契约", () => {
             display_name: "本机面板",
             protocol: "http",
             port: 4175,
+            access_address: "http://127.0.0.1:4175",
             accessibility: "loopback",
             lifecycle: "active",
             state: "available",
