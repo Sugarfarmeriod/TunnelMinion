@@ -256,7 +256,7 @@ class KnownServiceState(StrEnum):
 
 
 class KnownServiceOverview(BaseModel):
-    """服务摘要不公开 host、进程参数、环境或探测正文。"""
+    """服务摘要只公开访问地址，不公开进程参数、环境或探测正文。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -265,6 +265,7 @@ class KnownServiceOverview(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     protocol: ServiceProtocol | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
+    access_address: str | None = Field(default=None, min_length=1, max_length=320)
     accessibility: ServiceAccessibility | None = None
     lifecycle: ServiceLifecycle | None = None
     state: KnownServiceState

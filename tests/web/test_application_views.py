@@ -836,6 +836,7 @@ def test_real_caches_are_redacted_and_resource_bindings_remain_live() -> None:
         KnownServiceState.UNAVAILABLE,
         KnownServiceState.STOPPED,
     }
+    assert {item.access_address for item in overview.services.items} == {"http://127.0.0.1:8082"}
     assert overview.nodes.source is OverviewSource.AGGREGATED
     assert overview.services.source is OverviewSource.AGGREGATED
     callback = result.resource_bindings.coordinator_status
@@ -886,6 +887,18 @@ def test_service_sources_empty_cache_and_unknown_node_state() -> None:
         KnownNodeState.INCOMPATIBLE,
     )
     assert unknown.state is KnownServiceState.UNKNOWN
+    ipv6 = adapter.service_view(
+        service_summary(ServiceId.new()).model_copy(update={"host": "::1"}),
+        REMOTE_NODE,
+        KnownNodeState.ONLINE,
+    )
+    assert ipv6.access_address == "http://[::1]:8082"
+    hostname = adapter.service_view(
+        service_summary(ServiceId.new()).model_copy(update={"host": "service.example"}),
+        REMOTE_NODE,
+        KnownNodeState.ONLINE,
+    )
+    assert hostname.access_address == "http://service.example:8082"
 
 
 @pytest.mark.parametrize(

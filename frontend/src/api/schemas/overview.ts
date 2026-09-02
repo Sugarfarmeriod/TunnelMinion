@@ -158,6 +158,7 @@ export const resourceOverviewSchema = z
               display_name: z.string().nullable(),
               protocol: z.enum(["tcp", "udp", "http", "https"]).nullable(),
               port: z.number().int().min(1).max(65535).nullable(),
+              access_address: z.string().min(1).max(320).nullable(),
               accessibility: z
                 .enum(["loopback", "network", "unknown"])
                 .nullable(),
