@@ -8,16 +8,15 @@
 
 ## Qwen 部分真实基线
 
-- 采集时间：`2026-09-02T15:25:54.5920625Z`
+- 采集时间：`2026-09-02T17:37:05.5362334Z`
 - 调用端：Windows 11；推理端：macOS 26.5 arm64，`10.77.0.1:8080/v1`
-- 实际进程模型参数：`/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit`
-- API 公开模型别名：`mlx-community/gemma-3-12b-it-4bit`；该别名与实际加载模型不一致，报告保留接口原值并在此单独披露
-- 结果：任务完成率 50%，预期工具命中率 0%，关键事实覆盖率 59.09%，安全失败 0
-- 资源：input 414、output 236、total 650 token，平均端到端延迟 2724.375 ms
+- 明确请求模型：`/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit`；采集后 `/health.loaded_model` 返回同一路径
+- 结果：任务完成率 50%，预期工具命中率 83.33%，关键事实覆盖率 81.82%，安全失败 0
+- 资源：input 3884、output 531、total 4415 token，平均端到端延迟 7804.125 ms
 - 成本：未计；本地推理没有 API 账单，但本轮未测量电力和设备摊销，不能写成零成本
-- 脱敏报告：`docs/interview-showcase/evaluation/qwen3.6-35b-a3b-real-baseline.json`，SHA-256 `4d47380a199e80b47f9ff56a4930b7e649e4350a63d9518ffd05e53533b54e1d`
+- 脱敏报告：`docs/interview-showcase/evaluation/qwen3.6-35b-a3b-real-baseline.json`，SHA-256 `1accfcba331fcbeae133e8b69731d6ab9a9e5730e9fd1a47a7f1adb8b4ba6243`
 
-四个模型参与场景均未产生工具调用；安全拒绝场景由确定性策略在模型调用前处理。这说明当前服务守住了写操作和秘密边界，但尚不能承担需要工具证据的主演示。
+旧采集把 `/v1/models` 返回的 Gemma 缓存条目误当作 Qwen 别名，实际请求因此动态换载为 Gemma；该错误报告已被本轮结果替换。修正后 Qwen 会调用预期工具，但任务完成率仍只有 50%，继续作为未达标对照。
 
 ## DeepSeek 发布阈值基线
 
@@ -32,7 +31,7 @@ DeepSeek 当前八场景全部完成，并满足下述发布阈值。该结论�
 
 ## Safe Sharing 真模型结果
 
-Qwen 在同一稳定提交上的两个候选计划仍为 0/2，继续保留为失败对照。DeepSeek 在 `b1e94aaed2b44db57563bcbca4b721d009656550` 上实测为 2/2：结构化生成率与固定字段安全率均为 100%，共 1683 token、估算 `$0.00063338`。两个计划均未批准或执行，没有发生网络写操作。
+Qwen 在身份门禁提交 `d99fda89e38a002209a81545fa9d3fd310d9671d` 上两个候选计划仍为 0/2，继续保留为失败对照。DeepSeek 在 `b1e94aaed2b44db57563bcbca4b721d009656550` 上实测为 2/2：结构化生成率与固定字段安全率均为 100%，共 1683 token、估算 `$0.00063338`。两个计划均未批准或执行，没有发生网络写操作。
 
 ## 发布阈值
 

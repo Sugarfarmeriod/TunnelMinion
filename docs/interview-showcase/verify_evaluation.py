@@ -308,15 +308,11 @@ def main() -> None:
     safe_run = _real_run(suite, SAFE_RUN_ID)
     qwen_run = _real_run(suite, QWEN_RUN_ID)
     qwen_safe_run = _real_run(suite, QWEN_SAFE_RUN_ID)
-    if len(
-        {
-            cast(str, real_run.get("stable_sha")),
-            cast(str, safe_run.get("stable_sha")),
-            cast(str, qwen_run.get("stable_sha")),
-            cast(str, qwen_safe_run.get("stable_sha")),
-        }
-    ) != 1:
-        raise ValueError("主评估、Safe Sharing 与跨平台对照不是同一稳定提交")
+    if (
+        real_run.get("stable_sha") != safe_run.get("stable_sha")
+        or qwen_run.get("stable_sha") != qwen_safe_run.get("stable_sha")
+    ):
+        raise ValueError("同一 Provider 的主评估与 Safe Sharing 不是同一稳定提交")
     qwen_report_path = _report_path(qwen_run)
     qwen_safe_report_path = _report_path(qwen_safe_run)
     if (
@@ -414,6 +410,7 @@ def main() -> None:
     audit_text = audit_path.read_text(encoding="utf-8")
     for evidence in (
         cast(str, real_run["stable_sha"]),
+        cast(str, qwen_run["stable_sha"]),
         cast(str, real_run["report_sha256"]),
         cast(str, safe_run["report_sha256"]),
         cast(str, qwen_run["report_sha256"]),
