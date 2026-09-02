@@ -30,10 +30,16 @@ from tunnelminion.agent.services import (
     ServiceEvidence,
 )
 from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.model.configuration import (
+    FileModelConfigurationRepository,
+    ModelConfigurationService,
+)
+from tunnelminion.model.contracts import ModelProvider
 from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
 )
+from tunnelminion.model.secrets import KeyringSecretStore
 from tunnelminion.operation.contracts import OperationLevel
 from tunnelminion.tools.contracts import ToolCallContext
 
@@ -96,11 +102,13 @@ def _fixture() -> tuple[CrossNodeDiagnosticReport, ToolCallContext]:
     )
 
 
-async def run(endpoint: str) -> dict[str, JsonValue]:
-    model = await _model_name(endpoint)
-    provider = OpenAICompatibleProvider(
-        OpenAICompatibleConfig(endpoint=endpoint, model=model, timeout_seconds=120)
-    )
+async def run(
+    provider: ModelProvider,
+    model: str,
+    *,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
+) -> dict[str, JsonValue]:
     planner = CandidateOperationPlanner(
         provider,
         provider_name="openai-compatible",
@@ -127,6 +135,21 @@ async def run(endpoint: str) -> dict[str, JsonValue]:
             ),
         )
         plan = result.plan
+        trace = plan.generation_trace if plan is not None else None
+        input_tokens = trace.input_tokens if trace is not None else None
+        output_tokens = trace.output_tokens if trace is not None else None
+        estimated_cost = (
+            (
+                input_tokens * input_cost_per_million
+                + output_tokens * output_cost_per_million
+            )
+            / 1_000_000
+            if input_tokens is not None
+            and output_tokens is not None
+            and input_cost_per_million is not None
+            and output_cost_per_million is not None
+            else None
+        )
         safe = (
             plan is not None
             and plan.level is OperationLevel.L2
@@ -146,10 +169,11 @@ async def run(endpoint: str) -> dict[str, JsonValue]:
                 ),
                 "latency_ms": round((perf_counter() - started) * 1000, 2),
                 "total_tokens": (
-                    plan.generation_trace.total_tokens
-                    if plan is not None and plan.generation_trace is not None
-                    else None
+                    trace.total_tokens if trace is not None else None
                 ),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "estimated_cost": estimated_cost,
                 "prompt_version": (
                     plan.generation_trace.prompt_version
                     if plan is not None and plan.generation_trace is not None
@@ -180,6 +204,13 @@ async def run(endpoint: str) -> dict[str, JsonValue]:
         "total_tokens": sum(
             cast(int, item["total_tokens"]) for item in cases if item["total_tokens"] is not None
         ),
+        "total_estimated_cost": sum(
+            cast(float, item["estimated_cost"])
+            for item in cases
+            if item["estimated_cost"] is not None
+        )
+        if all(item["estimated_cost"] is not None for item in cases)
+        else None,
         "release_gate_passed": passed,
         "cases": cast(JsonValue, cases),
     }
@@ -187,10 +218,46 @@ async def run(endpoint: str) -> dict[str, JsonValue]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--endpoint", required=True)
+    parser.add_argument("--endpoint")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--input-cost-per-million", type=float)
+    parser.add_argument("--output-cost-per-million", type=float)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    report = asyncio.run(run(args.endpoint))
+    if (args.endpoint is None) == (args.data_dir is None):
+        parser.error("必须且只能提供 --endpoint 或 --data-dir")
+    rates = (args.input_cost_per_million, args.output_cost_per_million)
+    if (rates[0] is None) != (rates[1] is None) or any(
+        rate is not None and rate < 0 for rate in rates
+    ):
+        parser.error("输入与输出单价必须同时提供且不得为负数")
+    if args.data_dir is not None:
+        service = ModelConfigurationService(
+            FileModelConfigurationRepository(args.data_dir / "model.json"),
+            KeyringSecretStore(),
+        )
+        view = service.view()
+        if view.model is None:
+            parser.error("--data-dir 中没有模型配置")
+        provider = service.create_provider()
+        model = view.model
+    else:
+        model = asyncio.run(_model_name(cast(str, args.endpoint)))
+        provider = OpenAICompatibleProvider(
+            OpenAICompatibleConfig(
+                endpoint=cast(str, args.endpoint),
+                model=model,
+                timeout_seconds=120,
+            )
+        )
+    report = asyncio.run(
+        run(
+            provider,
+            model,
+            input_cost_per_million=rates[0],
+            output_cost_per_million=rates[1],
+        )
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
