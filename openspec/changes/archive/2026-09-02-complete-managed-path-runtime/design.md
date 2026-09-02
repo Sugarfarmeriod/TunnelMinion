@@ -2,7 +2,7 @@
 
 归档 `2026-07-31-integrate-managed-node-runtime` 的任务 5.1–5.4 和 6.3 宣称 managed config 已进入治理、Provider 和路径状态，但现场代码存在清晰断点：`ManagedNetworkSynchronizer` 与 `ManagedNetworkSyncLoop` 明确只拉取、验签和保存 pending；`build_managed_network_sync_loop` 没有 Provider、治理或授权依赖；`network/path_controller.py` 只有 `PathProbe` 协议、`DirectPathVerifier` 和 `DirectPathController`，生产代码没有 `PathProbe` 实现或控制器实例。`NetworkOperationPolicy` 只在进程内保存 grant，`SQLiteNetworkGovernanceStore` 只保存执行记录，operation preauthorization 只覆盖 L2，因此仓库也没有可供 lifecycle 复用的持久 L3 授权来源。Windows/macOS 常规工厂只能暴露同步 checkpoint，不能提供真实 selection/evidence/authorization。
 
-PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache、overview 契约及 stale UI，但其任务 3.3 必须以本 change 的真实运行时状态为前置。`package-manual-node-runtime` 只能在合并后消费常规入口；Gateway 保持独立私网进程和监听器。当前 A/B 网络是用户已有环境，任何真实写验证都必须使用另行批准的隔离资源。
+PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache、overview 契约及 stale UI，并可消费本 change 的诊断状态 schema；其任务 3.3 所需真实 path 证据仍由未来独立真实执行 change 提供。`package-manual-node-runtime` 只能在合并后消费常规入口；Gateway 保持独立私网进程和监听器。
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@ PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache�
 - 在现有网络治理 SQLite 数据库内建立唯一权威 L3 grant repository，并以单一、可恢复、单并发 lifecycle 串联同步、持久化授权读取、治理、Provider、独立验证、路径控制和脱敏状态发布。
 - 保证没有精确有效的本机 L3 授权时只进入 `awaiting-authorization`，不创建授权、不生成可执行写动作、不调用 Provider apply。
 - 将真实 selection/evidence/authorization/freshness 接入 Windows/macOS 常规本地入口，支持过期、刷新、降级和恢复。
-- 用 fake、批准的隔离资源和证据来源标签建立递进门禁，禁止用 fake、专用脚本或历史证据替代生产完成证明。
+- 用 fake、平台只读能力和隔离数据目录下的常规入口建立诊断预览门禁，并明确标记证据来源，禁止把预览冒充真实网络闭环。
 
 **Non-Goals:**
 
@@ -21,6 +21,7 @@ PR #44 和 `improve-local-product-experience` 可继续交付 Coordinator cache�
 - 不改变 Coordinator/Gateway 协议，不把本地应用与 Gateway 合并，也不扩大 Gateway 监听范围。
 - 不实现 `improve-local-product-experience` 的 React 页面、overview 聚合或 package/发布工作，不更新 LPE 的 Penpot 外部图纸/图纸交付或其他外部系统。
 - 不新增 relay、LAN discovery、自动 enrollment、自动授权或模型参与的网络决策。
+- 不在本 change 执行真实 Provider apply/verify/rollback/recover、跨机 A/B、提权协调或真实网络故障注入；这些工作只可由未来独立 change 在重新授权后开展。
 
 ## Decisions
 
@@ -64,9 +65,9 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 
 提取 Windows/macOS 共用的 managed path 依赖工厂，由平台分支只提供只读 probe、Provider/backend 和平台能力结果。常规本地应用的 lifespan 持有唯一 lifecycle，并把真实状态 provider 交给资源 API。Gateway 不共享该 lifespan、不读取 UI 缓存、不改变监听；`improve-local-product-experience` 只消费新状态，不能反向驱动授权或写入；package change 只封装合并后的入口。
 
-### 7. 验收采用来源分层且真实写入必须后置
+### 7. 验收止于安全诊断预览
 
-第一层用纯 fake 验证状态机、授权拒绝、并发、故障矩阵和秘密边界；第二层用平台只读 probe 与受控 fixture 验证真实观察；第三层仅在明确批准的独立接口/地址/端口和隔离数据目录上验证真实 Provider 写入、回滚与恢复；第四层才可在真实 A/B 常规入口验证跨机 lifecycle。每份证据记录代码提交、平台、入口、资源批准、观测时间和来源。较低层成功、旧记录或专用脚本不得替代较高层完成条件。
+第一层用纯 fake 验证状态机、授权拒绝、并发、故障矩阵和秘密边界；第二层用平台只读 probe 与受控 fixture 验证观察契约；第三层只在 Windows/macOS 隔离数据目录中启动常规应用工厂，验证未配置、待授权、过期和能力降级均被如实投影且不会触发网络写入。每份证据记录代码提交、平台、入口、观测时间和来源。该门禁只关闭安全诊断预览，不关闭真实 Provider 或跨机 A/B。
 
 ## Risks / Trade-offs
 
@@ -76,17 +77,17 @@ Windows/macOS `PathProbe` 通过平台只读系统接口与有界 socket 探测�
 - [probe 本身产生少量网络流量] → 固定候选来源、目标、超时、数量、最小刷新间隔和单并发；默认不进行任意服务扫描。
 - [证据 TTL 使短暂离线更快显示 stale] → 保留 last-known-good/static 但不称为当前 direct，成功刷新后自动恢复展示。
 - [跨平台工厂抽取可能触及活跃 UI change 的同一应用文件] → 本 change 先合并后由 `improve-local-product-experience` 基于该状态契约接线；同阶段应用工厂保持单一写 owner。
-- [真实 Provider 测试可能影响用户网络] → 必须显式批准隔离资源、保存前后不变性证据并提供人工停止；未满足前置条件时相关任务保持未完成。
+- [预览可能被误解为真实网络闭环] → 状态、任务和交接统一标注 `diagnostic-preview`，不解锁依赖真实 selection/evidence 的下游验收。
 
 ## Migration Plan
 
 1. 先在现有治理 SQLite 中创建空的 `network_authorization_grants` 表，接入本机控制面写端口与 lifecycle 只读端口；已有数据库不迁移执行记录或内存 grant，因而升级后默认无授权并 fail closed。旧同步 checkpoint 仍可读取，但没有 path checkpoint 时公开状态为 `unconfigured`/`awaiting-authorization`，不得推断成功。
 2. 增加 Windows/macOS 只读 probe 与真实观察门禁，不启用 Provider apply。
-3. 在隔离 fake 和批准资源上接入治理/Provider/recover，验证 failure/rollback/manual-intervention 后再开启常规入口装配。
-4. 以 feature flag 或显式 managed 配置启用新 lifecycle；失败时可回退为旧的 pull-only 同步，同时保留 pending 和 last-known-good，不删除任何用户资源。
-5. 合并后由 `improve-local-product-experience` 消费真实状态完成 3.3，由 package change 在其自身门禁中封装；真实 A/B 证据只有在批准资源和常规入口均满足时生成。
+3. 在隔离 fake 中验证治理/Provider/recover 状态机，并在 Windows/macOS 隔离数据目录中验证常规入口的安全诊断投影；不启用真实 Provider apply。
+4. 合并后由 `improve-local-product-experience` 仅把该状态契约作为诊断预览消费，package change 在其自身门禁中封装常规入口；真实 path 依赖保持未满足。
+5. 如未来仍需真实 Provider 与跨机 A/B，另建 change，重新定义资源批准、人工成本和退出条件。
 
 ## Open Questions
 
 - Windows 与 macOS 可获得的最新 handshake/route API 及最低权限矩阵需要分别用只读 spike 固定；不可用平台能力必须显式降级，不能用命令成功或旧证据代替。
-- 真实 A/B 的隔离接口名、地址、UDP 端口和批准窗口由执行前人工确认；本提案不预先占用或修改现有 `HomeMac`、B 手写配置、Gateway `8787` 或模型 `8082`。
+- 真实 Provider 与跨机 A/B 是否值得继续，由未来 change 依据产品价值重新决策；本提案不预先占用或修改任何真实接口、地址、端口或现有环境。

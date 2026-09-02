@@ -89,20 +89,21 @@
 - [x] 5.6 运行双平台应用、Web 契约、Gateway 监听边界、无模型、全量 Python 和 OpenSpec strict 门禁；检查 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
   - 当前证据：目标提交 `6d22c2e` 上允许范围全量 Python `1043 passed, 5 skipped, 1 warning`；coverage `16611/16611` statements、`3550/3550` branches，`100.00%`；阶段 5 定向 `274 passed, 4 skipped`，最终独立审计另有 `71 passed`；Ruff check/format、Pyright `0 errors, 0 warnings, 0 informations`、`openspec validate complete-managed-path-runtime --strict` 与 `git diff --check` 全部通过。提交链 `18acf05` → `3675335` → `6d22c2e` 已普通 push，`origin/feature/managed-path-stage5-app-wiring` 当前指向 `6d22c2e`。
 
-## 6. 批准资源上的真实 Provider 门禁
+## 6. 真实 Provider 预览与止损边界
 
-- [ ] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
-- [ ] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
-- [ ] 6.3 在批准资源上验证真实 apply → Provider verify → path verify → selection → acknowledgement，并保存提交、平台、入口、授权和观测时间 provenance
-- [ ] 6.4 注入真实 verify failure/受控中断并验证 rollback/recover、所有权冲突和 manual intervention，不用命令退出码或 fake 证据替代
-- [ ] 6.5 在另一平台重复相同门禁；若平台资源或权限未获批准，只报告 blocker，不将单平台结果外推为双平台完成
-- [ ] 6.6 核对 `HomeMac`、B 手写配置、客户防火墙/Murus、WireGuard、用户路由、Gateway `8787`、模型 `8082`、秘密和自启动前后不变；检查证据与 diff 后以独立 Conventional Commit 提交并普通 push 本阶段
+- [x] 6.1 在执行任何真实写入前记录人工批准的独立接口、地址、host route、UDP 端口、数据目录、L3 授权有效期、停止方式和前后不变性基线；任一缺失则本阶段保持未完成
+  - 当前证据：`evaluations/platform/managed-path-stage6-authorization-20260824.json` 固定两端独立资源、隔离数据目录、900 秒 L3 grant、停止方式和写前摘要，且记录 `real_network_writes_performed=false`。6.2 已用两端真实 Provider preview 与身份复用证据完成且经独立审计 ACCEPT；本 change 在此止损，不再建立新的真实写入窗口。
+- [x] 6.2 先在单平台批准资源上用常规 lifecycle 验证 observe/plan 预览与 authorization recheck，人工核对计划不包含客户防火墙、Murus、已有 WireGuard、用户宽路由或未知资源
+  - 证据：Windows 与 macOS 分别在批准的 `tmn-stage6-*.r1`、`192.0.2.0/30`、UDP `51888/51889` 和隔离数据目录上，通过生产 Provider 的真实 observe/plan 与共享 lifecycle 完成 900 秒授权、3 次权威 repository 读取和 apply 前 recheck/cancel；`evaluations/platform/managed-path-stage6-preview-{windows,macos}-20260826.json` 均记录 `provider_apply_calls=0`、`real_network_writes_performed=false`。两端现场已有 `192.0.0.0/9` 只以精确观察指纹批准为 overlap，不作为写步骤；五个计划步骤仅指向批准的受管接口。原运行提交分别为 `664a1aa`/`881715b`，完整 endpoint 经 `de78367` 改为 canonical hash 后入库；双平台证据已由独立 Sol/xhigh 只读审计 ACCEPT，未把 preview 冒充真实 apply/path 完成。
 
-## 7. 常规入口真实 A/B 与下游交接
+## 7. 常规入口安全诊断预览与下游交接
 
-- [ ] 7.1 只有阶段 1–6 门禁和双端隔离资源批准完成后，才用 Windows/macOS 常规入口执行真实 A/B authorization → lifecycle → selection/evidence → TTL stale → refresh recovery
-- [ ] 7.2 覆盖 Coordinator 离线、模型缺失、单端 probe 失败、sink 失败、重启恢复和 static fallback；证明本地只读功能与独立 Gateway 继续工作
-- [ ] 7.3 保存 A/B 证据 provenance 与前后不变性；专用脚本、旧归档证据、fake、PR #44 Coordinator/cache 或 stale UI 均不得替代本轮常规入口结果
-- [ ] 7.4 向 `improve-local-product-experience` 明确交付真实 status provider/schema 作为其 3.3 前置，不修改其前端、package、LPE 的 Penpot 外部图纸/图纸交付或 tasks；向 package change 只交付已合并常规入口能力
-- [ ] 7.5 运行全量质量、架构、安全、秘密、双平台真实门禁和 `openspec validate complete-managed-path-runtime --strict`，核对所有证据来自当前提交且未把降级成功计为生产成功
-- [ ] 7.6 检查最终 `git status`/diff/生成物/秘密与任务勾选范围，以 Conventional Commit 提交并普通 push，创建面向 `main` 的 Draft PR；合并后再同步主规格和归档 change
+- [x] 7.1 在 Windows/macOS 新隔离数据目录中启动常规应用工厂，读取 `/resources`、`/api/resources/managed-node` 和 `/api/resources/network-path`；验证两端均如实返回 unconfigured/runtime-absent/path-absent，且不装配 Provider、probe 或触发网络写入
+  - 证据：目标提交 `6e9b24bfc8572b228b817e308dfa50c587787c2d` 上，Windows 与 macOS 常规生产应用工厂分别使用新临时数据目录启动；三个入口均返回 HTTP 200，状态均为 `enrollment_state=unconfigured`、`runtime_absent=true`、`managed_path_absent=true`、`path_configured=false`、`path_authorization_state=unconfigured`、`candidate_count=0`，未装配 Coordinator、PathProbe 或 Provider。临时目录已删除，未执行网络写入。
+- [x] 7.2 只运行支撑诊断契约的定向测试，覆盖待授权、证据 stale、平台能力降级、Coordinator/模型缺失与资源 API 投影；不得以全量测试或真机重试替代判断
+  - 证据：仓库 `.venv` 执行五个精确测试，覆盖未配置、待授权且 apply 为零、平台降级且 observe/apply 为零、fresh→stale 投影及无模型资源入口，结果 `5 passed, 1 warning`；使用 `--no-cov` 仅避免定向集触发全仓 100% coverage 门槛，未扩大测试范围。
+- [x] 7.3 将 status provider/schema 作为 `diagnostic-preview` 交接给 `improve-local-product-experience` 和 package change；明确其不满足 LPE 3.3 的真实 path 前置，不修改下游 tasks、前端、package、Penpot/Figma 或外部系统
+  - 证据：proposal、design 与 delta specs 已统一声明该 schema 仅为 `diagnostic-preview`，LPE 3.3 的真实 path 前置保持未满足；本阶段未修改任何下游 change、前端、package、Penpot/Figma 或外部系统。
+- [x] 7.4 运行 `openspec validate complete-managed-path-runtime --strict`、`git diff --check` 和精确 diff/status 核对；确认既有 Stage 6 修改保持原样且未进入 Stage 7 提交范围
+  - 证据：OpenSpec strict 与 `git diff --check` 通过；Windows HEAD、origin 与 macOS HEAD 均为 `6e9b24bfc8572b228b817e308dfa50c587787c2d`。Windows 原有 12 个 Stage 6 修改和 macOS 原有 9 个 Stage 6 修改仍在，各端差异保持原状；Stage 7 仅修改本 change 的 5 个 OpenSpec 文件。
+- [x] 7.5 仅提交并普通 push 本 change 的 OpenSpec 重划和 Stage 7 证据；不提交 Stage 6 脚本、评估或平台修改，不创建新的真实写入 barrier

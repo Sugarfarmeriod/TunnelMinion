@@ -1,4 +1,10 @@
-## ADDED Requirements
+# managed-path-runtime Specification
+
+## Purpose
+
+规定 Windows/macOS managed path 的只读探测、授权治理、生命周期、状态新鲜度、故障恢复与安全诊断预览契约。
+
+## Requirements
 
 ### Requirement: 平台 PathProbe 必须只读、确定且有界
 
@@ -28,6 +34,11 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 
 - **WHEN** 当前账户无权读取 handshake/route 或平台没有受支持的只读接口
 - **THEN** lifecycle 发布对应稳定降级错误，不尝试提权、sudo prompt 或写入替代路径，其他本地功能继续运行
+
+#### Scenario: 操作者为第三层开发验收提供管理权限上下文
+
+- **WHEN** 操作者已明确批准第三层隔离资源和真实写入窗口，并以本机交互式 `sudo`、既有 root/管理员进程或获准的 SSH 管理会话启动验收进程
+- **THEN** 验收工具 MAY 在该临时权限上下文中执行批准资源上的 Provider 门禁，但 MUST NOT 接收、传输、记录或保存密码，MUST NOT 使用 `sudo -S`、修改 `sudoers`、建立持久免密凭据、安装常驻提权 helper 或新增自启动项；该权限上下文不得成为生产 lifecycle 的自行提权路径，也不得替代 Provider verify、path verify、前后不变性和精确回滚证据
 
 ### Requirement: 本机 L3 授权必须由单一权威 repository 持久化
 
@@ -105,21 +116,21 @@ Windows 与 macOS SHALL 提供生产 `PathProbe`，只从平台系统事实和�
 - **WHEN** 控制面和模型 Provider 均不可用但本机 checkpoint、授权与只读平台能力可用
 - **THEN** 本机 path freshness/selection、恢复和 static 降级继续工作，Gateway 与本地只读功能不因该故障停止
 
-### Requirement: 生产完成证据必须来自常规入口和批准资源
+### Requirement: 安全诊断预览必须来自常规入口且不得冒充真实写入
 
-真实 Provider 写入 MUST 在隔离 fake 的授权/故障/恢复矩阵通过后，才可使用明确批准的独立接口、地址、端口、数据目录和时间窗口验证。生产 path lifecycle 的完成证据 MUST 来自 Windows/macOS 常规入口，并记录代码提交、平台、入口、资源批准、来源和观测时间；fake、专用脚本、历史证据或仅有 Coordinator/cache 状态 MUST NOT 被标记为生产完成。
+本 change 的完成证据 MUST 来自 Windows/macOS 常规应用工厂、隔离数据目录和无网络写入的诊断状态读取，并记录代码提交、平台、入口、来源和观测时间。该证据 MUST 证明未配置、待授权、过期和平台能力降级被如实表达，且 MUST NOT 被标记为真实 Provider、真实 path 或跨机 A/B 完成。真实 Provider 写入与跨机 A/B SHALL 由未来独立 change 重新授权和验收。
 
 #### Scenario: fake lifecycle 全部通过
 
 - **WHEN** fake Provider 覆盖授权拒绝、apply、verify failure、rollback failure、崩溃恢复和故障隔离
-- **THEN** 系统只证明状态机门禁通过，不把结果声明为真实 Provider 或真实 A/B 完成
+- **THEN** 系统只证明状态机门禁通过，不把结果声明为真实 Provider 或跨机 A/B 完成
 
-#### Scenario: 未批准真实 A/B 资源
+#### Scenario: 常规入口处于干净未配置状态
 
-- **WHEN** 没有明确批准的隔离接口、地址、端口或 L3 授权窗口
-- **THEN** 验收停止在只读/fake 阶段，不修改现有 `HomeMac`、B 手写配置、客户防火墙、WireGuard 或用户路由
+- **WHEN** Windows 或 macOS 常规应用工厂使用新的隔离数据目录启动且没有 enrollment、managed config 或 L3 授权
+- **THEN** 资源 API 如实返回 unconfigured/runtime-absent/path-absent 诊断状态，不调用 Provider apply 且不修改网络
 
-#### Scenario: 常规入口真实闭环
+#### Scenario: 真实执行尚未另行授权
 
-- **WHEN** Windows 与 macOS 常规入口在批准的隔离资源上完成授权、Provider、独立验证、selection、刷新和恢复矩阵
-- **THEN** 证据可用于关闭生产 lifecycle 任务，并与 package、Gateway 监听和 `improve-local-product-experience` 的消费验收分别记录
+- **WHEN** 当前 change 没有未来真实执行 change 的明确授权、资源和退出条件
+- **THEN** 验收停止在 diagnostic-preview，不创建提权请求、真实写入窗口或跨机 A/B，并保持依赖真实 path 证据的下游任务未解锁
