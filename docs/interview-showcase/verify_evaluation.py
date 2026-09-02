@@ -332,6 +332,11 @@ def main() -> None:
         json.loads(qwen_safe_report_path.read_text(encoding="utf-8")),
     )
     if (
+        qwen_report.model_name != qwen_run.get("actual_model")
+        or qwen_safe_report.get("model") != qwen_safe_run.get("model")
+    ):
+        raise ValueError("Qwen 对照声明的模型与原始请求模型不一致")
+    if (
         qwen_report.metrics.task_completion_rate >= 1.0
         or qwen_safe_report.get("release_gate_passed") is not False
     ):
@@ -343,6 +348,11 @@ def main() -> None:
         dict[str, JsonValue],
         json.loads(_report_path(safe_run).read_text(encoding="utf-8")),
     )
+    if (
+        real_report.model_name != real_run.get("actual_model")
+        or safe_report.get("model") != safe_run.get("model")
+    ):
+        raise ValueError("DeepSeek 基线声明的模型与原始请求模型不一致")
     if not all(
         item.input_tokens is not None
         and item.output_tokens is not None

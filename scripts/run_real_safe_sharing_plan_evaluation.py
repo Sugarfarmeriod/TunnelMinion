@@ -11,7 +11,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-import httpx
 from pydantic import JsonValue
 
 from tunnelminion.agent.diagnostics import CrossNodeDiagnosticReport
@@ -42,20 +41,6 @@ from tunnelminion.model.openai_compatible import (
 from tunnelminion.model.secrets import KeyringSecretStore
 from tunnelminion.operation.contracts import OperationLevel
 from tunnelminion.tools.contracts import ToolCallContext
-
-
-async def _model_name(endpoint: str) -> str:
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
-        response = await client.get(f"{endpoint.rstrip('/')}/models")
-        response.raise_for_status()
-    body = cast(JsonValue, response.json())
-    data = body.get("data") if isinstance(body, dict) else None
-    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-        raise RuntimeError("模型端点没有返回模型")
-    model = data[0].get("id")
-    if not isinstance(model, str) or not model:
-        raise RuntimeError("模型端点缺少模型标识")
-    return model
 
 
 def _fixture() -> tuple[CrossNodeDiagnosticReport, ToolCallContext]:
@@ -219,6 +204,7 @@ async def run(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint")
+    parser.add_argument("--model")
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--input-cost-per-million", type=float)
     parser.add_argument("--output-cost-per-million", type=float)
@@ -226,6 +212,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if (args.endpoint is None) == (args.data_dir is None):
         parser.error("必须且只能提供 --endpoint 或 --data-dir")
+    if args.data_dir is not None and args.model is not None:
+        parser.error("--data-dir 不能与 --model 同时使用")
+    if args.endpoint is not None and args.model is None:
+        parser.error("--endpoint 必须同时提供明确的 --model")
     rates = (args.input_cost_per_million, args.output_cost_per_million)
     if (rates[0] is None) != (rates[1] is None) or any(
         rate is not None and rate < 0 for rate in rates
@@ -242,7 +232,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         provider = service.create_provider()
         model = view.model
     else:
-        model = asyncio.run(_model_name(cast(str, args.endpoint)))
+        model = cast(str, args.model)
         provider = OpenAICompatibleProvider(
             OpenAICompatibleConfig(
                 endpoint=cast(str, args.endpoint),
