@@ -197,7 +197,7 @@ class OpenAICompatibleProvider:
         try:
             data = cast(dict[str, Any], response.json())
             message = cast(dict[str, Any], data["choices"][0]["message"])
-            raw_calls = cast(list[dict[str, Any]], message.get("tool_calls", []))
+            raw_calls = cast(list[dict[str, Any]], message.get("tool_calls") or [])
             tool_calls = tuple(
                 ToolCall(
                     call_id=str(item["id"]),
