@@ -7,6 +7,20 @@ import { resourceOverviewSchema } from "../src/api/schemas/overview";
 interface FixtureReceipt {
   node_id: string;
   operation_id: string;
+  incident: {
+    incident_id: string;
+    scenario_id: string;
+    provider_name: string;
+    status: string;
+    conclusion: string;
+    selected_tools: string[];
+    normal_refresh: {
+      scenario_id: string;
+      incident_count: number;
+      model_calls: number;
+    };
+    real_model_calls: number;
+  };
 }
 
 async function expectDialogTabCycle(
@@ -48,12 +62,25 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
 }) => {
   const fixture = fixtureReceipt();
 
-  const overviewResponse = await request.get("/api/resources/overview");
-  expect(overviewResponse.status()).toBe(200);
-  const overviewResult = resourceOverviewSchema.safeParse(
-    await overviewResponse.json(),
-  );
-  expect(overviewResult.error?.issues ?? []).toEqual([]);
+  expect(fixture.incident.provider_name).toBe("offline-script");
+  expect(fixture.incident.normal_refresh).toEqual({
+    scenario_id: "normal-refresh",
+    incident_count: 0,
+    model_calls: 0,
+  });
+  expect(fixture.incident.real_model_calls).toBe(0);
+  for (let refresh = 0; refresh < 2; refresh += 1) {
+    const overviewResponse = await request.get("/api/resources/overview");
+    expect(overviewResponse.status()).toBe(200);
+    const overviewResult = resourceOverviewSchema.safeParse(
+      await overviewResponse.json(),
+    );
+    expect(overviewResult.error?.issues ?? []).toEqual([]);
+    expect(overviewResult.data?.incidents.items).toHaveLength(1);
+    expect(overviewResult.data?.incidents.items[0]?.incident_id).toBe(
+      fixture.incident.incident_id,
+    );
+  }
 
   await page.goto("/app/overview");
   await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
@@ -63,6 +90,24 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     page.getByText("未配置 Coordinator，当前按仅本机模式工作"),
   ).toBeVisible();
   await expect(page.getByText("没有配置跨节点路径")).toBeVisible();
+  await expect(page.getByText("服务只能从本机访问")).toBeVisible();
+  await expect(page.getByText("已确认根因")).toBeVisible();
+  await expect(page.getByText(fixture.incident.conclusion)).toBeVisible();
+  await page.getByRole("button", { name: "查看调查详情" }).click();
+  await expect(page.getByRole("heading", { name: "调查详情" })).toBeVisible();
+  await expect(
+    page.locator(".incident-detail").getByText("证据充分"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("只读工具 list_network_listeners 以 success 状态结束"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("只读工具 probe_service_reachability 以 success 状态结束"),
+  ).toBeVisible();
+  await expect(page.getByText("没有已记录的未知项。")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "为什么这个服务只能从本机访问？" }),
+  ).toBeVisible();
 
   await page.goto("/app/chat");
   const createThread = page.waitForResponse(
