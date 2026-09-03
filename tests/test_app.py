@@ -254,6 +254,8 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/resources/node-summary" in paths
     assert "/api/resources/managed-node" in paths
     assert "/api/resources/overview" in paths
+    assert "/api/incidents/{value}" in paths
+    assert "/api/incidents/{value}/follow-up" in paths
     assert "/api/diagnostics/export" in paths
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths

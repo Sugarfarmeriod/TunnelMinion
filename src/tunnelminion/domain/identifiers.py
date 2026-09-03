@@ -52,6 +52,12 @@ class SnapshotId(_Identifier):
     prefix = "snapshot"
 
 
+class IncidentId(_Identifier):
+    """一次确定性异常事件及其调查的稳定标识。"""
+
+    prefix = "incident"
+
+
 class ServiceId(_Identifier):
     """节点所报告服务的稳定身份标识。"""
 

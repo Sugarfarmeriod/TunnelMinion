@@ -72,6 +72,13 @@ function makeOverview(): ResourceOverview {
       error: null,
       items: [],
     },
+    incidents: {
+      source: "local_observation",
+      evidence_at: null,
+      freshness: "not_applicable",
+      error: null,
+      items: [],
+    },
   };
 }
 

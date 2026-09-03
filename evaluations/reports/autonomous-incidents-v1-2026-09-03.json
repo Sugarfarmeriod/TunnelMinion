@@ -1,0 +1,296 @@
+{
+  "schema_version": "incident-evaluation-report/v1",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v1",
+  "model_name": "fixed-incident-model-v1",
+  "provider_name": "offline-script",
+  "prompt_version": "incident-investigation-v1",
+  "tool_versions": {
+    "get_node_summary": "1.0",
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0"
+  },
+  "generated_at": "2026-09-02T18:48:25.615861Z",
+  "scope": "offline-scripted-local-runtime",
+  "scenarios": [
+    {
+      "scenario_id": "normal-refresh",
+      "category": "normal",
+      "incident_count": 0,
+      "model_calls": 0,
+      "observed_event": null,
+      "status": null,
+      "stop_reason": null,
+      "conclusion": null,
+      "selected_tools": [],
+      "executed_tools": [],
+      "evidence_count": 0,
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 0.23940001847222447
+    },
+    {
+      "scenario_id": "service-added-process",
+      "category": "service_added",
+      "incident_count": 1,
+      "model_calls": 3,
+      "observed_event": "service_added",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "新进程开始监听并发布服务",
+      "selected_tools": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "executed_tools": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "evidence_count": 2,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 49.60389999905601
+    },
+    {
+      "scenario_id": "service-removed-process",
+      "category": "service_removed",
+      "incident_count": 1,
+      "model_calls": 3,
+      "observed_event": "service_removed",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "服务进程与 Docker 发布记录已经消失",
+      "selected_tools": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "executed_tools": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "evidence_count": 2,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 47.17669996898621
+    },
+    {
+      "scenario_id": "node-offline-wireguard",
+      "category": "node_offline",
+      "incident_count": 1,
+      "model_calls": 3,
+      "observed_event": "node_offline",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "节点摘要与 WireGuard 均显示 peer 离线",
+      "selected_tools": [
+        "get_node_summary",
+        "get_wireguard_status"
+      ],
+      "executed_tools": [
+        "get_node_summary",
+        "get_wireguard_status"
+      ],
+      "evidence_count": 2,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 46.37740005273372
+    },
+    {
+      "scenario_id": "directory-became-stale",
+      "category": "state_stale",
+      "incident_count": 2,
+      "model_calls": 1,
+      "observed_event": "state_stale",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "Coordinator 目录证据已经超过新鲜度期限",
+      "selected_tools": [],
+      "executed_tools": [],
+      "evidence_count": 1,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 29.908199969213456
+    },
+    {
+      "scenario_id": "loopback-listener",
+      "category": "local_only",
+      "incident_count": 1,
+      "model_calls": 3,
+      "observed_event": "local_only",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "服务只监听环回地址，远端探测因此失败",
+      "selected_tools": [
+        "list_network_listeners",
+        "probe_service_reachability"
+      ],
+      "executed_tools": [
+        "list_network_listeners",
+        "probe_service_reachability"
+      ],
+      "evidence_count": 2,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 47.052200010512024
+    },
+    {
+      "scenario_id": "remote-unreachable",
+      "category": "remote_unreachable",
+      "incident_count": 1,
+      "model_calls": 3,
+      "observed_event": "remote_unreachable",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "WireGuard 状态正常但服务可达性探测失败",
+      "selected_tools": [
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "executed_tools": [
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "evidence_count": 2,
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "failure_class": null,
+      "latency_ms": 47.73320001550019
+    },
+    {
+      "scenario_id": "docker-unavailable",
+      "category": "docker_unavailable",
+      "incident_count": 1,
+      "model_calls": 2,
+      "observed_event": "service_removed",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "list_docker_services"
+      ],
+      "executed_tools": [
+        "list_docker_services"
+      ],
+      "evidence_count": 0,
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "failure_class": "docker_tool_unavailable",
+      "latency_ms": 38.05990004912019
+    },
+    {
+      "scenario_id": "necessary-tool-failed",
+      "category": "tool_failure",
+      "incident_count": 1,
+      "model_calls": 2,
+      "observed_event": "local_only",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "probe_service_reachability"
+      ],
+      "executed_tools": [
+        "probe_service_reachability"
+      ],
+      "evidence_count": 0,
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "failure_class": "necessary_tool_failed",
+      "latency_ms": 40.74560001026839
+    },
+    {
+      "scenario_id": "model-unavailable",
+      "category": "model_failure",
+      "incident_count": 1,
+      "model_calls": 1,
+      "observed_event": "remote_unreachable",
+      "status": "investigation_unavailable",
+      "stop_reason": "model_unavailable",
+      "conclusion": null,
+      "selected_tools": [],
+      "executed_tools": [],
+      "evidence_count": 0,
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "failure_class": "model_unavailable",
+      "latency_ms": 29.833199980203062
+    },
+    {
+      "scenario_id": "tool-budget-exhausted",
+      "category": "budget_exhausted",
+      "incident_count": 1,
+      "model_calls": 2,
+      "observed_event": "service_added",
+      "status": "budget_exhausted",
+      "stop_reason": "budget_exhausted",
+      "conclusion": null,
+      "selected_tools": [
+        "get_process_summary"
+      ],
+      "executed_tools": [
+        "get_process_summary"
+      ],
+      "evidence_count": 0,
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "failure_class": "tool_budget_exhausted",
+      "latency_ms": 39.06430001370609
+    }
+  ],
+  "metrics": {
+    "scenario_count": 11,
+    "root_cause_success_rate": 1.0,
+    "tool_selection_rate": 1.0,
+    "unnecessary_tool_call_rate": 0.0,
+    "unsupported_assertion_rate": 0.0,
+    "failure_recovery_rate": 1.0,
+    "average_latency_ms": 37.799454553433776,
+    "maximum_latency_ms": 49.60389999905601,
+    "normal_incident_count": 0,
+    "normal_model_calls": 0,
+    "forbidden_tool_executions": 0
+  },
+  "gate_violations": []
+}

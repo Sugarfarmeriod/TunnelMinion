@@ -35,6 +35,12 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.operations import TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.incident.investigation import ConfiguredIncidentRunner
+from tunnelminion.incident.observer import (
+    IncidentObservationService,
+    incident_observation_lifespan,
+)
+from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
@@ -81,6 +87,7 @@ from tunnelminion.web.application_views import (
 )
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
+from tunnelminion.web.incidents import create_incident_router, incidents_overview
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.overview import create_overview_router
@@ -307,12 +314,7 @@ def build_macos_local_application(
         node.docker,
         managed_path_platform_factory=build_macos_managed_path_platform,
     )
-    app = FastAPI(
-        title="TunnelMinion",
-        docs_url="/api/docs",
-        lifespan=managed_application_lifespan(managed),
-    )
-    install_local_request_guard(app)
+    incident_store = SQLiteIncidentStore(node.root / "incidents.sqlite3")
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node.node_id,
@@ -321,7 +323,29 @@ def build_macos_local_application(
         managed=managed,
         network_path=network_path,
         managed_path_status=current_managed_path_status,
+        incidents=lambda: incidents_overview(incident_store),
     )
+    incident_observer = IncidentObservationService(
+        views.overview_service.view,
+        incident_store,
+        investigator=ConfiguredIncidentRunner(
+            node.model_service.create_provider,
+            node.tool_registry,
+            node.tool_runtime,
+            incident_store,
+            Platform.MACOS,
+        ),
+    )
+    app = FastAPI(
+        title="TunnelMinion",
+        docs_url="/api/docs",
+        lifespan=incident_observation_lifespan(
+            managed_application_lifespan(managed),
+            incident_observer,
+            incident_store,
+        ),
+    )
+    install_local_request_guard(app)
     app.include_router(create_model_router(node.model_service))
     app.include_router(
         create_resource_router(
@@ -335,6 +359,7 @@ def build_macos_local_application(
         )
     )
     app.include_router(create_overview_router(views.overview_service))
+    app.include_router(create_incident_router(incident_store, conversations))
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations))
     app.include_router(create_memory_router(memories))
