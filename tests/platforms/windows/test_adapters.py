@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from threading import get_ident
 from typing import Any, TypeVar, cast
 
 import pytest
@@ -46,6 +47,7 @@ class FakeReader:
         )
         self.listener_error = False
         self.process_error = False
+        self.process_thread_id: int | None = None
 
     def interface(self, name: str) -> InterfaceSnapshot | None:
         assert name == "HomeMac"
@@ -65,6 +67,7 @@ class FakeReader:
         )
 
     def processes(self, limit: int) -> tuple[ProcessInfo, ...]:
+        self.process_thread_id = get_ident()
         if self.process_error:
             raise PermissionError
         return (
@@ -171,6 +174,7 @@ def test_windows_collection_adapters_succeed_and_degrade() -> None:
     processes = ProcessSummaryAdapter(reader)
     process_result = cast(dict[str, JsonValue], run(processes.execute({"limit": 1}, token())))
     assert process_result["availability"] == Availability.AVAILABLE
+    assert reader.process_thread_id != get_ident()
     default_limit = cast(dict[str, JsonValue], run(processes.execute({}, token())))
     assert default_limit["availability"] == Availability.AVAILABLE
     reader.process_error = True
