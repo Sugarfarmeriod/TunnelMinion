@@ -1,0 +1,56 @@
+{
+  "schema_version": "windows-incident-experience-acceptance/v1",
+  "generated_at": "2026-09-03T16:50:00Z",
+  "platform": "windows",
+  "source_revision": "c911e19cfbac9752a484112ef58dfcb2ca6c6bd1",
+  "package_id": "tunnelminion-0-1-0-win32-amd64-cd2cf47fc193-ab379b867826",
+  "scope": "isolated-offline-product-experience",
+  "fixture": {
+    "scenario_id": "loopback-listener",
+    "provider_name": "offline-script",
+    "model_name": "fixed-incident-model-v1",
+    "incident_id": "incident_3c3c46ad7da87a5538269a16cb560b75",
+    "status": "confirmed",
+    "conclusion": "服务只监听环回地址，远端探测因此失败",
+    "selected_tools": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "normal_refresh_incident_count": 0,
+    "normal_refresh_model_calls": 0,
+    "real_model_calls": 0
+  },
+  "browser_acceptance": {
+    "browser": "chromium",
+    "final_result": "passed",
+    "test_count": 1,
+    "overview_http_refreshes": 2,
+    "incident_card_visible": true,
+    "conclusion_visible": true,
+    "stop_reason_visible": true,
+    "public_tool_trace_visible": true,
+    "unknowns_visible": true,
+    "suggested_question_visible": true,
+    "harness_assertion_corrections": 0
+  },
+  "safety": {
+    "bind_host": "127.0.0.1",
+    "bind_port": 4175,
+    "fixture_secret_store": "rejecting",
+    "runtime_secret_access": "short-circuited-before-keyring",
+    "network_changes": 0,
+    "isolated_port_listeners_after_stop": 0,
+    "protected_product_port": 8767,
+    "protected_product_listeners_before": 1,
+    "protected_product_listeners_after": 1,
+    "temporary_root_removed": true,
+    "generated_worktree_artifacts_removed": true
+  },
+  "not_validated": [
+    "真实模型质量",
+    "真实后台自动发现",
+    "macOS 产品体验",
+    "双机 A/B",
+    "Stage 6"
+  ]
+}

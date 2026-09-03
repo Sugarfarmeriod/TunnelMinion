@@ -267,3 +267,13 @@ def test_unconfigured_and_delete_are_safe() -> None:
     service.delete()
     assert repository.value is None
     assert secrets.get(MODEL_API_KEY_NAME) is None
+
+
+def test_unconfigured_view_does_not_read_secret_store() -> None:
+    class RejectingSecrets(MemorySecrets):
+        def get(self, name: str) -> str | None:
+            raise AssertionError(f"未配置模型时不得读取秘密：{name}")
+
+    service = ModelConfigurationService(MemoryRepository(), RejectingSecrets())
+
+    assert service.view().status == "unconfigured"
