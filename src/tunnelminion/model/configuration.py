@@ -129,9 +129,9 @@ class ModelConfigurationService:
     def view(self) -> ModelConfigurationView:
         """返回永不包含完整密钥的当前配置视图。"""
         config = self._repository.load()
-        key_configured = self._optional_api_key() is not None
         if config is None:
             return ModelConfigurationView(status="unconfigured")
+        key_configured = self._optional_api_key() is not None
         error = self._last_error
         return ModelConfigurationView(
             endpoint=config.endpoint,
