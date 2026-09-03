@@ -324,7 +324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = prepare_fixture(args.data_dir, args.allowed_root, platform_name)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(report, ensure_ascii=False))
+    print(json.dumps(report, ensure_ascii=True))
     return 0
 
 
