@@ -202,21 +202,20 @@ def build_windows_application(
         if managed.coordinator is not None
         else ServiceSnapshotCache()
     )
-    local_observer = (
-        None
-        if managed.coordinator is not None
-        else DeterministicServiceObserver(
+    before_snapshot = None
+    if managed.coordinator is None:
+        local_observer = DeterministicServiceObserver(
             node_id,
             ServiceObservationConfig(),
             listeners,
             processes,
             docker,
         )
-    )
 
-    async def refresh_local_services() -> None:
-        if local_observer is not None:
+        async def refresh_local_services() -> None:
             service_cache.replace(await local_observer.observe())
+
+        before_snapshot = refresh_local_services
 
     incident_store = SQLiteIncidentStore(root / "incidents.sqlite3")
     current_managed_path_status = managed_path_status_callback(managed)
@@ -240,7 +239,7 @@ def build_windows_application(
             incident_store,
             Platform.WINDOWS,
         ),
-        before_snapshot=refresh_local_services if local_observer is not None else None,
+        before_snapshot=before_snapshot,
     )
     app = FastAPI(
         title="TunnelMinion",
