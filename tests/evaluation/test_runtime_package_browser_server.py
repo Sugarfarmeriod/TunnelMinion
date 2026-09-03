@@ -13,6 +13,7 @@ from scripts.run_runtime_package_clean_acceptance import file_sha256
 def _fixture(tmp_path: Path) -> tuple[Path, Path]:
     data = tmp_path / "data"
     data.mkdir()
+    (data / "incidents.sqlite3").write_bytes(b"SQLite format 3\0incidents")
     (data / "node-id").write_text("node_" + "1" * 32, encoding="utf-8")
     (data / "runtime.sqlite3").write_bytes(b"SQLite format 3\0acceptance")
     receipt = tmp_path / "fixture.json"

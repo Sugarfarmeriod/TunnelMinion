@@ -35,6 +35,11 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.operations import TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.incident.investigation import ConfiguredIncidentRunner
+from tunnelminion.incident.observer import (
+    IncidentObservationService,
+    incident_observation_lifespan,
+)
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
@@ -310,12 +315,6 @@ def build_macos_local_application(
         managed_path_platform_factory=build_macos_managed_path_platform,
     )
     incident_store = SQLiteIncidentStore(node.root / "incidents.sqlite3")
-    app = FastAPI(
-        title="TunnelMinion",
-        docs_url="/api/docs",
-        lifespan=managed_application_lifespan(managed),
-    )
-    install_local_request_guard(app)
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node.node_id,
@@ -326,6 +325,27 @@ def build_macos_local_application(
         managed_path_status=current_managed_path_status,
         incidents=lambda: incidents_overview(incident_store),
     )
+    incident_observer = IncidentObservationService(
+        views.overview_service.view,
+        incident_store,
+        investigator=ConfiguredIncidentRunner(
+            node.model_service.create_provider,
+            node.tool_registry,
+            node.tool_runtime,
+            incident_store,
+            Platform.MACOS,
+        ),
+    )
+    app = FastAPI(
+        title="TunnelMinion",
+        docs_url="/api/docs",
+        lifespan=incident_observation_lifespan(
+            managed_application_lifespan(managed),
+            incident_observer,
+            incident_store,
+        ),
+    )
+    install_local_request_guard(app)
     app.include_router(create_model_router(node.model_service))
     app.include_router(
         create_resource_router(

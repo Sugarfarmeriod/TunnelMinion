@@ -19,6 +19,11 @@ from tunnelminion.agent.managed_application import (
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.incident.investigation import ConfiguredIncidentRunner
+from tunnelminion.incident.observer import (
+    IncidentObservationService,
+    incident_observation_lifespan,
+)
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
@@ -190,12 +195,6 @@ def build_windows_application(
         managed_path_platform_factory=build_windows_managed_path_platform,
     )
     incident_store = SQLiteIncidentStore(root / "incidents.sqlite3")
-    app = FastAPI(
-        title="TunnelMinion",
-        docs_url="/api/docs",
-        lifespan=managed_application_lifespan(managed),
-    )
-    install_local_request_guard(app)
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node_id,
@@ -206,6 +205,27 @@ def build_windows_application(
         managed_path_status=current_managed_path_status,
         incidents=lambda: incidents_overview(incident_store),
     )
+    incident_observer = IncidentObservationService(
+        views.overview_service.view,
+        incident_store,
+        investigator=ConfiguredIncidentRunner(
+            model_service.create_provider,
+            registry,
+            runtime,
+            incident_store,
+            Platform.WINDOWS,
+        ),
+    )
+    app = FastAPI(
+        title="TunnelMinion",
+        docs_url="/api/docs",
+        lifespan=incident_observation_lifespan(
+            managed_application_lifespan(managed),
+            incident_observer,
+            incident_store,
+        ),
+    )
+    install_local_request_guard(app)
     app.include_router(create_model_router(model_service))
     app.include_router(
         create_resource_router(

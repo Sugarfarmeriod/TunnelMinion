@@ -19,6 +19,7 @@ from tunnelminion.agent.context_contracts import (
 )
 from tunnelminion.agent.context_runtime import (
     ContextInvocation,
+    ContextModelRuntime,
     make_context_reference,
 )
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
@@ -39,6 +40,7 @@ from tunnelminion.memory.context import ContextBudgets, ToolResultContext
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelMessage,
+    ModelProvider,
     ProviderError,
     ProviderErrorCode,
 )
@@ -192,8 +194,6 @@ class IncidentInvestigator:
                 InvestigationStopReason.BUDGET_EXHAUSTED,
                 "调查达到墙钟时间上限",
             )
-        except ProviderError as exc:
-            return self._provider_failure(current, exc)
         except (TypeError, ValueError, ValidationError):
             return self._finish(
                 current,
@@ -550,6 +550,56 @@ class IncidentInvestigator:
         if value.tzinfo is None:
             raise ValueError("调查时钟必须包含时区")
         return value
+
+
+class ConfiguredIncidentRunner:
+    """按 incident 惰性读取当前模型；未配置时只保存降级状态。"""
+
+    def __init__(
+        self,
+        provider_factory: Callable[[], ModelProvider],
+        registry: ToolRegistry,
+        tools: InvestigationToolExecutor,
+        store: SQLiteIncidentStore,
+        platform: Platform,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._provider_factory = provider_factory
+        self._registry = registry
+        self._tools = tools
+        self._store = store
+        self._platform = platform
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    async def run(self, incident: Incident) -> Incident:
+        try:
+            provider = self._provider_factory()
+        except (ProviderError, OSError, ValueError):
+            report = IncidentReport(
+                unknowns=("模型调查不可用",),
+                stop_reason=InvestigationStopReason.MODEL_UNAVAILABLE,
+            )
+            updated = incident.transition(
+                IncidentStatus.INVESTIGATION_UNAVAILABLE,
+                at=self._clock(),
+                report=report,
+            )
+            self._store.put_incident(updated)
+            return updated
+        return await IncidentInvestigator(
+            ContextModelRuntime(
+                provider,
+                provider_name="configured-provider",
+                model_name="configured-model",
+                tool_schema_version="incident-tools/v1",
+            ),
+            self._registry,
+            self._tools,
+            self._store,
+            self._platform,
+            clock=self._clock,
+        ).run(incident)
 
 
 def _hypothesis_id(summary: str) -> str:

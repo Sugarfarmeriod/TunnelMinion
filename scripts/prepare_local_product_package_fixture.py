@@ -43,7 +43,7 @@ from tunnelminion.web.operations import OperationControlService
 
 FIXTURE_SCHEMA = "local-product-package-fixture/v1"
 FIXTURE_OPERATION_ID = OperationId(f"operation_{'1' * 32}")
-ALLOWED_DATA_FILES = frozenset({"node-id", "runtime.sqlite3"})
+ALLOWED_DATA_FILES = frozenset({"incidents.sqlite3", "node-id", "runtime.sqlite3"})
 
 
 class RejectingSecretStore:

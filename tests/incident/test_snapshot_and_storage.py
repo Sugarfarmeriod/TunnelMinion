@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,7 +21,9 @@ from tunnelminion.domain.identifiers import (
     ServiceId,
     SnapshotId,
     ThreadId,
+    ToolRunId,
 )
+from tunnelminion.incident import snapshot as snapshot_module
 from tunnelminion.incident.contracts import (
     EvidenceReference,
     Incident,
@@ -30,6 +33,7 @@ from tunnelminion.incident.contracts import (
     IncidentStatus,
     InvestigationStopReason,
     NormalizedSnapshot,
+    SnapshotDiffEvent,
     SnapshotFreshness,
     SnapshotNode,
     SnapshotNodeState,
@@ -299,3 +303,79 @@ def test_incident_thread_binding_is_separate_and_stable(tmp_path: Path) -> None:
     assert store.get(incident.incident_id) == incident
     with pytest.raises(ValueError, match="另一追问线程"):
         store.bind_thread(incident.incident_id, ThreadId.new())
+
+
+def test_contract_and_storage_guards_reject_invalid_public_state(tmp_path: Path) -> None:
+    baseline, current = _changed_pair()
+    event = SnapshotDiffDetector(confirmations_required=1).compare(baseline, current)[0]
+    incident = Incident(
+        incident_id=IncidentId("incident_0123456789abcdef0123456789abcdef"),
+        dedup_key=event.dedup_key,
+        event=event,
+        created_at=NOW,
+        last_observed_at=NOW,
+    )
+
+    with pytest.raises(ValidationError, match="节点身份不得重复"):
+        NormalizedSnapshot.model_validate(
+            baseline.model_dump() | {"nodes": (*baseline.nodes, baseline.nodes[0])}
+        )
+    with pytest.raises(ValidationError, match="服务身份不得重复"):
+        NormalizedSnapshot.model_validate(
+            baseline.model_dump() | {"services": (*baseline.services, baseline.services[0])}
+        )
+    with pytest.raises(ValidationError, match="身份与类型不匹配"):
+        SnapshotDiffEvent.model_validate(event.model_dump() | {"object_id": str(NODE)})
+    with pytest.raises(ValidationError, match="必须且只能"):
+        EvidenceReference(observed_at=NOW, summary="无引用")
+    with pytest.raises(ValidationError, match="必须且只能"):
+        EvidenceReference(
+            snapshot_id=baseline.snapshot_id,
+            tool_run_id=ToolRunId.new(),
+            observed_at=NOW,
+            summary="双引用",
+        )
+    with pytest.raises(ValidationError, match="不得早于"):
+        Incident.model_validate(
+            incident.model_dump() | {"last_observed_at": NOW - timedelta(seconds=1)}
+        )
+    with pytest.raises(ValidationError, match="去重键"):
+        Incident.model_validate(incident.model_dump() | {"dedup_key": f"sha256:{'b' * 64}"})
+    with pytest.raises(ValidationError, match="证据化结论"):
+        Incident.model_validate(incident.model_dump() | {"status": "confirmed"})
+    with pytest.raises(ValueError, match="迁移时间"):
+        incident.transition(IncidentStatus.INVESTIGATING, at=datetime(2026, 9, 3, 9))
+    with pytest.raises(ValueError, match="run ID"):
+        incident.transition(IncidentStatus.INVESTIGATING, at=NOW)
+
+    secret_event = event.model_copy(update={"object_id": "service_api_key=hidden"})
+    with pytest.raises(ValueError, match="包含禁止"):
+        incident.model_copy(update={"event": secret_event}).assert_no_secret_material()
+
+    store = SQLiteIncidentStore(tmp_path / "guards.sqlite3")
+    with pytest.raises(ValueError, match="列表上限"):
+        store.list_recent(limit=0)
+    with pytest.raises(KeyError, match="incident_not_found"):
+        store.bind_thread(IncidentId.new(), ThreadId.new())
+    with pytest.raises(ValueError, match="恢复时间"):
+        store.recover_interrupted(at=datetime(2026, 9, 3, 9))
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "INSERT INTO incident_snapshots VALUES (?, ?, ?, ?)",
+            ("snapshot_bad", 1, NOW.isoformat(), '{"api_key":"hidden"}'),
+        )
+    with pytest.raises(ValueError, match="包含禁止字段"):
+        store.assert_no_secret_material()
+
+
+def test_snapshot_fallbacks_and_confirmation_bounds() -> None:
+    with pytest.raises(ValueError, match="确认次数"):
+        SnapshotDiffDetector(confirmations_required=0)
+    assert (
+        snapshot_module._source("future-source")  # pyright: ignore[reportPrivateUsage]
+        is SnapshotSource.UNKNOWN
+    )
+    assert (
+        snapshot_module._freshness("future-freshness")  # pyright: ignore[reportPrivateUsage]
+        is SnapshotFreshness.UNKNOWN
+    )

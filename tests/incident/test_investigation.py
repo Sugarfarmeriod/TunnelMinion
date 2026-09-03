@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+from fastapi import FastAPI
 from pydantic import JsonValue
 
-from tunnelminion.agent.context_runtime import ContextModelRuntime
+from tunnelminion.agent.context_contracts import ContextRequest
+from tunnelminion.agent.context_runtime import ContextInvocation, ContextModelRuntime
 from tunnelminion.coordinator.contracts import ServiceAccessibility
-from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId
+from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, SnapshotId
 from tunnelminion.domain.tools import (
     DataSensitivity,
     Platform,
@@ -29,11 +34,15 @@ from tunnelminion.incident.contracts import (
     SnapshotSource,
 )
 from tunnelminion.incident.investigation import (
+    ConfiguredIncidentRunner,
     IncidentInvestigator,
     InvestigationCancellation,
     InvestigationLimits,
 )
-from tunnelminion.incident.observer import IncidentObservationService
+from tunnelminion.incident.observer import (
+    IncidentObservationService,
+    incident_observation_lifespan,
+)
 from tunnelminion.incident.snapshot import SnapshotDiffDetector
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.model.contracts import (
@@ -114,6 +123,8 @@ class ScriptedProvider:
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="call-1", name="shell", arguments={}),)
             )
+        if self.mode == "invalid_response":
+            return ModelResponse()
         if self.mode == "endless" or len(self.requests) == 1:
             arguments: dict[str, JsonValue] = (
                 {"unexpected": True} if self.mode == "invalid_arguments" else {}
@@ -130,27 +141,28 @@ class ScriptedProvider:
         tool_run_id = self._latest_tool_run_id(request)
         if self.mode == "unsupported_claim":
             tool_run_id = "toolrun_ffffffffffffffffffffffffffffffff"
+        content = json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "summary": "服务仅监听本机地址",
+                        "status": "supported",
+                        "evidence_refs": [tool_run_id],
+                    }
+                ],
+                "facts": [
+                    {
+                        "statement": "监听工具已返回结构化结果",
+                        "evidence_refs": [tool_run_id],
+                    }
+                ],
+                "unknowns": [],
+                "conclusion": "服务仅监听本机地址",
+                "stop_reason": "evidence_sufficient",
+            }
+        )
         return ModelResponse(
-            content=json.dumps(
-                {
-                    "hypotheses": [
-                        {
-                            "summary": "服务仅监听本机地址",
-                            "status": "supported",
-                            "evidence_refs": [tool_run_id],
-                        }
-                    ],
-                    "facts": [
-                        {
-                            "statement": "监听工具已返回结构化结果",
-                            "evidence_refs": [tool_run_id],
-                        }
-                    ],
-                    "unknowns": [],
-                    "conclusion": "服务仅监听本机地址",
-                    "stop_reason": "evidence_sufficient",
-                }
-            )
+            content=f"```json\n{content}\n```" if self.mode == "fenced" else content
         )
 
     @staticmethod
@@ -158,6 +170,30 @@ class ScriptedProvider:
         message = next(item for item in reversed(request.messages) if item.role == "tool")
         payload = json.loads(message.content)
         return str(payload["result"]["tool_run_id"])
+
+
+class RaisingRuntime:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def invoke(
+        self,
+        request: ContextRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ContextInvocation:
+        del request, cancellation
+        raise self.error
+
+
+class SlowRuntime:
+    async def invoke(
+        self,
+        request: ContextRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ContextInvocation:
+        del request, cancellation
+        await asyncio.sleep(1)
+        raise AssertionError("墙钟上限没有取消慢模型")
 
 
 def _incident(store: SQLiteIncidentStore) -> Incident:
@@ -224,6 +260,27 @@ def _runtime(
         clock=lambda: NOW,
     )
     return investigator, store, adapter, provider
+
+
+def _runtime_with_model(
+    tmp_path: Path,
+    name: str,
+    model: RaisingRuntime | SlowRuntime,
+    *,
+    limits: InvestigationLimits | None = None,
+    clock: object | None = None,
+) -> tuple[IncidentInvestigator, SQLiteIncidentStore]:
+    base, store, _, _ = _runtime(tmp_path, name)
+    investigator = IncidentInvestigator(
+        model,
+        base._registry,  # pyright: ignore[reportPrivateUsage]
+        base._tools,  # pyright: ignore[reportPrivateUsage]
+        store,
+        Platform.WINDOWS,
+        limits=limits,
+        clock=clock,  # type: ignore[arg-type]
+    )
+    return investigator, store
 
 
 def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
@@ -398,3 +455,176 @@ def test_background_observer_calls_no_model_on_normal_refresh_and_one_run_per_in
     assert runner.calls == 1
     assert asyncio.run(service.observe_once()).incidents == ()
     assert runner.calls == 1
+
+
+def test_configured_runner_marks_unavailable_without_starting_tools(tmp_path: Path) -> None:
+    store = SQLiteIncidentStore(tmp_path / "configured-unavailable.sqlite3")
+    registry = ToolRegistry()
+    audit = InMemoryAuditSink()
+
+    def unavailable() -> ScriptedProvider:
+        raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
+
+    runner = ConfiguredIncidentRunner(
+        unavailable,
+        registry,
+        ToolRuntime(registry, Platform.WINDOWS, audit),
+        store,
+        Platform.WINDOWS,
+        clock=lambda: NOW,
+    )
+
+    result = asyncio.run(runner.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INVESTIGATION_UNAVAILABLE
+    assert result.report is not None
+    assert result.report.stop_reason is InvestigationStopReason.MODEL_UNAVAILABLE
+    assert audit.records == []
+
+
+def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path) -> None:
+    successful, store, _, _ = _runtime(tmp_path, "success-state")
+    finished = asyncio.run(successful.run(_incident(store)))
+    with pytest.raises(ValueError, match="可以启动调查"):
+        asyncio.run(successful.run(finished))
+    assert (
+        successful._with_initial_hypothesis(  # pyright: ignore[reportPrivateUsage]
+            finished
+        )
+        is finished
+    )
+
+    invalid, invalid_store, _, _ = _runtime(tmp_path, "invalid_response")
+    invalid_result = asyncio.run(invalid.run(_incident(invalid_store)))
+    assert invalid_result.status is IncidentStatus.FAILED
+
+    fenced, fenced_store, _, _ = _runtime(tmp_path, "fenced")
+    fenced_result = asyncio.run(fenced.run(_incident(fenced_store)))
+    assert fenced_result.status is IncidentStatus.CONFIRMED
+
+    naive, naive_store, _, _ = _runtime(tmp_path, "naive-clock")
+    naive._clock = lambda: datetime(2026, 9, 3, 9)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="时区"):
+        asyncio.run(naive.run(_incident(naive_store)))
+
+
+def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> None:
+    provider_error = ProviderError(ProviderErrorCode.NETWORK_UNREACHABLE, "offline")
+    unavailable, unavailable_store = _runtime_with_model(
+        tmp_path, "outer-provider", RaisingRuntime(provider_error), clock=lambda: NOW
+    )
+    assert (
+        asyncio.run(unavailable.run(_incident(unavailable_store))).status
+        is IncidentStatus.INVESTIGATION_UNAVAILABLE
+    )
+
+    malformed, malformed_store = _runtime_with_model(
+        tmp_path, "outer-invalid", RaisingRuntime(ValueError("bad")), clock=lambda: NOW
+    )
+    assert asyncio.run(malformed.run(_incident(malformed_store))).status is IncidentStatus.FAILED
+
+    slow, slow_store = _runtime_with_model(
+        tmp_path,
+        "wall-clock",
+        SlowRuntime(),
+        limits=InvestigationLimits(timeout_seconds=0.1),
+        clock=lambda: NOW,
+    )
+    assert asyncio.run(slow.run(_incident(slow_store))).status is IncidentStatus.BUDGET_EXHAUSTED
+
+
+def test_configured_runner_uses_provider_when_available(tmp_path: Path) -> None:
+    base, store, _, provider = _runtime(tmp_path, "configured-success")
+    runner = ConfiguredIncidentRunner(
+        lambda: provider,
+        base._registry,  # pyright: ignore[reportPrivateUsage]
+        base._tools,  # pyright: ignore[reportPrivateUsage]
+        store,
+        Platform.WINDOWS,
+        clock=lambda: NOW,
+    )
+
+    assert asyncio.run(runner.run(_incident(store))).status is IncidentStatus.CONFIRMED
+
+
+def test_observer_guard_loop_and_duplicate_run_shortcuts(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="观察周期"):
+        IncidentObservationService(
+            MutableOverview(),
+            SQLiteIncidentStore(tmp_path / "invalid-interval.sqlite3"),
+            interval_seconds=0,
+        )
+
+    store = SQLiteIncidentStore(tmp_path / "observer-branches.sqlite3")
+    service = IncidentObservationService(MutableOverview(), store)
+    incident = _incident(store)
+    assert asyncio.run(service._investigate_once(incident)) is incident  # pyright: ignore[reportPrivateUsage]
+    service._investigator = CountingRunner()  # pyright: ignore[reportPrivateUsage]
+    service._active.add(str(incident.incident_id))  # pyright: ignore[reportPrivateUsage]
+    assert asyncio.run(service._investigate_once(incident)) is incident  # pyright: ignore[reportPrivateUsage]
+
+    loop_store = SQLiteIncidentStore(tmp_path / "observer-loop.sqlite3")
+    stop = asyncio.Event()
+    overview = MutableOverview()
+    observations = 0
+
+    def stop_after_second_observation() -> ResourceOverview:
+        nonlocal observations
+        observations += 1
+        if observations == 2:
+            stop.set()
+        return overview()
+
+    looping = IncidentObservationService(stop_after_second_observation, loop_store)
+    looping._interval_seconds = 0  # pyright: ignore[reportPrivateUsage]
+
+    async def run_loop() -> None:
+        await looping.run(stop)
+
+    asyncio.run(run_loop())
+    assert loop_store.latest_snapshot() is not None
+
+
+def test_observation_lifespan_recovers_interrupted_and_stops_background_task(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteIncidentStore(tmp_path / "lifespan.sqlite3")
+    running = _incident(store).transition(
+        IncidentStatus.INVESTIGATING,
+        at=NOW,
+        run_id=RunId.new(),
+    )
+    store.put_incident(running)
+    overview = MutableOverview()
+    observer = IncidentObservationService(overview, store, interval_seconds=1)
+    entered = False
+    exited = False
+
+    @asynccontextmanager
+    async def base(_app: FastAPI) -> AsyncGenerator[None, None]:
+        nonlocal entered, exited
+        entered = True
+        try:
+            yield
+        finally:
+            exited = True
+
+    async def scenario() -> None:
+        lifespan = incident_observation_lifespan(
+            base,
+            observer,
+            store,
+            clock=lambda: NOW,
+        )
+        async with lifespan(FastAPI()):
+            for _ in range(10):
+                if store.latest_snapshot() is not None:
+                    break
+                await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+    recovered = store.get(running.incident_id)
+    assert entered and exited
+    assert recovered is not None and recovered.status is IncidentStatus.INTERRUPTED
+    assert store.latest_snapshot() is not None

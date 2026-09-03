@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import UTC, datetime
 from typing import Protocol
 
+from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.incident.contracts import Incident, NormalizedSnapshot
@@ -95,3 +98,29 @@ class IncidentObservationService:
         finally:
             async with self._lock:
                 self._active.discard(key)
+
+
+def incident_observation_lifespan(
+    base: Callable[[FastAPI], AbstractAsyncContextManager[None]],
+    observer: IncidentObservationService,
+    store: SQLiteIncidentStore,
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """在现有本机 lifespan 内托管观察任务，停止时不重放或等待远端调用。"""
+    now = clock or (lambda: datetime.now(UTC))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        async with base(app):
+            store.recover_interrupted(at=now())
+            stop = asyncio.Event()
+            task = asyncio.create_task(observer.run(stop))
+            try:
+                yield
+            finally:
+                stop.set()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    return lifespan

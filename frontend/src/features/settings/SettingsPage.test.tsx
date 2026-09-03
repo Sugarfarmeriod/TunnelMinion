@@ -89,6 +89,7 @@ function makeOverview() {
     },
     nodes: { ...section, items: [] },
     services: { ...section, items: [] },
+    incidents: { ...section, items: [] },
   };
 }
 

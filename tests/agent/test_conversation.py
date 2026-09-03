@@ -166,6 +166,20 @@ def test_incident_run_injects_context_but_stores_only_public_question() -> None:
     assert "local_only" not in detail.messages[0].content
 
 
+def test_incident_run_rejects_unbounded_context() -> None:
+    conversations = service()
+    thread = conversations.create_thread()
+
+    with pytest.raises(ValueError, match="必须有界"):
+        run(
+            conversations.start_incident_run(
+                thread.thread_id,
+                StartRunInput(question="检查", tool_names=("get_node_summary",)),
+                "x" * 12_001,
+            )
+        )
+
+
 def test_run_retrieves_only_relevant_memory_for_current_node(tmp_path: Path) -> None:
     """生产会话入口只注入当前五层作用域内的相关确认记忆。"""
     stores = SQLiteStores.open(tmp_path / "memory-context.sqlite3")
