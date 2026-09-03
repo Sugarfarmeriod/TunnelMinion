@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Protocol
@@ -42,6 +42,7 @@ class IncidentObservationService:
         *,
         detector: SnapshotDiffDetector | None = None,
         investigator: IncidentRunner | None = None,
+        before_snapshot: Callable[[], Awaitable[None]] | None = None,
         interval_seconds: float = 30,
     ) -> None:
         if not 1 <= interval_seconds <= 3600:
@@ -50,6 +51,7 @@ class IncidentObservationService:
         self._store = store
         self._detector = detector or SnapshotDiffDetector()
         self._investigator = investigator
+        self._before_snapshot = before_snapshot
         self._interval_seconds = interval_seconds
         self._baseline: NormalizedSnapshot | None = None
         self._active: set[str] = set()
@@ -57,6 +59,8 @@ class IncidentObservationService:
 
     async def observe_once(self) -> ObservationResult:
         """保存一次快照，并串行调查本轮唯一事件集合。"""
+        if self._before_snapshot is not None:
+            await self._before_snapshot()
         if self._baseline is None:
             self._baseline = self._store.latest_snapshot()
         snapshot = assemble_overview_snapshot(

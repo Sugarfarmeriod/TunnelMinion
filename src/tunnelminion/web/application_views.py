@@ -21,6 +21,7 @@ from tunnelminion.agent.coordinator import (
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.managed_node import ManagedNodeState
 from tunnelminion.agent.network_sync import ManagedNetworkSyncPhase
+from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.coordinator import contracts as coordinator_contracts
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
@@ -117,6 +118,7 @@ def build_application_view_bindings(
     network_path: NetworkPathViewBindings | None = None,
     managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
     incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
+    local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -131,6 +133,7 @@ def build_application_view_bindings(
         network_path,
         managed_path_status,
         incidents,
+        local_services,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -190,6 +193,7 @@ class _ApplicationViewAdapter:
         network_path: NetworkPathViewBindings | None = None,
         managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
         incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
+        local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
@@ -198,6 +202,7 @@ class _ApplicationViewAdapter:
         self.path_bindings = network_path
         self.managed_path_status_provider = managed_path_status
         self.incidents_provider = incidents
+        self.local_services_provider = local_services
         self.clock = clock
         self.package = package
 
@@ -821,6 +826,8 @@ class _ApplicationViewAdapter:
         )
 
     def local_service_snapshot(self):  # pyright: ignore[reportUnknownParameterType]
+        if self.local_services_provider is not None:
+            return self.local_services_provider()
         return (
             self.managed.coordinator.service_cache.read()
             if self.managed.coordinator is not None
