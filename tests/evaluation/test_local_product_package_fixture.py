@@ -11,6 +11,7 @@ import pytest
 from pydantic import JsonValue
 from scripts import prepare_local_product_package_fixture as fixture
 
+from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.sqlite import SQLiteStores
 
 
@@ -27,6 +28,14 @@ def test_real_factory_prepares_scoped_secret_free_fixture(tmp_path: Path) -> Non
     assert report["platform"] == _native_platform()
     assert report["operation_id"] == str(fixture.FIXTURE_OPERATION_ID)
     assert report["contains_secrets"] is False
+    incident_summary = cast(dict[str, JsonValue], report["incident"])
+    assert incident_summary["scenario_id"] == "loopback-listener"
+    assert incident_summary["provider_name"] == "offline-script"
+    assert incident_summary["status"] == "confirmed"
+    assert incident_summary["real_model_calls"] == 0
+    normal = cast(dict[str, JsonValue], incident_summary["normal_refresh"])
+    assert normal["incident_count"] == 0
+    assert normal["model_calls"] == 0
     files = cast(list[dict[str, JsonValue]], report["files"])
     assert {cast(str, item["path"]) for item in files} == fixture.ALLOWED_DATA_FILES
     scopes = cast(list[dict[str, JsonValue]], report["memory_scopes"])
@@ -38,6 +47,11 @@ def test_real_factory_prepares_scoped_secret_free_fixture(tmp_path: Path) -> Non
     memories = stores.memories.list_all()
     assert len(memories) == 2
     assert {memory.namespace.network for memory in memories} == {"home", "lab"}
+    incidents = SQLiteIncidentStore(data_dir / "incidents.sqlite3").list_recent()
+    assert len(incidents) == 1
+    assert str(incidents[0].incident_id) == incident_summary["incident_id"]
+    assert incidents[0].report is not None
+    assert incidents[0].report.conclusion == "服务只监听环回地址，远端探测因此失败"
 
 
 def test_cli_writes_receipt_outside_product_data(tmp_path: Path) -> None:

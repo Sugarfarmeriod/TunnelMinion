@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import gc
 import hashlib
 import json
@@ -23,6 +24,11 @@ else:
 import tunnelminion.app as windows_app
 import tunnelminion.macos_app as macos_app
 from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId, ToolRunId
+from tunnelminion.evaluation.incidents import (
+    IncidentEvaluationDataset,
+    run_incident_scenario,
+)
+from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.contracts import MemoryKind, MemoryNamespace
 from tunnelminion.memory.service import (
     LongTermMemoryService,
@@ -43,6 +49,12 @@ from tunnelminion.web.operations import OperationControlService
 
 FIXTURE_SCHEMA = "local-product-package-fixture/v1"
 FIXTURE_OPERATION_ID = OperationId(f"operation_{'1' * 32}")
+INCIDENT_DATASET = (
+    Path(__file__).resolve().parents[1]
+    / "evaluations"
+    / "datasets"
+    / "autonomous-incidents-v1.json"
+)
 ALLOWED_DATA_FILES = frozenset({"incidents.sqlite3", "node-id", "runtime.sqlite3"})
 
 
@@ -157,6 +169,38 @@ def seed_memories(service: LongTermMemoryService, node_id: NodeId) -> tuple[Memo
     return namespaces
 
 
+async def seed_incident(path: Path) -> dict[str, JsonValue]:
+    """复用固定矩阵写入一个可供 Overview 展示的离线调查。"""
+    dataset = IncidentEvaluationDataset.model_validate_json(
+        INCIDENT_DATASET.read_text(encoding="utf-8")
+    )
+    scenarios = {item.scenario_id: item for item in dataset.scenarios}
+    store = SQLiteIncidentStore(path)
+    normal = await run_incident_scenario(scenarios["normal-refresh"], store)
+    result = await run_incident_scenario(scenarios["loopback-listener"], store)
+    incidents = store.list_recent()
+    if normal.incident_count or normal.model_calls or len(incidents) != 1:
+        raise ValueError("正式包 incident 夹具不满足零模型刷新或唯一事件约束")
+    incident = incidents[0]
+    if result.status is None or incident.report is None:
+        raise ValueError("正式包 incident 夹具没有生成调查报告")
+    return {
+        "incident_id": str(incident.incident_id),
+        "scenario_id": result.scenario_id,
+        "provider_name": dataset.provider_name,
+        "model_name": dataset.model_name,
+        "status": result.status.value,
+        "conclusion": result.conclusion,
+        "selected_tools": list(result.selected_tools),
+        "normal_refresh": {
+            "scenario_id": normal.scenario_id,
+            "incident_count": normal.incident_count,
+            "model_calls": normal.model_calls,
+        },
+        "real_model_calls": 0,
+    }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -219,7 +263,9 @@ def prepare_fixture(data_dir: Path, allowed_root: Path, platform_name: str) -> d
             raise ValueError("未知验收平台")
     operation_id = seed_operation(application.operation_control_service, node_id)
     namespaces = seed_memories(application.memory_service, node_id)
+    incident = asyncio.run(seed_incident(root / "incidents.sqlite3"))
     _compact_sqlite_database(root / "runtime.sqlite3")
+    _compact_sqlite_database(root / "incidents.sqlite3")
 
     entries = tuple(sorted(root.iterdir(), key=lambda path: path.name))
     if any(path.is_symlink() or not path.is_file() for path in entries):
@@ -236,6 +282,7 @@ def prepare_fixture(data_dir: Path, allowed_root: Path, platform_name: str) -> d
         "platform": platform_name,
         "node_id": str(node_id),
         "operation_id": str(operation_id),
+        "incident": incident,
         "memory_scopes": [
             {
                 "user": namespace.user,
@@ -251,6 +298,10 @@ def prepare_fixture(data_dir: Path, allowed_root: Path, platform_name: str) -> d
             for path in entries
         ],
         "contains_secrets": False,
+        "security_boundary": {
+            "secret_store": "rejecting",
+            "network_changes": 0,
+        },
     }
 
 

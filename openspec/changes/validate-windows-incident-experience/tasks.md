@@ -1,8 +1,8 @@
 ## 1. 隔离夹具
 
-- [ ] 1.1 复用固定 `normal-refresh` 与 `loopback-listener` 场景，在 Windows 正式包夹具中生成零模型刷新证据和唯一已确认 incident
-- [ ] 1.2 把 incident ID、离线 Provider 标识、正常刷新计数与安全边界写入无秘密夹具回执
-- [ ] 1.3 扩展夹具定向测试，验证持久化 incident、零模型刷新和拒绝系统密钥访问
+- [x] 1.1 复用固定 `normal-refresh` 与 `loopback-listener` 场景，在 Windows 正式包夹具中生成零模型刷新证据和唯一已确认 incident
+- [x] 1.2 把 incident ID、离线 Provider 标识、正常刷新计数与安全边界写入无秘密夹具回执
+- [x] 1.3 扩展夹具定向测试，验证持久化 incident、零模型刷新和拒绝系统密钥访问
 
 ## 2. 正式产品体验
 
