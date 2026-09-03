@@ -1,9 +1,9 @@
 {
   "schema_version": "windows-incident-experience-acceptance/v1",
-  "generated_at": "2026-09-03T16:12:35Z",
+  "generated_at": "2026-09-03T16:50:00Z",
   "platform": "windows",
-  "source_revision": "631dbce17c83a8f096e214a273daefb1419a26ad",
-  "package_id": "tunnelminion-0-1-0-win32-amd64-b0148acad11d-ab379b867826",
+  "source_revision": "c911e19cfbac9752a484112ef58dfcb2ca6c6bd1",
+  "package_id": "tunnelminion-0-1-0-win32-amd64-cd2cf47fc193-ab379b867826",
   "scope": "isolated-offline-product-experience",
   "fixture": {
     "scenario_id": "loopback-listener",
@@ -31,12 +31,13 @@
     "public_tool_trace_visible": true,
     "unknowns_visible": true,
     "suggested_question_visible": true,
-    "harness_assertion_corrections": 2
+    "harness_assertion_corrections": 0
   },
   "safety": {
     "bind_host": "127.0.0.1",
     "bind_port": 4175,
-    "secret_store": "rejecting",
+    "fixture_secret_store": "rejecting",
+    "runtime_secret_access": "short-circuited-before-keyring",
     "network_changes": 0,
     "isolated_port_listeners_after_stop": 0,
     "protected_product_port": 8767,
