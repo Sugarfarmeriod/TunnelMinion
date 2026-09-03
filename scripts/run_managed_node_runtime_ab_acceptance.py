@@ -492,7 +492,7 @@ async def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
             (
                 f"cd {remote_root} && tar -xzf source.tar.gz && "
                 f"{args.remote_python} -m venv .deps && "
-                f"{remote_root}/.deps/bin/python -m pip install --quiet ."
+                f"{remote_root}/.deps/bin/python -m pip install --quiet --editable ."
             ),
             cwd=repo,
             timeout=600,
