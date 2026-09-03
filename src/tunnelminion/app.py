@@ -16,7 +16,10 @@ from tunnelminion.agent.managed_application import (
     managed_path_status_callback,
     managed_resource_payload_callback,
 )
+from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
+from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
+from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.investigation import ConfiguredIncidentRunner
@@ -194,6 +197,26 @@ def build_windows_application(
         docker,
         managed_path_platform_factory=build_windows_managed_path_platform,
     )
+    service_cache = (
+        managed.coordinator.service_cache
+        if managed.coordinator is not None
+        else ServiceSnapshotCache()
+    )
+    before_snapshot = None
+    if managed.coordinator is None:
+        local_observer = DeterministicServiceObserver(
+            node_id,
+            ServiceObservationConfig(),
+            listeners,
+            processes,
+            docker,
+        )
+
+        async def refresh_local_services() -> None:
+            service_cache.replace(await local_observer.observe())
+
+        before_snapshot = refresh_local_services
+
     incident_store = SQLiteIncidentStore(root / "incidents.sqlite3")
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
@@ -204,6 +227,7 @@ def build_windows_application(
         network_path=network_path,
         managed_path_status=current_managed_path_status,
         incidents=lambda: incidents_overview(incident_store),
+        local_services=service_cache.read,
     )
     incident_observer = IncidentObservationService(
         views.overview_service.view,
@@ -215,6 +239,7 @@ def build_windows_application(
             incident_store,
             Platform.WINDOWS,
         ),
+        before_snapshot=before_snapshot,
     )
     app = FastAPI(
         title="TunnelMinion",

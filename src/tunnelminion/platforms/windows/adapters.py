@@ -190,7 +190,8 @@ class ProcessSummaryAdapter:
             raise asyncio.CancelledError
         limit = int(cast(int, arguments.get("limit", 50)))
         try:
-            items = tuple(item.model_dump(mode="json") for item in self._reader.processes(limit))
+            values = await asyncio.to_thread(self._reader.processes, limit)
+            items = tuple(item.model_dump(mode="json") for item in values)
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
             result = CollectionResult(

@@ -6,9 +6,12 @@ import asyncio
 import io
 import json
 import runpy
+import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,8 +20,11 @@ from pydantic import JsonValue
 
 from tunnelminion import cli
 from tunnelminion.agent.conversation import StartRunInput
+from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.agent.managed_application import ManagedNodeApplication
+from tunnelminion.agent.managed_coordinator import ManagedCoordinatorLoops, ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ManagedNodeConfig, ManagedNodeState, ManagedNodeStatus
+from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.app import (
     WindowsApplication,
     build_windows_application,
@@ -26,10 +32,23 @@ from tunnelminion.app import (
     default_data_dir,
     load_or_create_node_id,
 )
-from tunnelminion.coordinator.contracts import GatewayEndpoint
-from tunnelminion.domain.identifiers import AuthorizationId, NetworkId, NodeId, RunId, ThreadId
+from tunnelminion.coordinator.contracts import (
+    GatewayEndpoint,
+    ServiceAccessibility,
+    ServiceProtocol,
+    ServiceSummary,
+)
+from tunnelminion.domain.identifiers import (
+    AuthorizationId,
+    NetworkId,
+    NodeId,
+    RunId,
+    ServiceId,
+    ThreadId,
+)
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.incident.observer import IncidentObservationService
 from tunnelminion.macos_app import SafeSharingGatewaySettings
 from tunnelminion.model.configuration import ModelConfigurationService
 from tunnelminion.model.contracts import (
@@ -37,6 +56,8 @@ from tunnelminion.model.contracts import (
     ModelCapabilities,
     ModelRequest,
     ModelResponse,
+    ProviderError,
+    ProviderErrorCode,
 )
 from tunnelminion.network.contracts import ProviderKind
 from tunnelminion.network.path_controller import (
@@ -57,6 +78,19 @@ from tunnelminion.web.application_views import NetworkPathViewBindings
 from tunnelminion.web.operations import PreauthorizationInput
 
 PATH_NOW = datetime(2026, 8, 10, 8, 0, tzinfo=UTC)
+
+
+def local_service(value: str, port: int) -> ServiceSummary:
+    return ServiceSummary(
+        service_id=ServiceId(value),
+        protocol=ServiceProtocol.HTTP,
+        host="127.0.0.1",
+        port=port,
+        accessibility=ServiceAccessibility.LOOPBACK,
+        source="list_network_listeners",
+        confidence=1,
+        observed_at=datetime.now(UTC),
+    )
 
 
 def configured_managed_application(
@@ -359,6 +393,93 @@ def test_windows_factory_binds_configured_coordinator_and_real_path_views(
     assert overview["coordinator"]["state"] == "sync_not_started"
     assert overview["network_path"]["state"] == "direct"
     assert overview["network_path"]["handshake"]["status"] == "passed"
+
+
+def test_windows_default_runtime_observes_local_services_before_incident_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    services = [local_service("service_11111111111111111111111111111111", 18081)]
+    observations = 0
+    model_calls = 0
+
+    async def observe(_self: object) -> ServiceObservationSnapshot:
+        nonlocal observations
+        observations += 1
+        return ServiceObservationSnapshot(
+            observed_at=datetime.now(UTC),
+            services=tuple(services),
+        )
+
+    def unavailable(_self: ModelConfigurationService) -> None:
+        nonlocal model_calls
+        model_calls += 1
+        raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
+
+    def fast_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        kwargs["interval_seconds"] = 1
+        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(
+        "tunnelminion.agent.service_observation.DeterministicServiceObserver.observe",
+        observe,
+    )
+    monkeypatch.setattr(ModelConfigurationService, "create_provider", unavailable)
+    monkeypatch.setattr("tunnelminion.app.IncidentObservationService", fast_incident_observer)
+    bundle = build_windows_application(tmp_path / "local-observation")
+
+    client: Any
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as client:
+        deadline = time.monotonic() + 3
+        while observations < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        overview = client.get("/api/resources/overview").json()
+        assert [item["port"] for item in overview["services"]["items"]] == [18081]
+        assert overview["incidents"]["items"] == []
+        assert model_calls == 0
+
+        services.append(local_service("service_22222222222222222222222222222222", 18082))
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            overview = client.get("/api/resources/overview").json()
+            if overview["incidents"]["items"]:
+                break
+            time.sleep(0.05)
+
+        assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
+        assert model_calls == 1
+
+
+def test_windows_managed_runtime_does_not_build_second_service_observer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        coordinator = cast(
+            ManagedCoordinatorLoops,
+            SimpleNamespace(
+                coordinator_cache=CoordinatorCache(),
+                service_cache=ServiceSnapshotCache(),
+            ),
+        )
+        return replace(
+            configured_managed_application(node_id, platform),
+            coordinator=coordinator,
+        )
+
+    def fail_observer(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("managed runtime must own the only service observer")
+
+    monkeypatch.setattr("tunnelminion.app.build_managed_node_application", fake_managed)
+    monkeypatch.setattr("tunnelminion.app.DeterministicServiceObserver", fail_observer)
+
+    assert build_windows_application(tmp_path / "managed-observation").managed_node.coordinator
 
 
 def test_windows_factory_prefers_managed_path_status_in_overview(
