@@ -132,6 +132,30 @@ class ScriptedProvider:
             )
         if self.mode == "invalid_response":
             return ModelResponse()
+        if self.mode == "snapshot_only":
+            snapshot_id = "snapshot_00000000000000000000000000000002"
+            return ModelResponse(
+                content=json.dumps(
+                    {
+                        "hypotheses": [
+                            {
+                                "summary": "服务已经新增",
+                                "status": "supported",
+                                "evidence_refs": [snapshot_id],
+                            }
+                        ],
+                        "facts": [
+                            {
+                                "statement": "快照记录了新增服务",
+                                "evidence_refs": [snapshot_id],
+                            }
+                        ],
+                        "unknowns": [],
+                        "conclusion": "服务新增就是根因",
+                        "stop_reason": "evidence_sufficient",
+                    }
+                )
+            )
         if self.mode == "endless" or len(self.requests) == 1:
             arguments: dict[str, JsonValue] = (
                 {"unexpected": True} if self.mode == "invalid_arguments" else {}
@@ -400,6 +424,18 @@ def test_unproven_model_conclusion_is_downgraded_to_insufficient_evidence(
     assert result.report is not None
     assert result.report.conclusion is None
     assert "有效证据引用" in result.report.unknowns[-1]
+
+
+def test_snapshot_alone_cannot_confirm_root_cause(tmp_path: Path) -> None:
+    investigator, store, adapter, _ = _runtime(tmp_path, "snapshot_only")
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.report is not None
+    assert result.report.conclusion is None
+    assert "至少需要一项只读工具证据" in result.report.unknowns[-1]
+    assert adapter.calls == []
 
 
 def test_model_failure_budget_and_cancellation_have_explicit_stop_reasons(

@@ -374,15 +374,17 @@ class IncidentInvestigator:
                 facts.append(item.statement)
                 cited.update((key, evidence[key]) for key in item.evidence_refs if key in evidence)
         supported = any(item.status is HypothesisStatus.SUPPORTED for item in hypotheses)
+        has_tool_evidence = any(item.tool_run_id is not None for item in cited.values())
         confirmed = (
             decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT
             and decision.conclusion is not None
             and bool(cited)
             and supported
+            and has_tool_evidence
         )
         unknowns = list(decision.unknowns)
         if not confirmed and decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT:
-            unknowns.append("模型没有提供足以确认根因的有效证据引用")
+            unknowns.append("模型没有提供足以确认根因的有效证据引用；至少需要一项只读工具证据")
         report = IncidentReport(
             facts=tuple(facts),
             candidate_explanations=tuple(
