@@ -332,6 +332,8 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert len(result.report.evidence) == 1
     assert adapter.calls == [{}]
     assert len(provider.requests) == 2
+    assert provider.requests[0].require_tool_call is True
+    assert provider.requests[1].require_tool_call is False
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
 

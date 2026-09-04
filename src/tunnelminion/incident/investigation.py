@@ -239,6 +239,7 @@ class IncidentInvestigator:
                         messages=tuple(messages),
                         tools=tools,
                         tool_results=tuple(tool_results),
+                        require_tool_call=tool_calls == 0,
                         evidence=(
                             make_context_reference(
                                 kind=ContextContentKind.EVIDENCE,
