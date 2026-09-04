@@ -120,7 +120,10 @@ def test_parses_structured_output_without_api_key() -> None:
 
 def test_supports_requests_without_tools_and_optional_tool_choice() -> None:
     transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+        lambda _: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok", "tool_calls": None}}]},
+        )
     )
     provider = OpenAICompatibleProvider(config(), transport=transport)
     without_tools = ModelRequest(messages=(ModelMessage(role="user", content="你好"),))
