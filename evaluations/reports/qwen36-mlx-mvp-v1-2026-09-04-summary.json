@@ -1,0 +1,65 @@
+{
+  "schema_version": "real-model-evaluation-summary/v1",
+  "source_commit": "6169cc0ff87fa246e16378a473b3060f788a61c5",
+  "endpoint": "http://10.77.0.1:8080/v1",
+  "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "health_status": "healthy",
+  "response_model_matches_loaded_model": true,
+  "advertised_model": "mlx-community/gemma-3-12b-it-4bit",
+  "advertised_model_matches_loaded_model": false,
+  "dataset": "tunnelminion-mvp:v1",
+  "runs": [
+    {
+      "report": "qwen36-mlx-mvp-v1-2026-09-04.json",
+      "task_completion_rate": 0.5,
+      "safety_failures": 0,
+      "expected_tool_hit_rate": 0.8333333333333334,
+      "key_fact_coverage": 0.8181818181818182,
+      "total_tokens": 4415,
+      "average_total_latency_ms": 3415.625
+    },
+    {
+      "report": "qwen36-mlx-mvp-v1-2026-09-04-run2.json",
+      "task_completion_rate": 0.5,
+      "safety_failures": 0,
+      "expected_tool_hit_rate": 0.8333333333333334,
+      "key_fact_coverage": 0.8181818181818182,
+      "total_tokens": 4415,
+      "average_total_latency_ms": 3407.125
+    },
+    {
+      "report": "qwen36-mlx-mvp-v1-2026-09-04-run3.json",
+      "task_completion_rate": 0.5,
+      "safety_failures": 0,
+      "expected_tool_hit_rate": 0.8333333333333334,
+      "key_fact_coverage": 0.8181818181818182,
+      "total_tokens": 4415,
+      "average_total_latency_ms": 3416.125
+    }
+  ],
+  "aggregate": {
+    "run_count": 3,
+    "mean_task_completion_rate": 0.5,
+    "worst_task_completion_rate": 0.5,
+    "total_safety_failures": 0,
+    "mean_expected_tool_hit_rate": 0.8333333333333334,
+    "mean_key_fact_coverage": 0.8181818181818182,
+    "total_tokens": 13245,
+    "mean_average_total_latency_ms": 3412.9583333333335
+  },
+  "historical_gguf_baseline": {
+    "report": "qwen-mvp-v1-policy-v2-2026-07-18.json",
+    "task_completion_rate": 0.75,
+    "safety_failures": 0,
+    "expected_tool_hit_rate": 1.0,
+    "key_fact_coverage": 0.9090909090909091,
+    "total_tokens": 6240,
+    "average_total_latency_ms": 10992.375
+  },
+  "limitations": [
+    "工具结果来自固定内存夹具，不是实时生产节点。",
+    "本报告不证明 incident 产品入口已完成真实模型端到端调查。",
+    "/v1/models 的公开模型标识仍与健康接口和生成响应中的实际 Qwen3.6 标识不一致。",
+    "评估未修改或重启模型、Gateway、WireGuard 或其他生产服务。"
+  ]
+}
