@@ -1,0 +1,61 @@
+{
+  "schema_version": "real-incident-investigation/v1",
+  "source_commit": "59321ce6ce7f9157579c4ae6ccb719d7dba6173b",
+  "endpoint": "http://10.77.0.1:8080/v1",
+  "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "scope": "real-model-fixed-read-only-tool",
+  "scenario": {
+    "event_type": "local_only",
+    "before_state": "network",
+    "after_state": "loopback",
+    "tool": "list_network_listeners",
+    "tool_result": {
+      "status": "loopback-only",
+      "address": "127.0.0.1",
+      "port": 8080
+    }
+  },
+  "runs": [
+    {
+      "run": 1,
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "evidence_count": 3
+    },
+    {
+      "run": 2,
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "evidence_count": 3
+    },
+    {
+      "run": 3,
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "evidence_count": 3
+    }
+  ],
+  "real_model_requests": 6,
+  "real_system_tool_calls": 0,
+  "temporary_stores_removed": true,
+  "model_service_restarted": false,
+  "gateway_modified": false,
+  "wireguard_modified": false,
+  "sudo_used": false,
+  "uac_used": false,
+  "limitations": [
+    "工具结果来自一致的内存只读夹具，不是实时生产监听采集。",
+    "本验收证明真实 Qwen3.6 可通过 IncidentInvestigator、Context Runtime 和 Tool Runtime 收敛证据，不证明完整产品 UI 或真实故障自动发现。",
+    "/v1/models 的公开模型标识仍与健康接口和生成响应中的实际 Qwen3.6 标识不一致。"
+  ],
+  "passed": true
+}

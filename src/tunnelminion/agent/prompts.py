@@ -98,7 +98,8 @@ INCIDENT_INVESTIGATION_PROMPT = _prompt(
 已提供的只读工具；禁止请求 Shell、Python、写操作或注册表外工具。证据充分时停止额外调用并返回
 JSON：hypotheses（summary、status、evidence_refs）、facts（statement、evidence_refs）、unknowns、
 conclusion 和 stop_reason。status 只能是 candidate、supported、rejected、unknown；stop_reason 只能是
-evidence_sufficient 或 insufficient_evidence。没有有效 snapshot/tool run 引用时不得确认根因。""",
+evidence_sufficient 或 insufficient_evidence。evidence_refs 每一项必须逐字复制上下文里现成的
+`snapshot_...` 或 `toolrun_...` ID，不得拼接状态、说明或自造标签。没有有效引用时不得确认根因。""",
     change_note="建立 incident 单 Agent 证据收敛循环的首个提示。",
 )
 
