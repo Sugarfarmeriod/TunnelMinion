@@ -136,6 +136,8 @@ class ScriptedProvider:
             )
         if self.mode == "invalid_response":
             return ModelResponse()
+        if self.mode == "missing_initial_tool" and len(self.requests) == 1:
+            return ModelResponse(content="未调用工具就直接回答")
         if self.mode == "snapshot_only":
             snapshot_id = "snapshot_00000000000000000000000000000002"
             return ModelResponse(
@@ -160,7 +162,11 @@ class ScriptedProvider:
                     }
                 )
             )
-        if self.mode == "endless" or len(self.requests) == 1:
+        if (
+            self.mode == "endless"
+            or len(self.requests) == 1
+            or (self.mode == "missing_initial_tool" and len(self.requests) == 2)
+        ):
             arguments: dict[str, JsonValue] = (
                 {"unexpected": True} if self.mode == "invalid_arguments" else {}
             )
@@ -336,6 +342,23 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert provider.requests[1].require_tool_call is False
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
+
+
+def test_investigator_retries_once_when_provider_ignores_required_tool_call(
+    tmp_path: Path,
+) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "missing_initial_tool")
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}]
+    assert len(provider.requests) == 3
+    assert provider.requests[0].require_tool_call is True
+    assert provider.requests[1].require_tool_call is True
+    assert provider.requests[2].require_tool_call is False
+    assert provider.requests[1].messages[-1].role == "user"
+    assert "必须且只能调用一个" in provider.requests[1].messages[-1].content
 
 
 def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:
@@ -664,9 +687,10 @@ def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path
         is finished
     )
 
-    invalid, invalid_store, _, _ = _runtime(tmp_path, "invalid_response")
+    invalid, invalid_store, _, invalid_provider = _runtime(tmp_path, "invalid_response")
     invalid_result = asyncio.run(invalid.run(_incident(invalid_store)))
     assert invalid_result.status is IncidentStatus.FAILED
+    assert len(invalid_provider.requests) == 2
 
     fenced, fenced_store, _, _ = _runtime(tmp_path, "fenced")
     fenced_result = asyncio.run(fenced.run(_incident(fenced_store)))

@@ -219,6 +219,7 @@ class IncidentInvestigator:
         tools = self._model_tools()
         current = incident
         tool_calls = 0
+        retried_missing_tool = False
         for _ in range(self._limits.max_model_rounds):
             if cancellation.cancelled:
                 return self._finish(
@@ -326,6 +327,18 @@ class IncidentInvestigator:
                     ),
                 )
                 self._store.put_incident(current)
+                continue
+            if tool_calls == 0 and not retried_missing_tool:
+                messages.append(
+                    ModelMessage(
+                        role="user",
+                        content=(
+                            "上一轮没有调用工具。本轮必须且只能调用一个已提供的只读工具；"
+                            "禁止直接返回 JSON、结论或解释。"
+                        ),
+                    )
+                )
+                retried_missing_tool = True
                 continue
             try:
                 decision = self._parse_decision(response.structured_output, response.content)
