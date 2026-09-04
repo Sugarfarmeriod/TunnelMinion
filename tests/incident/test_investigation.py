@@ -162,11 +162,7 @@ class ScriptedProvider:
                     }
                 )
             )
-        if (
-            self.mode == "endless"
-            or len(self.requests) == 1
-            or (self.mode == "missing_initial_tool" and len(self.requests) == 2)
-        ):
+        if self.mode == "endless" or len(self.requests) == 1:
             arguments: dict[str, JsonValue] = (
                 {"unexpected": True} if self.mode == "invalid_arguments" else {}
             )
@@ -344,7 +340,7 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert store.get(result.incident_id) == result
 
 
-def test_investigator_retries_once_when_provider_ignores_required_tool_call(
+def test_investigator_uses_read_only_fallback_when_provider_ignores_required_tool_call(
     tmp_path: Path,
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, "missing_initial_tool")
@@ -353,13 +349,12 @@ def test_investigator_retries_once_when_provider_ignores_required_tool_call(
 
     assert result.status is IncidentStatus.CONFIRMED
     assert adapter.calls == [{}]
-    assert len(provider.requests) == 3
+    assert len(provider.requests) == 2
     assert provider.requests[0].require_tool_call is True
-    assert provider.requests[1].require_tool_call is True
-    assert provider.requests[2].require_tool_call is False
-    assert provider.requests[1].messages[-1].role == "user"
-    assert "必须且只能调用一个" in provider.requests[1].messages[-1].content
-    assert all("必须且只能调用一个" not in item.content for item in provider.requests[2].messages)
+    assert provider.requests[1].require_tool_call is False
+    fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
+    assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
+    assert fallback.tool_calls[0].name == "list_network_listeners"
 
 
 def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:
@@ -516,7 +511,7 @@ def test_snapshot_alone_cannot_confirm_root_cause(tmp_path: Path) -> None:
     assert result.report is not None
     assert result.report.conclusion is None
     assert "至少需要一项只读工具证据" in result.report.unknowns[-1]
-    assert adapter.calls == []
+    assert adapter.calls == [{}]
 
 
 def test_model_failure_budget_and_cancellation_have_explicit_stop_reasons(
