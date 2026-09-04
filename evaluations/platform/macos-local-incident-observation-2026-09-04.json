@@ -1,0 +1,20 @@
+{
+  "schema_version": "macos-local-incident-observation/v1",
+  "source_commit": "64ddd28557a450e832597ae0bc6ef4300532fb59",
+  "scope": "non-privileged-local-product",
+  "baseline_service_count": 38,
+  "baseline_incident_count": 0,
+  "baseline_provider_attempts": 0,
+  "listener_visible": true,
+  "incident_event_type": "service_added",
+  "incident_status": "investigation_unavailable",
+  "provider_attempts_after_incident": 1,
+  "real_model_requests": 0,
+  "temporary_data_removed": true,
+  "remote_temporary_directories_after": 0,
+  "production_gateway_8787_after": "open",
+  "production_model_8082_after": "closed",
+  "sudo_used": false,
+  "network_writes_performed": false,
+  "passed": true
+}
