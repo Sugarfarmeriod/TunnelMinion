@@ -109,6 +109,10 @@ class OpenAICompatibleProvider:
                         retryable=True,
                     )
                 response = await request_task
+            except asyncio.CancelledError:
+                request_task.cancel()
+                await asyncio.gather(request_task, return_exceptions=True)
+                raise
             except httpx.TimeoutException as exc:
                 raise ProviderError(
                     ProviderErrorCode.TIMEOUT, "模型调用超时", retryable=True
