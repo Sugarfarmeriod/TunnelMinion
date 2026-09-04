@@ -524,7 +524,7 @@ class MutableOverview:
 
     def __init__(self) -> None:
         self.local_only = False
-        self.services = ((SERVICE, 8080),)
+        self.services: tuple[tuple[ServiceId, int], ...] = ((SERVICE, 8080),)
 
     def __call__(self) -> ResourceOverview:
         return OverviewService(
