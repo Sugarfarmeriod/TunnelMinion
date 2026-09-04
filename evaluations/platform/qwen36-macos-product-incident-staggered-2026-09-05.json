@@ -1,0 +1,52 @@
+{
+  "schema_version": "real-product-incident-staggered/v1",
+  "source_commit": "992020d3acfeff9bc8348719c039b3c835366170",
+  "artifact_run_id": 33903353769,
+  "artifact_name": "runtime-package-macos-arm64",
+  "artifact_merge_commit": "d549ab6e511c2ff3bf04771f41bf871182f66a38",
+  "scope": "isolated-macos-formal-package",
+  "model": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+    "api_key_configured": false
+  },
+  "observation": {
+    "baseline_incident_count": 4,
+    "temporary_listener_port": 18776,
+    "target_service_id": "service_41239fe8022b51fcb1646fd05d27ec9c",
+    "target_incident_id": "incident_25c86a908835c3300df96a33652db955",
+    "event_type": "service_added",
+    "target_event_preserved_after_staggered_noise": true,
+    "status": "insufficient_evidence",
+    "stop_reason": "insufficient_evidence",
+    "target_port_present_in_report": true,
+    "target_accessibility_present_in_report": true,
+    "selected_tools": [],
+    "conclusion": null,
+    "snapshot_only_confirmation_blocked": true
+  },
+  "targeted_gates": {
+    "incident_tests": "27 passed",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "formal_package_job": "passed"
+  },
+  "boundaries": {
+    "production_model_8080_modified": false,
+    "production_gateway_8787_modified": false,
+    "production_gateway_8787_after": "listening",
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routing_or_dns_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "temporary_ports_released": true,
+    "temporary_data_removed": true
+  },
+  "limitations": [
+    "启动阶段存在四条与目标端口无关的 macOS 瞬时服务事件；目标事件通过 service_id 单独核对。",
+    "真实模型本轮没有选择只读工具，因此只证明产品保留了错峰事件并在证据不足时安全停止，不证明模型能定位新增监听的进程来源。",
+    "本轮是单机 macOS 正式包验收，不代表真实双机 A/B、WireGuard、生产网络或提权流程验收。"
+  ],
+  "overall_result": "passed_with_investigation_limitation"
+}
