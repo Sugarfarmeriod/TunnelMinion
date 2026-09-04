@@ -39,9 +39,7 @@ from tunnelminion.model.openai_compatible import (
     OpenAICompatibleProvider,
 )
 
-PROMPT_VERSION = (
-    f"{REAL_MODEL_EVALUATION_PROMPT.prompt_id}-{REAL_MODEL_EVALUATION_PROMPT.version}"
-)
+PROMPT_VERSION = f"{REAL_MODEL_EVALUATION_PROMPT.prompt_id}-{REAL_MODEL_EVALUATION_PROMPT.version}"
 
 
 def _sanitize_answer(value: str) -> str:
