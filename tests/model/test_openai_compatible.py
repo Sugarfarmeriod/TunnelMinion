@@ -251,6 +251,30 @@ def test_supports_pre_cancel_active_cancel_and_wall_clock_timeout() -> None:
     assert timed_out.value.code == ProviderErrorCode.TIMEOUT
 
 
+def test_cancelling_caller_also_cancels_in_flight_http_request() -> None:
+    request_started = asyncio.Event()
+    request_cancelled = asyncio.Event()
+
+    async def slow_handler(_: httpx.Request) -> httpx.Response:
+        request_started.set()
+        try:
+            await asyncio.sleep(10)
+        finally:
+            request_cancelled.set()
+        return httpx.Response(200)
+
+    async def scenario() -> None:
+        provider = OpenAICompatibleProvider(config(), transport=httpx.MockTransport(slow_handler))
+        task = asyncio.create_task(provider.complete(request()))
+        await request_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert request_cancelled.is_set()
+
+    run(scenario())
+
+
 MALFORMED_BODIES: list[dict[str, object]] = [
     {},
     {"choices": []},
