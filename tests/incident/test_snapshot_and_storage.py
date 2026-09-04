@@ -61,6 +61,7 @@ NODE_TWO = NodeId("node_fedcba9876543210fedcba9876543210")
 SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
 REMOVED = ServiceId("service_11111111111111111111111111111111")
 ADDED = ServiceId("service_22222222222222222222222222222222")
+ADDED_LATER = ServiceId("service_33333333333333333333333333333333")
 
 
 def _snapshot(
@@ -215,6 +216,23 @@ def test_transient_change_does_not_create_incident() -> None:
     assert detector.compare(baseline, current) == ()
     assert detector.compare(baseline, baseline) == ()
     assert detector.compare(baseline, current) == ()
+
+
+def test_staggered_changes_keep_pending_confirmation_after_another_event_confirms() -> None:
+    baseline = _snapshot(1, nodes=(_node(NODE),), services=())
+    first = _snapshot(2, nodes=(_node(NODE),), services=(_service(ADDED),))
+    second = _snapshot(
+        3,
+        nodes=(_node(NODE),),
+        services=(_service(ADDED), _service(ADDED_LATER)),
+    )
+    detector = SnapshotDiffDetector(confirmations_required=2)
+
+    assert detector.compare(baseline, first) == ()
+    assert [item.object_id for item in detector.compare(baseline, second)] == [str(ADDED)]
+    assert detector.has_pending is True
+    assert [item.object_id for item in detector.compare(baseline, second)] == [str(ADDED_LATER)]
+    assert detector.has_pending is False
 
 
 def test_public_contract_redacts_credentials_and_rejects_unproven_conclusion() -> None:

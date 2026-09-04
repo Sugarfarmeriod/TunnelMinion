@@ -76,7 +76,7 @@ class IncidentObservationService:
         for event in events:
             incident = self._store.record_event(event)
             values.append(await self._investigate_once(incident))
-        if events or not self._detector.has_pending:
+        if not self._detector.has_pending:
             self._baseline = snapshot
         return ObservationResult(snapshot=snapshot, incidents=tuple(values))
 
