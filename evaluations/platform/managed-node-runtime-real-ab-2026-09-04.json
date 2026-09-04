@@ -1,0 +1,161 @@
+{
+  "schema_version": "managed-node-runtime-real-ab/v1",
+  "started_at": "2026-09-04T03:36:18.856002+00:00",
+  "approval_manifest": {
+    "schema_version": "managed-node-runtime-ab-approval/v1",
+    "requires_explicit_execute_flag": true,
+    "ssh_target": "10.77.0.1",
+    "temporary_bindings": {
+      "coordinator_agent": "10.77.0.2:8790",
+      "coordinator_admin": "127.0.0.1:8791",
+      "windows_local_app": "127.0.0.1:18765",
+      "macos_local_app": "127.0.0.1:18765"
+    },
+    "creates": [
+      "A 当前账户临时目录及 restricted-file 测试凭据",
+      "B /tmp/tunnelminion-managed-runtime-ab.XXXXXX 临时目录及 restricted-file 测试凭据",
+      "隔离 Coordinator network/node/enrollment/checkpoint 数据",
+      "A/B 常规本地应用临时进程"
+    ],
+    "reads_without_body": [
+      "Windows WireGuardTunnel$HomeMac 服务与 HomeMac 适配器状态",
+      "Windows 10.77 路由摘要哈希",
+      "macOS WireGuard 配置文件元数据、接口与 10.77 路由摘要哈希",
+      "macOS Application Firewall/pf 只读输出哈希",
+      "B 生产模型 8082 与 Gateway 8787 端口可达性"
+    ],
+    "evidence_limitations": [
+      "Murus 规则正文无法由非交互仓库适配器可靠读取；报告只保存 PF 与 macOS Application Firewall 的可观察状态哈希和读取返回码",
+      "验收流程不调用 Murus、pfctl 写入、socketfilterfw 写入或任何防火墙配置命令"
+    ],
+    "does_not_modify": [
+      "HomeMac 或 B 手写 WireGuard 配置",
+      "Murus、Windows/macOS 防火墙、pf、DNS 或用户 route",
+      "生产 Gateway 8787、模型 8082 或现有 static peer",
+      "任何 Provider/L3 网络资源或本机授权"
+    ],
+    "cleanup": [
+      "停止 A/B 常规本地应用和隔离 Coordinator",
+      "删除前缀校验后的 A/B 临时目录和测试凭据",
+      "保存脱敏 JSON 报告，不保存 token、refresh、认证头或配置正文"
+    ]
+  },
+  "preflight": {
+    "windows": {
+      "service": "Running",
+      "adapter": "Up",
+      "routes_sha256": "662c27cb68b9e0484b7ab70b383cd058f1207043450dc3c3f71065dbd2d7a6d8",
+      "snapshot_returncode": 0
+    },
+    "production_ports": {
+      "model_8082": false,
+      "gateway_8787": true
+    },
+    "passed": true,
+    "failure_reasons": []
+  },
+  "before": {
+    "windows": {
+      "service": "Running",
+      "adapter": "Up",
+      "routes_sha256": "662c27cb68b9e0484b7ab70b383cd058f1207043450dc3c3f71065dbd2d7a6d8",
+      "snapshot_returncode": 0
+    },
+    "macos": {
+      "wireguard_state_sha256": "28cded095d8343f2ba4bc04f90d3149b0a967efa5e06ce450f4964700e1653a8",
+      "firewall_sha256": "9bd6de659c4e91c60b2c6e36e3de9c0bbfb1a4112a2387a96dc201a874704337",
+      "firewall_returncode": 0,
+      "pf_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pf_returncode": 1,
+      "interface_count": 1
+    },
+    "production_ports": {
+      "model_8082": false,
+      "gateway_8787": true
+    }
+  },
+  "converged": {
+    "windows": {
+      "enrollment_state": "ready",
+      "runtime_phase": "running",
+      "directory_phase": "idle",
+      "directory_revision": 8,
+      "service_count": 141,
+      "managed_config_phase": "idle",
+      "managed_config_applied_revision": 0,
+      "last_known_good_revision": null
+    },
+    "macos": {
+      "enrollment_state": "ready",
+      "runtime_phase": "running",
+      "directory_phase": "idle",
+      "directory_revision": 5,
+      "service_count": 38,
+      "managed_config_phase": "idle",
+      "managed_config_applied_revision": 0,
+      "last_known_good_revision": null
+    },
+    "model_status": {
+      "windows": "unconfigured",
+      "macos": "unconfigured"
+    }
+  },
+  "coordinator_offline": {
+    "windows": {
+      "enrollment_state": "ready",
+      "runtime_phase": "running",
+      "directory_phase": "backoff",
+      "directory_revision": 8,
+      "service_count": 141,
+      "managed_config_phase": "backoff",
+      "managed_config_applied_revision": 0,
+      "last_known_good_revision": null
+    },
+    "macos": {
+      "enrollment_state": "ready",
+      "runtime_phase": "running",
+      "directory_phase": "backoff",
+      "directory_revision": 5,
+      "service_count": 40,
+      "managed_config_phase": "backoff",
+      "managed_config_applied_revision": 0,
+      "last_known_good_revision": null
+    },
+    "windows_local_resources_available": true,
+    "macos_local_resources_available": true
+  },
+  "after": {
+    "windows": {
+      "service": "Running",
+      "adapter": "Up",
+      "routes_sha256": "662c27cb68b9e0484b7ab70b383cd058f1207043450dc3c3f71065dbd2d7a6d8",
+      "snapshot_returncode": 0
+    },
+    "macos": {
+      "wireguard_state_sha256": "28cded095d8343f2ba4bc04f90d3149b0a967efa5e06ce450f4964700e1653a8",
+      "firewall_sha256": "9bd6de659c4e91c60b2c6e36e3de9c0bbfb1a4112a2387a96dc201a874704337",
+      "firewall_returncode": 0,
+      "pf_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pf_returncode": 1,
+      "interface_count": 1
+    },
+    "production_ports": {
+      "model_8082": false,
+      "gateway_8787": true
+    }
+  },
+  "production_unchanged": true,
+  "production_baseline_valid": true,
+  "murus_firewall_evidence": {
+    "configuration_body_read": false,
+    "writes_performed": false,
+    "direct_pf_rules_readable": false,
+    "pf_observation_unchanged": true,
+    "application_firewall_observation_unchanged": true,
+    "limitation": "Murus 规则正文没有非交互读取权限，不声称读取或导出了 GUI 配置"
+  },
+  "automated_passed": true,
+  "passed": true,
+  "local_runtime_cleanup": "removed",
+  "finished_at": "2026-09-04T03:38:11.491331+00:00"
+}
