@@ -736,7 +736,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--ssh-target", required=True)
-    parser.add_argument("--remote-python", default="/Users/mac/.local/bin/python3.12")
+    parser.add_argument("--remote-python", default="/Users/mac/.local/bin/python3.11")
     parser.add_argument("--agent-host", default="10.77.0.2")
     parser.add_argument("--agent-port", type=int, default=8790)
     parser.add_argument("--admin-port", type=int, default=8791)
