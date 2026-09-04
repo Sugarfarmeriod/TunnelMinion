@@ -53,7 +53,7 @@ INCIDENT_DATASET = (
     Path(__file__).resolve().parents[1]
     / "evaluations"
     / "datasets"
-    / "autonomous-incidents-v1.json"
+    / "autonomous-incidents-v2.json"
 )
 ALLOWED_DATA_FILES = frozenset({"incidents.sqlite3", "node-id", "runtime.sqlite3"})
 

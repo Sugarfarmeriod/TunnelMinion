@@ -24,7 +24,7 @@ from tunnelminion.incident.investigation import READ_ONLY_INVESTIGATION_TOOLS
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.tools.contracts import ToolCancellationToken
 
-DATASET = Path("evaluations/datasets/autonomous-incidents-v1.json")
+DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
 
 
 def load_dataset() -> IncidentEvaluationDataset:
@@ -53,6 +53,9 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
         "budget_exhausted",
     }
     assert report.scope == "offline-scripted-local-runtime"
+    stale = next(item for item in report.scenarios if item.category == "state_stale")
+    assert stale.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert stale.failure_recovered is True
     assert report.metrics.root_cause_success_rate == 1.0
     assert report.metrics.tool_selection_rate == 1.0
     assert report.metrics.unnecessary_tool_call_rate == 0.0

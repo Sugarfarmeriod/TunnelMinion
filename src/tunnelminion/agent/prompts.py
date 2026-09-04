@@ -40,12 +40,14 @@ def _prompt(
     role: PromptRole,
     template: str,
     allowed_input_fields: tuple[str, ...] = (),
+    version: str = "v1",
+    semantic_version: str = "1.0.0",
     change_note: str,
 ) -> PromptDefinition:
     return PromptDefinition(
         prompt_id=prompt_id,
-        version="v1",
-        semantic_version="1.0.0",
+        version=version,
+        semantic_version=semantic_version,
         task_type=task_type,
         role=role,
         template=template,
@@ -99,8 +101,11 @@ INCIDENT_INVESTIGATION_PROMPT = _prompt(
 JSON：hypotheses（summary、status、evidence_refs）、facts（statement、evidence_refs）、unknowns、
 conclusion 和 stop_reason。status 只能是 candidate、supported、rejected、unknown；stop_reason 只能是
 evidence_sufficient 或 insufficient_evidence。evidence_refs 每一项必须逐字复制上下文里现成的
-`snapshot_...` 或 `toolrun_...` ID，不得拼接状态、说明或自造标签。没有有效引用时不得确认根因。""",
-    change_note="建立 incident 单 Agent 证据收敛循环的首个提示。",
+`snapshot_...` 或 `toolrun_...` ID，不得拼接状态、说明或自造标签。快照只能证明事件和对象状态，
+不能单独证明根因；返回 evidence_sufficient 和确认结论时必须至少引用一项真实 `toolrun_...` 证据。""",
+    version="v2",
+    semantic_version="2.0.0",
+    change_note="明确快照只证明事件，确认根因必须引用真实只读工具证据。",
 )
 
 TEMPORARY_SERVICE_PLAN_PROMPT = _prompt(

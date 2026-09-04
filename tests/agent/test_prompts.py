@@ -18,11 +18,13 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
     assert len(definitions) == 7
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
-        assert definition.semantic_version == "1.0.0"
         assert definition.content_hash == (
             f"sha256:{hashlib.sha256(definition.template.encode()).hexdigest()}"
         )
         assert definition.change_note
+
+    assert INCIDENT_INVESTIGATION_PROMPT.version == "v2"
+    assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "2.0.0"
 
     assert (
         PROMPT_REGISTRY.resolve(
@@ -33,6 +35,7 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
         == REAL_MODEL_EVALUATION_PROMPT
     )
     assert "不得拼接状态、说明或自造标签" in INCIDENT_INVESTIGATION_PROMPT.template
+    assert "至少引用一项真实 `toolrun_...` 证据" in INCIDENT_INVESTIGATION_PROMPT.template
 
 
 def test_registry_rejects_duplicate_unknown_and_task_mismatch() -> None:

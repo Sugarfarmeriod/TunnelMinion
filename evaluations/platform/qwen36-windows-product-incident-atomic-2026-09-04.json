@@ -1,0 +1,61 @@
+{
+  "schema_version": "real-product-incident-atomic/v1",
+  "context_commit": "21b5a7b24b970e6ae0082de0abf62fb5db9d406c",
+  "policy_commit": "2bb74f1e076aa1779b7707f0f313c74a4618b6da",
+  "endpoint": "http://10.77.0.1:8080/v1",
+  "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "scope": "isolated-windows-source-application",
+  "pre_policy_fix_observation": {
+    "temporary_listener_port": 51626,
+    "affected_object_port_visible_to_model": true,
+    "status": "confirmed",
+    "selected_tools": [],
+    "finding": "模型只引用事件快照便确认根因，确认门槛过宽。"
+  },
+  "post_policy_fix_observation": {
+    "temporary_listener_port": 65526,
+    "event_type": "service_added",
+    "incident_id": "incident_d302c0934034a8f3c2e5779bf99c7a7a",
+    "status": "insufficient_evidence",
+    "stop_reason": "insufficient_evidence",
+    "selected_tools": [
+      "list_docker_services"
+    ],
+    "report_evidence_count": 2,
+    "snapshot_count": 3,
+    "snapshot_only_confirmation_blocked": true
+  },
+  "browser_projection": {
+    "chromium": "passed",
+    "same_live_incident": true,
+    "live_api": true,
+    "overview_incident_row_visible": true,
+    "incident_detail_visible": true,
+    "displayed_status": "insufficient_evidence",
+    "displayed_tool_trace": [
+      "list_docker_services"
+    ]
+  },
+  "targeted_gates": {
+    "pytest": "26 passed",
+    "pyright": "0 errors, 0 warnings, 0 informations",
+    "ruff": "passed"
+  },
+  "boundaries": {
+    "model_service_restarted": false,
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routing_or_dns_modified": false,
+    "production_service_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "temporary_ports_released": true,
+    "temporary_data_removed": true
+  },
+  "limitations": [
+    "真实模型选择了 Docker 只读检查而不是监听列表，因此本轮没有确认新增监听的具体来源。",
+    "本轮证明产品在证据不足时会安全停止，不证明每个 incident 都能确认根因。",
+    "本轮使用隔离的 Windows 源码应用，不代表正式安装包、macOS、真实双机或生产网络验收。"
+  ],
+  "overall_result": "passed"
+}
