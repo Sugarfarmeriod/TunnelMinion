@@ -35,6 +35,8 @@ from tunnelminion.incident.contracts import (
     NormalizedSnapshot,
     SnapshotDiffEvent,
     SnapshotFreshness,
+    SnapshotNode,
+    SnapshotNodeState,
     SnapshotObjectKind,
     SnapshotService,
     SnapshotServiceState,
@@ -376,6 +378,57 @@ def test_investigator_context_includes_affected_service_details(tmp_path: Path) 
     assert affected["protocol"] == "http"
     assert affected["port"] == 54123
     assert affected["accessibility"] == "loopback"
+
+
+def test_investigator_context_falls_back_to_baseline_node(tmp_path: Path) -> None:
+    investigator, store, _, provider = _runtime(tmp_path, "success")
+    node = SnapshotNode(
+        node_id=NODE,
+        state=SnapshotNodeState.ONLINE,
+        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        freshness=SnapshotFreshness.FRESH,
+        evidence_at=NOW,
+    )
+    baseline_id = SnapshotId("snapshot_00000000000000000000000000000001")
+    current_id = SnapshotId("snapshot_00000000000000000000000000000002")
+    store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=baseline_id,
+            observed_at=NOW,
+            revision=1,
+            nodes=(node,),
+        )
+    )
+    store.put_snapshot(NormalizedSnapshot(snapshot_id=current_id, observed_at=NOW, revision=2))
+    incident = store.record_event(
+        SnapshotDiffEvent(
+            event_type=IncidentEventType.NODE_OFFLINE,
+            object_kind=SnapshotObjectKind.NODE,
+            object_id=str(NODE),
+            target_node_id=NODE,
+            baseline_snapshot_id=baseline_id,
+            current_snapshot_id=current_id,
+            baseline_revision=1,
+            current_revision=2,
+            observed_at=NOW,
+            source=SnapshotSource.COORDINATOR_DIRECTORY,
+            before_state="online",
+            after_state="offline",
+            dedup_key=f"sha256:{'b' * 64}",
+        )
+    )
+
+    asyncio.run(investigator.run(incident))
+
+    message = next(
+        item.content
+        for item in provider.requests[0].messages
+        if item.content.startswith("以下是已脱敏的确定性 incident：")
+    )
+    affected = json.loads(message.partition("：")[2])["affected_object"]
+    assert affected["snapshot_id"] == str(baseline_id)
+    assert affected["node_id"] == str(NODE)
+    assert affected["state"] == "online"
 
 
 def test_unknown_tool_is_rejected_without_tool_runtime_execution(tmp_path: Path) -> None:
