@@ -4,6 +4,7 @@ import pytest
 
 from tunnelminion.agent.context_contracts import ContextTaskType
 from tunnelminion.agent.prompts import (
+    INCIDENT_INVESTIGATION_PROMPT,
     PROMPT_REGISTRY,
     READONLY_AGENT_PROMPT,
     REAL_MODEL_EVALUATION_PROMPT,
@@ -31,6 +32,7 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
         )
         == REAL_MODEL_EVALUATION_PROMPT
     )
+    assert "不得拼接状态、说明或自造标签" in INCIDENT_INVESTIGATION_PROMPT.template
 
 
 def test_registry_rejects_duplicate_unknown_and_task_mismatch() -> None:
