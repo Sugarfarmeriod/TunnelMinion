@@ -621,9 +621,7 @@ def test_background_observer_does_not_drop_a_later_pending_change(tmp_path: Path
     second = asyncio.run(service.observe_once())
 
     assert [item.event.object_id for item in first.incidents] == [str(SERVICE_ADDED)]
-    assert [item.event.object_id for item in second.incidents] == [
-        str(SERVICE_ADDED_LATER)
-    ]
+    assert [item.event.object_id for item in second.incidents] == [str(SERVICE_ADDED_LATER)]
     assert runner.calls == 2
 
 

@@ -231,9 +231,7 @@ def test_staggered_changes_keep_pending_confirmation_after_another_event_confirm
     assert detector.compare(baseline, first) == ()
     assert [item.object_id for item in detector.compare(baseline, second)] == [str(ADDED)]
     assert detector.has_pending is True
-    assert [item.object_id for item in detector.compare(baseline, second)] == [
-        str(ADDED_LATER)
-    ]
+    assert [item.object_id for item in detector.compare(baseline, second)] == [str(ADDED_LATER)]
     assert detector.has_pending is False
 
 
