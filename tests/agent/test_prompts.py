@@ -6,6 +6,7 @@ from tunnelminion.agent.context_contracts import ContextTaskType
 from tunnelminion.agent.prompts import (
     PROMPT_REGISTRY,
     READONLY_AGENT_PROMPT,
+    REAL_MODEL_EVALUATION_PROMPT,
     PromptRegistry,
 )
 
@@ -13,7 +14,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 6
+    assert len(definitions) == 7
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.semantic_version == "1.0.0"
@@ -21,6 +22,15 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
             f"sha256:{hashlib.sha256(definition.template.encode()).hexdigest()}"
         )
         assert definition.change_note
+
+    assert (
+        PROMPT_REGISTRY.resolve(
+            REAL_MODEL_EVALUATION_PROMPT.prompt_id,
+            REAL_MODEL_EVALUATION_PROMPT.version,
+            ContextTaskType.EVALUATION,
+        )
+        == REAL_MODEL_EVALUATION_PROMPT
+    )
 
 
 def test_registry_rejects_duplicate_unknown_and_task_mismatch() -> None:
