@@ -353,6 +353,7 @@ def test_investigator_uses_read_only_fallback_when_provider_ignores_required_too
     assert provider.requests[0].require_tool_call is True
     assert provider.requests[1].require_tool_call is False
     fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
+    assert fallback.content == ""
     assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
     assert fallback.tool_calls[0].name == "list_network_listeners"
 

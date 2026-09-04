@@ -265,13 +265,14 @@ class IncidentInvestigator:
                 )
                 response = response.model_copy(
                     update={
+                        "content": "",
                         "tool_calls": (
                             ToolCall(
                                 call_id=f"fallback-{run_id}",
                                 name=fallback_name,
                                 arguments={},
                             ),
-                        )
+                        ),
                     }
                 )
             if response.tool_calls:
