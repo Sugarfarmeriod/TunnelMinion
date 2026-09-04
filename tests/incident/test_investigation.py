@@ -359,6 +359,7 @@ def test_investigator_retries_once_when_provider_ignores_required_tool_call(
     assert provider.requests[2].require_tool_call is False
     assert provider.requests[1].messages[-1].role == "user"
     assert "必须且只能调用一个" in provider.requests[1].messages[-1].content
+    assert all("必须且只能调用一个" not in item.content for item in provider.requests[2].messages)
 
 
 def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:

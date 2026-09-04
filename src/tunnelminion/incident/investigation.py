@@ -273,6 +273,8 @@ class IncidentInvestigator:
                         InvestigationStopReason.FAILED,
                         "模型请求了未允许的工具",
                     )
+                if retried_missing_tool and tool_calls == 0:
+                    messages.pop()
                 messages.append(
                     ModelMessage(
                         role="assistant",
