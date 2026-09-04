@@ -34,6 +34,7 @@ from tunnelminion.incident.contracts import (
     IncidentStatus,
     InvestigationStopReason,
     PublicTraceEntry,
+    SnapshotObjectKind,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
@@ -517,9 +518,49 @@ class IncidentInvestigator:
             ),
         }
 
-    @staticmethod
-    def _incident_context(incident: Incident) -> str:
-        return "以下是已脱敏的确定性 incident：" + incident.event.model_dump_json()
+    def _incident_context(self, incident: Incident) -> str:
+        payload = {
+            "event": incident.event.model_dump(mode="json"),
+            "affected_object": self._affected_object_context(incident),
+        }
+        return "以下是已脱敏的确定性 incident：" + json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    def _affected_object_context(self, incident: Incident) -> dict[str, JsonValue] | None:
+        for snapshot_id in (
+            incident.event.current_snapshot_id,
+            incident.event.baseline_snapshot_id,
+        ):
+            snapshot = self._store.get_snapshot(snapshot_id)
+            if snapshot is None:
+                continue
+            if incident.event.object_kind is SnapshotObjectKind.SERVICE:
+                match = next(
+                    (
+                        item
+                        for item in snapshot.services
+                        if str(item.service_id) == incident.event.object_id
+                    ),
+                    None,
+                )
+            else:
+                match = next(
+                    (
+                        item
+                        for item in snapshot.nodes
+                        if str(item.node_id) == incident.event.object_id
+                    ),
+                    None,
+                )
+            if match is not None:
+                return {
+                    "snapshot_id": str(snapshot.snapshot_id),
+                    **match.model_dump(mode="json"),
+                }
+        return None
 
     @staticmethod
     def _tool_result_content(result: ToolExecutionResult) -> str:

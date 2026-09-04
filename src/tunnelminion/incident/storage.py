@@ -12,7 +12,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from tunnelminion.domain.identifiers import IncidentId, ThreadId
+from tunnelminion.domain.identifiers import IncidentId, SnapshotId, ThreadId
 from tunnelminion.incident.contracts import (
     Incident,
     IncidentReport,
@@ -96,6 +96,15 @@ class SQLiteIncidentStore:
         with self._connection_scope() as connection:
             row = connection.execute(
                 "SELECT payload FROM incident_snapshots ORDER BY revision DESC LIMIT 1"
+            ).fetchone()
+        return NormalizedSnapshot.model_validate_json(row[0]) if row is not None else None
+
+    def get_snapshot(self, snapshot_id: SnapshotId) -> NormalizedSnapshot | None:
+        """按稳定身份读取规范化快照。"""
+        with self._connection_scope() as connection:
+            row = connection.execute(
+                "SELECT payload FROM incident_snapshots WHERE snapshot_id=?",
+                (str(snapshot_id),),
             ).fetchone()
         return NormalizedSnapshot.model_validate_json(row[0]) if row is not None else None
 

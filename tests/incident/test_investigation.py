@@ -15,7 +15,10 @@ from pydantic import JsonValue
 
 from tunnelminion.agent.context_contracts import ContextRequest
 from tunnelminion.agent.context_runtime import ContextInvocation, ContextModelRuntime
-from tunnelminion.coordinator.contracts import ServiceAccessibility
+from tunnelminion.coordinator.contracts import (
+    ServiceAccessibility,
+    ServiceProtocol,
+)
 from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, SnapshotId
 from tunnelminion.domain.tools import (
     DataSensitivity,
@@ -29,8 +32,12 @@ from tunnelminion.incident.contracts import (
     IncidentEventType,
     IncidentStatus,
     InvestigationStopReason,
+    NormalizedSnapshot,
     SnapshotDiffEvent,
+    SnapshotFreshness,
     SnapshotObjectKind,
+    SnapshotService,
+    SnapshotServiceState,
     SnapshotSource,
 )
 from tunnelminion.incident.investigation import (
@@ -299,6 +306,52 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert len(provider.requests) == 2
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
+
+
+def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:
+    investigator, store, _, provider = _runtime(tmp_path, "success")
+    service = SnapshotService(
+        service_id=SERVICE,
+        node_id=NODE,
+        state=SnapshotServiceState.AVAILABLE,
+        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        freshness=SnapshotFreshness.FRESH,
+        evidence_at=NOW,
+        protocol=ServiceProtocol.HTTP,
+        port=54123,
+        accessibility=ServiceAccessibility.NETWORK,
+    )
+    store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
+            observed_at=NOW,
+            revision=1,
+            services=(service,),
+        )
+    )
+    store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=SnapshotId("snapshot_00000000000000000000000000000002"),
+            observed_at=NOW,
+            revision=2,
+            services=(service.model_copy(update={"accessibility": ServiceAccessibility.LOOPBACK}),),
+        )
+    )
+
+    asyncio.run(investigator.run(_incident(store)))
+
+    message = next(
+        item.content
+        for item in provider.requests[0].messages
+        if item.content.startswith("以下是已脱敏的确定性 incident：")
+    )
+    payload = json.loads(message.partition("：")[2])
+    affected = payload["affected_object"]
+    assert affected["snapshot_id"] == "snapshot_00000000000000000000000000000002"
+    assert affected["service_id"] == str(SERVICE)
+    assert affected["protocol"] == "http"
+    assert affected["port"] == 54123
+    assert affected["accessibility"] == "loopback"
 
 
 def test_unknown_tool_is_rejected_without_tool_runtime_execution(tmp_path: Path) -> None:

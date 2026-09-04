@@ -261,6 +261,7 @@ def test_store_persists_deduplicates_and_marks_running_investigation_interrupted
 
     assert first.incident_id == same.incident_id
     assert len(reopened.list_recent()) == 1
+    assert reopened.get_snapshot(baseline.snapshot_id) == baseline
     assert reopened.latest_snapshot() == current
     assert reopened.next_revision() == 3
     assert recovered[0].status is IncidentStatus.INTERRUPTED
