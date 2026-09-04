@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol, cast
+from types import SimpleNamespace
+from typing import Any, Protocol, cast
 
 import httpx
 import pytest
@@ -16,11 +19,15 @@ from pydantic import JsonValue
 from tests.operation.factories import plan
 from tests.test_app import (
     configured_managed_application,
+    local_service,
     real_managed_path_status,
     real_path_bindings,
 )
 
+from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.agent.managed_application import ManagedNodeApplication
+from tunnelminion.agent.managed_coordinator import ManagedCoordinatorLoops, ServiceSnapshotCache
+from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
@@ -30,6 +37,7 @@ from tunnelminion.gateway.configuration import (
     gateway_token_name,
 )
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.incident.observer import IncidentObservationService
 from tunnelminion.macos_app import (
     SafeSharingGatewaySettings,
     _CallbackRequiredVerifier,  # pyright: ignore[reportPrivateUsage]
@@ -39,6 +47,7 @@ from tunnelminion.macos_app import (
     create_macos_app,
 )
 from tunnelminion.model.configuration import ModelConfigurationService
+from tunnelminion.model.contracts import ProviderError, ProviderErrorCode
 from tunnelminion.network.path_status import ManagedPathStatus
 from tunnelminion.operation.contracts import (
     LeaseRecord,
@@ -354,6 +363,93 @@ def test_macos_local_resources_degrade_without_model(
 
     monkeypatch.setattr("tunnelminion.macos_app.default_data_dir", lambda: tmp_path / "factory")
     assert create_macos_app().title == "TunnelMinion"
+
+
+def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    services = [local_service("service_33333333333333333333333333333333", 18083)]
+    observations = 0
+    model_calls = 0
+
+    async def observe(_self: object) -> ServiceObservationSnapshot:
+        nonlocal observations
+        observations += 1
+        return ServiceObservationSnapshot(
+            observed_at=datetime.now(UTC),
+            services=tuple(services),
+        )
+
+    def unavailable(_self: ModelConfigurationService) -> None:
+        nonlocal model_calls
+        model_calls += 1
+        raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
+
+    def fast_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        kwargs["interval_seconds"] = 1
+        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(
+        "tunnelminion.agent.service_observation.DeterministicServiceObserver.observe",
+        observe,
+    )
+    monkeypatch.setattr(ModelConfigurationService, "create_provider", unavailable)
+    monkeypatch.setattr("tunnelminion.macos_app.IncidentObservationService", fast_incident_observer)
+    bundle = build_macos_local_application(tmp_path / "local-observation")
+
+    client: Any
+    with TestClient(bundle.app, base_url="http://127.0.0.1") as client:
+        deadline = time.monotonic() + 3
+        while observations < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        overview = client.get("/api/resources/overview").json()
+        assert [item["port"] for item in overview["services"]["items"]] == [18083]
+        assert overview["incidents"]["items"] == []
+        assert model_calls == 0
+
+        services.append(local_service("service_44444444444444444444444444444444", 18084))
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            overview = client.get("/api/resources/overview").json()
+            if overview["incidents"]["items"]:
+                break
+            time.sleep(0.05)
+
+        assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
+        assert model_calls == 1
+
+
+def test_macos_managed_runtime_does_not_build_second_service_observer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_managed(
+        _data_dir: Path,
+        node_id: NodeId,
+        platform: Platform,
+        *_dependencies: object,
+        **_transports: object,
+    ) -> ManagedNodeApplication:
+        coordinator = cast(
+            ManagedCoordinatorLoops,
+            SimpleNamespace(
+                coordinator_cache=CoordinatorCache(),
+                service_cache=ServiceSnapshotCache(),
+            ),
+        )
+        return replace(
+            configured_managed_application(node_id, platform),
+            coordinator=coordinator,
+        )
+
+    def fail_observer(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("managed runtime must own the only service observer")
+
+    monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
+    monkeypatch.setattr("tunnelminion.macos_app.DeterministicServiceObserver", fail_observer)
+
+    assert build_macos_local_application(tmp_path / "managed-observation").managed_node.coordinator
 
 
 def test_macos_factory_binds_configured_coordinator_and_real_path_views(
