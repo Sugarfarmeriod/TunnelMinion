@@ -1,0 +1,54 @@
+{
+  "schema_version": "real-product-incident-e2e/v1",
+  "source_commit": "2cab3019da391fb9a3ecaa6e6c56cfa490a64106",
+  "endpoint": "http://10.77.0.1:8080/v1",
+  "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "scope": "isolated-windows-source-application",
+  "real_backend_observation": {
+    "temporary_listener": "127.0.0.1:ephemeral",
+    "event_type": "service_added",
+    "status": "insufficient_evidence",
+    "stop_reason": "insufficient_evidence",
+    "selected_tools": [],
+    "evidence_count": 1,
+    "overview_status_matched": true,
+    "overview_conclusion_present": false,
+    "detail_http_status": 200,
+    "snapshot_count": 3,
+    "real_model_requests_observed_during_window": 3
+  },
+  "shutdown_defect": {
+    "observed_before_fix": "调用方取消时，异步 HTTP 请求可能继续存活并在退出后报告 ReadError。",
+    "fix_commit": "2cab3019da391fb9a3ecaa6e6c56cfa490a64106",
+    "post_fix_in_flight_request_cancelled": true,
+    "post_fix_temporary_data_removed_automatically": true,
+    "targeted_test": "18 passed"
+  },
+  "browser_projection": {
+    "frontend_dist_sha256": "ab379b86782696478fd3e5a9f6ad0af000a0cff5b572c290304f6efea34ff0d9",
+    "source_fastapi": true,
+    "seeded_public_incident": true,
+    "chromium": "passed",
+    "overview_incident_row_visible": true,
+    "incident_detail_visible": true,
+    "component_tests": "7 passed"
+  },
+  "boundaries": {
+    "existing_8767_modified": false,
+    "existing_8787_modified": false,
+    "model_service_restarted": false,
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "temporary_ports_released": true,
+    "temporary_data_removed": true
+  },
+  "limitations": [
+    "已捕获的真实模型运行安全地停在证据不足，没有选择诊断工具，因此不证明真实系统工具在同一次产品运行中被模型调用。",
+    "真实故障到真实模型终态与 FastAPI 到 Chromium 展示分别完成，但浏览器验收使用的是脱敏公开 incident 夹具，不是同一次真实模型运行留下的 incident。",
+    "此前的 qwen36-mlx-incident-investigation-2026-09-04.json 已独立证明真实 Qwen3.6 与只读 Tool Runtime 的 3/3 调查收敛。",
+    "本次没有测试生产网络、WireGuard、双机故障、正式安装包或长期运行。"
+  ],
+  "overall_result": "partial"
+}
