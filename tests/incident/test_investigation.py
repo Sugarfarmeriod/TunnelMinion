@@ -83,6 +83,8 @@ from tunnelminion.web.overview import (
 NOW = datetime(2026, 9, 3, 9, tzinfo=UTC)
 NODE = NodeId("node_0123456789abcdef0123456789abcdef")
 SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
+SERVICE_ADDED = ServiceId("service_22222222222222222222222222222222")
+SERVICE_ADDED_LATER = ServiceId("service_33333333333333333333333333333333")
 
 
 class RecordingAdapter:
@@ -522,6 +524,7 @@ class MutableOverview:
 
     def __init__(self) -> None:
         self.local_only = False
+        self.services = ((SERVICE, 8080),)
 
     def __call__(self) -> ResourceOverview:
         return OverviewService(
@@ -544,12 +547,12 @@ class MutableOverview:
                 source=OverviewSource.COORDINATOR_DIRECTORY,
                 evidence_at=NOW,
                 freshness=OverviewFreshness.FRESH,
-                items=(
+                items=tuple(
                     KnownServiceOverview(
-                        service_id=SERVICE,
+                        service_id=service_id,
                         node_id=NODE,
                         protocol=None,
-                        port=8080,
+                        port=port,
                         accessibility=(
                             ServiceAccessibility.LOOPBACK
                             if self.local_only
@@ -559,7 +562,8 @@ class MutableOverview:
                         source=OverviewSource.COORDINATOR_DIRECTORY,
                         evidence_at=NOW,
                         freshness=OverviewFreshness.FRESH,
-                    ),
+                    )
+                    for service_id, port in self.services
                 ),
             ),
             clock=lambda: NOW,
@@ -597,6 +601,30 @@ def test_background_observer_calls_no_model_on_normal_refresh_and_one_run_per_in
     assert runner.calls == 1
     assert asyncio.run(service.observe_once()).incidents == ()
     assert runner.calls == 1
+
+
+def test_background_observer_does_not_drop_a_later_pending_change(tmp_path: Path) -> None:
+    overview = MutableOverview()
+    runner = CountingRunner()
+    service = IncidentObservationService(
+        overview,
+        SQLiteIncidentStore(tmp_path / "staggered-observer.sqlite3"),
+        detector=SnapshotDiffDetector(confirmations_required=2),
+        investigator=runner,
+    )
+
+    assert asyncio.run(service.observe_once()).incidents == ()
+    overview.services += ((SERVICE_ADDED, 8081),)
+    assert asyncio.run(service.observe_once()).incidents == ()
+    overview.services += ((SERVICE_ADDED_LATER, 8082),)
+    first = asyncio.run(service.observe_once())
+    second = asyncio.run(service.observe_once())
+
+    assert [item.event.object_id for item in first.incidents] == [str(SERVICE_ADDED)]
+    assert [item.event.object_id for item in second.incidents] == [
+        str(SERVICE_ADDED_LATER)
+    ]
+    assert runner.calls == 2
 
 
 def test_configured_runner_marks_unavailable_without_starting_tools(tmp_path: Path) -> None:

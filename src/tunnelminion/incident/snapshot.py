@@ -99,9 +99,12 @@ class SnapshotDiffDetector:
         self._confirmed.intersection_update(current_keys)
         confirmed: list[SnapshotDiffEvent] = []
         for event in candidates:
+            if event.dedup_key in self._confirmed:
+                continue
             count = self._pending.get(event.dedup_key, 0) + 1
             self._pending[event.dedup_key] = count
-            if count >= self._confirmations_required and event.dedup_key not in self._confirmed:
+            if count >= self._confirmations_required:
+                self._pending.pop(event.dedup_key, None)
                 self._confirmed.add(event.dedup_key)
                 confirmed.append(event)
         return tuple(confirmed)
