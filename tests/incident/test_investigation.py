@@ -253,9 +253,10 @@ def _incident(
     store: SQLiteIncidentStore,
     *,
     source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION,
+    event_type: IncidentEventType = IncidentEventType.LOCAL_ONLY,
 ) -> Incident:
     event = SnapshotDiffEvent(
-        event_type=IncidentEventType.LOCAL_ONLY,
+        event_type=event_type,
         object_kind=SnapshotObjectKind.SERVICE,
         object_id=str(SERVICE),
         target_node_id=NODE,
@@ -297,29 +298,31 @@ def _runtime(
     *,
     limits: InvestigationLimits | None = None,
     tool_name: str = "list_network_listeners",
+    extra_tool_names: tuple[str, ...] = (),
 ) -> tuple[IncidentInvestigator, SQLiteIncidentStore, RecordingAdapter, ScriptedProvider]:
     registry = ToolRegistry()
     adapter = RecordingAdapter(fail=mode == "tool_failure")
-    registry.register(
-        ToolDefinition(
-            name=tool_name,
-            version=ProtocolVersion(major=1, minor=0),
-            description="列出网络监听",
-            input_schema={"type": "object", "additionalProperties": False},
-            output_schema={
-                "type": "object",
-                "properties": {"status": {"type": "string"}},
-                "required": ["status"],
-                "additionalProperties": False,
-            },
-            risk_level=RiskLevel.READ_ONLY,
-            platforms=frozenset({Platform.WINDOWS}),
-            timeout_seconds=1,
-            max_result_bytes=1024,
-            data_sensitivity=DataSensitivity.SYSTEM_METADATA,
-        ),
-        adapter,
-    )
+    for name in (tool_name, *extra_tool_names):
+        registry.register(
+            ToolDefinition(
+                name=name,
+                version=ProtocolVersion(major=1, minor=0),
+                description="只读调查工具",
+                input_schema={"type": "object", "additionalProperties": False},
+                output_schema={
+                    "type": "object",
+                    "properties": {"status": {"type": "string"}},
+                    "required": ["status"],
+                    "additionalProperties": False,
+                },
+                risk_level=RiskLevel.READ_ONLY,
+                platforms=frozenset({Platform.WINDOWS}),
+                timeout_seconds=1,
+                max_result_bytes=1024,
+                data_sensitivity=DataSensitivity.SYSTEM_METADATA,
+            ),
+            adapter,
+        )
     store = SQLiteIncidentStore(tmp_path / f"{mode}.sqlite3")
     provider = ScriptedProvider(mode)
     investigator = IncidentInvestigator(
@@ -380,6 +383,25 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert provider.requests[1].response_schema is not None
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
+
+
+def test_local_service_added_only_exposes_incident_related_tools(tmp_path: Path) -> None:
+    investigator, store, _, provider = _runtime(
+        tmp_path,
+        "service-added-tools",
+        extra_tool_names=("get_node_summary", "get_process_summary"),
+    )
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert [item.name for item in provider.requests[0].tools] == ["list_network_listeners"]
+    assert {item.name for item in provider.requests[1].tools} == {
+        "list_network_listeners",
+        "get_process_summary",
+    }
 
 
 @pytest.mark.parametrize("mode", ["missing_initial_tool", "valid_missing_initial_tool"])

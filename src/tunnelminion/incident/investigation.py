@@ -29,6 +29,7 @@ from tunnelminion.incident.contracts import (
     EvidenceReference,
     HypothesisStatus,
     Incident,
+    IncidentEventType,
     IncidentHypothesis,
     IncidentReport,
     IncidentStatus,
@@ -221,6 +222,16 @@ class IncidentInvestigator:
         tools = (
             self._model_tools() if incident.event.source is SnapshotSource.LOCAL_OBSERVATION else ()
         )
+        local_service_added = (
+            incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+            and incident.event.event_type is IncidentEventType.SERVICE_ADDED
+        )
+        if local_service_added:
+            tools = tuple(
+                item
+                for item in tools
+                if item.name in {"list_network_listeners", "get_process_summary"}
+            )
         current = incident
         tool_calls = 0
         for _ in range(self._limits.max_model_rounds):
@@ -231,6 +242,11 @@ class IncidentInvestigator:
                     InvestigationStopReason.CANCELLED,
                     "调查已取消",
                 )
+            round_tools = (
+                tuple(item for item in tools if item.name == "list_network_listeners")
+                if local_service_added and tool_calls == 0
+                else tools
+            )
             try:
                 invocation = await self._model.invoke(
                     ContextRequest(
@@ -241,12 +257,12 @@ class IncidentInvestigator:
                         prompt_id=INCIDENT_INVESTIGATION_PROMPT.prompt_id,
                         prompt_version=INCIDENT_INVESTIGATION_PROMPT.version,
                         messages=tuple(messages),
-                        tools=tools,
+                        tools=round_tools,
                         tool_results=tuple(tool_results),
-                        require_tool_call=bool(tools) and tool_calls == 0,
+                        require_tool_call=bool(round_tools) and tool_calls == 0,
                         response_schema=(
                             _InvestigationDecision.model_json_schema()
-                            if not tools or tool_calls > 0
+                            if not round_tools or tool_calls > 0
                             else None
                         ),
                         evidence=(
@@ -303,7 +319,7 @@ class IncidentInvestigator:
                         "调查工具调用达到上限或单轮请求过多",
                     )
                 call = response.tool_calls[0]
-                if call.name not in {item.name for item in tools}:
+                if call.name not in {item.name for item in round_tools}:
                     return self._finish(
                         current,
                         IncidentStatus.FAILED,
