@@ -159,7 +159,7 @@ Windows Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只�
 
 #### Scenario: 本机新增监听稳定出现
 
-- **WHEN** 基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
 - **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`
 
 ### Requirement: macOS 默认产品必须提供真实本机服务快照
@@ -173,5 +173,5 @@ macOS Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读
 
 #### Scenario: macOS 本机新增监听稳定出现
 
-- **WHEN** 基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
 - **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`
