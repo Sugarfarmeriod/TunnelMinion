@@ -375,7 +375,9 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert adapter.calls == [{}]
     assert len(provider.requests) == 2
     assert provider.requests[0].require_tool_call is True
+    assert provider.requests[0].response_schema is None
     assert provider.requests[1].require_tool_call is False
+    assert provider.requests[1].response_schema is not None
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
 
@@ -395,7 +397,9 @@ def test_local_service_uses_read_only_fallback_when_provider_ignores_required_to
     assert adapter.calls == [{}]
     assert len(provider.requests) == 2
     assert provider.requests[0].require_tool_call is True
+    assert provider.requests[0].response_schema is None
     assert provider.requests[1].require_tool_call is False
+    assert provider.requests[1].response_schema is not None
     fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
     assert fallback.content == ""
     assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
@@ -425,6 +429,7 @@ def test_remote_incident_never_uses_local_read_only_fallback(
     assert len(provider.requests) == 1
     assert provider.requests[0].tools == ()
     assert provider.requests[0].require_tool_call is False
+    assert provider.requests[0].response_schema is not None
 
 
 @pytest.mark.parametrize(

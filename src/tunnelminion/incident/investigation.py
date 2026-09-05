@@ -244,6 +244,11 @@ class IncidentInvestigator:
                         tools=tools,
                         tool_results=tuple(tool_results),
                         require_tool_call=bool(tools) and tool_calls == 0,
+                        response_schema=(
+                            _InvestigationDecision.model_json_schema()
+                            if not tools or tool_calls > 0
+                            else None
+                        ),
                         evidence=(
                             make_context_reference(
                                 kind=ContextContentKind.EVIDENCE,
