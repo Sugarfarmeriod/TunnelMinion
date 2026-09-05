@@ -35,6 +35,7 @@ from tunnelminion.incident.contracts import (
     InvestigationStopReason,
     PublicTraceEntry,
     SnapshotObjectKind,
+    SnapshotSource,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
@@ -257,7 +258,11 @@ class IncidentInvestigator:
             except ProviderError as exc:
                 return self._provider_failure(current, exc)
             response = invocation.response
-            if not response.tool_calls and tool_calls == 0:
+            if (
+                not response.tool_calls
+                and tool_calls == 0
+                and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+            ):
                 try:
                     self._parse_decision(response.structured_output, response.content)
                 except (TypeError, ValueError, ValidationError):

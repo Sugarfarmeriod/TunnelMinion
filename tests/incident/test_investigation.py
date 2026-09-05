@@ -233,7 +233,11 @@ class SlowRuntime:
         raise AssertionError("墙钟上限没有取消慢模型")
 
 
-def _incident(store: SQLiteIncidentStore) -> Incident:
+def _incident(
+    store: SQLiteIncidentStore,
+    *,
+    source: SnapshotSource = SnapshotSource.COORDINATOR_DIRECTORY,
+) -> Incident:
     event = SnapshotDiffEvent(
         event_type=IncidentEventType.LOCAL_ONLY,
         object_kind=SnapshotObjectKind.SERVICE,
@@ -244,7 +248,7 @@ def _incident(store: SQLiteIncidentStore) -> Incident:
         baseline_revision=1,
         current_revision=2,
         observed_at=NOW,
-        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        source=source,
         before_state="network",
         after_state="loopback",
         dedup_key=f"sha256:{'a' * 64}",
@@ -345,7 +349,9 @@ def test_investigator_uses_read_only_fallback_when_provider_ignores_required_too
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, "missing_initial_tool")
 
-    result = asyncio.run(investigator.run(_incident(store)))
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.LOCAL_OBSERVATION))
+    )
 
     assert result.status is IncidentStatus.CONFIRMED
     assert adapter.calls == [{}]
@@ -684,10 +690,13 @@ def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path
         is finished
     )
 
-    invalid, invalid_store, _, invalid_provider = _runtime(tmp_path, "invalid_response")
+    invalid, invalid_store, invalid_adapter, invalid_provider = _runtime(
+        tmp_path, "invalid_response"
+    )
     invalid_result = asyncio.run(invalid.run(_incident(invalid_store)))
     assert invalid_result.status is IncidentStatus.FAILED
-    assert len(invalid_provider.requests) == 2
+    assert invalid_adapter.calls == []
+    assert len(invalid_provider.requests) == 1
 
     fenced, fenced_store, _, _ = _runtime(tmp_path, "fenced")
     fenced_result = asyncio.run(fenced.run(_incident(fenced_store)))
