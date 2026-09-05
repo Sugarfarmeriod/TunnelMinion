@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import shutil
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -215,9 +218,20 @@ def test_runtime_package_evidence_is_minimal_and_requires_sections() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("destroy_data", "raise_on_repeat", "expected_passed"),
+    (
+        (False, False, True),
+        (True, False, False),
+        (False, True, False),
+    ),
+)
 def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    destroy_data: bool,
+    raise_on_repeat: bool,
+    expected_passed: bool,
 ) -> None:
     package_root = tmp_path / "program"
     package_root.mkdir()
@@ -256,11 +270,16 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         commands.append(command)
         if command[0] == "gateway-configure":
             assert input_text is not None and input_text.startswith("tmn_")
-            (data_dir / "gateway-secrets").mkdir(parents=True)
+            secrets = data_dir / "gateway-secrets"
+            secrets.mkdir(parents=True)
+            (data_dir / "gateway.json").write_bytes(b"gateway-configuration")
+            (secrets / "credentials.json").write_bytes(b"encrypted-test-credential")
             body: dict[str, JsonValue] = {"local_node_id": "test"}
         elif command[:2] == ("runtime", "configure"):
             body = {"schema_version": "runtime-profile/v1"}
         elif command[:2] == ("runtime", "start"):
+            if raise_on_repeat and sum(item[:2] == ("runtime", "start") for item in commands) == 2:
+                raise OSError("simulated command failure")
             body = runtime_body("running")
         elif command[:2] == ("runtime", "status"):
             body = runtime_body("stopped" if stopped else "running")
@@ -274,6 +293,9 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         elif command[:2] == ("runtime-package", "status"):
             body = {"status": "ready", "current_package_id": "candidate"}
         else:
+            if destroy_data:
+                shutil.rmtree(data_dir)
+                (data_dir / "gateway-secrets").mkdir(parents=True)
             body = {
                 "status": "removed",
                 "data_preserved": True,
@@ -314,11 +336,17 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         working_dir,
     )
 
-    assert report["passed"] is True
+    assert report["passed"] is expected_passed
     assert report["public_cli"] is True
-    assert report["idempotent_start"] is True
-    assert report["data_preserved"] is True
-    assert report["secret_store_preserved"] is True
+    assert report["idempotent_start"] is (not raise_on_repeat)
+    assert report["data_preserved"] is (not destroy_data)
+    assert report["secret_store_preserved"] is (not destroy_data)
+    assert report["process_cleanup_confirmed"] is True
+    data_evidence = cast(dict[str, JsonValue], report["data_evidence"])
+    secret_evidence = cast(dict[str, JsonValue], report["secret_store_evidence"])
+    assert (data_evidence["before"] == data_evidence["after"]) is (not destroy_data)
+    assert (secret_evidence["before"] == secret_evidence["after"]) is (not destroy_data)
+    assert stopped is True
     assert not any("runtime-child" in command for command in commands)
     assert [command[:2] for command in commands[1:]] == [
         ("runtime", "configure"),
@@ -332,6 +360,71 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         ("runtime-package", "status"),
         ("runtime-package", "remove"),
     ]
+
+
+@pytest.mark.parametrize("owned", (True, False))
+def test_cleanup_terminates_only_exact_runtime_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    owned: bool,
+) -> None:
+    data_dir = tmp_path / "data"
+    state = data_dir / "runtime" / "state"
+    state.mkdir(parents=True)
+    entrypoint = tmp_path / "program" / "tunnelminion.bin"
+    entrypoint.parent.mkdir()
+    entrypoint.write_bytes(b"runtime")
+    instance_id = uuid4()
+    record = {
+        "schema_version": "runtime-process/v1",
+        "component": "local",
+        "pid": 4321,
+        "process_started_at": 123.0,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "executable": str(entrypoint.resolve()),
+        "application_version": "0.1.0",
+        "data_dir_sha256": hashlib.sha256(str(data_dir.resolve()).encode()).hexdigest(),
+        "instance_id": str(instance_id),
+        "lifecycle": "running",
+        "error_code": None,
+    }
+    (state / "local.json").write_text(json.dumps(record), encoding="utf-8")
+    terminated = False
+
+    class Process:
+        def cmdline(self) -> list[str]:
+            return [
+                str(entrypoint),
+                "--runtime-component=local",
+                f"--runtime-instance-id={instance_id if owned else uuid4()}",
+            ]
+
+        def create_time(self) -> float:
+            return 123.0
+
+        def exe(self) -> str:
+            return str(entrypoint.resolve())
+
+        def terminate(self) -> None:
+            nonlocal terminated
+            terminated = True
+
+        def wait(self, timeout: float) -> None:
+            assert timeout == 10
+
+    def process_factory(pid: int) -> Process:
+        assert pid == 4321
+        return Process()
+
+    monkeypatch.setattr(acceptance.psutil, "Process", process_factory)
+
+    assert (
+        acceptance._cleanup_owned_runtime_processes(  # pyright: ignore[reportPrivateUsage]
+            entrypoint, data_dir
+        )
+        is owned
+    )
+    assert terminated is owned
 
 
 def test_acceptance_relocates_package_and_reports_program_data_boundary(

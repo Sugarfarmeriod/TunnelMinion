@@ -24,6 +24,8 @@ import psutil
 from pydantic import JsonValue
 
 from tunnelminion.runtime.preflight import verify_runtime_package
+from tunnelminion.runtime.process import RuntimeProcessRecord, runtime_identity_arguments
+from tunnelminion.runtime.profile import RuntimeComponent
 
 MANIFEST_VERSION = "runtime-package-manifest/v1"
 FORBIDDEN_PROGRAM_DATA = frozenset(
@@ -368,6 +370,75 @@ def _runtime_snapshot(
     return cast(str | None, runtime.get("state")), snapshot
 
 
+def _directory_evidence(root: Path) -> dict[str, JsonValue]:
+    """用文件名、大小与内容摘要生成不暴露内容的目录证据。"""
+    entries = (
+        [
+            {
+                "path": path.relative_to(root).as_posix(),
+                "size": path.stat().st_size,
+                "sha256": file_sha256(path),
+            }
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        ]
+        if root.is_dir()
+        else []
+    )
+    payload = json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {
+        "file_count": len(entries),
+        "size_bytes": sum(cast(int, item["size"]) for item in entries),
+        "sha256": hashlib.sha256(payload.encode()).hexdigest(),
+    }
+
+
+def _cleanup_owned_runtime_processes(entrypoint: Path, data_dir: Path) -> bool:
+    """只按运行记录与实时身份完全匹配的进程做验收兜底清理。"""
+    confirmed = True
+    data_digest = hashlib.sha256(str(data_dir.resolve()).encode()).hexdigest()
+    for component in RuntimeComponent:
+        record_path = data_dir / "runtime" / "state" / f"{component.value}.json"
+        if not record_path.is_file():
+            continue
+        try:
+            record = RuntimeProcessRecord.model_validate_json(
+                record_path.read_text(encoding="utf-8")
+            )
+            process = psutil.Process(record.pid)
+            command_line = tuple(process.cmdline())
+            owned = (
+                record.component is component
+                and record.data_dir_sha256 == data_digest
+                and record.executable.resolve() == entrypoint.resolve()
+                and abs(process.create_time() - record.process_started_at) <= 0.01
+                and Path(process.exe()).resolve() == record.executable.resolve()
+                and set(runtime_identity_arguments(component, record.instance_id)).issubset(
+                    command_line
+                )
+            )
+        except psutil.NoSuchProcess:
+            continue
+        except (OSError, ValueError, psutil.AccessDenied):
+            confirmed = False
+            continue
+        if not owned:
+            confirmed = False
+            continue
+        try:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except psutil.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        except psutil.NoSuchProcess:
+            continue
+        except (OSError, psutil.AccessDenied, psutil.TimeoutExpired):
+            confirmed = False
+    return confirmed
+
+
 def run_product_lifecycle(
     entrypoint: Path,
     package_root: Path,
@@ -391,13 +462,16 @@ def run_product_lifecycle(
         arguments: Sequence[str],
         input_text: str | None = None,
     ) -> tuple[int, dict[str, JsonValue] | None]:
-        code, body, output = _run_public_command(
-            entrypoint,
-            arguments,
-            working_dir,
-            environment,
-            input_text,
-        )
+        try:
+            code, body, output = _run_public_command(
+                entrypoint,
+                arguments,
+                working_dir,
+                environment,
+                input_text,
+            )
+        except OSError:
+            code, body, output = 126, None, ""
         transcript.append(output)
         evidence: dict[str, JsonValue] = {
             "exit_code": code,
@@ -448,24 +522,27 @@ def run_product_lifecycle(
             "--enable-gateway",
         ),
     )
-    start_code, start_body = execute(
-        "runtime-start",
-        ("runtime", "start", "--profile", str(profile)),
-    )
-    repeat_code, repeat_body = execute(
-        "runtime-start-repeat",
-        ("runtime", "start", "--profile", str(profile)),
-    )
-    status_code, status_body = execute(
-        "runtime-status",
-        ("runtime", "status", "--profile", str(profile)),
-    )
-
     health_status: int | None = None
     app_status: int | None = None
     gateway_status: int | None = None
     package: dict[str, JsonValue] = {}
+    start_code = repeat_code = status_code = 126
+    start_body: dict[str, JsonValue] | None = None
+    repeat_body: dict[str, JsonValue] | None = None
+    status_body: dict[str, JsonValue] | None = None
     try:
+        start_code, start_body = execute(
+            "runtime-start",
+            ("runtime", "start", "--profile", str(profile)),
+        )
+        repeat_code, repeat_body = execute(
+            "runtime-start-repeat",
+            ("runtime", "start", "--profile", str(profile)),
+        )
+        status_code, status_body = execute(
+            "runtime-status",
+            ("runtime", "status", "--profile", str(profile)),
+        )
         health_status = _wait_for_status(
             f"http://127.0.0.1:{local_port}/api/resources/health",
             200,
@@ -497,6 +574,10 @@ def run_product_lifecycle(
             "runtime-status-stopped",
             ("runtime", "status", "--profile", str(profile)),
         )
+        process_cleanup_confirmed = _cleanup_owned_runtime_processes(entrypoint, data_dir)
+
+    data_before = _directory_evidence(data_dir)
+    secrets_before = _directory_evidence(data_dir / "gateway-secrets")
 
     stage_code, stage_body = execute(
         "package-stage",
@@ -548,6 +629,8 @@ def run_product_lifecycle(
             str(install_root),
         ),
     )
+    data_after = _directory_evidence(data_dir)
+    secrets_after = _directory_evidence(data_dir / "gateway-secrets")
 
     start_state, start_components = _runtime_snapshot(start_body)
     repeat_state, repeat_components = _runtime_snapshot(repeat_body)
@@ -594,8 +677,8 @@ def run_product_lifecycle(
         package_status_code,
         remove_code,
     )
-    data_preserved = data_dir.is_dir()
-    secret_store_preserved = (data_dir / "gateway-secrets").is_dir()
+    data_preserved = data_before["file_count"] != 0 and data_before == data_after
+    secret_store_preserved = secrets_before["file_count"] != 0 and secrets_before == secrets_after
     secret_leak_detected = token in "".join(transcript)
     package_flow = (
         stage_body is not None
@@ -616,6 +699,7 @@ def run_product_lifecycle(
         all(code == 0 for code in command_codes)
         and running
         and stopped
+        and process_cleanup_confirmed
         and idempotent
         and health_status == 200
         and app_status == 200
@@ -643,6 +727,9 @@ def run_product_lifecycle(
         "idempotent_start": idempotent,
         "data_preserved": data_preserved,
         "secret_store_preserved": secret_store_preserved,
+        "data_evidence": {"before": data_before, "after": data_after},
+        "secret_store_evidence": {"before": secrets_before, "after": secrets_after},
+        "process_cleanup_confirmed": process_cleanup_confirmed,
         "secret_leak_detected": secret_leak_detected,
         "commands": steps,
         "passed": passed,
