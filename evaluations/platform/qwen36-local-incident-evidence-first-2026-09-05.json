@@ -1,0 +1,395 @@
+{
+  "schema_version": "local-incident-evidence-first/v1",
+  "claim_status": "draft-pr-verified",
+  "overall_result": "passed",
+  "change_id": "enforce-local-incident-evidence-first",
+  "source": {
+    "pull_request": 80,
+    "baseline_revision": "a3e0e2cdad6083f2d9debae9e8fd80b3483b1477",
+    "head_revision": "0dc4a124d4e0c9c85d22d0c78521e1abb823b776",
+    "synthetic_merge_revision": "8f70023b6951f17e0b526c9f9bb167474d527ea3",
+    "synthetic_merge_parents": [
+      "a3e0e2cdad6083f2d9debae9e8fd80b3483b1477",
+      "0dc4a124d4e0c9c85d22d0c78521e1abb823b776"
+    ],
+    "synthetic_merge_git_tree": "c17f6af34df112bb88aca90c59b9f76b1d35b2e8",
+    "source_tree_sha256": "c8ede98f423f52ec372c891d0fc3aa8744ec4228fe6c06426294a762e17441e6"
+  },
+  "ci": {
+    "run_id": 33966168852,
+    "url": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/33966168852",
+    "head_revision": "0dc4a124d4e0c9c85d22d0c78521e1abb823b776",
+    "result": "8/8 passed",
+    "jobs": [
+      "Python 3.11 / windows-latest",
+      "Python 3.11 / macos-latest",
+      "React / 质量与生产构建",
+      "React / macos-latest / webkit",
+      "React / windows-latest / chromium",
+      "运行包 / macos-arm64",
+      "运行包 / windows-amd64",
+      "运行包 / 双平台一致性"
+    ],
+    "artifacts": {
+      "windows_package": {
+        "id": 9969531521,
+        "name": "runtime-package-windows-amd64"
+      },
+      "windows_evidence": {
+        "id": 9969531743,
+        "name": "runtime-package-evidence-windows-amd64"
+      },
+      "macos_package": {
+        "id": 9969512961,
+        "name": "runtime-package-macos-arm64"
+      },
+      "macos_evidence": {
+        "id": 9969513109,
+        "name": "runtime-package-evidence-macos-arm64"
+      },
+      "matrix_summary": {
+        "id": 9969534874,
+        "name": "runtime-package-matrix-summary"
+      }
+    }
+  },
+  "packages": {
+    "windows": {
+      "platform": "win32",
+      "architecture": "amd64",
+      "package_id": "tunnelminion-0-1-0-win32-amd64-c8ede98f423f-ab379b867826",
+      "artifact_source_revision": "8f70023b6951f17e0b526c9f9bb167474d527ea3",
+      "source_tree_sha256": "c8ede98f423f52ec372c891d0fc3aa8744ec4228fe6c06426294a762e17441e6",
+      "tar_sha256": "6f7ee19ab1094e016cce0dda0dfccf0c9d6f884eba20c233225f157bf03011f4",
+      "executable_sha256": "95d2edb00b9b7887fa4a04da70f88f992c02f7ad00514202e8bb9d148abca9ee",
+      "manifest_sha256": "0c6f6345a708a30be059a932f5db26a92f18b54cace84d69c9697ff431db073c",
+      "unknown_license_count": 0
+    },
+    "macos": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "package_id": "tunnelminion-0-1-0-darwin-arm64-c8ede98f423f-ab379b867826",
+      "artifact_source_revision": "8f70023b6951f17e0b526c9f9bb167474d527ea3",
+      "source_tree_sha256": "c8ede98f423f52ec372c891d0fc3aa8744ec4228fe6c06426294a762e17441e6",
+      "tar_sha256": "2b84d45081645d70ffca55d16c663a35b161d06b6ad8d0c726b8090ae570c5c6",
+      "executable_sha256": "11724d699673e7e5a73b38afe4497ee9d30dc5cfb39369a486771c86dd0e4d6d",
+      "manifest_sha256": "41d05b86316308bcaaa5611e8ea1d61b1a455b4b1a2b5333684d727629f4b03d",
+      "unknown_license_count": 0
+    },
+    "matrix": {
+      "passed": true,
+      "source_revision": "8f70023b6951f17e0b526c9f9bb167474d527ea3",
+      "summary_sha256": "491b3497ab86bc59d99fe9b057d2cab9f282afd69f0e44d9fa638d2e99e2f6ec"
+    }
+  },
+  "model": {
+    "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+    "macos_endpoint": "http://127.0.0.1:8080/v1",
+    "windows_transport": "test-owned loopback SSH forwards to the existing macOS 8080 endpoint",
+    "api_key_configured": false,
+    "keyring_backend": "null",
+    "configuration_requests_per_sample": 0,
+    "timeout_seconds": 90.0
+  },
+  "method": {
+    "formal_package_executed": true,
+    "source_entry_executed": false,
+    "fresh_data_directory_per_sample": true,
+    "baseline_gate": "SQLite query_only mode, at least two complete snapshots, zero incidents, target port absent",
+    "target_gate": "one non-privileged loopback Python HTTP listener, present in at least two revisions, matching local_observation service_added incident",
+    "observation": "SQLite opened read-only; product API polling is not used after health readiness",
+    "macos_harness_sha256": "2270a435c6c1227f0123fa5d70bab04eeccb6a642d04d53adb13313c70ef13aa",
+    "windows_harness_sha256": "82638875594c3bd0a481c5959c5c0d0a5532932ea26b4193e9fe0d9a3ad88cb4",
+    "windows_method_adjustment": "Concurrent incidents for distinct service IDs are recorded but no longer abort a complete target investigation. The startup baseline must still contain zero incidents, and target evidence, identity, revisions, tools, and terminal decision remain independently checked.",
+    "product_code_changed_for_test_noise": false
+  },
+  "acceptance": {
+    "thresholds": {
+      "windows_samples": 5,
+      "macos_samples": 5,
+      "related_read_only_tool_evidence": 8,
+      "evidence_backed_conclusions": 7,
+      "unsupported_confirmations": 0,
+      "forbidden_tool_executions": 0,
+      "scenario_unrelated_tool_calls": 0,
+      "model_request_upper_bound_per_platform": 20
+    },
+    "observed": {
+      "windows_samples": 5,
+      "macos_samples": 5,
+      "related_read_only_tool_evidence": 10,
+      "evidence_backed_conclusions": 10,
+      "unsupported_confirmations": 0,
+      "forbidden_tool_attempts": 0,
+      "forbidden_tool_executions": 0,
+      "scenario_unrelated_tool_calls": 0,
+      "windows_model_completion_requests": 10,
+      "macos_model_completion_requests": 10,
+      "all_sample_ports_released": true
+    },
+    "passed": true
+  },
+  "platforms": {
+    "macos": {
+      "selected_sample_count": 5,
+      "related_tool_evidence_count": 5,
+      "evidence_backed_conclusion_count": 5,
+      "model_completion_requests": 10,
+      "investigation_latency_seconds": {
+        "minimum": 35.968,
+        "average": 45.92,
+        "maximum": 54.989
+      },
+      "sample_wall_seconds": {
+        "minimum": 157.997,
+        "average": 167.988,
+        "maximum": 177.289
+      },
+      "samples": [
+        {
+          "sample_id": "macos-1",
+          "source_result": "macos-attempt-1.json",
+          "source_round": 2,
+          "target_port": 51695,
+          "target_service_id": "service_324b400a776a3e0c5056088442e75627",
+          "target_incident_id": "incident_898cf92e4f546b99e5ce2f99a7b3246f",
+          "investigation_latency_seconds": 52.775,
+          "sample_wall_seconds": 174.76
+        },
+        {
+          "sample_id": "macos-2",
+          "source_result": "macos-attempt-1.json",
+          "source_round": 4,
+          "target_port": 52442,
+          "target_service_id": "service_4ccd43be82340fa842d0254c7674e69b",
+          "target_incident_id": "incident_d34822bf6073c53bf34ee3b881e4bc48",
+          "investigation_latency_seconds": 35.968,
+          "sample_wall_seconds": 157.997
+        },
+        {
+          "sample_id": "macos-3",
+          "source_result": "macos-attempt-1.json",
+          "source_round": 5,
+          "target_port": 52862,
+          "target_service_id": "service_3303d980011930540a6d73b3f6f5f16e",
+          "target_incident_id": "incident_307272f57dccb24f04c0b7964af1e0fe",
+          "investigation_latency_seconds": 37.197,
+          "sample_wall_seconds": 159.333
+        },
+        {
+          "sample_id": "macos-4",
+          "source_result": "macos-attempt-2.json",
+          "source_round": 1,
+          "target_port": 53310,
+          "target_service_id": "service_bd6f0a0af7cda913d1a3434afb574811",
+          "target_incident_id": "incident_f6250614c7028cfa2dbce1c2691d73f0",
+          "investigation_latency_seconds": 48.672,
+          "sample_wall_seconds": 170.561
+        },
+        {
+          "sample_id": "macos-5",
+          "source_result": "macos-attempt-4.json",
+          "source_round": 1,
+          "target_port": 53989,
+          "target_service_id": "service_17e496da7746ff91434bb368d02e7792",
+          "target_incident_id": "incident_98c1db501f1532e5151479fbaae8823c",
+          "investigation_latency_seconds": 54.989,
+          "sample_wall_seconds": 177.289
+        }
+      ]
+    },
+    "windows": {
+      "selected_sample_count": 5,
+      "related_tool_evidence_count": 5,
+      "evidence_backed_conclusion_count": 5,
+      "model_completion_requests": 10,
+      "concurrent_unrelated_incident_count": 3,
+      "concurrent_unrelated_incident_class": "distinct short-lived high-port UDP endpoint removal; retained as environment noise and never used as target evidence",
+      "investigation_latency_seconds": {
+        "minimum": 54.543,
+        "average": 66.302,
+        "maximum": 79.331
+      },
+      "sample_wall_seconds": {
+        "minimum": 197.11,
+        "average": 209.181,
+        "maximum": 222.672
+      },
+      "samples": [
+        {
+          "sample_id": "windows-1",
+          "source_result": "windows-attempt-2.json",
+          "source_round": 1,
+          "target_port": 56056,
+          "target_service_id": "service_0f6cb3bac5341fafc73abbd97333846c",
+          "target_incident_id": "incident_1a07477a94d12adbd003ce6370c208f6",
+          "concurrent_unrelated_incident_count": 1,
+          "investigation_latency_seconds": 65.033,
+          "sample_wall_seconds": 207.922
+        },
+        {
+          "sample_id": "windows-2",
+          "source_result": "windows-attempt-4.json",
+          "source_round": 1,
+          "target_port": 52302,
+          "target_service_id": "service_3a29bc54ae5ed3a6068a9767cf95792d",
+          "target_incident_id": "incident_86effa85a9b38118e2e44a308d511ca6",
+          "concurrent_unrelated_incident_count": 1,
+          "investigation_latency_seconds": 54.865,
+          "sample_wall_seconds": 197.593
+        },
+        {
+          "sample_id": "windows-3",
+          "source_result": "windows-attempt-4.json",
+          "source_round": 2,
+          "target_port": 49816,
+          "target_service_id": "service_12622947033d5053fe8353f4a6bf5638",
+          "target_incident_id": "incident_b89b49a030bdf81e8ea1a5fd52e94fdb",
+          "concurrent_unrelated_incident_count": 0,
+          "investigation_latency_seconds": 79.331,
+          "sample_wall_seconds": 222.672
+        },
+        {
+          "sample_id": "windows-4",
+          "source_result": "windows-attempt-4.json",
+          "source_round": 3,
+          "target_port": 57498,
+          "target_service_id": "service_cc58897baf3fe6665b241c307776cecd",
+          "target_incident_id": "incident_84f0fb688631445ad1e0a4ba1696163c",
+          "concurrent_unrelated_incident_count": 1,
+          "investigation_latency_seconds": 54.543,
+          "sample_wall_seconds": 197.11
+        },
+        {
+          "sample_id": "windows-5",
+          "source_result": "windows-attempt-4.json",
+          "source_round": 4,
+          "target_port": 51616,
+          "target_service_id": "service_2303e3e3afc984d9e41b4f7ca5196025",
+          "target_incident_id": "incident_2594f400b7bf8e1e1fbf438b5793aa58",
+          "concurrent_unrelated_incident_count": 0,
+          "investigation_latency_seconds": 77.74,
+          "sample_wall_seconds": 220.609
+        }
+      ]
+    },
+    "selected_sample_invariants": {
+      "baseline_snapshot_count": 2,
+      "baseline_incident_count": 0,
+      "event_type": "service_added",
+      "event_source": "local_observation",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "executed_tools": [
+        "list_network_listeners"
+      ],
+      "successful_tools": [
+        "list_network_listeners"
+      ],
+      "tool_evidence_count": 1,
+      "snapshot_evidence_count": 1,
+      "related_listener_evidence": true,
+      "evidence_backed_conclusion": true,
+      "unsupported_confirmation": false,
+      "forbidden_tool_attempt": false,
+      "forbidden_tools_executed": [],
+      "scenario_unrelated_tools": [],
+      "target_confirmed_twice": true,
+      "target_event_snapshot_matches": true,
+      "model_completion_requests": 2,
+      "ports_released": true
+    }
+  },
+  "raw_result_hashes": {
+    "macos-attempt-1.json": "4202e0b312d1306f6abfa222cf8833191e00286a85da84ca63c77eec3ed5eb7d",
+    "macos-attempt-2.json": "ff85ff32fdcef3431c58b7440635bff2d41b1c8350df5beddff9df01f23f9a25",
+    "macos-attempt-3.json": "d5168462cccc404be85fb66635b8bd726bd4272ee671cc461f12cc72f6456bfd",
+    "macos-attempt-4.json": "9fb2e44c83ffa8eb198f94ff7ea1a42567b4071ed0bac9d16090a98a951dfec3",
+    "windows-attempt-1.json": "0f0e50a97d0efae612ed1b29e40cc5ccbeced65a38ab3707b279a6caf2d09cd1",
+    "windows-attempt-2.json": "3b21fa7d5ce75322b236b385f731f7d49c84b5783faaa8449d265893ed8cf4bb",
+    "windows-attempt-4.json": "4b8bd99a41f3c1a2dc8973b4f924e43d5dd31dbd3dec17a84b668c31066c4bd3"
+  },
+  "excluded_attempts": [
+    {
+      "platform": "macos",
+      "source": "macos-attempt-1.json",
+      "rounds": [
+        1,
+        3
+      ],
+      "reason": "The original stricter harness rejected any concurrent incident; round 1 still had a complete target conclusion, while round 3 stopped before a target report. Neither was needed for the five selected clean macOS samples."
+    },
+    {
+      "platform": "macos",
+      "source": "macos-attempt-3.json",
+      "rounds": [
+        1
+      ],
+      "reason": "Complete target conclusion accompanied by a distinct concurrent incident; excluded because five stricter clean macOS samples were available."
+    },
+    {
+      "platform": "windows",
+      "source": "windows-attempt-1.json",
+      "rounds": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "reason": "The original stricter harness rejected short-lived unrelated UDP removals. Four rounds had complete target evidence, but the whole batch was excluded after correcting the test method and rerunning."
+    },
+    {
+      "platform": "windows",
+      "source": "windows-samples-attempt-3",
+      "rounds": [
+        1,
+        2,
+        3
+      ],
+      "reason": "Test-owned port 29487 forward had been closed. Two rounds safely ended investigation_unavailable and the batch was cancelled during round 3 baseline; no final aggregate JSON was produced, and no round was counted."
+    }
+  ],
+  "prior_revision_diagnostics_not_counted": [
+    "d0fd5310b4b9a1efff919caedd14f10585ed298f",
+    "f7d7380f49d9f870d6e404148186f7587d5a174e",
+    "36ac18b2331f9cb863d53784849ed3e77f39308e"
+  ],
+  "quality_gates": {
+    "full_pytest": "1384 passed, 6 skipped, 100% coverage",
+    "ruff": "passed",
+    "pyright": "0 errors, 0 warnings",
+    "openspec_strict": "passed",
+    "diff_check": "passed",
+    "artifact_ci": "8/8 passed"
+  },
+  "boundaries": {
+    "production_model_8080_modified": false,
+    "production_gateway_8787_modified": false,
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routing_or_dns_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "secrets_read_or_written": false,
+    "deepseek_used": false,
+    "temporary_ssh_forward_ports": [
+      29487,
+      29488
+    ],
+    "temporary_ssh_forward_ports_released": true,
+    "selected_sample_ports_released": true,
+    "temporary_data_removed": true,
+    "local_temporary_roots_removed": 5,
+    "macos_temporary_roots_removed": 3
+  },
+  "limitations": [
+    "Windows does not always expose a UDP remote address through psutil. Three selected Windows samples therefore recorded a distinct short-lived UDP service_removed incident, but those service IDs were not used as target evidence and did not change the target tool trace.",
+    "get_process_summary remained optional because list_network_listeners supplied sufficient target evidence in every selected sample.",
+    "The result validates isolated local service_added investigation in the two formal packages; it does not validate packet relay, provider expansion, automatic networking, WireGuard, firewall, routing, DNS, production services, or privileged workflows.",
+    "Official DeepSeek was not used because this stage does not change the Provider contract."
+  ]
+}
