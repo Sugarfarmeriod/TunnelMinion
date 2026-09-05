@@ -1,0 +1,83 @@
+{
+  "schema_version": "real-product-incident-tool-boundary/v1",
+  "claim_status": "draft-pr-verified",
+  "source_commit": "14b0d8d78e9031db13bab58960fc4a44c216485d",
+  "artifact_run_id": 33948082611,
+  "artifact_name": "runtime-package-macos-arm64",
+  "artifact_source_revision": "50574d0aba3bd5356564934d0e299d47447be7c6",
+  "scope": "isolated-macos-formal-package",
+  "model": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+    "api_key_configured": false,
+    "keyring_backend": "null",
+    "status": "available"
+  },
+  "baseline": {
+    "strategy": "正式包启动后等待两个快照周期，不再通过应用 API 轮询，避免测量连接干扰服务快照",
+    "snapshot_count": 2,
+    "incident_count": 0,
+    "model_requests": 0,
+    "target_port_present": false
+  },
+  "observation": {
+    "temporary_application_port": 18775,
+    "temporary_listener_port": 18776,
+    "target_service_id": "service_0fd40c432400fb7b6f14f7d57abde07f",
+    "target_incident_id": "incident_f25f19e58e240bad280ea453bd5e9861",
+    "target_node_id": "node_adda4589747f46498ac210227fbf4253",
+    "event_type": "service_added",
+    "event_source": "local_observation",
+    "status": "insufficient_evidence",
+    "stop_reason": "insufficient_evidence",
+    "conclusion": null,
+    "model_requests_for_target": 1,
+    "native_tool_call_count": 0,
+    "deterministic_fallback_triggered": false,
+    "selected_tools": [],
+    "tool_evidence_count": 0,
+    "snapshot_evidence_count": 1,
+    "target_port_present_in_report": true,
+    "target_loopback_scope_present_in_report": true,
+    "unsupported_root_cause_confirmed": false,
+    "unrelated_incident_count": 1,
+    "observed_at": "2026-09-05T06:01:39.211013Z",
+    "completed_at": "2026-09-05T06:02:07.153274Z"
+  },
+  "offline_fallback_validation": {
+    "invalid_initial_response_uses_local_read_only_fallback": true,
+    "remote_source_never_uses_local_fallback": true,
+    "invalid_remote_response_fails_without_tool_execution": true,
+    "unnecessary_tool_call_rate": 0.0
+  },
+  "targeted_gates": {
+    "incident_provider_and_evaluation_tests": "41 passed",
+    "pyright": "0 errors, 0 warnings",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "ci": "8/8 passed",
+    "formal_package_job": "passed"
+  },
+  "boundaries": {
+    "production_model_8080_modified": false,
+    "production_model_8080_after": "healthy",
+    "production_gateway_8787_modified": false,
+    "production_gateway_8787_after": "listening",
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routing_or_dns_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "secrets_read_or_written": false,
+    "temporary_ports_released": true,
+    "temporary_data_removed": true
+  },
+  "limitations": [
+    "真实 Qwen3.6 本轮返回了结构有效但没有工具调用的谨慎结论，因此只证明系统会保留证据不足的安全停止；没有证明 MLX 会稳定遵守 tool_choice=required。",
+    "格式无效时的确定性只读兜底由离线回归证明，真实模型本轮没有产生该输入；不得把这份实机结果表述成真实兜底已触发。",
+    "兜底只允许用于 local_observation 事件；远端或目录来源宁可失败，也不会拿本机工具结果冒充远端证据。",
+    "应用 API 状态轮询会产生可见短连接；最终目标只通过 SQLite 只读查询观察，并按 18776 对应的 service_id 和 incident_id 独立核对。",
+    "本轮不代表真实双机 A/B、WireGuard、生产网络、提权流程或所有 incident 收敛率验收。"
+  ],
+  "overall_result": "passed"
+}
