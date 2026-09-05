@@ -15,6 +15,54 @@ Prompt/Context Runtime。稳定需求位于 [`openspec/specs`](openspec/specs)�
 实际启动、Qwen 配置、A/B peer、排错、脱敏导出和完整卸载见
 [《A/B 开发启动与运维》](docs/guide/开发启动与运维.md)。
 
+## 直接使用 Windows/macOS 运行包
+
+从成功 CI 的对应平台任务下载 `runtime-package-windows-amd64` 或
+`runtime-package-macos-arm64`，先解开 artifact 外层压缩包，再解开其中的
+`runtime-package.tar`。得到的 `package/` 必须同时包含可执行文件和
+`runtime-package-manifest.json`；运行时不需要安装 Python、uv、Node.js，也不需要源码目录。
+
+Windows PowerShell：
+
+```powershell
+tar -xf .\runtime-package.tar
+$Profile = Join-Path $HOME ".tunnelminion\runtime-profile.json"
+$Data = Join-Path $HOME ".tunnelminion\data"
+$Exe = ".\package\tunnelminion.exe"
+
+& $Exe runtime configure --profile $Profile --data-dir $Data --local-port 8765
+& $Exe runtime start --profile $Profile
+& $Exe runtime status --profile $Profile
+```
+
+macOS：
+
+```bash
+tar -xf ./runtime-package.tar
+PROFILE="$HOME/.tunnelminion/runtime-profile.json"
+DATA="$HOME/.tunnelminion/data"
+EXE="./package/tunnelminion"
+
+"$EXE" runtime configure --profile "$PROFILE" --data-dir "$DATA" --local-port 8765
+"$EXE" runtime start --profile "$PROFILE"
+"$EXE" runtime status --profile "$PROFILE"
+```
+
+`start` 返回后，本地组件仍在后台运行；浏览器打开
+`http://127.0.0.1:8765/app/overview`。需要停止时执行：
+
+```text
+<包内可执行文件> runtime stop --profile <PROFILE>
+```
+
+首版不会注册开机或登录自启动，机器重启后需要再次手动执行 `start`。模型服务仍是外部进程；
+`model_unconfigured` 或 `model unavailable` 不会阻止本地确定性功能启动。若返回
+`package_invalid`，不要手工生成或从别处拼接清单，应重新下载同一 CI 任务的完整运行包。
+
+启用私网 Gateway 前，先按[开发启动与运维指南](docs/guide/开发启动与运维.md)完成地址、peer 和
+SecretStore 配置，把其中的 `uv run tunnelminion` 替换为包内可执行文件，再在 `runtime configure`
+后加 `--enable-gateway`。这不会修改 WireGuard、防火墙、路由或 DNS。
+
 ## 开发环境
 
 依赖条件：

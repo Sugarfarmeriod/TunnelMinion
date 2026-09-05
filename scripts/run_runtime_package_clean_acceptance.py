@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import psutil
 from pydantic import JsonValue
 
 from tunnelminion.runtime.preflight import verify_runtime_package
@@ -130,9 +132,28 @@ def _available_port() -> int:
         return cast(int, listener.getsockname()[1])
 
 
+def _private_host_and_port() -> tuple[str, int]:
+    """选择本机可绑定的非环回私网 IPv4 与临时端口。"""
+    for addresses in psutil.net_if_addrs().values():
+        for address in addresses:
+            if address.family != socket.AF_INET:
+                continue
+            parsed = ipaddress.ip_address(address.address)
+            if not parsed.is_private or parsed.is_loopback or parsed.is_unspecified:
+                continue
+            with socket.socket() as listener:
+                try:
+                    listener.bind((address.address, 0))
+                except OSError:
+                    continue
+                return address.address, cast(int, listener.getsockname()[1])
+    raise RuntimeError("当前机器没有可绑定的非环回私网 IPv4 地址")
+
+
 def _read_json(url: str, timeout_seconds: float) -> tuple[int, dict[str, JsonValue]]:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
+        with opener.open(url, timeout=timeout_seconds) as response:
             return response.status, cast(dict[str, JsonValue], json.load(response))
     except urllib.error.HTTPError as exc:
         with exc:
@@ -294,95 +315,338 @@ def run_component(
             process.wait(timeout=5)
 
 
-def run_product_local(
+def _run_public_command(
     entrypoint: Path,
+    arguments: Sequence[str],
+    working_dir: Path,
+    environment: Mapping[str, str],
+    input_text: str | None = None,
+) -> tuple[int, dict[str, JsonValue] | None, str]:
+    """执行包内公开命令，只把结构化结果交给验收逻辑。"""
+    try:
+        completed = subprocess.run(
+            (str(entrypoint), *arguments),
+            cwd=working_dir,
+            env=environment,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, None, ""
+    try:
+        raw = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        body = None
+    else:
+        body = cast(dict[str, JsonValue], raw) if isinstance(raw, dict) else None
+    return completed.returncode, body, completed.stdout + completed.stderr
+
+
+def _runtime_snapshot(
+    body: dict[str, JsonValue] | None,
+) -> tuple[str | None, dict[str, tuple[str | None, int | None]]]:
+    """提取公开 runtime 输出中用于生命周期验收的最小状态。"""
+    runtime = body.get("runtime") if body is not None else None
+    if not isinstance(runtime, dict):
+        return None, {}
+    components = runtime.get("components")
+    if not isinstance(components, list):
+        return cast(str | None, runtime.get("state")), {}
+    snapshot: dict[str, tuple[str | None, int | None]] = {}
+    for raw in components:
+        if not isinstance(raw, dict) or not isinstance(raw.get("component"), str):
+            continue
+        snapshot[cast(str, raw["component"])] = (
+            cast(str | None, raw.get("state")),
+            cast(int | None, raw.get("pid")),
+        )
+    return cast(str | None, runtime.get("state")), snapshot
+
+
+def run_product_lifecycle(
+    entrypoint: Path,
+    package_root: Path,
+    candidate_id: str,
     data_dir: Path,
     working_dir: Path,
 ) -> dict[str, JsonValue]:
-    """在无源码、Node 和网络依赖的目录启动正式本地产品并打开 React 入口。"""
-    port = _available_port()
-    started = time.monotonic()
-    log_file = data_dir / "runtime" / "logs" / "local.log"
+    """仅经公开 CLI 验收本地/Gateway 生命周期和保留数据的版本管理。"""
+    local_port = _available_port()
+    gateway_host, gateway_port = _private_host_and_port()
+    profile = working_dir.parent / "config" / "runtime-profile.json"
+    install_root = working_dir.parent / "install"
+    embedded_manifest = package_root / INSTALLED_MANIFEST_FILE
     environment = isolated_product_environment(working_dir / "empty-path")
+    token = "tmn_" + uuid4().hex + uuid4().hex[:8]
+    transcript: list[str] = []
+    steps: dict[str, JsonValue] = {}
+
+    def execute(
+        name: str,
+        arguments: Sequence[str],
+        input_text: str | None = None,
+    ) -> tuple[int, dict[str, JsonValue] | None]:
+        code, body, output = _run_public_command(
+            entrypoint,
+            arguments,
+            working_dir,
+            environment,
+            input_text,
+        )
+        transcript.append(output)
+        evidence: dict[str, JsonValue] = {
+            "exit_code": code,
+            "json_output": body is not None,
+        }
+        if body is not None:
+            for field in ("status", "error_code"):
+                if isinstance(body.get(field), str):
+                    evidence[field] = body[field]
+        steps[name] = evidence
+        return code, body
+
+    started = time.monotonic()
+    gateway_code, _gateway = execute(
+        "gateway-configure",
+        (
+            "gateway-configure",
+            "--data-dir",
+            str(data_dir),
+            "--bind-host",
+            gateway_host,
+            "--bind-port",
+            str(gateway_port),
+            "--peer-node-id",
+            "node_" + uuid4().hex,
+            "--peer-host",
+            gateway_host,
+            "--peer-port",
+            str(gateway_port),
+            "--allowed-tool",
+            "get_node_summary",
+            "--secret-store",
+            "restricted-file",
+        ),
+        token,
+    )
+    configure_code, _configured = execute(
+        "runtime-configure",
+        (
+            "runtime",
+            "configure",
+            "--profile",
+            str(profile),
+            "--data-dir",
+            str(data_dir),
+            "--local-port",
+            str(local_port),
+            "--enable-gateway",
+        ),
+    )
+    start_code, start_body = execute(
+        "runtime-start",
+        ("runtime", "start", "--profile", str(profile)),
+    )
+    repeat_code, repeat_body = execute(
+        "runtime-start-repeat",
+        ("runtime", "start", "--profile", str(profile)),
+    )
+    status_code, status_body = execute(
+        "runtime-status",
+        ("runtime", "status", "--profile", str(profile)),
+    )
+
+    health_status: int | None = None
+    app_status: int | None = None
+    gateway_status: int | None = None
+    package: dict[str, JsonValue] = {}
+    try:
+        health_status = _wait_for_status(
+            f"http://127.0.0.1:{local_port}/api/resources/health",
+            200,
+            STARTUP_TIMEOUT_SECONDS,
+        )
+        app_status = _wait_for_status(
+            f"http://127.0.0.1:{local_port}/app/overview",
+            200,
+            5.0,
+        )
+        overview_status, overview = _read_json(
+            f"http://127.0.0.1:{local_port}/api/resources/overview",
+            5.0,
+        )
+        if overview_status == 200:
+            package = _runtime_package_evidence(overview)
+        gateway_status, _gateway_body = _read_json(
+            f"http://{gateway_host}:{gateway_port}/v1/capabilities",
+            5.0,
+        )
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError):
+        pass
+    finally:
+        stop_code, stop_body = execute(
+            "runtime-stop",
+            ("runtime", "stop", "--profile", str(profile)),
+        )
+        stopped_status_code, stopped_status_body = execute(
+            "runtime-status-stopped",
+            ("runtime", "status", "--profile", str(profile)),
+        )
+
+    stage_code, stage_body = execute(
+        "package-stage",
+        (
+            "runtime-package",
+            "stage",
+            "--profile",
+            str(profile),
+            "--install-root",
+            str(install_root),
+            "--package-root",
+            str(package_root),
+            "--manifest",
+            str(embedded_manifest),
+        ),
+    )
+    activate_code, activate_body = execute(
+        "package-activate",
+        (
+            "runtime-package",
+            "activate",
+            "--profile",
+            str(profile),
+            "--install-root",
+            str(install_root),
+            "--package-id",
+            candidate_id,
+        ),
+    )
+    package_status_code, package_status_body = execute(
+        "package-status",
+        (
+            "runtime-package",
+            "status",
+            "--profile",
+            str(profile),
+            "--install-root",
+            str(install_root),
+        ),
+    )
+    remove_code, remove_body = execute(
+        "package-remove",
+        (
+            "runtime-package",
+            "remove",
+            "--profile",
+            str(profile),
+            "--install-root",
+            str(install_root),
+        ),
+    )
+
+    start_state, start_components = _runtime_snapshot(start_body)
+    repeat_state, repeat_components = _runtime_snapshot(repeat_body)
+    status_state, status_components = _runtime_snapshot(status_body)
+    stop_state, stop_components = _runtime_snapshot(stop_body)
+    stopped_state, stopped_components = _runtime_snapshot(stopped_status_body)
+    expected_components = {"gateway", "local"}
+    start_pids = {name: value[1] for name, value in start_components.items()}
+    repeat_pids = {name: value[1] for name, value in repeat_components.items()}
+    status_pids = {name: value[1] for name, value in status_components.items()}
+    running = all(
+        state == "running"
+        and set(components) == expected_components
+        and all(value[0] == "running" for value in components.values())
+        for state, components in (
+            (start_state, start_components),
+            (repeat_state, repeat_components),
+            (status_state, status_components),
+        )
+    )
+    stopped = all(
+        state == "stopped"
+        and set(components) == expected_components
+        and all(value[0] == "stopped" for value in components.values())
+        for state, components in (
+            (stop_state, stop_components),
+            (stopped_state, stopped_components),
+        )
+    )
+    idempotent = (
+        all(isinstance(pid, int) for pid in start_pids.values())
+        and start_pids == repeat_pids == status_pids
+    )
+    command_codes = (
+        gateway_code,
+        configure_code,
+        start_code,
+        repeat_code,
+        status_code,
+        stop_code,
+        stopped_status_code,
+        stage_code,
+        activate_code,
+        package_status_code,
+        remove_code,
+    )
+    data_preserved = data_dir.is_dir()
+    secret_store_preserved = (data_dir / "gateway-secrets").is_dir()
+    secret_leak_detected = token in "".join(transcript)
+    package_flow = (
+        stage_body is not None
+        and stage_body.get("package_id") == candidate_id
+        and activate_body is not None
+        and activate_body.get("current_package_id") == candidate_id
+        and package_status_body is not None
+        and package_status_body.get("current_package_id") == candidate_id
+        and remove_body is not None
+        and remove_body.get("data_preserved") is True
+        and remove_body.get("secret_store_preserved") is True
+    )
     node_available = shutil.which("node", path=environment["PATH"]) is not None
     source_environment_present = any(
         name in environment for name in ("CONDA_PREFIX", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV")
     )
-    process = subprocess.Popen(
-        (
-            str(entrypoint),
-            "runtime-child",
-            "--runtime-component=local",
-            f"--runtime-instance-id={uuid4()}",
-            "--data-dir",
-            str(data_dir),
-            "--local-port",
-            str(port),
-            "--runtime-log-file",
-            str(log_file),
-        ),
-        cwd=working_dir,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    passed = (
+        all(code == 0 for code in command_codes)
+        and running
+        and stopped
+        and idempotent
+        and health_status == 200
+        and app_status == 200
+        and gateway_status == 401
+        and package.get("kind") == "standalone"
+        and package.get("manifest_schema") == "runtime-package-manifest/v2"
+        and package_flow
+        and data_preserved
+        and secret_store_preserved
+        and not secret_leak_detected
+        and not node_available
+        and not source_environment_present
     )
-    try:
-        try:
-            health_status = _wait_for_status(
-                f"http://127.0.0.1:{port}/api/resources/health",
-                200,
-                STARTUP_TIMEOUT_SECONDS,
-            )
-            app_status = _wait_for_status(
-                f"http://127.0.0.1:{port}/app/overview",
-                200,
-                5.0,
-            )
-            overview_status, overview = _read_json(
-                f"http://127.0.0.1:{port}/api/resources/overview",
-                5.0,
-            )
-            package = _runtime_package_evidence(overview)
-        except TimeoutError:
-            exit_code = process.poll()
-            return {
-                "component": "local-product",
-                "duration_ms": round((time.monotonic() - started) * 1000, 3),
-                "error_code": (
-                    "process-exited-before-ready" if exit_code is not None else "startup-timeout"
-                ),
-                "exit_code": exit_code,
-                "passed": False,
-            }
-        return {
-            "component": "local-product",
-            "duration_ms": round((time.monotonic() - started) * 1000, 3),
-            "error_code": None,
-            "exit_code": None,
-            "health_status": health_status,
-            "app_status": app_status,
-            "node_available": node_available,
-            "source_environment_present": source_environment_present,
-            "external_http_proxy_blocked": True,
-            "runtime_package": package,
-            "passed": (
-                process.poll() is None
-                and not node_available
-                and not source_environment_present
-                and overview_status == 200
-                and package["kind"] == "standalone"
-                and package["manifest_schema"] == "runtime-package-manifest/v2"
-            ),
-        }
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+    return {
+        "component": "public-runtime",
+        "duration_ms": round((time.monotonic() - started) * 1000, 3),
+        "health_status": health_status,
+        "app_status": app_status,
+        "gateway_status": gateway_status,
+        "node_available": node_available,
+        "source_environment_present": source_environment_present,
+        "external_http_proxy_blocked": True,
+        "runtime_package": package,
+        "public_cli": True,
+        "idempotent_start": idempotent,
+        "data_preserved": data_preserved,
+        "secret_store_preserved": secret_store_preserved,
+        "secret_leak_detected": secret_leak_detected,
+        "commands": steps,
+        "passed": passed,
+    }
 
 
 def run_acceptance(
@@ -400,8 +664,6 @@ def run_acceptance(
         relocated = sandbox / "program"
         shutil.copytree(package_root, relocated)
         is_v2 = manifest["schema_version"] == "runtime-package-manifest/v2"
-        if is_v2:
-            shutil.copy2(manifest_path, relocated / INSTALLED_MANIFEST_FILE)
         entrypoint = _safe_package_path(relocated, cast(str, manifest["entrypoint"]))
         entrypoint_args = _resolve_entrypoint_args(
             relocated,
@@ -411,7 +673,15 @@ def run_acceptance(
         work = sandbox / "work"
         work.mkdir()
         if is_v2:
-            results = [run_product_local(entrypoint, sandbox / "data-local", work)]
+            results = [
+                run_product_lifecycle(
+                    entrypoint,
+                    relocated,
+                    cast(str, candidate["id"]),
+                    sandbox / "data",
+                    work,
+                )
+            ]
         else:
             results = [
                 run_component(

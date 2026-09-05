@@ -35,6 +35,9 @@ def test_runtime_package_ci_staging_is_clean_and_confined(tmp_path: Path) -> Non
     assert not (staged / "stale.txt").exists()
     assert (staged / "package" / "tunnelminion.bin").read_bytes() == b"package"
     assert (staged / "manifest.json").is_file()
+    assert (staged / "package" / "runtime-package-manifest.json").read_bytes() == (
+        staged / "manifest.json"
+    ).read_bytes()
     assert (staged / "build-summary.json").is_file()
 
     _write_json(summary, {"package_id": "../escape"})
@@ -99,6 +102,12 @@ def _write_target(
                     "node_available": False,
                     "source_environment_present": False,
                     "external_http_proxy_blocked": True,
+                    "gateway_status": 401,
+                    "public_cli": True,
+                    "idempotent_start": True,
+                    "data_preserved": True,
+                    "secret_store_preserved": True,
+                    "secret_leak_detected": False,
                     "runtime_package": {
                         "kind": "standalone",
                         "version": "0.1.0",

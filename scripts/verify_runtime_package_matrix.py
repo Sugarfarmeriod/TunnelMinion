@@ -87,6 +87,12 @@ def verify_runtime_package_matrix(evidence_root: Path, frontend_receipt: Path) -
             or component.get("node_available") is not False
             or component.get("source_environment_present") is not False
             or component.get("external_http_proxy_blocked") is not True
+            or component.get("gateway_status") != 401
+            or component.get("public_cli") is not True
+            or component.get("idempotent_start") is not True
+            or component.get("data_preserved") is not True
+            or component.get("secret_store_preserved") is not True
+            or component.get("secret_leak_detected") is not False
             or package.get("kind") != "standalone"
             or package.get("manifest_schema") != "runtime-package-manifest/v2"
         ):

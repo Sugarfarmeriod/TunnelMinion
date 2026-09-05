@@ -41,6 +41,7 @@ def stage_runtime_package(
     target.mkdir(parents=True)
     shutil.copytree(package_root, target / "package")
     shutil.copy2(manifest_path, target / "manifest.json")
+    shutil.copy2(manifest_path, target / "package" / "runtime-package-manifest.json")
     shutil.copy2(summary_path, target / "build-summary.json")
     return target
 

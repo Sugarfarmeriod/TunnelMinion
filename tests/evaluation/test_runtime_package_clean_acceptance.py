@@ -6,7 +6,7 @@ import hashlib
 import json
 import platform
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -213,6 +213,125 @@ def test_runtime_package_evidence_is_minimal_and_requires_sections() -> None:
         acceptance._runtime_package_evidence(  # pyright: ignore[reportPrivateUsage]
             {"local": {}}
         )
+
+
+def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = tmp_path / "program"
+    package_root.mkdir()
+    entrypoint = package_root / "tunnelminion.bin"
+    entrypoint.write_bytes(b"runtime")
+    (package_root / acceptance.INSTALLED_MANIFEST_FILE).write_text("{}", encoding="utf-8")
+    data_dir = tmp_path / "data"
+    working_dir = tmp_path / "work"
+    working_dir.mkdir()
+    commands: list[tuple[str, ...]] = []
+    stopped = False
+
+    def runtime_body(state: str) -> dict[str, JsonValue]:
+        return {
+            "runtime": {
+                "state": state,
+                "components": [
+                    {"component": "gateway", "state": state, "pid": 101},
+                    {"component": "local", "state": state, "pid": 102},
+                ],
+            }
+        }
+
+    def run_public_command(
+        actual_entrypoint: Path,
+        arguments: Sequence[str],
+        actual_working_dir: Path,
+        environment: Mapping[str, str],
+        input_text: str | None = None,
+    ) -> tuple[int, dict[str, JsonValue] | None, str]:
+        nonlocal stopped
+        assert actual_entrypoint == entrypoint
+        assert actual_working_dir == working_dir
+        assert environment["PATH"] == str((working_dir / "empty-path").resolve())
+        command = tuple(arguments)
+        commands.append(command)
+        if command[0] == "gateway-configure":
+            assert input_text is not None and input_text.startswith("tmn_")
+            (data_dir / "gateway-secrets").mkdir(parents=True)
+            body: dict[str, JsonValue] = {"local_node_id": "test"}
+        elif command[:2] == ("runtime", "configure"):
+            body = {"schema_version": "runtime-profile/v1"}
+        elif command[:2] == ("runtime", "start"):
+            body = runtime_body("running")
+        elif command[:2] == ("runtime", "status"):
+            body = runtime_body("stopped" if stopped else "running")
+        elif command[:2] == ("runtime", "stop"):
+            stopped = True
+            body = runtime_body("stopped")
+        elif command[:2] == ("runtime-package", "stage"):
+            body = {"status": "staged", "package_id": "candidate"}
+        elif command[:2] == ("runtime-package", "activate"):
+            body = {"status": "activated", "current_package_id": "candidate"}
+        elif command[:2] == ("runtime-package", "status"):
+            body = {"status": "ready", "current_package_id": "candidate"}
+        else:
+            body = {
+                "status": "removed",
+                "data_preserved": True,
+                "secret_store_preserved": True,
+            }
+        return 0, body, json.dumps(body)
+
+    def read_json(url: str, timeout_seconds: float) -> tuple[int, dict[str, JsonValue]]:
+        del timeout_seconds
+        if url.endswith("/api/resources/overview"):
+            return 200, {
+                "local": {
+                    "package": {
+                        "kind": "standalone",
+                        "version": "0.1.0",
+                        "manifest_schema": "runtime-package-manifest/v2",
+                    }
+                }
+            }
+        assert url.endswith("/v1/capabilities")
+        return 401, {"detail": "unauthorized"}
+
+    def wait_for_status(url: str, expected: int, timeout_seconds: float) -> int:
+        del url, timeout_seconds
+        return expected
+
+    monkeypatch.setattr(acceptance, "_run_public_command", run_public_command)
+    monkeypatch.setattr(acceptance, "_available_port", lambda: 55122)
+    monkeypatch.setattr(acceptance, "_private_host_and_port", lambda: ("10.0.0.8", 55123))
+    monkeypatch.setattr(acceptance, "_wait_for_status", wait_for_status)
+    monkeypatch.setattr(acceptance, "_read_json", read_json)
+
+    report = acceptance.run_product_lifecycle(
+        entrypoint,
+        package_root,
+        "candidate",
+        data_dir,
+        working_dir,
+    )
+
+    assert report["passed"] is True
+    assert report["public_cli"] is True
+    assert report["idempotent_start"] is True
+    assert report["data_preserved"] is True
+    assert report["secret_store_preserved"] is True
+    assert not any("runtime-child" in command for command in commands)
+    assert [command[:2] for command in commands[1:]] == [
+        ("runtime", "configure"),
+        ("runtime", "start"),
+        ("runtime", "start"),
+        ("runtime", "status"),
+        ("runtime", "stop"),
+        ("runtime", "status"),
+        ("runtime-package", "stage"),
+        ("runtime-package", "activate"),
+        ("runtime-package", "status"),
+        ("runtime-package", "remove"),
+    ]
 
 
 def test_acceptance_relocates_package_and_reports_program_data_boundary(
