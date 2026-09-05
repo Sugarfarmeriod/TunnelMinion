@@ -24,6 +24,11 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务
 - **WHEN** `local_observation` 来源的 `service_added` 进入调查循环
 - **THEN** 首轮只暴露 `list_network_listeners`，完成一次监听尝试后的轮次只暴露该工具与 `get_process_summary`，且不暴露节点、WireGuard、Docker 或可达性工具
 
+#### Scenario: 后续工具调用与终态 Schema 同时启用
+
+- **WHEN** 已取得一次监听证据的后续轮次携带调查终态 JSON Schema，模型返回 `content=null` 和一个允许的工具调用
+- **THEN** Provider 先保留工具调用并交给 Tool Runtime 执行，只在没有工具调用时解析结构化终态正文
+
 #### Scenario: 本机服务首轮返回无效无工具响应
 
 - **WHEN** `local_observation` 来源的服务 incident 首轮既没有工具调用也没有合法调查结构

@@ -212,7 +212,7 @@ class OpenAICompatibleProvider:
             )
             content = message.get("content")
             structured: JsonValue | None = None
-            if request.response_schema is not None:
+            if request.response_schema is not None and not tool_calls:
                 structured = cast(JsonValue, json.loads(str(content)))
             raw_usage = cast(dict[str, Any], data.get("usage", {}))
             usage = ModelUsage(

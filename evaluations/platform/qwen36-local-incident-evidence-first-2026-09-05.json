@@ -1,7 +1,7 @@
 {
   "schema_version": "local-incident-evidence-first/v1",
-  "claim_status": "draft-pr-verified",
-  "overall_result": "passed",
+  "claim_status": "superseded-by-audit-fix",
+  "overall_result": "historical-pass-not-current",
   "change_id": "enforce-local-incident-evidence-first",
   "source": {
     "pull_request": 80,

@@ -26,7 +26,7 @@
 
 2. **只对 `local_observation` 来源的服务对象执行首轮确定性取证。** `service_added` 首轮只暴露 `list_network_listeners`，避免模型拿节点摘要等场景无关结果提前收敛；当 `tool_calls == 0` 且尚未执行工具时，Runtime 使用同一定义构造一次兜底调用。无论首轮无工具响应的结构有效与否，都先取得实时监听证据；节点对象继续沿用现有“仅无效结构才兜底”的行为。
 
-3. **一次监听尝试后恢复现有模型循环。** 工具结果仍经过 schema、平台策略、超时、结果大小和审计边界；取得工具证据后的请求携带既有调查决定 JSON Schema，无本机工具的远端来源则从首轮携带该 Schema。`service_added` 后续只保留 `list_network_listeners` 与 `get_process_summary`，模型可补充进程证据、基于已有证据形成结论或安全结束。Runtime 不伪造结论，也不把工具成功等同于根因确认。
+3. **一次监听尝试后恢复现有模型循环。** 工具结果仍经过 schema、平台策略、超时、结果大小和审计边界；取得工具证据后的请求携带既有调查决定 JSON Schema，无本机工具的远端来源则从首轮携带该 Schema。OpenAI-compatible 响应若同时包含工具调用与 `content=null`，Provider 先保留工具调用，只在没有工具调用时解析结构化终态。`service_added` 后续只保留 `list_network_listeners` 与 `get_process_summary`，模型可补充进程证据、基于已有证据形成结论或安全结束。Runtime 不伪造结论，也不把工具成功等同于根因确认。
 
 4. **保留远端证据隔离。** 非 `local_observation` 来源不得向模型暴露或运行当前节点的本机工具；模型即使主动请求，也不能把本机结果记到远端对象。结构有效的证据不足报告可保留；结构无效或请求未暴露工具则按现有失败路径结束。
 
