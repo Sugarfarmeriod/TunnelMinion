@@ -766,6 +766,9 @@ def test_background_observer_does_not_drop_a_later_pending_change(tmp_path: Path
         investigator=runner,
     )
 
+    overview.services += ((SERVICE_ADDED, 8081),)
+    assert asyncio.run(service.observe_once()).incidents == ()
+    overview.services = ((SERVICE, 8080),)
     assert asyncio.run(service.observe_once()).incidents == ()
     overview.services += ((SERVICE_ADDED, 8081),)
     assert asyncio.run(service.observe_once()).incidents == ()

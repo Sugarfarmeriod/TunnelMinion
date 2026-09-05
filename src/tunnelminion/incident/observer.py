@@ -54,6 +54,7 @@ class IncidentObservationService:
         self._before_snapshot = before_snapshot
         self._interval_seconds = interval_seconds
         self._baseline: NormalizedSnapshot | None = None
+        self._baseline_stabilized = False
         self._active: set[str] = set()
         self._lock = asyncio.Lock()
 
@@ -63,6 +64,7 @@ class IncidentObservationService:
             await self._before_snapshot()
         if self._baseline is None:
             self._baseline = self._store.latest_snapshot()
+            self._baseline_stabilized = self._baseline is not None
         snapshot = assemble_overview_snapshot(
             self._overview(),
             revision=self._store.next_revision(),
@@ -70,6 +72,10 @@ class IncidentObservationService:
         self._store.put_snapshot(snapshot)
         if self._baseline is None:
             self._baseline = snapshot
+            return ObservationResult(snapshot=snapshot)
+        if not self._baseline_stabilized:
+            self._baseline = snapshot
+            self._baseline_stabilized = True
             return ObservationResult(snapshot=snapshot)
         events = self._detector.compare(self._baseline, snapshot)
         values: list[Incident] = []

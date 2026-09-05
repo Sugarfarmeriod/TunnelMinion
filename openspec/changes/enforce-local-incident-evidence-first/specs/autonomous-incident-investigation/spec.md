@@ -38,3 +38,31 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务
 
 - **WHEN** 远端、Coordinator 目录或聚合来源的 incident 中，模型主动请求当前节点的监听、进程或其他本机工具
 - **THEN** Runtime 不向该请求暴露或执行本机工具，也不把当前节点的工具结果记录为远端对象证据
+
+### Requirement: Windows 默认产品必须提供真实本机服务快照
+
+Windows Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。全新数据目录 MUST 以前两次完整观察作为启动稳定期，以第二次结果建立基线，并且 MUST NOT 比较前两次结果或创建启动 incident；已有持久化快照的重启 MUST 直接沿用该基线。
+
+#### Scenario: 未配置 Coordinator 的 Windows 首次启动
+
+- **WHEN** Windows 产品以全新数据目录启动，前两次完整观察之间出现应用监听或短命系统端口变化
+- **THEN** Runtime 保存两次观察、以第二次结果建立基线，不创建启动 incident，也不调用模型
+
+#### Scenario: 本机新增监听稳定出现
+
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`
+
+### Requirement: macOS 默认产品必须提供真实本机服务快照
+
+macOS Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。全新数据目录 MUST 以前两次完整观察作为启动稳定期，以第二次结果建立基线，并且 MUST NOT 比较前两次结果或创建启动 incident；已有持久化快照的重启 MUST 直接沿用该基线。
+
+#### Scenario: 未配置 Coordinator 的 macOS 首次启动
+
+- **WHEN** macOS 产品以全新数据目录启动，前两次完整观察之间出现应用监听或短命系统端口变化
+- **THEN** Runtime 保存两次观察、以第二次结果建立基线，不创建启动 incident，也不调用模型
+
+#### Scenario: macOS 本机新增监听稳定出现
+
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`
