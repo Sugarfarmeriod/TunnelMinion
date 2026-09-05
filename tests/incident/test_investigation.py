@@ -512,7 +512,7 @@ def test_snapshot_alone_cannot_confirm_root_cause(tmp_path: Path) -> None:
     assert result.report is not None
     assert result.report.conclusion is None
     assert "至少需要一项只读工具证据" in result.report.unknowns[-1]
-    assert adapter.calls == [{}]
+    assert adapter.calls == []
 
 
 def test_model_failure_budget_and_cancellation_have_explicit_stop_reasons(
