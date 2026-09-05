@@ -268,6 +268,19 @@ jobs:
           TUNNELMINION_PACKAGE_FIXTURE: ${{ github.workspace }}/build/runtime-package-staging/${{ matrix.target }}/package-fixture.json
         run: npm run test:e2e:package
 
+      - name: 封装运行包并保留可执行权限
+        run: >-
+          tar -cf "build/runtime-package-staging/${{ matrix.target }}/runtime-package.tar"
+          -C "build/runtime-package-staging/${{ matrix.target }}" package
+
+      - name: 创建正式归档验收目录
+        run: mkdir "${{ runner.temp }}/runtime-package-delivery-${{ matrix.target }}"
+
+      - name: 解包待上传的正式归档
+        run: >-
+          tar -xf "build/runtime-package-staging/${{ matrix.target }}/runtime-package.tar"
+          -C "${{ runner.temp }}/runtime-package-delivery-${{ matrix.target }}"
+
       - name: 脱离源码执行本机产品验收
         env:
           HTTP_PROXY: http://127.0.0.1:9
@@ -276,17 +289,12 @@ jobs:
           NO_PROXY: 127.0.0.1,localhost
         run: >-
           uv run --offline python scripts/run_runtime_package_clean_acceptance.py
-          --package-root "build/runtime-package-staging/${{ matrix.target }}/package"
+          --package-root "${{ runner.temp }}/runtime-package-delivery-${{ matrix.target }}/package"
           --manifest "build/runtime-package-staging/${{ matrix.target }}/manifest.json"
           --schema schemas
           --forbid-path "${{ github.workspace }}"
           --output "build/runtime-package-staging/${{ matrix.target }}/clean-acceptance.json"
           --check
-
-      - name: 封装运行包并保留可执行权限
-        run: >-
-          tar -cf "build/runtime-package-staging/${{ matrix.target }}/runtime-package.tar"
-          -C "build/runtime-package-staging/${{ matrix.target }}" package
 
       - name: 上传原生运行包
         uses: actions/upload-artifact@v7

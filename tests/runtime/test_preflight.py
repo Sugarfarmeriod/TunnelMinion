@@ -233,6 +233,18 @@ def test_embedded_manifest_is_not_counted_as_payload(tmp_path: Path) -> None:
     verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
 
 
+def test_embedded_manifest_must_match_external_evidence(tmp_path: Path) -> None:
+    package_root, manifest_path = _v2_package(tmp_path)
+    embedded = package_root / "runtime-package-manifest.json"
+    embedded.write_bytes(manifest_path.read_bytes())
+
+    verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+    embedded.write_bytes(manifest_path.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match="包内清单与外部清单不一致"):
+        verify_runtime_package(package_root, manifest_path, Path("schemas"), ())
+
+
 @pytest.mark.parametrize(
     ("frontend", "error"),
     (

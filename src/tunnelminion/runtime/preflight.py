@@ -234,7 +234,12 @@ def _verify_closed_file_set(
         if path.is_symlink():
             raise ValueError("运行包不得包含符号链接")
         if path.is_file():
-            if path.resolve() == manifest == embedded_manifest:
+            if path.resolve() == embedded_manifest:
+                if (
+                    manifest != embedded_manifest
+                    and path.read_bytes() != manifest_path.read_bytes()
+                ):
+                    raise ValueError("包内清单与外部清单不一致")
                 continue
             actual.add(path.relative_to(root).as_posix())
         elif not path.is_dir():

@@ -24,7 +24,6 @@ if __package__:
         resolve_platform_name,
     )
     from scripts.run_runtime_package_clean_acceptance import (
-        INSTALLED_MANIFEST_FILE,
         STARTUP_TIMEOUT_SECONDS,
         file_sha256,
         isolated_product_environment,
@@ -39,7 +38,6 @@ else:
         resolve_platform_name,
     )
     from run_runtime_package_clean_acceptance import (
-        INSTALLED_MANIFEST_FILE,
         STARTUP_TIMEOUT_SECONDS,
         file_sha256,
         isolated_product_environment,
@@ -110,8 +108,6 @@ def run_server(
     if relocated.exists():
         raise ValueError("正式包浏览器搬迁目录必须不存在")
     shutil.copytree(package_root, relocated)
-    if manifest.get("schema_version") == "runtime-package-manifest/v2":
-        shutil.copy2(manifest_path, relocated / INSTALLED_MANIFEST_FILE)
     entrypoint = safe_package_path(relocated, cast(str, manifest["entrypoint"]))
     work_dir = data_dir.parent / "work"
     work_dir.mkdir(parents=True, exist_ok=True)

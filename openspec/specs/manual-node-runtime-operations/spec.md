@@ -1,10 +1,19 @@
-## ADDED Requirements
+# manual-node-runtime-operations Specification
+
+## Purpose
+
+规定 Windows/macOS 手动运行包的自包含交付、公开生命周期、程序与数据分离、进程所有权、
+可诊断性、外部模型边界和默认保留数据契约。
+
+## Requirements
 
 ### Requirement: 节点运行包必须可重复且不依赖开发环境
 
 系统 SHALL 为 Windows 和 macOS 生成带版本、清单、固定 Python 运行时和锁定依赖的节点运行包。
 运行包 MUST 在没有源码 checkout、开发 `.venv`、`PYTHONPATH` 或全局 site-packages 的当前用户环境
 中启动本地应用和 Gateway，并 MUST 在关键文件或依赖损坏时拒绝启动且返回稳定错误。
+交付归档 MUST 在包根包含 `runtime-package-manifest.json`，其字节 MUST 与外部构建证据清单一致；
+清单可作为安装元数据排除在自身文件哈希之外，但系统 MUST 继续拒绝任意其他未列出文件。
 
 #### Scenario: 在干净用户环境启动运行包
 
@@ -15,6 +24,27 @@
 
 - **WHEN** 启动预检发现关键文件缺失、清单不匹配或必需模块无法导入
 - **THEN** 系统不创建应用或 Gateway 进程，并返回不包含本机秘密或完整路径正文的稳定依赖错误
+
+#### Scenario: 用户下载正式归档
+
+- **WHEN** 用户解包 CI 交付的原始 Windows 或 macOS 归档并执行 `runtime start`
+- **THEN** 启动预检直接使用归档内清单通过验证，不要求用户另行下载、复制或生成安装元数据
+
+### Requirement: 交付验收必须走公开用户入口
+
+系统 SHALL 从实际交付归档解包到无关工作目录，在隐藏源码、开发解释器、Node、虚拟环境和用户
+site-packages 的环境中，只通过包内公开 CLI 验证节点生命周期。验收 MUST NOT 临时注入归档遗漏的
+安装文件，也 MUST NOT 以内部 `runtime-child` 入口成功替代公开用户流程。
+
+#### Scenario: 从正式归档完成手动生命周期
+
+- **WHEN** CI 验收一个待上传的正式归档
+- **THEN** 它通过公开命令完成 configure、start、重复 start、status、HTTP 探测和 stop，并证明控制命令退出后组件仍在运行
+
+#### Scenario: 从正式归档验证版本管理
+
+- **WHEN** CI 使用包内公开 `runtime-package` 命令 stage、activate、查询并 remove 一个版本
+- **THEN** 操作成功且临时数据目录与已配置 SecretStore 保持存在
 
 ### Requirement: 程序、数据和秘密必须分离
 

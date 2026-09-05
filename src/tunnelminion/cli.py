@@ -658,7 +658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8765, choices=range(1024, 65536))
+    parser.add_argument("--port", type=_runtime_port, default=8765)
     parser.add_argument("--data-dir", type=Path)
     args = parser.parse_args(values)
     if args.data_dir is not None:

@@ -10,6 +10,19 @@ from pathlib import Path
 from typing import cast
 
 EXPECTED_TARGETS = {("win32", "amd64"), ("darwin", "arm64")}
+EXPECTED_COMMANDS = {
+    "gateway-configure",
+    "runtime-configure",
+    "runtime-start",
+    "runtime-start-repeat",
+    "runtime-status",
+    "runtime-stop",
+    "runtime-status-stopped",
+    "package-stage",
+    "package-activate",
+    "package-status",
+    "package-remove",
+}
 
 
 def _load_object(path: Path) -> dict[str, object]:
@@ -27,6 +40,23 @@ def _nested_object(value: object, error: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(error)
     return cast(dict[str, object], value)
+
+
+def _preserved_evidence(component: dict[str, object], name: str) -> bool:
+    evidence = _nested_object(component.get(name), "运行包数据保留证据不完整")
+    before = _nested_object(evidence.get("before"), "运行包数据保留证据不完整")
+    after = _nested_object(evidence.get("after"), "运行包数据保留证据不完整")
+    return (
+        before == after
+        and set(before) == {"file_count", "size_bytes", "sha256"}
+        and type(before.get("file_count")) is int
+        and cast(int, before["file_count"]) > 0
+        and type(before.get("size_bytes")) is int
+        and cast(int, before["size_bytes"]) > 0
+        and isinstance(before.get("sha256"), str)
+        and len(cast(str, before["sha256"])) == 64
+        and all(character in "0123456789abcdef" for character in cast(str, before["sha256"]))
+    )
 
 
 def verify_runtime_package_matrix(evidence_root: Path, frontend_receipt: Path) -> dict[str, object]:
@@ -55,6 +85,18 @@ def verify_runtime_package_matrix(evidence_root: Path, frontend_receipt: Path) -
         summary = _load_object(summary_path)
         manifest = _load_object(manifest_path)
         acceptance = _load_object(acceptance_path)
+        candidate_value = manifest.get("candidate")
+        build_value = manifest.get("build")
+        frontend_value = manifest.get("frontend")
+        licenses = manifest.get("licenses")
+        if (
+            manifest.get("schema_version") != "runtime-package-manifest/v2"
+            or not isinstance(candidate_value, dict)
+            or not isinstance(build_value, dict)
+            or not isinstance(frontend_value, dict)
+            or not isinstance(licenses, list)
+        ):
+            raise ValueError("运行包 manifest v2 结构不完整")
         platform_value = summary.get("platform")
         architecture = summary.get("architecture")
         if not isinstance(platform_value, str) or not isinstance(architecture, str):
@@ -72,39 +114,49 @@ def verify_runtime_package_matrix(evidence_root: Path, frontend_receipt: Path) -
             raise ValueError("运行包 manifest 摘要不一致")
         if summary.get("unknown_license_count") != 0:
             raise ValueError("运行包包含未知许可证")
-        if acceptance.get("passed") is not True or acceptance.get("manifest_sha256") != _sha256(
-            manifest_path
+        if (
+            acceptance.get("schema_version") != "runtime-package-clean-acceptance/v1"
+            or acceptance.get("passed") is not True
+            or acceptance.get("manifest_sha256") != _sha256(manifest_path)
         ):
             raise ValueError("运行包 clean acceptance 未通过或证据错配")
+        if acceptance.get("candidate") != candidate_value:
+            raise ValueError("运行包 clean acceptance candidate 与 manifest 不一致")
         components = acceptance.get("components")
         if not isinstance(components, list) or len(cast(list[object], components)) != 1:
             raise ValueError("运行包缺少正式本地产品验收结果")
         component = _nested_object(cast(list[object], components)[0], "运行包隔离运行证据不完整")
         package = _nested_object(component.get("runtime_package"), "运行包总览缺少交付形态证据")
+        commands = _nested_object(component.get("commands"), "运行包公开命令证据不完整")
+        if set(commands) != EXPECTED_COMMANDS or any(
+            _nested_object(value, "运行包公开命令证据不完整").get("exit_code") != 0
+            or _nested_object(value, "运行包公开命令证据不完整").get("json_output") is not True
+            for value in commands.values()
+        ):
+            raise ValueError("运行包公开命令证据不完整")
         if (
-            component.get("health_status") != 200
+            component.get("component") != "public-runtime"
+            or component.get("passed") is not True
+            or component.get("health_status") != 200
             or component.get("app_status") != 200
             or component.get("node_available") is not False
             or component.get("source_environment_present") is not False
             or component.get("external_http_proxy_blocked") is not True
+            or component.get("gateway_status") != 401
+            or component.get("public_cli") is not True
+            or component.get("idempotent_start") is not True
+            or component.get("data_preserved") is not True
+            or component.get("secret_store_preserved") is not True
+            or component.get("secret_leak_detected") is not False
+            or component.get("process_cleanup_confirmed") is not True
+            or not _preserved_evidence(component, "data_evidence")
+            or not _preserved_evidence(component, "secret_store_evidence")
             or package.get("kind") != "standalone"
             or package.get("manifest_schema") != "runtime-package-manifest/v2"
         ):
             raise ValueError("运行包隔离运行证据不完整")
         if acceptance.get("source_entries") != [] or acceptance.get("program_data_entries") != []:
             raise ValueError("运行包包含源码或程序目录运行数据")
-        candidate_value = manifest.get("candidate")
-        build_value = manifest.get("build")
-        frontend_value = manifest.get("frontend")
-        licenses = manifest.get("licenses")
-        if (
-            manifest.get("schema_version") != "runtime-package-manifest/v2"
-            or not isinstance(candidate_value, dict)
-            or not isinstance(build_value, dict)
-            or not isinstance(frontend_value, dict)
-            or not isinstance(licenses, list)
-        ):
-            raise ValueError("运行包 manifest v2 结构不完整")
         candidate = cast(dict[str, object], candidate_value)
         frontend = cast(dict[str, object], frontend_value)
         if (
