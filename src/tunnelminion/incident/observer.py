@@ -83,11 +83,10 @@ class IncidentObservationService:
     async def run(self, stop: asyncio.Event) -> None:
         """按有界周期运行，停止信号不会触发额外刷新。"""
         while not stop.is_set():
-            await self.observe_once()
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self._interval_seconds)
             except TimeoutError:
-                continue
+                await self.observe_once()
 
     async def _investigate_once(self, incident: Incident) -> Incident:
         if self._investigator is None:

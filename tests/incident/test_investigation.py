@@ -138,6 +138,22 @@ class ScriptedProvider:
             return ModelResponse()
         if self.mode == "missing_initial_tool" and len(self.requests) == 1:
             return ModelResponse(content="未调用工具就直接回答")
+        if self.mode == "valid_missing_initial_tool" and len(self.requests) == 1:
+            return ModelResponse(
+                structured_output={
+                    "hypotheses": [
+                        {
+                            "summary": "尚未取得监听证据",
+                            "status": "candidate",
+                            "evidence_refs": [],
+                        }
+                    ],
+                    "facts": [],
+                    "unknowns": ["尚未读取监听状态"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                }
+            )
         if self.mode == "snapshot_only":
             snapshot_id = "snapshot_00000000000000000000000000000002"
             return ModelResponse(
@@ -256,17 +272,37 @@ def _incident(
     return store.record_event(event)
 
 
+def _local_node_incident(store: SQLiteIncidentStore) -> Incident:
+    event = SnapshotDiffEvent(
+        event_type=IncidentEventType.NODE_OFFLINE,
+        object_kind=SnapshotObjectKind.NODE,
+        object_id=str(NODE),
+        target_node_id=NODE,
+        baseline_snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
+        current_snapshot_id=SnapshotId("snapshot_00000000000000000000000000000002"),
+        baseline_revision=1,
+        current_revision=2,
+        observed_at=NOW,
+        source=SnapshotSource.LOCAL_OBSERVATION,
+        before_state="online",
+        after_state="offline",
+        dedup_key=f"sha256:{'c' * 64}",
+    )
+    return store.record_event(event)
+
+
 def _runtime(
     tmp_path: Path,
     mode: str,
     *,
     limits: InvestigationLimits | None = None,
+    tool_name: str = "list_network_listeners",
 ) -> tuple[IncidentInvestigator, SQLiteIncidentStore, RecordingAdapter, ScriptedProvider]:
     registry = ToolRegistry()
     adapter = RecordingAdapter(fail=mode == "tool_failure")
     registry.register(
         ToolDefinition(
-            name="list_network_listeners",
+            name=tool_name,
             version=ProtocolVersion(major=1, minor=0),
             description="列出网络监听",
             input_schema={"type": "object", "additionalProperties": False},
@@ -344,10 +380,12 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert store.get(result.incident_id) == result
 
 
-def test_investigator_uses_read_only_fallback_when_provider_ignores_required_tool_call(
+@pytest.mark.parametrize("mode", ["missing_initial_tool", "valid_missing_initial_tool"])
+def test_local_service_uses_read_only_fallback_when_provider_ignores_required_tool_call(
     tmp_path: Path,
+    mode: str,
 ) -> None:
-    investigator, store, adapter, provider = _runtime(tmp_path, "missing_initial_tool")
+    investigator, store, adapter, provider = _runtime(tmp_path, mode)
 
     result = asyncio.run(
         investigator.run(_incident(store, source=SnapshotSource.LOCAL_OBSERVATION))
@@ -362,6 +400,42 @@ def test_investigator_uses_read_only_fallback_when_provider_ignores_required_too
     assert fallback.content == ""
     assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
     assert fallback.tool_calls[0].name == "list_network_listeners"
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_status"),
+    [
+        ("missing_initial_tool", IncidentStatus.FAILED),
+        ("valid_missing_initial_tool", IncidentStatus.INSUFFICIENT_EVIDENCE),
+    ],
+)
+def test_remote_incident_never_uses_local_read_only_fallback(
+    tmp_path: Path,
+    mode: str,
+    expected_status: IncidentStatus,
+) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, mode)
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is expected_status
+    assert adapter.calls == []
+    assert len(provider.requests) == 1
+
+
+def test_invalid_local_node_response_keeps_node_summary_fallback(tmp_path: Path) -> None:
+    investigator, store, adapter, provider = _runtime(
+        tmp_path,
+        "missing_initial_tool",
+        tool_name="get_node_summary",
+    )
+
+    result = asyncio.run(investigator.run(_local_node_incident(store)))
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}]
+    fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
+    assert fallback.tool_calls[0].name == "get_node_summary"
 
 
 def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:
@@ -785,6 +859,33 @@ def test_observer_guard_loop_and_duplicate_run_shortcuts(tmp_path: Path) -> None
     assert loop_store.latest_snapshot() is not None
 
 
+def test_background_observer_waits_before_first_snapshot_and_stops_without_refresh(
+    tmp_path: Path,
+) -> None:
+    observations = 0
+
+    def overview() -> ResourceOverview:
+        nonlocal observations
+        observations += 1
+        return MutableOverview()()
+
+    service = IncidentObservationService(
+        overview,
+        SQLiteIncidentStore(tmp_path / "observer-startup-wait.sqlite3"),
+    )
+    stop = asyncio.Event()
+
+    async def scenario() -> None:
+        task = asyncio.create_task(service.run(stop))
+        await asyncio.sleep(0)
+        assert observations == 0
+        stop.set()
+        await task
+
+    asyncio.run(scenario())
+    assert service._store.latest_snapshot() is None  # pyright: ignore[reportPrivateUsage]
+
+
 def test_observation_lifespan_recovers_interrupted_and_stops_background_task(
     tmp_path: Path,
 ) -> None:
@@ -797,6 +898,7 @@ def test_observation_lifespan_recovers_interrupted_and_stops_background_task(
     store.put_incident(running)
     overview = MutableOverview()
     observer = IncidentObservationService(overview, store, interval_seconds=1)
+    observer._interval_seconds = 0  # pyright: ignore[reportPrivateUsage]
     entered = False
     exited = False
 
