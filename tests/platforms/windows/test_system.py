@@ -76,14 +76,34 @@ def test_listener_reader_filters_and_degrades_process_names(
         type: socket.SocketKind
         status: str
         laddr: Address | None
+        raddr: Address | None
         pid: int | None
 
     values = [
-        Connection(socket.SOCK_STREAM, "ESTABLISHED", Address("1.1.1.1", 1), 1),
-        Connection(socket.SOCK_STREAM, psutil.CONN_LISTEN, None, 2),
-        Connection(socket.SOCK_STREAM, psutil.CONN_LISTEN, Address("127.0.0.1", 90), 3),
-        Connection(socket.SOCK_DGRAM, "NONE", Address("0.0.0.0", 53), 4),
-        Connection(socket.SOCK_DGRAM, "NONE", Address("0.0.0.0", 54), None),
+        Connection(
+            socket.SOCK_STREAM,
+            "ESTABLISHED",
+            Address("1.1.1.1", 1),
+            Address("1.1.1.2", 443),
+            1,
+        ),
+        Connection(socket.SOCK_STREAM, psutil.CONN_LISTEN, None, None, 2),
+        Connection(
+            socket.SOCK_STREAM,
+            psutil.CONN_LISTEN,
+            Address("127.0.0.1", 90),
+            None,
+            3,
+        ),
+        Connection(
+            socket.SOCK_DGRAM,
+            "NONE",
+            Address("0.0.0.0", 52),
+            Address("8.8.8.8", 53),
+            4,
+        ),
+        Connection(socket.SOCK_DGRAM, "NONE", Address("0.0.0.0", 53), None, 4),
+        Connection(socket.SOCK_DGRAM, "NONE", Address("0.0.0.0", 54), None, None),
     ]
 
     def connections(kind: str) -> list[Connection]:

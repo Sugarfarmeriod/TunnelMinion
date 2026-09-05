@@ -69,7 +69,7 @@ Runtime SHALL 在模型外从现有节点摘要、WireGuard、监听端口、进
 
 ### Requirement: Agent 只能动态选择既有只读工具
 
-Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。
+Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。当前节点的本机工具 MUST 只向 `local_observation` 来源的 incident 暴露和执行。对于该来源的 `service_added`，模型首轮 MUST 只获得 `list_network_listeners`，后续 MUST 只获得该工具与 `get_process_summary`；如果模型首轮没有选择工具，Runtime MUST 通过同一 Tool Runtime 执行一次 `list_network_listeners` 后再继续模型循环。该规则 MUST 同时覆盖结构有效和结构无效的首轮无工具响应，且 MUST NOT 应用于远端、Coordinator 目录或聚合来源。
 
 #### Scenario: Agent 需要区分进程退出与端口映射变化
 
@@ -80,6 +80,36 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务
 
 - **WHEN** 模型请求 Shell、Python 或注册表外工具
 - **THEN** Runtime 拒绝请求、不执行系统调用，并将该步骤记录为调查失败证据
+
+#### Scenario: 本机服务首轮返回合法无工具报告
+
+- **WHEN** `local_observation` 来源的服务 incident 首轮要求工具，但模型返回结构有效且没有工具调用的证据不足报告
+- **THEN** Runtime 忽略该轮提前停止意图，通过既有 Tool Runtime 执行一次 `list_network_listeners`，并把真实结果交回下一轮模型判断
+
+#### Scenario: 本机新增服务只能选择场景相关工具
+
+- **WHEN** `local_observation` 来源的 `service_added` 进入调查循环
+- **THEN** 首轮只暴露 `list_network_listeners`，完成一次监听尝试后的轮次只暴露该工具与 `get_process_summary`，且不暴露节点、WireGuard、Docker 或可达性工具
+
+#### Scenario: 后续工具调用与终态 Schema 同时启用
+
+- **WHEN** 已取得一次监听证据的后续轮次携带调查终态 JSON Schema，模型返回 `content=null` 和一个允许的工具调用
+- **THEN** Provider 先保留工具调用并交给 Tool Runtime 执行，只在没有工具调用时解析结构化终态正文
+
+#### Scenario: 本机服务首轮返回无效无工具响应
+
+- **WHEN** `local_observation` 来源的服务 incident 首轮既没有工具调用也没有合法调查结构
+- **THEN** Runtime 通过既有 Tool Runtime 执行一次 `list_network_listeners`，且仍受平台策略、参数校验、调用预算和审计约束
+
+#### Scenario: 远端来源首轮没有工具调用
+
+- **WHEN** 远端、Coordinator 目录或聚合来源的 incident 首轮没有工具调用
+- **THEN** Runtime 不执行任何本机兜底工具，合法证据不足报告可以保留，无效响应按现有失败路径结束
+
+#### Scenario: 远端来源主动请求本机工具
+
+- **WHEN** 远端、Coordinator 目录或聚合来源的 incident 中，模型主动请求当前节点的监听、进程或其他本机工具
+- **THEN** Runtime 不向该请求暴露或执行本机工具，也不把当前节点的工具结果记录为远端对象证据
 
 ### Requirement: 调查必须在明确停止条件下生成证据化报告
 
@@ -120,28 +150,28 @@ Investigation Agent MUST 只观察和报告。incident、根因结论或用户�
 
 ### Requirement: Windows 默认产品必须提供真实本机服务快照
 
-Windows Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。首份完整结果 MUST 先建立基线，MUST NOT 因应用启动时从空列表变为当前列表而创建 incident。
+Windows Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。全新数据目录 MUST 以前两次完整观察作为启动稳定期，以第二次结果建立基线，并且 MUST NOT 比较前两次结果或创建启动 incident；已有持久化快照的重启 MUST 直接沿用该基线。
 
 #### Scenario: 未配置 Coordinator 的 Windows 首次启动
 
-- **WHEN** Windows 产品启动且本机已有监听服务，但 Coordinator 和模型均未配置
-- **THEN** Runtime 保存包含当前本机服务的首份基线，不创建启动 incident，也不调用模型
+- **WHEN** Windows 产品以全新数据目录启动，前两次完整观察之间出现应用监听或短命系统端口变化
+- **THEN** Runtime 保存两次观察、以第二次结果建立基线，不创建启动 incident，也不调用模型
 
 #### Scenario: 本机新增监听稳定出现
 
-- **WHEN** 基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
 - **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`
 
 ### Requirement: macOS 默认产品必须提供真实本机服务快照
 
-macOS Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。首份完整结果 MUST 先建立基线，MUST NOT 因应用启动时从空列表变为当前列表而创建 incident。
+macOS Node Runtime SHALL 在未配置 Coordinator 时复用既有确定性只读工具，按有界周期采集本机监听、进程与可选 Docker 服务并向 incident 快照提供完整结果。全新数据目录 MUST 以前两次完整观察作为启动稳定期，以第二次结果建立基线，并且 MUST NOT 比较前两次结果或创建启动 incident；已有持久化快照的重启 MUST 直接沿用该基线。
 
 #### Scenario: 未配置 Coordinator 的 macOS 首次启动
 
-- **WHEN** macOS 产品启动且本机已有监听服务，但 Coordinator 和模型均未配置
-- **THEN** Runtime 保存包含当前本机服务的首份基线，不创建启动 incident，也不调用模型
+- **WHEN** macOS 产品以全新数据目录启动，前两次完整观察之间出现应用监听或短命系统端口变化
+- **THEN** Runtime 保存两次观察、以第二次结果建立基线，不创建启动 incident，也不调用模型
 
 #### Scenario: macOS 本机新增监听稳定出现
 
-- **WHEN** 基线建立后新增本机监听，并在现有确认窗口内持续存在
+- **WHEN** 稳定基线建立后新增本机监听，并在现有确认窗口内持续存在
 - **THEN** Runtime 自动创建 `service_added` incident；模型未配置时保留差异证据并标记 `investigation_unavailable`

@@ -17,6 +17,7 @@ def test_macos_reader_parses_fixed_lsof_listener_output() -> None:
 Python  21968 mac 4u IPv4 0x1 0t0 TCP 127.0.0.1:18880 (LISTEN)
 python3 21969 mac 5u IPv6 0x2 0t0 TCP [::1]:18881 (LISTEN)
 mDNSRes 321 mac 6u IPv4 0x3 0t0 UDP *:5353
+Browser  322 mac 7u IPv4 0x4 0t0 UDP 192.0.2.1:62000->203.0.113.1:443
 Python  21968 mac 4u IPv4 0x1 0t0 TCP 127.0.0.1:18880 (LISTEN)
 Python  21968 mac 7u IPv4 0x4 0t0 TCP 127.0.0.1:18882 (ESTABLISHED)
 bad

@@ -1,0 +1,618 @@
+{
+  "schema_version": "formal-package-local-incident-samples/v1",
+  "platform": "macos",
+  "formal_package_executable": "tunnelminion",
+  "source_entry_executed": false,
+  "rounds": [
+    {
+      "round": 1,
+      "application_port": 51533,
+      "target_listener_port": 51534,
+      "baseline": {
+        "query_only": 1,
+        "snapshot_count": 2,
+        "first_revision": 1,
+        "first_complete": true,
+        "incident_count": 0,
+        "target_port_present": false
+      },
+      "target": {
+        "incident_id": "incident_e9642225bb0b95e1049c807ed409570b",
+        "target_service_id": "service_0c59f46d2cad6357428392ece6ae42f7",
+        "target_port": 51534,
+        "event": {
+          "event_type": "service_added",
+          "object_kind": "service",
+          "object_id": "service_0c59f46d2cad6357428392ece6ae42f7",
+          "target_node_id": "node_d3dab58261a54aca98073958b0144d86",
+          "baseline_snapshot_id": "snapshot_58910036c114691cfa96d56567d0749d",
+          "current_snapshot_id": "snapshot_360d076434e29528046d2e1f26b294ea",
+          "baseline_revision": 2,
+          "current_revision": 4,
+          "observed_at": "2026-09-05T14:35:52.631578Z",
+          "source": "local_observation",
+          "before_state": null,
+          "after_state": "available",
+          "dedup_key": "sha256:e9642225bb0b95e1049c807ed409570b4ae38edf5fa1bf3369beec85a4082c88"
+        },
+        "event_type": "service_added",
+        "event_source": "local_observation",
+        "status": "confirmed",
+        "stop_reason": "evidence_sufficient",
+        "conclusion": "根据 incident 描述和网络监听结果，服务 service_0c59f46d2cad6357428392ece6ae42f7 已成功添加并在本地回环地址 (127.0.0.1) 的 TCP 端口 51534 上处于监听状态。该服务由 PID 为 82252 的 'python3.1' 进程提供。",
+        "facts": [
+          "在 incident 的 current_snapshot_360d076434e29528046d2e1f26b294ea 中，服务 service_0c59f46d2cad6357428392ece6ae42f7 处于 'available' 状态，监听 TCP 端口 51534，访问性为 'loopback'。",
+          "网络监听工具 (toolrun_ef4e568de63c491291b3961a2168eb0d) 确认在端口 51534 上有一个监听服务，其进程名为 'python3.1'，PID 为 82252，监听地址为 '127.0.0.1'。"
+        ],
+        "unknowns": [
+          "PID 82252 对应的 'python3.1' 进程的具体命令行参数是什么？",
+          "该服务 (service_0c59f46d2cad6357428392ece6ae42f7) 的具体业务逻辑或用途是什么？",
+          "是什么触发了该服务的添加事件 (service_added)？"
+        ],
+        "selected_tools": [
+          "list_network_listeners"
+        ],
+        "executed_tools": [
+          "list_network_listeners"
+        ],
+        "successful_tools": [
+          "list_network_listeners"
+        ],
+        "failed_or_partial_tools": [],
+        "tool_trace": [
+          {
+            "occurred_at": "2026-09-05T14:35:58.081943Z",
+            "kind": "tool",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束",
+            "tool_name": "list_network_listeners",
+            "evidence": [
+              {
+                "snapshot_id": null,
+                "tool_run_id": "toolrun_ef4e568de63c491291b3961a2168eb0d",
+                "observed_at": "2026-09-05T14:35:58.081813Z",
+                "summary": "只读工具 list_network_listeners 以 success 状态结束"
+              }
+            ]
+          }
+        ],
+        "tool_evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_ef4e568de63c491291b3961a2168eb0d",
+            "observed_at": "2026-09-05T14:35:58.081813Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ],
+        "snapshot_evidence": [
+          {
+            "snapshot_id": "snapshot_360d076434e29528046d2e1f26b294ea",
+            "tool_run_id": null,
+            "observed_at": "2026-09-05T14:35:52.631578Z",
+            "summary": "确定性差异：service_added"
+          }
+        ],
+        "tool_evidence_count": 1,
+        "snapshot_evidence_count": 1,
+        "related_listener_evidence": true,
+        "required_tools_complete": false,
+        "evidence_backed_conclusion": true,
+        "unsupported_confirmation": false,
+        "forbidden_tool_attempt": false,
+        "forbidden_tools_executed": [],
+        "scenario_unrelated_tools": [],
+        "target_presence_revisions": [
+          3,
+          4
+        ],
+        "target_presence_snapshot_ids": [
+          "snapshot_6fc44eaf13ef2abae973ec8323bc6a78",
+          "snapshot_360d076434e29528046d2e1f26b294ea"
+        ],
+        "target_confirmed_twice": true,
+        "target_event_snapshot_matches": true,
+        "unrelated_incident_ids": [],
+        "concurrent_incidents": [],
+        "investigation_latency_seconds": 43.809,
+        "model_completion_requests": 2
+      },
+      "sample_wall_seconds": 175.128,
+      "listener_exit_code": -15,
+      "app_exit_code": -15,
+      "ports_released": {
+        "listener": true,
+        "application": true
+      }
+    },
+    {
+      "round": 2,
+      "application_port": 51771,
+      "target_listener_port": 51772,
+      "baseline": {
+        "query_only": 1,
+        "snapshot_count": 2,
+        "first_revision": 1,
+        "first_complete": true,
+        "incident_count": 0,
+        "target_port_present": false
+      },
+      "target": {
+        "incident_id": "incident_6511c190febdab9a75f48307038d7ee8",
+        "target_service_id": "service_c971595d21159c0a7f3d8b4f817f7227",
+        "target_port": 51772,
+        "event": {
+          "event_type": "service_added",
+          "object_kind": "service",
+          "object_id": "service_c971595d21159c0a7f3d8b4f817f7227",
+          "target_node_id": "node_702980a5a9fd46cf8f80ed36255c6a30",
+          "baseline_snapshot_id": "snapshot_496a5cdc0923114c35c025b7baf97492",
+          "current_snapshot_id": "snapshot_22d8079d11389fd368f31107af2e3ae5",
+          "baseline_revision": 2,
+          "current_revision": 4,
+          "observed_at": "2026-09-05T14:38:38.723038Z",
+          "source": "local_observation",
+          "before_state": null,
+          "after_state": "available",
+          "dedup_key": "sha256:6511c190febdab9a75f48307038d7ee8a8bf537ff14f0098296736354cf3b081"
+        },
+        "event_type": "service_added",
+        "event_source": "local_observation",
+        "status": "confirmed",
+        "stop_reason": "evidence_sufficient",
+        "conclusion": "根据提供的 incident 和工具调用结果，可以确认在指定时间点，系统上确实存在一个监听在 127.0.0.1:51772 的 TCP 服务，其进程名为 'python3.1'。这与 incident 中描述的服务状态和特征一致。然而，由于缺乏该进程的命令行参数和更多上下文信息，无法进一步判断该服务的性质或是否存在异常。",
+        "facts": [
+          "在 2026-09-05T14:38:38.525199Z 左右，系统上存在一个监听在 127.0.0.1:51772 的 TCP 服务。",
+          "该服务的进程名为 'python3.1'，PID 为 84016。",
+          "该服务被标记为 'available' 且 'active'。"
+        ],
+        "unknowns": [
+          "该 'python3.1' 进程的具体命令行参数，无法确定其具体功能。",
+          "该服务为何被添加（service_added）的具体业务逻辑或触发原因。",
+          "该服务是否属于预期内的服务，即是否存在安全或配置问题。"
+        ],
+        "selected_tools": [
+          "list_network_listeners"
+        ],
+        "executed_tools": [
+          "list_network_listeners"
+        ],
+        "successful_tools": [
+          "list_network_listeners"
+        ],
+        "failed_or_partial_tools": [],
+        "tool_trace": [
+          {
+            "occurred_at": "2026-09-05T14:38:59.960326Z",
+            "kind": "tool",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束",
+            "tool_name": "list_network_listeners",
+            "evidence": [
+              {
+                "snapshot_id": null,
+                "tool_run_id": "toolrun_6c0e3c7a60574a119c54705ca2bf439a",
+                "observed_at": "2026-09-05T14:38:59.960192Z",
+                "summary": "只读工具 list_network_listeners 以 success 状态结束"
+              }
+            ]
+          }
+        ],
+        "tool_evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_6c0e3c7a60574a119c54705ca2bf439a",
+            "observed_at": "2026-09-05T14:38:59.960192Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ],
+        "snapshot_evidence": [
+          {
+            "snapshot_id": "snapshot_22d8079d11389fd368f31107af2e3ae5",
+            "tool_run_id": null,
+            "observed_at": "2026-09-05T14:38:38.723038Z",
+            "summary": "确定性差异：service_added"
+          }
+        ],
+        "tool_evidence_count": 1,
+        "snapshot_evidence_count": 1,
+        "related_listener_evidence": true,
+        "required_tools_complete": false,
+        "evidence_backed_conclusion": true,
+        "unsupported_confirmation": false,
+        "forbidden_tool_attempt": false,
+        "forbidden_tools_executed": [],
+        "scenario_unrelated_tools": [],
+        "target_presence_revisions": [
+          3,
+          4
+        ],
+        "target_presence_snapshot_ids": [
+          "snapshot_fcfbb973727db2dff148f2d4cc09af60",
+          "snapshot_22d8079d11389fd368f31107af2e3ae5"
+        ],
+        "target_confirmed_twice": true,
+        "target_event_snapshot_matches": true,
+        "unrelated_incident_ids": [],
+        "concurrent_incidents": [],
+        "investigation_latency_seconds": 59.351,
+        "model_completion_requests": 2
+      },
+      "sample_wall_seconds": 181.343,
+      "listener_exit_code": -15,
+      "app_exit_code": -15,
+      "ports_released": {
+        "listener": true,
+        "application": true
+      }
+    },
+    {
+      "round": 3,
+      "application_port": 52225,
+      "target_listener_port": 52226,
+      "baseline": {
+        "query_only": 1,
+        "snapshot_count": 2,
+        "first_revision": 1,
+        "first_complete": true,
+        "incident_count": 0,
+        "target_port_present": false
+      },
+      "target": {
+        "incident_id": "incident_02d9eadc7d626f6ba906119077283098",
+        "target_service_id": "service_1a03e8e473536397290df1e3fe9feea9",
+        "target_port": 52226,
+        "event": {
+          "event_type": "service_added",
+          "object_kind": "service",
+          "object_id": "service_1a03e8e473536397290df1e3fe9feea9",
+          "target_node_id": "node_cd13fd021e4b43099a00c27f232e23b5",
+          "baseline_snapshot_id": "snapshot_c1d775c0915259e86da7596cec494429",
+          "current_snapshot_id": "snapshot_95ac3f39f8eee55eaa5cfbd434429f86",
+          "baseline_revision": 2,
+          "current_revision": 4,
+          "observed_at": "2026-09-05T14:41:40.201642Z",
+          "source": "local_observation",
+          "before_state": null,
+          "after_state": "available",
+          "dedup_key": "sha256:02d9eadc7d626f6ba90611907728309876aa8c72a19a90134a8c8b848714043c"
+        },
+        "event_type": "service_added",
+        "event_source": "local_observation",
+        "status": "confirmed",
+        "stop_reason": "evidence_sufficient",
+        "conclusion": "根据 incident 描述和网络监听端点列表，可以确认在节点 node_cd13fd021e4b43099a00c27f232e23b5 上，一个由 'python3.1' 进程 (PID 85794) 提供的 TCP 服务正在监听本地回环地址 127.0.0.1 的 52226 端口。该服务的状态与 incident 中描述的 'available' 和 'active' 一致。",
+        "facts": [
+          "在 incident 的 current_snapshot (snapshot_95ac3f39f8eee55eaa5cfbd434429f86) 中，服务 service_1a03e8e473536397290df1e3fe9feea9 被观测到处于 'available' 状态，监听 TCP 端口 52226，绑定地址为 127.0.0.1 (loopback)。",
+          "通过 list_network_listeners 工具获取的当前系统网络监听状态 (toolrun_1838d90908734eb893e033ff6690cee7) 证实，确实存在一个 PID 为 85794，进程名为 'python3.1' 的进程正在监听 TCP 127.0.0.1:52226。"
+        ],
+        "unknowns": [
+          "该 python3.1 进程 (PID 85794) 的具体启动命令、启动时间以及它具体提供的服务功能。",
+          "该服务是如何被添加到系统中的（是通过脚本、手动启动还是其他自动化机制）。",
+          "该服务是否存在安全漏洞或被恶意利用的风险。"
+        ],
+        "selected_tools": [
+          "list_network_listeners"
+        ],
+        "executed_tools": [
+          "list_network_listeners"
+        ],
+        "successful_tools": [
+          "list_network_listeners"
+        ],
+        "failed_or_partial_tools": [],
+        "tool_trace": [
+          {
+            "occurred_at": "2026-09-05T14:41:44.246213Z",
+            "kind": "tool",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束",
+            "tool_name": "list_network_listeners",
+            "evidence": [
+              {
+                "snapshot_id": null,
+                "tool_run_id": "toolrun_1838d90908734eb893e033ff6690cee7",
+                "observed_at": "2026-09-05T14:41:44.246003Z",
+                "summary": "只读工具 list_network_listeners 以 success 状态结束"
+              }
+            ]
+          }
+        ],
+        "tool_evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_1838d90908734eb893e033ff6690cee7",
+            "observed_at": "2026-09-05T14:41:44.246003Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ],
+        "snapshot_evidence": [
+          {
+            "snapshot_id": "snapshot_95ac3f39f8eee55eaa5cfbd434429f86",
+            "tool_run_id": null,
+            "observed_at": "2026-09-05T14:41:40.201642Z",
+            "summary": "确定性差异：service_added"
+          }
+        ],
+        "tool_evidence_count": 1,
+        "snapshot_evidence_count": 1,
+        "related_listener_evidence": true,
+        "required_tools_complete": false,
+        "evidence_backed_conclusion": true,
+        "unsupported_confirmation": false,
+        "forbidden_tool_attempt": false,
+        "forbidden_tools_executed": [],
+        "scenario_unrelated_tools": [],
+        "target_presence_revisions": [
+          3,
+          4
+        ],
+        "target_presence_snapshot_ids": [
+          "snapshot_9d018903ba86e2113664a42a22cb650b",
+          "snapshot_95ac3f39f8eee55eaa5cfbd434429f86"
+        ],
+        "target_confirmed_twice": true,
+        "target_event_snapshot_matches": true,
+        "unrelated_incident_ids": [],
+        "concurrent_incidents": [],
+        "investigation_latency_seconds": 40.598,
+        "model_completion_requests": 2
+      },
+      "sample_wall_seconds": 162.606,
+      "listener_exit_code": -15,
+      "app_exit_code": -15,
+      "ports_released": {
+        "listener": true,
+        "application": true
+      }
+    },
+    {
+      "round": 4,
+      "application_port": 52516,
+      "target_listener_port": 52517,
+      "baseline": {
+        "query_only": 1,
+        "snapshot_count": 2,
+        "first_revision": 1,
+        "first_complete": true,
+        "incident_count": 0,
+        "target_port_present": false
+      },
+      "target": {
+        "incident_id": "incident_70f70e8f651a41cf0e355fed2fd5f1e9",
+        "target_service_id": "service_53deb01303909f496f27afcf0ac385d7",
+        "target_port": 52517,
+        "event": {
+          "event_type": "service_added",
+          "object_kind": "service",
+          "object_id": "service_53deb01303909f496f27afcf0ac385d7",
+          "target_node_id": "node_8a8fd630d63940959455cdbcf3bef648",
+          "baseline_snapshot_id": "snapshot_6bc43248e29d63cbadb361ad8bfae02a",
+          "current_snapshot_id": "snapshot_ffaf3baacb791626657b704aa62566a1",
+          "baseline_revision": 2,
+          "current_revision": 4,
+          "observed_at": "2026-09-05T14:44:23.100184Z",
+          "source": "local_observation",
+          "before_state": null,
+          "after_state": "available",
+          "dedup_key": "sha256:70f70e8f651a41cf0e355fed2fd5f1e9b6fcf1c22f719c5a7c8882a57021f196"
+        },
+        "event_type": "service_added",
+        "event_source": "local_observation",
+        "status": "confirmed",
+        "stop_reason": "evidence_sufficient",
+        "conclusion": "Incident 53deb01303909f496f27afcf0ac385d7 确认为由 `python3.1` 进程在本地回环地址 52517 端口上监听的新增服务。",
+        "facts": [
+          "在端口 52517 上监听的服务 `service_53deb01303909f496f27afcf0ac385d7` 是由 `python3.1` 进程（PID 86875）提供的。",
+          "该服务监听在 `127.0.0.1:52517`，符合 incident 中描述的 `loopback` 访问性。"
+        ],
+        "unknowns": [
+          "该 `python3.1` 进程的具体启动参数和运行目的。",
+          "该服务为何被判定为异常或需要调查的具体业务逻辑。"
+        ],
+        "selected_tools": [
+          "list_network_listeners"
+        ],
+        "executed_tools": [
+          "list_network_listeners"
+        ],
+        "successful_tools": [
+          "list_network_listeners"
+        ],
+        "failed_or_partial_tools": [],
+        "tool_trace": [
+          {
+            "occurred_at": "2026-09-05T14:44:42.263209Z",
+            "kind": "tool",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束",
+            "tool_name": "list_network_listeners",
+            "evidence": [
+              {
+                "snapshot_id": null,
+                "tool_run_id": "toolrun_e467a92e305c4a85bd3219743ffcf1d0",
+                "observed_at": "2026-09-05T14:44:42.263070Z",
+                "summary": "只读工具 list_network_listeners 以 success 状态结束"
+              }
+            ]
+          }
+        ],
+        "tool_evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_e467a92e305c4a85bd3219743ffcf1d0",
+            "observed_at": "2026-09-05T14:44:42.263070Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ],
+        "snapshot_evidence": [
+          {
+            "snapshot_id": "snapshot_ffaf3baacb791626657b704aa62566a1",
+            "tool_run_id": null,
+            "observed_at": "2026-09-05T14:44:23.100184Z",
+            "summary": "确定性差异：service_added"
+          }
+        ],
+        "tool_evidence_count": 1,
+        "snapshot_evidence_count": 1,
+        "related_listener_evidence": true,
+        "required_tools_complete": false,
+        "evidence_backed_conclusion": true,
+        "unsupported_confirmation": false,
+        "forbidden_tool_attempt": false,
+        "forbidden_tools_executed": [],
+        "scenario_unrelated_tools": [],
+        "target_presence_revisions": [
+          3,
+          4
+        ],
+        "target_presence_snapshot_ids": [
+          "snapshot_055a0dffda0f52c03ec2ad2859ff01e3",
+          "snapshot_ffaf3baacb791626657b704aa62566a1"
+        ],
+        "target_confirmed_twice": true,
+        "target_event_snapshot_matches": true,
+        "unrelated_incident_ids": [],
+        "concurrent_incidents": [],
+        "investigation_latency_seconds": 47.249,
+        "model_completion_requests": 2
+      },
+      "sample_wall_seconds": 169.127,
+      "listener_exit_code": -15,
+      "app_exit_code": -15,
+      "ports_released": {
+        "listener": true,
+        "application": true
+      }
+    },
+    {
+      "round": 5,
+      "application_port": 52924,
+      "target_listener_port": 52925,
+      "baseline": {
+        "query_only": 1,
+        "snapshot_count": 2,
+        "first_revision": 1,
+        "first_complete": true,
+        "incident_count": 0,
+        "target_port_present": false
+      },
+      "target": {
+        "incident_id": "incident_8723a9aeea59f12fac8aca60a3c1b195",
+        "target_service_id": "service_3f15aeb7e79ef903408cf57ae021e617",
+        "target_port": 52925,
+        "event": {
+          "event_type": "service_added",
+          "object_kind": "service",
+          "object_id": "service_3f15aeb7e79ef903408cf57ae021e617",
+          "target_node_id": "node_3047e515b57b4e6789966058c5b3322a",
+          "baseline_snapshot_id": "snapshot_33afbf471593946272447956cfd2f7cc",
+          "current_snapshot_id": "snapshot_40d5bdb665fad9f04fcd911e702ef9db",
+          "baseline_revision": 2,
+          "current_revision": 4,
+          "observed_at": "2026-09-05T14:47:12.301227Z",
+          "source": "local_observation",
+          "before_state": null,
+          "after_state": "available",
+          "dedup_key": "sha256:8723a9aeea59f12fac8aca60a3c1b19540b0a30409dc84eeafe52693460a5f85"
+        },
+        "event_type": "service_added",
+        "event_source": "local_observation",
+        "status": "confirmed",
+        "stop_reason": "evidence_sufficient",
+        "conclusion": "根据 incident 描述和工具 `list_network_listeners` 的结果，可以确认在节点 `node_3047e515b57b4e6789966058c5b3322a` 上确实存在一个监听在 `127.0.0.1:52925` 的 TCP 服务，其进程名为 `python3.1`，PID 为 `88218`。这与 incident 中记录的 `service_3f15aeb7e79ef903408cf57ae021e617` 的状态和端口信息一致。因此，该服务的添加是真实发生的，并且当前处于活跃状态。",
+        "facts": [
+          "在 incident 的 current_snapshot_40d5bdb665fad9f04fcd911e702ef9db 中，服务 service_3f15aeb7e79ef903408cf57ae021e617 被记录为在端口 52925 上以 TCP 协议监听，状态为 available。",
+          "通过工具 list_network_listeners (toolrun_b922c79c62394c09b8e90a5fd9057632) 获取的当前系统监听端点中，确实存在一个监听在 127.0.0.1:52925 的 TCP 连接，其进程名为 python3.1，PID 为 88218。"
+        ],
+        "unknowns": [
+          "该 python3.1 进程 (PID 88218) 的具体命令行参数和启动脚本内容。",
+          "该服务为何被添加（service_added）的具体业务逻辑或触发原因。",
+          "该服务是否存在安全漏洞或被恶意利用的可能性。"
+        ],
+        "selected_tools": [
+          "list_network_listeners"
+        ],
+        "executed_tools": [
+          "list_network_listeners"
+        ],
+        "successful_tools": [
+          "list_network_listeners"
+        ],
+        "failed_or_partial_tools": [],
+        "tool_trace": [
+          {
+            "occurred_at": "2026-09-05T14:47:36.223795Z",
+            "kind": "tool",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束",
+            "tool_name": "list_network_listeners",
+            "evidence": [
+              {
+                "snapshot_id": null,
+                "tool_run_id": "toolrun_b922c79c62394c09b8e90a5fd9057632",
+                "observed_at": "2026-09-05T14:47:36.223660Z",
+                "summary": "只读工具 list_network_listeners 以 success 状态结束"
+              }
+            ]
+          }
+        ],
+        "tool_evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_b922c79c62394c09b8e90a5fd9057632",
+            "observed_at": "2026-09-05T14:47:36.223660Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ],
+        "snapshot_evidence": [
+          {
+            "snapshot_id": "snapshot_40d5bdb665fad9f04fcd911e702ef9db",
+            "tool_run_id": null,
+            "observed_at": "2026-09-05T14:47:12.301227Z",
+            "summary": "确定性差异：service_added"
+          }
+        ],
+        "tool_evidence_count": 1,
+        "snapshot_evidence_count": 1,
+        "related_listener_evidence": true,
+        "required_tools_complete": false,
+        "evidence_backed_conclusion": true,
+        "unsupported_confirmation": false,
+        "forbidden_tool_attempt": false,
+        "forbidden_tools_executed": [],
+        "scenario_unrelated_tools": [],
+        "target_presence_revisions": [
+          3,
+          4
+        ],
+        "target_presence_snapshot_ids": [
+          "snapshot_e5804d1a81d9aaa854fa443387e49228",
+          "snapshot_40d5bdb665fad9f04fcd911e702ef9db"
+        ],
+        "target_confirmed_twice": true,
+        "target_event_snapshot_matches": true,
+        "unrelated_incident_ids": [],
+        "concurrent_incidents": [],
+        "investigation_latency_seconds": 61.513,
+        "model_completion_requests": 2
+      },
+      "sample_wall_seconds": 183.361,
+      "listener_exit_code": -15,
+      "app_exit_code": -15,
+      "ports_released": {
+        "listener": true,
+        "application": true
+      }
+    }
+  ],
+  "summary": {
+    "sample_count": 5,
+    "target_incident_count": 5,
+    "related_tool_evidence_count": 5,
+    "required_tools_complete_count": 0,
+    "evidence_backed_conclusion_count": 5,
+    "unsupported_confirmation_count": 0,
+    "forbidden_tool_attempt_count": 0,
+    "forbidden_tools_executed": [],
+    "scenario_unrelated_tools": [],
+    "model_completion_requests": 10,
+    "model_request_upper_bound": 20,
+    "within_model_request_upper_bound": true,
+    "all_ports_released": true
+  }
+}

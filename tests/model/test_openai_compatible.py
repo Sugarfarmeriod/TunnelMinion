@@ -62,13 +62,14 @@ def test_normalizes_config_and_rejects_invalid_endpoint() -> None:
         OpenAICompatibleConfig(endpoint="model.test", model="qwen")
 
 
-def test_parses_tool_calls_usage_and_authorization() -> None:
+def test_parses_tool_calls_before_structured_null_content() -> None:
     async def handler(http_request: httpx.Request) -> httpx.Response:
         payload = json.loads(http_request.content)
         assert http_request.url.path == "/v1/chat/completions"
         assert http_request.headers["Authorization"] == "Bearer secret-value"
         assert payload["tool_choice"] == "required"
         assert payload["tools"][0]["function"]["name"] == "check"
+        assert payload["response_format"]["type"] == "json_schema"
         return httpx.Response(
             200,
             json={
@@ -96,8 +97,9 @@ def test_parses_tool_calls_usage_and_authorization() -> None:
     provider = OpenAICompatibleProvider(
         config(), "secret-value", transport=httpx.MockTransport(handler)
     )
-    response = run(provider.complete(request(), CancellationToken()))
+    response = run(provider.complete(request(structured=True), CancellationToken()))
     assert response.tool_calls[0].arguments == {"ok": True}
+    assert response.structured_output is None
     assert response.usage.total_tokens == 10
     assert provider.capabilities.tool_calls
 

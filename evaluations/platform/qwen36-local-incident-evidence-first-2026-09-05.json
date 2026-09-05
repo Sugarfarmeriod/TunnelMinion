@@ -1,0 +1,257 @@
+{
+  "schema_version": "local-incident-evidence-first/v1",
+  "claim_status": "draft-pr-verified",
+  "overall_result": "passed",
+  "change_id": "enforce-local-incident-evidence-first",
+  "source": {
+    "pull_request": 80,
+    "baseline_revision": "a3e0e2cdad6083f2d9debae9e8fd80b3483b1477",
+    "acceptance_head_revision": "41374d940e5b24273663ffb760d1aca18ba26a2c",
+    "synthetic_merge_revision": "d78d3fc89370f923bd7cc5dbbaebec1c5c3e054d",
+    "synthetic_merge_parents": [
+      "a3e0e2cdad6083f2d9debae9e8fd80b3483b1477",
+      "41374d940e5b24273663ffb760d1aca18ba26a2c"
+    ],
+    "synthetic_merge_git_tree": "9f7d849367c3c9c11f1cf5d8b088ded36ec0f994",
+    "source_tree_sha256": "71049fa918afa84580537459ea0a851a4b170da0081151e928dc6bb2ed501eba",
+    "earlier_acceptance_runs_counted": false
+  },
+  "ci": {
+    "run_id": 33971665867,
+    "url": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/33971665867",
+    "result": "8/8 passed",
+    "jobs": [
+      "Python 3.11 / windows-latest",
+      "Python 3.11 / macos-latest",
+      "React / 质量与生产构建",
+      "React / macos-latest / webkit",
+      "React / windows-latest / chromium",
+      "运行包 / macos-arm64",
+      "运行包 / windows-amd64",
+      "运行包 / 双平台一致性"
+    ],
+    "artifacts": {
+      "windows_package": {
+        "id": 9971140647,
+        "name": "runtime-package-windows-amd64"
+      },
+      "windows_evidence": {
+        "id": 9971140831,
+        "name": "runtime-package-evidence-windows-amd64"
+      },
+      "macos_package": {
+        "id": 9971125500,
+        "name": "runtime-package-macos-arm64"
+      },
+      "macos_evidence": {
+        "id": 9971125839,
+        "name": "runtime-package-evidence-macos-arm64"
+      },
+      "matrix_summary": {
+        "id": 9971144406,
+        "name": "runtime-package-matrix-summary"
+      }
+    }
+  },
+  "packages": {
+    "windows": {
+      "platform": "win32",
+      "architecture": "amd64",
+      "package_id": "tunnelminion-0-1-0-win32-amd64-71049fa918af-ab379b867826",
+      "artifact_source_revision": "d78d3fc89370f923bd7cc5dbbaebec1c5c3e054d",
+      "source_tree_sha256": "71049fa918afa84580537459ea0a851a4b170da0081151e928dc6bb2ed501eba",
+      "tar_sha256": "d06de93e849f7335d967e701607d9f5303024c965cb9022dd0a28d2ae29371a0",
+      "executable_sha256": "60e1f750ba6ea06bcf4f44cb653e87cfb6c76a6596e9373804429aad2714821f",
+      "package_manifest_sha256": "2e449758d35004315cf95121f52773de178bb7a65f02264b8dd26bf3dc671370",
+      "unknown_license_count": 0
+    },
+    "macos": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "package_id": "tunnelminion-0-1-0-darwin-arm64-71049fa918af-ab379b867826",
+      "artifact_source_revision": "d78d3fc89370f923bd7cc5dbbaebec1c5c3e054d",
+      "source_tree_sha256": "71049fa918afa84580537459ea0a851a4b170da0081151e928dc6bb2ed501eba",
+      "tar_sha256": "45caf29593b7b0dd85c71809f1257b2af1337bff31b345b35c41a14e1a14428e",
+      "executable_sha256": "0515416912c08a97b0779ca752a026b119290ab7ae456f032528cb1b70ae0a77",
+      "package_manifest_sha256": "0dc1aa1d8860d03bb4b72ed8fd1ea928ed36661f87e27c9ef1984768472bbb78",
+      "unknown_license_count": 0
+    },
+    "matrix": {
+      "passed": true,
+      "source_revision": "d78d3fc89370f923bd7cc5dbbaebec1c5c3e054d"
+    }
+  },
+  "model": {
+    "loaded_model": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+    "macos_endpoint": "http://127.0.0.1:8080/v1",
+    "windows_transport": "测试专用本机 SSH 转发到既有 macOS 8080 端点",
+    "api_key_configured": false,
+    "keyring_backend": "null",
+    "configuration_requests_per_sample": 0,
+    "timeout_seconds": 90.0
+  },
+  "method": {
+    "formal_package_executed": true,
+    "source_entry_executed": false,
+    "fresh_data_directory_per_sample": true,
+    "baseline_gate": "SQLite query_only 模式下至少取得两个完整快照、事件数为零且目标端口不存在",
+    "target_gate": "启动一个非特权回环 Python HTTP 监听器，至少两个修订均可见，并匹配 local_observation service_added 事件",
+    "observation": "健康检查完成后只读查询 SQLite，不再轮询产品 API",
+    "one_off_harness_sha256": "c6e4ad418ff947d53352343a27f28d13a15d96373a7ad5577a57a955d5ed6f8c",
+    "harness_committed": false,
+    "audit_reproducibility": "逐样本事件身份、工具轨迹、证据引用、并发事件身份和终态已保存在两个受版本控制的明细文件中",
+    "test_method_only_adjustment": "不同 service_id 的并发事件被记录但不再使完整目标调查失败；启动基线仍必须是零事件，目标身份、修订、工具证据和终态仍逐项检查",
+    "post_acceptance_scope_fix": "终审后仅将自动监听 fallback 从所有本机服务事件收紧为 local_observation service_added；正式验收覆盖的 service_added 路径不变",
+    "product_code_changed_for_test_noise": false
+  },
+  "sample_attachments": {
+    "macos": {
+      "path": "evaluations/platform/qwen36-local-incident-evidence-first-macos-samples-2026-09-05.json",
+      "canonical_lf_sha256": "2dbe2026316e6dd0518b44cf432df9a26350c7b1b94bba8e95d184d7be0194f2",
+      "capture_byte_sha256": "2dbe2026316e6dd0518b44cf432df9a26350c7b1b94bba8e95d184d7be0194f2",
+      "sample_count": 5
+    },
+    "windows": {
+      "path": "evaluations/platform/qwen36-local-incident-evidence-first-windows-samples-2026-09-05.json",
+      "canonical_lf_sha256": "3ad975b28b96e1fbaf1d169902aa781e5b77a0e1442896fc0f8ace9f5c8e943d",
+      "capture_byte_sha256": "1e99166bbf4384343f03e68e1d4e2e41b3ae34cfbdd9fb27fa4710c842c43f39",
+      "sample_count": 5,
+      "normalization": "提交文件仅将 Windows CRLF 规范化为 LF，JSON 内容不变"
+    }
+  },
+  "acceptance": {
+    "thresholds": {
+      "windows_samples": 5,
+      "macos_samples": 5,
+      "related_read_only_tool_evidence": 8,
+      "evidence_backed_conclusions": 7,
+      "unsupported_confirmations": 0,
+      "forbidden_tool_executions": 0,
+      "scenario_unrelated_tool_calls": 0,
+      "model_request_upper_bound_per_platform": 20
+    },
+    "observed": {
+      "windows_samples": 5,
+      "macos_samples": 5,
+      "related_read_only_tool_evidence": 10,
+      "snapshot_evidence_records": 10,
+      "evidence_backed_conclusions": 10,
+      "unsupported_confirmations": 0,
+      "forbidden_tool_attempts": 0,
+      "forbidden_tool_executions": 0,
+      "scenario_unrelated_tool_calls": 0,
+      "windows_model_completion_requests": 10,
+      "macos_model_completion_requests": 10,
+      "all_sample_ports_released": true
+    },
+    "passed": true
+  },
+  "platforms": {
+    "macos": {
+      "selected_sample_count": 5,
+      "related_tool_evidence_count": 5,
+      "evidence_backed_conclusion_count": 5,
+      "model_completion_requests": 10,
+      "concurrent_unrelated_incident_count": 0,
+      "investigation_latency_seconds": {
+        "minimum": 40.598,
+        "average": 50.504,
+        "maximum": 61.513
+      },
+      "sample_wall_seconds": {
+        "minimum": 162.606,
+        "average": 174.313,
+        "maximum": 183.361
+      }
+    },
+    "windows": {
+      "selected_sample_count": 5,
+      "related_tool_evidence_count": 5,
+      "evidence_backed_conclusion_count": 5,
+      "model_completion_requests": 10,
+      "concurrent_unrelated_incident_count": 4,
+      "concurrent_unrelated_incident_counts_by_sample": [
+        1,
+        2,
+        0,
+        0,
+        1
+      ],
+      "all_concurrent_event_object_ids_distinct_from_target": true,
+      "investigation_latency_seconds": {
+        "minimum": 55.054,
+        "average": 78.088,
+        "maximum": 131.128
+      },
+      "sample_wall_seconds": {
+        "minimum": 197.14,
+        "average": 220.594,
+        "maximum": 273.562
+      }
+    },
+    "selected_sample_invariants": {
+      "baseline_snapshot_count_at_least": 2,
+      "baseline_incident_count": 0,
+      "event_type": "service_added",
+      "event_source": "local_observation",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "executed_tools": [
+        "list_network_listeners"
+      ],
+      "successful_tools": [
+        "list_network_listeners"
+      ],
+      "tool_evidence_count_at_least": 1,
+      "snapshot_evidence_count_at_least": 1,
+      "related_listener_evidence": true,
+      "evidence_backed_conclusion": true,
+      "unsupported_confirmation": false,
+      "forbidden_tool_attempt": false,
+      "forbidden_tools_executed": [],
+      "scenario_unrelated_tools": [],
+      "target_confirmed_twice": true,
+      "target_event_snapshot_matches": true,
+      "model_completion_requests": 2,
+      "ports_released": true
+    }
+  },
+  "excluded_attempts": [],
+  "prior_revision_diagnostics_not_counted": "41374d940e5b24273663ffb760d1aca18ba26a2c 之前生成的验收记录均不计入本轮结论",
+  "quality_gates": {
+    "full_pytest": "1385 passed, 6 skipped, 100% coverage",
+    "ruff": "passed",
+    "pyright": "0 errors, 0 warnings",
+    "openspec_strict": "passed",
+    "diff_check": "passed",
+    "artifact_ci": "8/8 passed"
+  },
+  "boundaries": {
+    "production_model_8080_modified": false,
+    "production_gateway_8787_modified": false,
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routing_or_dns_modified": false,
+    "sudo_used": false,
+    "uac_used": false,
+    "secrets_read_or_written": false,
+    "deepseek_used": false,
+    "temporary_ssh_forward_ports": [
+      29489
+    ],
+    "temporary_ssh_forward_ports_released": true,
+    "selected_sample_ports_released": true,
+    "temporary_data_removed": true,
+    "local_temporary_roots_removed": 2,
+    "macos_temporary_roots_removed": 1
+  },
+  "limitations": [
+    "Windows 样本出现 4 个不同 service_id 的并发无关事件；明细证明其 object_id 均不等于目标事件，且它们未被当作目标证据。",
+    "所有样本仅靠 list_network_listeners 已取得充分目标证据，因此没有为了凑工具数量调用可选的 get_process_summary。",
+    "验收范围只覆盖两个正式运行包中的本机 service_added 调查，不覆盖 packet relay、Provider 扩展、自动组网、WireGuard、防火墙、路由、DNS、生产服务或特权流程。",
+    "官方 DeepSeek 未参与本轮验收；本阶段没有修改 Provider 契约。"
+  ]
+}
