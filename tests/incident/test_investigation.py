@@ -252,7 +252,7 @@ class SlowRuntime:
 def _incident(
     store: SQLiteIncidentStore,
     *,
-    source: SnapshotSource = SnapshotSource.COORDINATOR_DIRECTORY,
+    source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION,
 ) -> Incident:
     event = SnapshotDiffEvent(
         event_type=IncidentEventType.LOCAL_ONLY,
@@ -416,11 +416,33 @@ def test_remote_incident_never_uses_local_read_only_fallback(
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, mode)
 
-    result = asyncio.run(investigator.run(_incident(store)))
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
 
     assert result.status is expected_status
     assert adapter.calls == []
     assert len(provider.requests) == 1
+    assert provider.requests[0].tools == ()
+    assert provider.requests[0].require_tool_call is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [SnapshotSource.COORDINATOR_DIRECTORY, SnapshotSource.AGGREGATED],
+)
+def test_remote_incident_rejects_model_selected_local_tool(
+    tmp_path: Path,
+    source: SnapshotSource,
+) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "success")
+
+    result = asyncio.run(investigator.run(_incident(store, source=source)))
+
+    assert result.status is IncidentStatus.FAILED
+    assert adapter.calls == []
+    assert provider.requests[0].tools == ()
+    assert provider.requests[0].require_tool_call is False
 
 
 def test_invalid_local_node_response_keeps_node_summary_fallback(tmp_path: Path) -> None:
@@ -468,7 +490,7 @@ def test_investigator_context_includes_affected_service_details(tmp_path: Path) 
         )
     )
 
-    asyncio.run(investigator.run(_incident(store)))
+    asyncio.run(investigator.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY)))
 
     message = next(
         item.content
@@ -586,7 +608,9 @@ def test_unproven_model_conclusion_is_downgraded_to_insufficient_evidence(
 def test_snapshot_alone_cannot_confirm_root_cause(tmp_path: Path) -> None:
     investigator, store, adapter, _ = _runtime(tmp_path, "snapshot_only")
 
-    result = asyncio.run(investigator.run(_incident(store)))
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
 
     assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
     assert result.report is not None
@@ -767,7 +791,9 @@ def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path
     invalid, invalid_store, invalid_adapter, invalid_provider = _runtime(
         tmp_path, "invalid_response"
     )
-    invalid_result = asyncio.run(invalid.run(_incident(invalid_store)))
+    invalid_result = asyncio.run(
+        invalid.run(_incident(invalid_store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
     assert invalid_result.status is IncidentStatus.FAILED
     assert invalid_adapter.calls == []
     assert len(invalid_provider.requests) == 1

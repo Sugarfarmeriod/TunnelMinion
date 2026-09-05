@@ -2,7 +2,7 @@
 
 ### Requirement: Agent 只能动态选择既有只读工具
 
-Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。对于 `local_observation` 来源的服务 incident，如果模型首轮没有选择工具，Runtime MUST 通过同一 Tool Runtime 执行一次 `list_network_listeners` 后再继续模型循环；该规则 MUST 同时覆盖结构有效和结构无效的首轮无工具响应，且 MUST NOT 应用于远端、Coordinator 目录或聚合来源。
+Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。当前节点的本机工具 MUST 只向 `local_observation` 来源的 incident 暴露和执行。对于该来源的服务 incident，如果模型首轮没有选择工具，Runtime MUST 通过同一 Tool Runtime 执行一次 `list_network_listeners` 后再继续模型循环；该规则 MUST 同时覆盖结构有效和结构无效的首轮无工具响应，且 MUST NOT 应用于远端、Coordinator 目录或聚合来源。
 
 #### Scenario: Agent 需要区分进程退出与端口映射变化
 
@@ -28,3 +28,8 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态和任务
 
 - **WHEN** 远端、Coordinator 目录或聚合来源的 incident 首轮没有工具调用
 - **THEN** Runtime 不执行任何本机兜底工具，合法证据不足报告可以保留，无效响应按现有失败路径结束
+
+#### Scenario: 远端来源主动请求本机工具
+
+- **WHEN** 远端、Coordinator 目录或聚合来源的 incident 中，模型主动请求当前节点的监听、进程或其他本机工具
+- **THEN** Runtime 不向该请求暴露或执行本机工具，也不把当前节点的工具结果记录为远端对象证据

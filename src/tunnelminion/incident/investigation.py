@@ -218,7 +218,9 @@ class IncidentInvestigator:
         ]
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
-        tools = self._model_tools()
+        tools = (
+            self._model_tools() if incident.event.source is SnapshotSource.LOCAL_OBSERVATION else ()
+        )
         current = incident
         tool_calls = 0
         for _ in range(self._limits.max_model_rounds):
@@ -241,7 +243,7 @@ class IncidentInvestigator:
                         messages=tuple(messages),
                         tools=tools,
                         tool_results=tuple(tool_results),
-                        require_tool_call=tool_calls == 0,
+                        require_tool_call=bool(tools) and tool_calls == 0,
                         evidence=(
                             make_context_reference(
                                 kind=ContextContentKind.EVIDENCE,
