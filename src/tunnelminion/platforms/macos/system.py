@@ -80,7 +80,7 @@ class MacOSSystemReader(PsutilSystemReader):
             if protocol == "tcp" and "(LISTEN)" not in columns[protocol_index + 2 :]:
                 continue
             endpoint = columns[protocol_index + 1]
-            if ":" not in endpoint:
+            if ":" not in endpoint or "->" in endpoint:
                 continue
             address, raw_port = endpoint.rsplit(":", 1)
             try:

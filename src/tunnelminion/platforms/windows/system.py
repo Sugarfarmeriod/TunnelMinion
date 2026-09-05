@@ -104,6 +104,8 @@ class PsutilSystemReader:
             is_tcp = connection.type == socket.SOCK_STREAM
             if is_tcp and connection.status != psutil.CONN_LISTEN:
                 continue
+            if not is_tcp and connection.raddr:
+                continue
             if not connection.laddr:
                 continue
             protocol = "tcp" if is_tcp else "udp"

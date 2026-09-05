@@ -5,6 +5,7 @@ Windows 与 macOS 正式包已经能安全识别本机 `service_added`，但 202
 ## What Changes
 
 - 全新数据目录首次启动时先等待一个观察周期，再用前两次完整观察完成稳定期并以第二次结果建立服务基线，避免把应用面板或短命启动端口误报成服务变化。
+- Windows/macOS 监听采集排除带明确远端地址的 UDP 客户端连接，保留未连接的 UDP 监听端点，避免把浏览器 QUIC 等出站连接展示成服务或生成 incident。
 - 对 `local_observation` 来源的 `service_added`，首轮只向模型暴露 `list_network_listeners`；如果模型仍未选择工具，不论返回格式是否有效，都通过现有 Tool Runtime 受控执行一次该工具，再让模型基于真实结果继续收敛，后续仅保留监听与进程摘要工具。
 - 保留已有证据门槛、轮次与调用预算；工具失败或后续证据仍不足时继续安全落为 `insufficient_evidence`。
 - 远端或目录来源不向模型暴露、也不执行当前节点的本机工具；模型仍不能获得 Shell、Python、网络写入或未知工具。
@@ -20,9 +21,10 @@ Windows 与 macOS 正式包已经能安全识别本机 `service_added`，但 202
 ### Modified Capabilities
 
 - `autonomous-incident-investigation`: 收紧本机服务 incident 的启动基线和首轮取证要求，同时保持远端证据边界。
+- `node-tool-runtime`: 明确监听工具不把带远端地址的 UDP 客户端连接当成本机监听服务。
 
 ## Impact
 
-- 影响后台观察调度、本机 incident 调查循环及其回归测试。
+- 影响后台观察调度、本机 incident 调查循环、Windows/macOS 监听读取及其回归测试。
 - 更新 `autonomous-incident-investigation` 规格和本阶段正式包实机证据。
 - 不新增依赖、不改变公开 API，不触碰任何网络写入路径或外部服务配置。
