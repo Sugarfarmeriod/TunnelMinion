@@ -35,6 +35,7 @@ from tunnelminion.incident.contracts import (
     InvestigationStopReason,
     PublicTraceEntry,
     SnapshotObjectKind,
+    SnapshotSource,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
@@ -44,6 +45,7 @@ from tunnelminion.model.contracts import (
     ModelProvider,
     ProviderError,
     ProviderErrorCode,
+    ToolCall,
 )
 from tunnelminion.model.contracts import (
     ToolDefinition as ModelToolDefinition,
@@ -239,6 +241,7 @@ class IncidentInvestigator:
                         messages=tuple(messages),
                         tools=tools,
                         tool_results=tuple(tool_results),
+                        require_tool_call=tool_calls == 0,
                         evidence=(
                             make_context_reference(
                                 kind=ContextContentKind.EVIDENCE,
@@ -255,6 +258,31 @@ class IncidentInvestigator:
             except ProviderError as exc:
                 return self._provider_failure(current, exc)
             response = invocation.response
+            if (
+                not response.tool_calls
+                and tool_calls == 0
+                and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+            ):
+                try:
+                    self._parse_decision(response.structured_output, response.content)
+                except (TypeError, ValueError, ValidationError):
+                    fallback_name = (
+                        "list_network_listeners"
+                        if incident.event.object_kind is SnapshotObjectKind.SERVICE
+                        else "get_node_summary"
+                    )
+                    response = response.model_copy(
+                        update={
+                            "content": "",
+                            "tool_calls": (
+                                ToolCall(
+                                    call_id=f"fallback-{run_id}",
+                                    name=fallback_name,
+                                    arguments={},
+                                ),
+                            ),
+                        }
+                    )
             if response.tool_calls:
                 if len(response.tool_calls) != 1 or tool_calls >= self._limits.max_tool_calls:
                     return self._finish(

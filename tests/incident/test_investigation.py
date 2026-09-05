@@ -136,6 +136,8 @@ class ScriptedProvider:
             )
         if self.mode == "invalid_response":
             return ModelResponse()
+        if self.mode == "missing_initial_tool" and len(self.requests) == 1:
+            return ModelResponse(content="未调用工具就直接回答")
         if self.mode == "snapshot_only":
             snapshot_id = "snapshot_00000000000000000000000000000002"
             return ModelResponse(
@@ -231,7 +233,11 @@ class SlowRuntime:
         raise AssertionError("墙钟上限没有取消慢模型")
 
 
-def _incident(store: SQLiteIncidentStore) -> Incident:
+def _incident(
+    store: SQLiteIncidentStore,
+    *,
+    source: SnapshotSource = SnapshotSource.COORDINATOR_DIRECTORY,
+) -> Incident:
     event = SnapshotDiffEvent(
         event_type=IncidentEventType.LOCAL_ONLY,
         object_kind=SnapshotObjectKind.SERVICE,
@@ -242,7 +248,7 @@ def _incident(store: SQLiteIncidentStore) -> Incident:
         baseline_revision=1,
         current_revision=2,
         observed_at=NOW,
-        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        source=source,
         before_state="network",
         after_state="loopback",
         dedup_key=f"sha256:{'a' * 64}",
@@ -332,8 +338,30 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert len(result.report.evidence) == 1
     assert adapter.calls == [{}]
     assert len(provider.requests) == 2
+    assert provider.requests[0].require_tool_call is True
+    assert provider.requests[1].require_tool_call is False
     assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
     assert store.get(result.incident_id) == result
+
+
+def test_investigator_uses_read_only_fallback_when_provider_ignores_required_tool_call(
+    tmp_path: Path,
+) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "missing_initial_tool")
+
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.LOCAL_OBSERVATION))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}]
+    assert len(provider.requests) == 2
+    assert provider.requests[0].require_tool_call is True
+    assert provider.requests[1].require_tool_call is False
+    fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
+    assert fallback.content == ""
+    assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
+    assert fallback.tool_calls[0].name == "list_network_listeners"
 
 
 def test_investigator_context_includes_affected_service_details(tmp_path: Path) -> None:
@@ -662,9 +690,13 @@ def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path
         is finished
     )
 
-    invalid, invalid_store, _, _ = _runtime(tmp_path, "invalid_response")
+    invalid, invalid_store, invalid_adapter, invalid_provider = _runtime(
+        tmp_path, "invalid_response"
+    )
     invalid_result = asyncio.run(invalid.run(_incident(invalid_store)))
     assert invalid_result.status is IncidentStatus.FAILED
+    assert invalid_adapter.calls == []
+    assert len(invalid_provider.requests) == 1
 
     fenced, fenced_store, _, _ = _runtime(tmp_path, "fenced")
     fenced_result = asyncio.run(fenced.run(_incident(fenced_store)))
