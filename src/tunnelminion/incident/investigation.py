@@ -286,7 +286,7 @@ class IncidentInvestigator:
                 and tool_calls == 0
                 and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
             ):
-                use_fallback = incident.event.object_kind is SnapshotObjectKind.SERVICE
+                use_fallback = local_service_added
                 if not use_fallback:
                     try:
                         self._parse_decision(response.structured_output, response.content)

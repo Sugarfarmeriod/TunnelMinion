@@ -405,14 +405,20 @@ def test_local_service_added_only_exposes_incident_related_tools(tmp_path: Path)
 
 
 @pytest.mark.parametrize("mode", ["missing_initial_tool", "valid_missing_initial_tool"])
-def test_local_service_uses_read_only_fallback_when_provider_ignores_required_tool_call(
+def test_local_service_added_uses_read_only_fallback_when_provider_ignores_required_tool_call(
     tmp_path: Path,
     mode: str,
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, mode)
 
     result = asyncio.run(
-        investigator.run(_incident(store, source=SnapshotSource.LOCAL_OBSERVATION))
+        investigator.run(
+            _incident(
+                store,
+                source=SnapshotSource.LOCAL_OBSERVATION,
+                event_type=IncidentEventType.SERVICE_ADDED,
+            )
+        )
     )
 
     assert result.status is IncidentStatus.CONFIRMED
@@ -426,6 +432,22 @@ def test_local_service_uses_read_only_fallback_when_provider_ignores_required_to
     assert fallback.content == ""
     assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
     assert fallback.tool_calls[0].name == "list_network_listeners"
+
+
+def test_valid_local_non_added_service_decision_does_not_trigger_fallback(
+    tmp_path: Path,
+) -> None:
+    investigator, store, adapter, provider = _runtime(
+        tmp_path, "valid_missing_initial_tool"
+    )
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.LOCAL_ONLY))
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert adapter.calls == []
+    assert len(provider.requests) == 1
 
 
 @pytest.mark.parametrize(

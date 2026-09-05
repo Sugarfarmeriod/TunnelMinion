@@ -101,6 +101,7 @@
     "harness_committed": false,
     "audit_reproducibility": "逐样本事件身份、工具轨迹、证据引用、并发事件身份和终态已保存在两个受版本控制的明细文件中",
     "test_method_only_adjustment": "不同 service_id 的并发事件被记录但不再使完整目标调查失败；启动基线仍必须是零事件，目标身份、修订、工具证据和终态仍逐项检查",
+    "post_acceptance_scope_fix": "终审后仅将自动监听 fallback 从所有本机服务事件收紧为 local_observation service_added；正式验收覆盖的 service_added 路径不变",
     "product_code_changed_for_test_noise": false
   },
   "sample_attachments": {
@@ -221,7 +222,7 @@
   "excluded_attempts": [],
   "prior_revision_diagnostics_not_counted": "41374d940e5b24273663ffb760d1aca18ba26a2c 之前生成的验收记录均不计入本轮结论",
   "quality_gates": {
-    "full_pytest": "1384 passed, 6 skipped, 100% coverage",
+    "full_pytest": "1385 passed, 6 skipped, 100% coverage",
     "ruff": "passed",
     "pyright": "0 errors, 0 warnings",
     "openspec_strict": "passed",
