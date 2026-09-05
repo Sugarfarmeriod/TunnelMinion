@@ -437,9 +437,7 @@ def test_local_service_added_uses_read_only_fallback_when_provider_ignores_requi
 def test_valid_local_non_added_service_decision_does_not_trigger_fallback(
     tmp_path: Path,
 ) -> None:
-    investigator, store, adapter, provider = _runtime(
-        tmp_path, "valid_missing_initial_tool"
-    )
+    investigator, store, adapter, provider = _runtime(tmp_path, "valid_missing_initial_tool")
 
     result = asyncio.run(
         investigator.run(_incident(store, event_type=IncidentEventType.LOCAL_ONLY))
