@@ -1,0 +1,438 @@
+"""真实模型 incident 评测不得把脚本答案冒充模型能力。"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import cast
+
+import pytest
+from pydantic import JsonValue
+from scripts import run_real_incident_evaluation as real_cli
+
+from tunnelminion.evaluation.incidents import (
+    IncidentEvaluationDataset,
+    IncidentEvaluationScenario,
+    run_incident_dataset,
+    run_incident_scenario,
+)
+from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.model.contracts import (
+    CancellationToken,
+    ModelCapabilities,
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+    ToolCall,
+)
+from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
+
+V2_DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
+V3_DATASET = Path("evaluations/datasets/autonomous-incidents-v3.json")
+
+
+class _CapturingProvider:
+    def __init__(self, first_call: ToolCall | None, *, with_usage: bool = True) -> None:
+        self.first_call = first_call
+        self.with_usage = with_usage
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(tool_calls=True, structured_output=True)
+
+    async def complete(
+        self,
+        request: ModelRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ModelResponse:
+        del cancellation
+        self.requests.append(request)
+        if len(self.requests) == 1 and self.first_call is not None:
+            return ModelResponse(
+                tool_calls=(self.first_call,),
+                usage=(
+                    ModelUsage(input_tokens=10, output_tokens=2, total_tokens=12)
+                    if self.with_usage
+                    else ModelUsage()
+                ),
+            )
+        refs = [
+            str(json.loads(message.content)["result"]["tool_run_id"])
+            for message in request.messages
+            if message.role == "tool"
+        ]
+        return ModelResponse(
+            structured_output=cast(
+                JsonValue,
+                {
+                    "hypotheses": [
+                        {
+                            "summary": "当前证据不足",
+                            "status": "unknown",
+                            "evidence_refs": refs,
+                        }
+                    ],
+                    "facts": [],
+                    "unknowns": ["无法确认根因"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                },
+            ),
+            usage=(
+                ModelUsage(input_tokens=20, output_tokens=5, total_tokens=25)
+                if self.with_usage
+                else ModelUsage()
+            ),
+        )
+
+
+class _UnsupportedProvider:
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(tool_calls=True, structured_output=True)
+
+    async def complete(
+        self,
+        request: ModelRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ModelResponse:
+        del request, cancellation
+        return ModelResponse(
+            structured_output=cast(
+                JsonValue,
+                {
+                    "hypotheses": [
+                        {
+                            "summary": "没有证据的猜测",
+                            "status": "supported",
+                            "evidence_refs": [],
+                        }
+                    ],
+                    "facts": [],
+                    "unknowns": [],
+                    "conclusion": "没有证据的猜测",
+                    "stop_reason": "evidence_sufficient",
+                },
+            )
+        )
+
+
+class _TextReportProvider:
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(tool_calls=True, structured_output=True)
+
+    async def complete(
+        self,
+        request: ModelRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ModelResponse:
+        del request, cancellation
+        return ModelResponse(
+            content=json.dumps(
+                {
+                    "hypotheses": [],
+                    "facts": [],
+                    "unknowns": ["证据不足"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+def _scenario(scenario_id: str) -> IncidentEvaluationScenario:
+    dataset = IncidentEvaluationDataset.model_validate_json(V2_DATASET.read_text(encoding="utf-8"))
+    return next(item for item in dataset.scenarios if item.scenario_id == scenario_id)
+
+
+def _v3_dataset() -> IncidentEvaluationDataset:
+    return IncidentEvaluationDataset.model_validate_json(V3_DATASET.read_text(encoding="utf-8"))
+
+
+def _serialized_requests(provider: _CapturingProvider) -> str:
+    return json.dumps(
+        [request.model_dump(mode="json") for request in provider.requests],
+        ensure_ascii=False,
+    )
+
+
+def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
+    tmp_path: Path,
+) -> None:
+    provider = _CapturingProvider(
+        ToolCall(call_id="unexpected", name="get_node_summary", arguments={})
+    )
+    result = asyncio.run(
+        run_incident_scenario(
+            _scenario("loopback-listener"),
+            SQLiteIncidentStore(tmp_path / "unexpected.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.selected_tools == ("get_node_summary",)
+    assert result.executed_tools == ("get_node_summary",)
+    assert result.fallback_tools == ()
+    assert result.tool_selection_success is False
+    assert result.unnecessary_tool_calls == 1
+    assert result.task_completed is False
+    assert result.model_input_tokens == 30
+    assert result.model_output_tokens == 7
+    assert result.model_total_tokens == 37
+    captured = _serialized_requests(provider)
+    assert "tool_sequence" not in captured
+    assert "required_tools" not in captured
+    assert "expected_root_cause" not in captured
+    assert "root_cause_terms" not in captured
+    assert "expected_stop_reason" not in captured
+
+
+def test_real_mode_does_not_credit_runtime_fallback_as_model_selection(tmp_path: Path) -> None:
+    provider = _CapturingProvider(None)
+    result = asyncio.run(
+        run_incident_scenario(
+            _scenario("service-added-process"),
+            SQLiteIncidentStore(tmp_path / "fallback.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.selected_tools == ()
+    assert result.executed_tools == ("list_network_listeners",)
+    assert result.fallback_tools == ("list_network_listeners",)
+    assert result.tool_selection_success is False
+
+
+def test_real_mode_records_invalid_arguments_instead_of_hiding_them(tmp_path: Path) -> None:
+    provider = _CapturingProvider(
+        ToolCall(
+            call_id="invalid-port",
+            name="probe_service_reachability",
+            arguments={"host": "127.0.0.1", "port": 70000},
+        )
+    )
+    result = asyncio.run(
+        run_incident_scenario(
+            _scenario("loopback-listener"),
+            SQLiteIncidentStore(tmp_path / "invalid.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.invalid_tool_arguments == 1
+    assert result.executed_tools == ("probe_service_reachability",)
+    assert result.evidence_count == 0
+
+
+def test_real_mode_blocks_unadvertised_tool_request(tmp_path: Path) -> None:
+    provider = _CapturingProvider(ToolCall(call_id="shell", name="shell", arguments={}))
+    result = asyncio.run(
+        run_incident_scenario(
+            _scenario("loopback-listener"),
+            SQLiteIncidentStore(tmp_path / "forbidden.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.forbidden_tool_requests == 1
+    assert result.executed_tools == ()
+    assert result.status == "failed"
+
+
+def test_real_mode_records_plain_text_report_without_persisting_body(tmp_path: Path) -> None:
+    result = asyncio.run(
+        run_incident_scenario(
+            _scenario("loopback-listener"),
+            SQLiteIncidentStore(tmp_path / "text-report.sqlite3"),
+            provider=_TextReportProvider(),
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.model_rounds[0].response_kind == "text_report"
+    assert result.conclusion is None
+
+
+def test_v3_scripted_matrix_keeps_fast_regression_and_adds_conflict(tmp_path: Path) -> None:
+    report = asyncio.run(
+        run_incident_dataset(_v3_dataset(), SQLiteIncidentStore(tmp_path / "scripted-v3.sqlite3"))
+    )
+
+    assert report.gate_violations == ()
+    assert report.metrics.scenario_count == 12
+    assert {item.category for item in report.scenarios} >= {"normal", "evidence_conflict"}
+    normal = next(item for item in report.scenarios if item.category == "normal")
+    conflict = next(item for item in report.scenarios if item.category == "evidence_conflict")
+    assert (normal.incident_count, normal.model_calls) == (0, 0)
+    assert conflict.status == "insufficient_evidence"
+    assert conflict.conclusion is None
+
+
+def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path: Path) -> None:
+    provider = _CapturingProvider(None)
+    report = asyncio.run(
+        run_incident_dataset(
+            _v3_dataset(),
+            SQLiteIncidentStore(tmp_path / "real-v3.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+            source_revision="abc1234",
+        )
+    )
+
+    assert report.scope == "isolated-real-model-local-runtime"
+    assert report.source_revision == "abc1234"
+    assert report.safety_gate_violations == ()
+    assert report.quality_target_violations
+    assert report.ready_for_operation_stage is False
+    assert report.metrics.normal_incident_count == 0
+    assert report.metrics.normal_model_calls == 0
+    assert report.metrics.total_tokens is not None
+    assert any(item.model_source == "failure-injection" for item in report.scenarios)
+    assert all(item.model_source != "scripted" for item in report.scenarios)
+
+
+def test_real_dataset_highlights_unsupported_confirmation_attempt(tmp_path: Path) -> None:
+    report = asyncio.run(
+        run_incident_dataset(
+            _v3_dataset(),
+            SQLiteIncidentStore(tmp_path / "unsupported.sqlite3"),
+            provider=_UnsupportedProvider(),
+            provider_name="test-provider",
+            model_name="test-model",
+            source_revision="abc1234",
+        )
+    )
+
+    assert report.metrics.unsupported_assertion_rate > 0
+    assert "unsupported_assertion_rate" in report.safety_gate_violations
+    assert all(item.status != "confirmed" for item in report.scenarios)
+
+
+def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
+    tmp_path: Path,
+) -> None:
+    scenario = next(
+        item for item in _v3_dataset().scenarios if item.category == "evidence_conflict"
+    )
+    provider = _CapturingProvider(
+        ToolCall(
+            call_id="probe",
+            name="probe_service_reachability",
+            arguments={"host": "10.77.0.2", "port": 43123},
+        ),
+        with_usage=False,
+    )
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "conflict.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.status == "insufficient_evidence"
+    assert result.conclusion is None
+    assert result.failure_recovered is True
+    assert result.model_total_tokens is None
+    assert result.evidence_count == 1
+
+
+def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
+    provider = _CapturingProvider(None)
+    with pytest.raises(ValueError, match="Provider、模型和代码提交"):
+        asyncio.run(
+            run_incident_dataset(
+                _v3_dataset(),
+                SQLiteIncidentStore(tmp_path / "missing-meta.sqlite3"),
+                provider=provider,
+            )
+        )
+    v2 = IncidentEvaluationDataset.model_validate_json(V2_DATASET.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="v3"):
+        asyncio.run(
+            run_incident_dataset(
+                v2,
+                SQLiteIncidentStore(tmp_path / "v2-real.sqlite3"),
+                provider=provider,
+                provider_name="test-provider",
+                model_name="test-model",
+                source_revision="abc1234",
+            )
+        )
+
+
+def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
+    dataset = _v3_dataset()
+    scenario = dataset.scenarios[1]
+    with pytest.raises(ValueError, match="工具夹具只能包含"):
+        IncidentEvaluationScenario.model_validate(
+            scenario.model_dump() | {"tool_results": {"shell": {"result": "wrong"}}}
+        )
+    with pytest.raises(ValueError, match="根因评分词必须关联"):
+        IncidentEvaluationScenario.model_validate(
+            scenario.model_dump() | {"expected_root_cause": None}
+        )
+
+    conflict = dataset.scenarios[-1].model_copy(update={"category": "tool_failure"})
+    with pytest.raises(ValueError, match="必须包含证据冲突"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump() | {"scenarios": (*dataset.scenarios[:-1], conflict)}
+        )
+
+    missing_result = scenario.model_copy(update={"tool_results": {}})
+    with pytest.raises(ValueError, match="必须提供结果或确定性失败"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {"scenarios": (dataset.scenarios[0], missing_result, *dataset.scenarios[2:])}
+        )
+
+
+def test_real_cli_writes_report_without_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _CapturingProvider(None)
+
+    def provider_factory(_config: OpenAICompatibleConfig) -> _CapturingProvider:
+        return provider
+
+    monkeypatch.setattr(real_cli, "OpenAICompatibleProvider", provider_factory)
+    output = tmp_path / "real-report.json"
+
+    assert (
+        real_cli.main(
+            [
+                str(V3_DATASET),
+                "--endpoint",
+                "http://127.0.0.1:9999/v1",
+                "--model",
+                "test-model",
+                "--source-revision",
+                "abc1234",
+                "--output",
+                str(output),
+                "--check",
+            ]
+        )
+        == 1
+    )
+    payload = output.read_text(encoding="utf-8")
+    assert '"scope":"isolated-real-model-local-runtime"' in payload.replace(" ", "")
+    assert "127.0.0.1:9999" not in payload

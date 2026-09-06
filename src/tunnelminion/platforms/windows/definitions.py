@@ -61,15 +61,13 @@ def _definition(
     )
 
 
-def register_windows_tools(
-    registry: ToolRegistry, adapters: WindowsToolAdapters
-) -> tuple[ToolDefinition, ...]:
-    """注册 Windows MVP 允许的完整只读工具集。"""
+def windows_tool_definitions() -> tuple[ToolDefinition, ...]:
+    """返回 Windows MVP 允许的完整只读工具定义。"""
     empty: dict[str, JsonValue] = {
         "type": "object",
         "additionalProperties": False,
     }
-    definitions = (
+    return (
         _definition(
             "get_wireguard_status",
             "读取 HomeMac WireGuard 接口和脱敏 peer 状态。",
@@ -126,6 +124,13 @@ def register_windows_tools(
             max_bytes=64_000,
         ),
     )
+
+
+def register_windows_tools(
+    registry: ToolRegistry, adapters: WindowsToolAdapters
+) -> tuple[ToolDefinition, ...]:
+    """注册 Windows MVP 允许的完整只读工具集。"""
+    definitions = windows_tool_definitions()
     adapter_values = (
         adapters.wireguard,
         adapters.listeners,
