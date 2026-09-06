@@ -145,9 +145,11 @@ class _TextReportProvider:
         )
 
 
-class _ConflictConfirmingProvider:
-    def __init__(self) -> None:
-        self.finished_conflict = False
+class _ConflictProvider:
+    def __init__(self, *, confirm: bool = False, probe_port: int = 43123) -> None:
+        self.confirm = confirm
+        self.probe_port = probe_port
+        self.requests: list[ModelRequest] = []
 
     @property
     def capabilities(self) -> ModelCapabilities:
@@ -159,23 +161,32 @@ class _ConflictConfirmingProvider:
         cancellation: CancellationToken | None = None,
     ) -> ModelResponse:
         del cancellation
+        self.requests.append(request)
+        tool_messages = [message for message in request.messages if message.role == "tool"]
         refs = [
-            str(json.loads(message.content)["result"]["tool_run_id"])
-            for message in request.messages
-            if message.role == "tool"
+            str(json.loads(message.content)["result"]["tool_run_id"]) for message in tool_messages
         ]
-        if not self.finished_conflict and not refs:
+        if not tool_messages:
             return ModelResponse(
                 tool_calls=(
                     ToolCall(
-                        call_id="conflict-probe",
-                        name="probe_service_reachability",
-                        arguments={"host": "10.77.0.2", "port": 43123},
+                        call_id="discover-probe-host",
+                        name="get_node_summary",
+                        arguments={},
                     ),
                 )
             )
-        if not self.finished_conflict:
-            self.finished_conflict = True
+        if len(tool_messages) == 1:
+            return ModelResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id="run-conflict-probe",
+                        name="probe_service_reachability",
+                        arguments={"host": "10.77.0.2", "port": self.probe_port},
+                    ),
+                )
+            )
+        if self.confirm:
             return ModelResponse(
                 structured_output=cast(
                     JsonValue,
@@ -228,7 +239,7 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
     tmp_path: Path,
 ) -> None:
     provider = _CapturingProvider(
-        ToolCall(call_id="unexpected", name="get_node_summary", arguments={})
+        ToolCall(call_id="unexpected", name="get_wireguard_status", arguments={})
     )
     result = asyncio.run(
         run_incident_scenario(
@@ -242,8 +253,8 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
         )
     )
 
-    assert result.selected_tools == ("get_node_summary",)
-    assert result.executed_tools == ("get_node_summary",)
+    assert result.selected_tools == ("get_wireguard_status",)
+    assert result.executed_tools == ("get_wireguard_status",)
     assert result.fallback_tools == ()
     assert result.tool_selection_success is False
     assert result.unnecessary_tool_calls == 1
@@ -308,6 +319,8 @@ def test_real_mode_rejects_schema_valid_but_wrong_fixture_target(tmp_path: Path)
     assert result.executed_tools == ()
     assert result.tool_runs[0].error_code == "invalid_argument"
     assert result.evidence_count == 0
+    assert result.tool_selection_success is False
+    assert result.task_completed is False
 
 
 def test_real_mode_blocks_unadvertised_tool_request(tmp_path: Path) -> None:
@@ -406,14 +419,7 @@ def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
     scenario = next(
         item for item in _v3_dataset().scenarios if item.category == "evidence_conflict"
     )
-    provider = _CapturingProvider(
-        ToolCall(
-            call_id="probe",
-            name="probe_service_reachability",
-            arguments={"host": "10.77.0.2", "port": 43123},
-        ),
-        with_usage=False,
-    )
+    provider = _ConflictProvider()
     result = asyncio.run(
         run_incident_scenario(
             scenario,
@@ -427,11 +433,39 @@ def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
     assert result.status == "insufficient_evidence"
     assert result.conclusion is None
     assert result.failure_recovered is True
+    assert result.tool_selection_success is True
+    assert result.task_completed is True
     assert result.model_total_tokens is None
-    assert result.evidence_count == 1
-    assert result.tool_runs[0].arguments == {"host": "10.77.0.2", "port": 43123}
-    assert result.tool_runs[0].output is not None
-    assert result.tool_runs[0].output["reachable"] is True
+    assert result.evidence_count == 0
+    assert any(
+        "10.77.0.2" in message.content
+        for message in provider.requests[1].messages
+        if message.role == "tool"
+    )
+    assert result.tool_runs[1].arguments == {"host": "10.77.0.2", "port": 43123}
+    assert isinstance(result.tool_runs[1].output, dict)
+    assert result.tool_runs[1].output["reachable"] is True
+
+
+def test_conflict_wrong_target_cannot_pass_success_metrics(tmp_path: Path) -> None:
+    scenario = next(
+        item for item in _v3_dataset().scenarios if item.category == "evidence_conflict"
+    )
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "wrong-conflict-target.sqlite3"),
+            provider=_ConflictProvider(probe_port=1),
+            provider_name="test-provider",
+            model_name="test-model",
+        )
+    )
+
+    assert result.status == "insufficient_evidence"
+    assert result.invalid_tool_arguments == 1
+    assert result.tool_selection_success is False
+    assert result.failure_recovered is False
+    assert result.task_completed is False
 
 
 def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> None:
@@ -445,7 +479,7 @@ def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> No
         run_incident_dataset(
             reordered,
             SQLiteIncidentStore(tmp_path / "confirmed-conflict.sqlite3"),
-            provider=_ConflictConfirmingProvider(),
+            provider=_ConflictProvider(confirm=True),
             provider_name="test-provider",
             model_name="test-model",
             source_revision=REVISION,
@@ -559,6 +593,19 @@ def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
             | {
                 "scenarios": tuple(
                     missing_arguments if item.scenario_id == probe.scenario_id else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
+    hidden_probe_host = probe.model_copy(
+        update={"required_tools": probe.required_tools - {"get_node_summary"}}
+    )
+    with pytest.raises(ValueError, match="必须让模型先发现探测地址"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    hidden_probe_host if item.scenario_id == probe.scenario_id else item
                     for item in dataset.scenarios
                 )
             }

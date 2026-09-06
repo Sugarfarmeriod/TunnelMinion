@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Literal, Self, cast
@@ -58,6 +59,8 @@ from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
     ToolCancellationToken,
+    ToolExecutionRequest,
+    ToolExecutionResult,
     ToolExecutionStatus,
 )
 from tunnelminion.tools.registry import ToolRegistry
@@ -191,6 +194,26 @@ class IncidentEvaluationDataset(BaseModel):
                     and "probe_service_reachability" not in scenario.tool_arguments
                 ):
                     raise ValueError("v3 可达性场景必须绑定目标参数")
+                if "probe_service_reachability" in scenario.required_tools:
+                    probe_host = scenario.tool_arguments["probe_service_reachability"].get("host")
+                    node_summary = scenario.tool_results.get("get_node_summary", {})
+                    wireguard = node_summary.get("wireguard")
+                    addresses = wireguard.get("addresses") if isinstance(wireguard, dict) else None
+                    visible_hosts: set[str] = (
+                        {
+                            item.split("/", maxsplit=1)[0]
+                            for item in addresses
+                            if isinstance(item, str)
+                        }
+                        if isinstance(addresses, list)
+                        else set()
+                    )
+                    if (
+                        "get_node_summary" not in scenario.required_tools
+                        or not isinstance(probe_host, str)
+                        or probe_host not in visible_hosts
+                    ):
+                        raise ValueError("v3 可达性场景必须让模型先发现探测地址")
         if set(self.tool_versions) != set(READ_ONLY_INVESTIGATION_TOOLS):
             raise ValueError("数据集必须固定全部六个只读工具版本")
         return self
@@ -221,7 +244,7 @@ class IncidentToolRun(BaseModel):
     arguments: dict[str, JsonValue]
     status: ToolExecutionStatus
     error_code: ErrorCode | None = None
-    output: dict[str, JsonValue] | None = None
+    output: JsonValue | None = None
     latency_ms: float = Field(ge=0)
 
 
@@ -398,6 +421,43 @@ class _RecordingModelRuntime:
             )
         )
         return invocation
+
+
+@dataclass(frozen=True)
+class _RecordedToolAttempt:
+    request: ToolExecutionRequest
+    result: ToolExecutionResult
+    selected_by_model: bool
+    latency_ms: float
+
+
+class _RecordingToolRuntime:
+    """记录 Runtime 的实际结果，并区分模型调用与受控 fallback。"""
+
+    def __init__(self, runtime: ToolRuntime, model: _RecordingModelRuntime) -> None:
+        self.runtime = runtime
+        self.model = model
+        self.attempts: list[_RecordedToolAttempt] = []
+
+    async def execute(
+        self,
+        request: ToolExecutionRequest,
+        cancellation: ToolCancellationToken | None = None,
+    ) -> ToolExecutionResult:
+        selected_by_model = bool(
+            self.model.rounds and request.tool_name in self.model.rounds[-1].requested_tools
+        )
+        started = perf_counter()
+        result = await self.runtime.execute(request, cancellation)
+        self.attempts.append(
+            _RecordedToolAttempt(
+                request=request,
+                result=result,
+                selected_by_model=selected_by_model,
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+        )
+        return result
 
 
 class _FixtureProvider:
@@ -626,10 +686,11 @@ async def run_incident_scenario(
             tool_schema_version="incident-tools/v1",
         )
     )
+    recording_tools = _RecordingToolRuntime(tools, recording)
     investigator = IncidentInvestigator(
         recording,
         registry,
-        tools,
+        recording_tools,
         store,
         Platform.WINDOWS,
         limits=InvestigationLimits(max_tool_calls=1 if scenario.outcome == "budget" else 8),
@@ -637,34 +698,39 @@ async def run_incident_scenario(
     )
     final = await investigator.run(incident)
     selected = tuple(name for item in recording.rounds for name in item.requested_tools)
-    attempts = tuple(item.tool_name for item in audit.records)
+    attempts = tuple(item.request.tool_name for item in recording_tools.attempts)
     executed = tuple(
-        item.tool_name
-        for item in audit.records
-        if item.error_code is not ErrorCode.INVALID_ARGUMENT
+        item.request.tool_name
+        for item in recording_tools.attempts
+        if item.result.error is None or item.result.error.code is not ErrorCode.INVALID_ARGUMENT
     )
-    unmatched = list(selected)
-    fallback: list[str] = []
-    for name in attempts:
-        if name in unmatched:
-            unmatched.remove(name)
-        else:
-            fallback.append(name)
+    fallback = tuple(
+        item.request.tool_name for item in recording_tools.attempts if not item.selected_by_model
+    )
+    valid_model_tools = {
+        item.request.tool_name
+        for item in recording_tools.attempts
+        if item.selected_by_model
+        and (item.result.error is None or item.result.error.code is not ErrorCode.INVALID_ARGUMENT)
+    }
+    successful_model_tools = {
+        item.request.tool_name
+        for item in recording_tools.attempts
+        if item.selected_by_model
+        and item.result.status in {ToolExecutionStatus.SUCCESS, ToolExecutionStatus.PARTIAL}
+    }
+    audit_by_run = {str(item.tool_run_id): item for item in audit.records}
     tool_runs = tuple(
         IncidentToolRun(
-            tool_run_id=item.tool_run_id,
-            tool_name=item.tool_name,
-            arguments=item.arguments_summary,
-            status=item.status,
-            error_code=item.error_code,
-            output=(
-                _fixture_output(scenario, item.tool_name)
-                if item.status in {ToolExecutionStatus.SUCCESS, ToolExecutionStatus.PARTIAL}
-                else None
-            ),
-            latency_ms=(item.finished_at - item.started_at).total_seconds() * 1000,
+            tool_run_id=item.result.tool_run_id,
+            tool_name=item.request.tool_name,
+            arguments=audit_by_run[str(item.result.tool_run_id)].arguments_summary,
+            status=item.result.status,
+            error_code=item.result.error.code if item.result.error is not None else None,
+            output=item.result.output,
+            latency_ms=item.latency_ms,
         )
-        for item in audit.records
+        for item in recording_tools.attempts
     )
     report = final.report
     evidence_count = len(report.evidence) if report is not None else 0
@@ -707,7 +773,7 @@ async def run_incident_scenario(
             and any("模型没有提供足以确认根因" in item for item in report.unknowns)
         )
     )
-    tool_success = scenario.required_tools.issubset(selected) and not (
+    tool_success = scenario.required_tools.issubset(valid_model_tools) and not (
         set(selected) & scenario.forbidden_tools
     )
     recovered = (
@@ -715,7 +781,7 @@ async def run_incident_scenario(
         and report is not None
         and report.stop_reason is scenario.expected_stop_reason
         and not unsupported
-        and (not scenario.required_tools or scenario.required_tools.issubset(selected))
+        and (not scenario.required_tools or scenario.required_tools.issubset(valid_model_tools))
         if scenario.failure_class is not None
         else None
     )
@@ -728,7 +794,12 @@ async def run_incident_scenario(
     task_completed = (
         bool(root_success) and tool_success
         if root_success is not None
-        else expected_terminal and tool_success
+        else expected_terminal
+        and tool_success
+        and (
+            scenario.category != "evidence_conflict"
+            or scenario.required_tools.issubset(successful_model_tools)
+        )
     )
     return IncidentScenarioResult(
         scenario_id=scenario.scenario_id,
@@ -746,10 +817,11 @@ async def run_incident_scenario(
         selected_tools=selected,
         runtime_tool_attempts=attempts,
         executed_tools=executed,
-        fallback_tools=tuple(fallback),
+        fallback_tools=fallback,
         tool_runs=tool_runs,
         invalid_tool_arguments=sum(
-            item.error_code is ErrorCode.INVALID_ARGUMENT for item in audit.records
+            item.result.error is not None and item.result.error.code is ErrorCode.INVALID_ARGUMENT
+            for item in recording_tools.attempts
         ),
         forbidden_tool_requests=sum(
             name in scenario.forbidden_tools or name not in READ_ONLY_INVESTIGATION_TOOLS
