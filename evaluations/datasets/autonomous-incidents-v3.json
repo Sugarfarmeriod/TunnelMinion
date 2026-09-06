@@ -156,6 +156,9 @@
           "error": "connection_refused"
         }
       },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
       "failing_tools": [],
       "required_tools": ["list_network_listeners", "probe_service_reachability"],
       "forbidden_tools": ["shell", "python", "restart_service"],
@@ -191,6 +194,9 @@
           "error": "connection_refused"
         }
       },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
       "failing_tools": [],
       "required_tools": ["get_wireguard_status", "probe_service_reachability"],
       "forbidden_tools": ["shell", "python", "restart_service"],
@@ -224,6 +230,9 @@
       "expected_event": "local_only",
       "tool_sequence": ["probe_service_reachability"],
       "tool_results": {},
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
       "failing_tools": ["probe_service_reachability"],
       "required_tools": ["probe_service_reachability"],
       "forbidden_tools": ["shell", "python", "restart_service"],
@@ -288,6 +297,9 @@
           "reachable": true,
           "latency_ms": 4
         }
+      },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
       },
       "failing_tools": [],
       "required_tools": ["probe_service_reachability"],

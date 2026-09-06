@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,6 +21,27 @@ from tunnelminion.model.openai_compatible import (
 )
 
 
+def _repository_revision() -> str:
+    """只允许在干净工作树上生成可关联到提交的正式报告。"""
+    status = subprocess.run(
+        ("git", "status", "--porcelain"),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        raise RuntimeError("真实 incident 评测要求干净工作树")
+    revision = subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if not revision:
+        raise RuntimeError("无法读取被评测代码提交")
+    return revision
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """运行一次串行真实矩阵并保存不含凭据和 endpoint 的报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,7 +49,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--provider-name", default="openai-compatible")
-    parser.add_argument("--source-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--check", action="store_true")
@@ -51,7 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 provider=provider,
                 provider_name=args.provider_name,
                 model_name=args.model,
-                source_revision=args.source_revision,
+                source_revision=_repository_revision(),
             )
         )
     args.output.parent.mkdir(parents=True, exist_ok=True)

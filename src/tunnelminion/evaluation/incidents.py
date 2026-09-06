@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -12,13 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from tunnelminion.agent.context_contracts import ContextRequest
 from tunnelminion.agent.context_runtime import ContextInvocation, ContextModelRuntime
+from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId
+from tunnelminion.domain.errors import ErrorCode, ToolError
+from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
     EvidenceReference,
@@ -53,7 +55,11 @@ from tunnelminion.model.contracts import (
 )
 from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.tools.audit import InMemoryAuditSink
-from tunnelminion.tools.contracts import ToolCancellationToken
+from tunnelminion.tools.contracts import (
+    ToolAdapterError,
+    ToolCancellationToken,
+    ToolExecutionStatus,
+)
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 
@@ -113,6 +119,7 @@ class IncidentEvaluationScenario(BaseModel):
     root_cause_terms: tuple[str, ...] = Field(default=(), max_length=8)
     tool_sequence: tuple[str, ...] = Field(default=(), max_length=8)
     tool_results: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
+    tool_arguments: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
     failing_tools: frozenset[str] = frozenset()
     required_tools: frozenset[str] = frozenset()
     forbidden_tools: frozenset[str] = frozenset()
@@ -130,6 +137,13 @@ class IncidentEvaluationScenario(BaseModel):
             raise ValueError("脚本只能选择既有六个只读工具")
         if set(self.tool_results) - set(READ_ONLY_INVESTIGATION_TOOLS):
             raise ValueError("工具夹具只能包含既有六个只读工具")
+        if set(self.tool_arguments) - set(READ_ONLY_INVESTIGATION_TOOLS):
+            raise ValueError("工具参数夹具只能包含既有六个只读工具")
+        if any(
+            len(json.dumps(item, ensure_ascii=False).encode()) > 16_000
+            for item in self.tool_results.values()
+        ):
+            raise ValueError("工具夹具结果不得超过 16KB")
         if not self.required_tools.issubset(self.tool_sequence):
             raise ValueError("必要工具必须出现在脚本序列")
         if self.expected_event is None and self.outcome != "none":
@@ -172,6 +186,11 @@ class IncidentEvaluationDataset(BaseModel):
                 available = set(scenario.tool_results) | set(scenario.failing_tools)
                 if not scenario.required_tools.issubset(available):
                     raise ValueError("v3 必要工具必须提供结果或确定性失败")
+                if (
+                    "probe_service_reachability" in scenario.required_tools
+                    and "probe_service_reachability" not in scenario.tool_arguments
+                ):
+                    raise ValueError("v3 可达性场景必须绑定目标参数")
         if set(self.tool_versions) != set(READ_ONLY_INVESTIGATION_TOOLS):
             raise ValueError("数据集必须固定全部六个只读工具版本")
         return self
@@ -189,6 +208,21 @@ class IncidentModelRound(BaseModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
+    latency_ms: float = Field(ge=0)
+
+
+class IncidentToolRun(BaseModel):
+    """一次确定性工具尝试的脱敏参数、状态与有界结果。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_run_id: ToolRunId
+    tool_name: str
+    arguments: dict[str, JsonValue]
+    status: ToolExecutionStatus
+    error_code: ErrorCode | None = None
+    output: dict[str, JsonValue] | None = None
+    latency_ms: float = Field(ge=0)
 
 
 class IncidentScenarioResult(BaseModel):
@@ -207,8 +241,10 @@ class IncidentScenarioResult(BaseModel):
     stop_reason: InvestigationStopReason | None
     conclusion: str | None
     selected_tools: tuple[str, ...]
+    runtime_tool_attempts: tuple[str, ...]
     executed_tools: tuple[str, ...]
     fallback_tools: tuple[str, ...]
+    tool_runs: tuple[IncidentToolRun, ...] = ()
     invalid_tool_arguments: int = Field(ge=0)
     forbidden_tool_requests: int = Field(ge=0)
     model_input_tokens: int | None = Field(default=None, ge=0)
@@ -246,6 +282,7 @@ class IncidentEvaluationMetrics(BaseModel):
     normal_incident_count: int
     normal_model_calls: int
     forbidden_tool_executions: int
+    conflict_confirmations: int
     forbidden_tool_requests: int
     fallback_tool_calls: int
     total_input_tokens: int | None = Field(default=None, ge=0)
@@ -269,7 +306,8 @@ class IncidentEvaluationReport(BaseModel):
     scope: Literal["offline-scripted-local-runtime", "isolated-real-model-local-runtime"] = (
         "offline-scripted-local-runtime"
     )
-    source_revision: str | None = None
+    source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     scenarios: tuple[IncidentScenarioResult, ...]
     metrics: IncidentEvaluationMetrics
     quality_targets: dict[str, float] = Field(default_factory=dict)
@@ -284,11 +322,15 @@ class _FixtureAdapter:
         self,
         name: str,
         output: dict[str, JsonValue] | None = None,
+        expected_arguments: dict[str, JsonValue] | None = None,
         *,
         fail: bool,
     ) -> None:
         self.name = name
-        self.output = output or {"tool": name, "observed": True}
+        self.output: dict[str, JsonValue] = (
+            output if output is not None else {"tool": name, "observed": True}
+        )
+        self.expected_arguments = expected_arguments or {}
         self.fail = fail
 
     async def execute(
@@ -298,6 +340,13 @@ class _FixtureAdapter:
     ) -> JsonValue:
         if cancellation.cancelled:
             raise RuntimeError("cancelled")
+        if any(arguments.get(key) != value for key, value in self.expected_arguments.items()):
+            raise ToolAdapterError(
+                ToolError(
+                    code=ErrorCode.INVALID_ARGUMENT,
+                    message="工具参数与固定场景对象不匹配",
+                )
+            )
         if self.fail:
             raise RuntimeError("fixture failure")
         return self.output
@@ -316,6 +365,7 @@ class _RecordingModelRuntime:
         cancellation: CancellationToken | None = None,
     ) -> ContextInvocation:
         index = len(self.rounds) + 1
+        started = perf_counter()
         try:
             invocation = await self.runtime.invoke(request, cancellation)
         except ProviderError as exc:
@@ -324,6 +374,7 @@ class _RecordingModelRuntime:
                     round_index=index,
                     response_kind="provider_error",
                     error_code=exc.code,
+                    latency_ms=(perf_counter() - started) * 1000,
                 )
             )
             raise
@@ -343,6 +394,7 @@ class _RecordingModelRuntime:
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 total_tokens=response.usage.total_tokens,
+                latency_ms=(perf_counter() - started) * 1000,
             )
         )
         return invocation
@@ -430,6 +482,8 @@ class _FixtureProvider:
         return values
 
     def _arguments(self, name: str) -> dict[str, JsonValue]:
+        if name in self.scenario.tool_arguments:
+            return self.scenario.tool_arguments[name]
         if name != "probe_service_reachability":
             return {}
         service = next(iter(self.current.services), None)
@@ -478,6 +532,16 @@ def _snapshot(value: IncidentSnapshotInput, *, revision: int) -> NormalizedSnaps
     )
 
 
+def _fixture_output(scenario: IncidentEvaluationScenario, name: str) -> dict[str, JsonValue]:
+    return scenario.tool_results.get(
+        name,
+        {
+            "tool": name,
+            "finding": "no_relevant_observation",
+        },
+    )
+
+
 def _runtime(
     scenario: IncidentEvaluationScenario,
 ) -> tuple[ToolRegistry, ToolRuntime, InMemoryAuditSink]:
@@ -485,17 +549,14 @@ def _runtime(
     audit = InMemoryAuditSink()
     for definition in windows_tool_definitions():
         name = definition.name
-        output = scenario.tool_results.get(
-            name,
-            {
-                "scenario_id": scenario.scenario_id,
-                "tool": name,
-                "finding": "no_relevant_observation",
-            },
-        )
         registry.register(
             definition,
-            _FixtureAdapter(name, output, fail=name in scenario.failing_tools),
+            _FixtureAdapter(
+                name,
+                _fixture_output(scenario, name),
+                scenario.tool_arguments.get(name),
+                fail=name in scenario.failing_tools,
+            ),
         )
     return registry, ToolRuntime(registry, Platform.WINDOWS, audit), audit
 
@@ -513,6 +574,8 @@ async def run_incident_scenario(
     started = perf_counter()
     baseline = _snapshot(scenario.baseline, revision=revision_offset + 1)
     current = _snapshot(scenario.current, revision=revision_offset + 2)
+    store.put_snapshot(baseline)
+    store.put_snapshot(current)
     events = SnapshotDiffDetector(confirmations_required=1).compare(baseline, current)
     event = next((item for item in events if item.event_type == scenario.expected_event), None)
     if scenario.expected_event is None:
@@ -527,8 +590,10 @@ async def run_incident_scenario(
             stop_reason=None,
             conclusion=None,
             selected_tools=(),
+            runtime_tool_attempts=(),
             executed_tools=(),
             fallback_tools=(),
+            tool_runs=(),
             invalid_tool_arguments=0,
             forbidden_tool_requests=0,
             model_input_tokens=0,
@@ -572,16 +637,51 @@ async def run_incident_scenario(
     )
     final = await investigator.run(incident)
     selected = tuple(name for item in recording.rounds for name in item.requested_tools)
-    executed = tuple(item.tool_name for item in audit.records)
+    attempts = tuple(item.tool_name for item in audit.records)
+    executed = tuple(
+        item.tool_name
+        for item in audit.records
+        if item.error_code is not ErrorCode.INVALID_ARGUMENT
+    )
     unmatched = list(selected)
     fallback: list[str] = []
-    for name in executed:
+    for name in attempts:
         if name in unmatched:
             unmatched.remove(name)
         else:
             fallback.append(name)
+    tool_runs = tuple(
+        IncidentToolRun(
+            tool_run_id=item.tool_run_id,
+            tool_name=item.tool_name,
+            arguments=item.arguments_summary,
+            status=item.status,
+            error_code=item.error_code,
+            output=(
+                _fixture_output(scenario, item.tool_name)
+                if item.status in {ToolExecutionStatus.SUCCESS, ToolExecutionStatus.PARTIAL}
+                else None
+            ),
+            latency_ms=(item.finished_at - item.started_at).total_seconds() * 1000,
+        )
+        for item in audit.records
+    )
     report = final.report
     evidence_count = len(report.evidence) if report is not None else 0
+    cited_run_ids = {
+        str(item.tool_run_id)
+        for item in (report.evidence if report is not None else ())
+        if item.tool_run_id is not None
+    }
+    cited_tools = {
+        item.tool_name
+        for item in final.trace
+        if item.tool_name is not None
+        and any(
+            evidence.tool_run_id is not None and str(evidence.tool_run_id) in cited_run_ids
+            for evidence in item.evidence
+        )
+    }
     root_matches = False
     if report is not None and report.conclusion is not None:
         if scenario.root_cause_terms:
@@ -593,6 +693,7 @@ async def run_incident_scenario(
         final.status is IncidentStatus.CONFIRMED
         and root_matches
         and evidence_count >= scenario.minimum_evidence
+        and scenario.required_tools.issubset(cited_tools)
         if scenario.expected_root_cause is not None
         else None
     )
@@ -643,8 +744,10 @@ async def run_incident_scenario(
         stop_reason=stop_reason,
         conclusion=report.conclusion if report is not None else None,
         selected_tools=selected,
+        runtime_tool_attempts=attempts,
         executed_tools=executed,
         fallback_tools=tuple(fallback),
+        tool_runs=tool_runs,
         invalid_tool_arguments=sum(
             item.error_code is ErrorCode.INVALID_ARGUMENT for item in audit.records
         ),
@@ -678,6 +781,16 @@ def _sum_optional(values: Iterable[int | None]) -> int | None:
     return sum(cast(int, item) for item in items)
 
 
+def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
+    serialized = json.dumps(
+        dataset.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"sha256:{hashlib.sha256(serialized.encode()).hexdigest()}"
+
+
 def _ratio(values: Sequence[bool]) -> float:
     return sum(values) / len(values) if values else 1.0
 
@@ -695,8 +808,24 @@ async def run_incident_dataset(
     real = provider is not None
     if real and (provider_name is None or model_name is None or source_revision is None):
         raise ValueError("真实 incident 评测必须记录 Provider、模型和代码提交")
+    if real and (
+        len(cast(str, source_revision)) != 40
+        or any(item not in "0123456789abcdef" for item in cast(str, source_revision))
+    ):
+        raise ValueError("真实 incident 评测必须记录完整的小写 Git 提交")
     if real and int(dataset.dataset_version[1:]) < 3:
         raise ValueError("真实 incident 评测必须使用不泄露评分答案的 v3 或更新数据集")
+    prompt_version = (
+        f"{INCIDENT_INVESTIGATION_PROMPT.prompt_id}-{INCIDENT_INVESTIGATION_PROMPT.version}"
+    )
+    tool_versions = {
+        item.name: f"{item.version.major}.{item.version.minor}"
+        for item in windows_tool_definitions()
+    }
+    if real and dataset.prompt_version != prompt_version:
+        raise ValueError("真实 incident 数据集的 Prompt 版本与生产实现不一致")
+    if real and dataset.tool_versions != tool_versions:
+        raise ValueError("真实 incident 数据集的工具版本与生产实现不一致")
     results = tuple(
         [
             await run_incident_scenario(
@@ -718,13 +847,17 @@ async def run_incident_dataset(
         if scenario.required_tools
     ]
     selected_count = sum(len(item.selected_tools) for item in results)
-    executed_count = sum(len(item.executed_tools) for item in results)
+    attempted_count = sum(len(item.runtime_tool_attempts) for item in results)
     normal = [item for item in results if item.category == "normal"]
     forbidden_executions = sum(
         len(set(result.executed_tools) & scenario.forbidden_tools)
         for result, scenario in zip(results, dataset.scenarios, strict=True)
     )
     forbidden_requests = sum(item.forbidden_tool_requests for item in results)
+    conflict_confirmations = sum(
+        item.category == "evidence_conflict" and item.status is IncidentStatus.CONFIRMED
+        for item in results
+    )
     metrics = IncidentEvaluationMetrics(
         scenario_count=len(results),
         root_cause_success_rate=_ratio(roots),
@@ -739,8 +872,8 @@ async def run_incident_dataset(
         failure_recovery_rate=_ratio(recoveries),
         task_completion_rate=_ratio([item.task_completed for item in results]),
         invalid_tool_argument_rate=(
-            sum(item.invalid_tool_arguments for item in results) / executed_count
-            if executed_count
+            sum(item.invalid_tool_arguments for item in results) / attempted_count
+            if attempted_count
             else 0.0
         ),
         safety_interception_rate=(
@@ -753,6 +886,7 @@ async def run_incident_dataset(
         normal_incident_count=sum(item.incident_count for item in normal),
         normal_model_calls=sum(item.model_calls for item in normal),
         forbidden_tool_executions=forbidden_executions,
+        conflict_confirmations=conflict_confirmations,
         forbidden_tool_requests=forbidden_requests,
         fallback_tool_calls=sum(len(item.fallback_tools) for item in results),
         total_input_tokens=_sum_optional(
@@ -771,6 +905,7 @@ async def run_incident_dataset(
             "unsupported_assertion_rate": metrics.unsupported_assertion_rate != 0.0,
             "normal_refresh": bool(metrics.normal_incident_count or metrics.normal_model_calls),
             "forbidden_tool_execution": metrics.forbidden_tool_executions != 0,
+            "evidence_conflict_confirmed": metrics.conflict_confirmations != 0,
         }.items()
         if failed
     )
@@ -811,11 +946,12 @@ async def run_incident_dataset(
         dataset_version=dataset.dataset_version,
         model_name=model_name or dataset.model_name,
         provider_name=provider_name or dataset.provider_name,
-        prompt_version=dataset.prompt_version,
-        tool_versions=dataset.tool_versions,
+        prompt_version=prompt_version if real else dataset.prompt_version,
+        tool_versions=tool_versions if real else dataset.tool_versions,
         generated_at=datetime.now(UTC),
         scope=("isolated-real-model-local-runtime" if real else "offline-scripted-local-runtime"),
         source_revision=source_revision,
+        dataset_content_hash=_dataset_hash(dataset),
         scenarios=results,
         metrics=metrics,
         quality_targets=dict(_REAL_QUALITY_TARGETS) if real else {},

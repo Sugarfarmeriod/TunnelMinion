@@ -30,6 +30,7 @@ from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
 
 V2_DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
 V3_DATASET = Path("evaluations/datasets/autonomous-incidents-v3.json")
+REVISION = "a" * 40
 
 
 class _CapturingProvider:
@@ -144,6 +145,69 @@ class _TextReportProvider:
         )
 
 
+class _ConflictConfirmingProvider:
+    def __init__(self) -> None:
+        self.finished_conflict = False
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(tool_calls=True, structured_output=True)
+
+    async def complete(
+        self,
+        request: ModelRequest,
+        cancellation: CancellationToken | None = None,
+    ) -> ModelResponse:
+        del cancellation
+        refs = [
+            str(json.loads(message.content)["result"]["tool_run_id"])
+            for message in request.messages
+            if message.role == "tool"
+        ]
+        if not self.finished_conflict and not refs:
+            return ModelResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id="conflict-probe",
+                        name="probe_service_reachability",
+                        arguments={"host": "10.77.0.2", "port": 43123},
+                    ),
+                )
+            )
+        if not self.finished_conflict:
+            self.finished_conflict = True
+            return ModelResponse(
+                structured_output=cast(
+                    JsonValue,
+                    {
+                        "hypotheses": [
+                            {
+                                "summary": "服务当前可达",
+                                "status": "supported",
+                                "evidence_refs": refs,
+                            }
+                        ],
+                        "facts": [{"statement": "探测成功", "evidence_refs": refs}],
+                        "unknowns": [],
+                        "conclusion": "服务当前可达",
+                        "stop_reason": "evidence_sufficient",
+                    },
+                )
+            )
+        return ModelResponse(
+            structured_output=cast(
+                JsonValue,
+                {
+                    "hypotheses": [],
+                    "facts": [],
+                    "unknowns": ["证据不足"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                },
+            )
+        )
+
+
 def _scenario(scenario_id: str) -> IncidentEvaluationScenario:
     dataset = IncidentEvaluationDataset.model_validate_json(V2_DATASET.read_text(encoding="utf-8"))
     return next(item for item in dataset.scenarios if item.scenario_id == scenario_id)
@@ -168,7 +232,9 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
     )
     result = asyncio.run(
         run_incident_scenario(
-            _scenario("loopback-listener"),
+            next(
+                item for item in _v3_dataset().scenarios if item.scenario_id == "loopback-listener"
+            ),
             SQLiteIncidentStore(tmp_path / "unexpected.sqlite3"),
             provider=provider,
             provider_name="test-provider",
@@ -190,7 +256,13 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
     assert "required_tools" not in captured
     assert "expected_root_cause" not in captured
     assert "root_cause_terms" not in captured
+    assert "tool_arguments" not in captured
     assert "expected_stop_reason" not in captured
+    assert "loopback-listener" not in captured
+    assert any(
+        '"affected_object":{"snapshot_id"' in message.content and '"port":43123' in message.content
+        for message in provider.requests[0].messages
+    )
 
 
 def test_real_mode_does_not_credit_runtime_fallback_as_model_selection(tmp_path: Path) -> None:
@@ -211,17 +283,19 @@ def test_real_mode_does_not_credit_runtime_fallback_as_model_selection(tmp_path:
     assert result.tool_selection_success is False
 
 
-def test_real_mode_records_invalid_arguments_instead_of_hiding_them(tmp_path: Path) -> None:
+def test_real_mode_rejects_schema_valid_but_wrong_fixture_target(tmp_path: Path) -> None:
     provider = _CapturingProvider(
         ToolCall(
-            call_id="invalid-port",
+            call_id="wrong-target",
             name="probe_service_reachability",
-            arguments={"host": "127.0.0.1", "port": 70000},
+            arguments={"host": "10.77.0.2", "port": 1},
         )
     )
     result = asyncio.run(
         run_incident_scenario(
-            _scenario("loopback-listener"),
+            next(
+                item for item in _v3_dataset().scenarios if item.scenario_id == "loopback-listener"
+            ),
             SQLiteIncidentStore(tmp_path / "invalid.sqlite3"),
             provider=provider,
             provider_name="test-provider",
@@ -230,7 +304,9 @@ def test_real_mode_records_invalid_arguments_instead_of_hiding_them(tmp_path: Pa
     )
 
     assert result.invalid_tool_arguments == 1
-    assert result.executed_tools == ("probe_service_reachability",)
+    assert result.runtime_tool_attempts == ("probe_service_reachability",)
+    assert result.executed_tools == ()
+    assert result.tool_runs[0].error_code == "invalid_argument"
     assert result.evidence_count == 0
 
 
@@ -290,12 +366,13 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
             provider=provider,
             provider_name="test-provider",
             model_name="test-model",
-            source_revision="abc1234",
+            source_revision=REVISION,
         )
     )
 
     assert report.scope == "isolated-real-model-local-runtime"
-    assert report.source_revision == "abc1234"
+    assert report.source_revision == REVISION
+    assert report.dataset_content_hash.startswith("sha256:")
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations
     assert report.ready_for_operation_stage is False
@@ -314,7 +391,7 @@ def test_real_dataset_highlights_unsupported_confirmation_attempt(tmp_path: Path
             provider=_UnsupportedProvider(),
             provider_name="test-provider",
             model_name="test-model",
-            source_revision="abc1234",
+            source_revision=REVISION,
         )
     )
 
@@ -352,6 +429,32 @@ def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
     assert result.failure_recovered is True
     assert result.model_total_tokens is None
     assert result.evidence_count == 1
+    assert result.tool_runs[0].arguments == {"host": "10.77.0.2", "port": 43123}
+    assert result.tool_runs[0].output is not None
+    assert result.tool_runs[0].output["reachable"] is True
+
+
+def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> None:
+    dataset = _v3_dataset()
+    conflict = dataset.scenarios[-1]
+    reordered = IncidentEvaluationDataset.model_validate(
+        dataset.model_dump()
+        | {"scenarios": (dataset.scenarios[0], conflict, *dataset.scenarios[1:-1])}
+    )
+    report = asyncio.run(
+        run_incident_dataset(
+            reordered,
+            SQLiteIncidentStore(tmp_path / "confirmed-conflict.sqlite3"),
+            provider=_ConflictConfirmingProvider(),
+            provider_name="test-provider",
+            model_name="test-model",
+            source_revision=REVISION,
+        )
+    )
+
+    assert report.metrics.conflict_confirmations == 1
+    assert "evidence_conflict_confirmed" in report.safety_gate_violations
+    assert report.ready_for_operation_stage is False
 
 
 def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
@@ -364,6 +467,17 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
                 provider=provider,
             )
         )
+    with pytest.raises(ValueError, match="完整的小写 Git 提交"):
+        asyncio.run(
+            run_incident_dataset(
+                _v3_dataset(),
+                SQLiteIncidentStore(tmp_path / "short-revision.sqlite3"),
+                provider=provider,
+                provider_name="test-provider",
+                model_name="test-model",
+                source_revision="abc1234",
+            )
+        )
     v2 = IncidentEvaluationDataset.model_validate_json(V2_DATASET.read_text(encoding="utf-8"))
     with pytest.raises(ValueError, match="v3"):
         asyncio.run(
@@ -373,7 +487,33 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
                 provider=provider,
                 provider_name="test-provider",
                 model_name="test-model",
-                source_revision="abc1234",
+                source_revision=REVISION,
+            )
+        )
+
+    dataset = _v3_dataset()
+    with pytest.raises(ValueError, match="Prompt 版本"):
+        asyncio.run(
+            run_incident_dataset(
+                dataset.model_copy(update={"prompt_version": "incident-investigation-v99"}),
+                SQLiteIncidentStore(tmp_path / "wrong-prompt.sqlite3"),
+                provider=provider,
+                provider_name="test-provider",
+                model_name="test-model",
+                source_revision=REVISION,
+            )
+        )
+    wrong_versions = dict(dataset.tool_versions)
+    wrong_versions["get_node_summary"] = "9.9"
+    with pytest.raises(ValueError, match="工具版本"):
+        asyncio.run(
+            run_incident_dataset(
+                dataset.model_copy(update={"tool_versions": wrong_versions}),
+                SQLiteIncidentStore(tmp_path / "wrong-tools.sqlite3"),
+                provider=provider,
+                provider_name="test-provider",
+                model_name="test-model",
+                source_revision=REVISION,
             )
         )
 
@@ -384,6 +524,15 @@ def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
     with pytest.raises(ValueError, match="工具夹具只能包含"):
         IncidentEvaluationScenario.model_validate(
             scenario.model_dump() | {"tool_results": {"shell": {"result": "wrong"}}}
+        )
+    with pytest.raises(ValueError, match="工具参数夹具只能包含"):
+        IncidentEvaluationScenario.model_validate(
+            scenario.model_dump() | {"tool_arguments": {"shell": {}}}
+        )
+    with pytest.raises(ValueError, match="不得超过 16KB"):
+        IncidentEvaluationScenario.model_validate(
+            scenario.model_dump()
+            | {"tool_results": {"list_network_listeners": {"value": "x" * 16_001}}}
         )
     with pytest.raises(ValueError, match="根因评分词必须关联"):
         IncidentEvaluationScenario.model_validate(
@@ -402,6 +551,18 @@ def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
             dataset.model_dump()
             | {"scenarios": (dataset.scenarios[0], missing_result, *dataset.scenarios[2:])}
         )
+    probe = next(item for item in dataset.scenarios if item.category == "local_only")
+    missing_arguments = probe.model_copy(update={"tool_arguments": {}})
+    with pytest.raises(ValueError, match="必须绑定目标参数"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    missing_arguments if item.scenario_id == probe.scenario_id else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
 
 
 def test_real_cli_writes_report_without_endpoint(
@@ -413,7 +574,11 @@ def test_real_cli_writes_report_without_endpoint(
     def provider_factory(_config: OpenAICompatibleConfig) -> _CapturingProvider:
         return provider
 
+    def repository_revision() -> str:
+        return REVISION
+
     monkeypatch.setattr(real_cli, "OpenAICompatibleProvider", provider_factory)
+    monkeypatch.setattr(real_cli, "_repository_revision", repository_revision)
     output = tmp_path / "real-report.json"
 
     assert (
@@ -424,8 +589,6 @@ def test_real_cli_writes_report_without_endpoint(
                 "http://127.0.0.1:9999/v1",
                 "--model",
                 "test-model",
-                "--source-revision",
-                "abc1234",
                 "--output",
                 str(output),
                 "--check",
