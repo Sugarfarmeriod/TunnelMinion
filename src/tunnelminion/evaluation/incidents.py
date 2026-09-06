@@ -197,6 +197,11 @@ class IncidentEvaluationDataset(BaseModel):
                 if "probe_service_reachability" in scenario.required_tools:
                     probe_host = scenario.tool_arguments["probe_service_reachability"].get("host")
                     node_summary = scenario.tool_results.get("get_node_summary", {})
+                    available_tools = node_summary.get("available_tools")
+                    if not isinstance(available_tools, list) or set(
+                        item for item in available_tools if isinstance(item, str)
+                    ) != set(READ_ONLY_INVESTIGATION_TOOLS):
+                        raise ValueError("v3 节点摘要必须公开完整只读工具集合")
                     wireguard = node_summary.get("wireguard")
                     addresses = wireguard.get("addresses") if isinstance(wireguard, dict) else None
                     visible_hosts: set[str] = (

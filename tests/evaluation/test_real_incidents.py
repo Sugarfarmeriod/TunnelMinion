@@ -610,6 +610,21 @@ def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
                 )
             }
         )
+    incomplete_summary = dict(probe.tool_results["get_node_summary"])
+    incomplete_summary["available_tools"] = ["get_node_summary"]
+    incomplete_tool_list = probe.model_copy(
+        update={"tool_results": probe.tool_results | {"get_node_summary": incomplete_summary}}
+    )
+    with pytest.raises(ValueError, match="必须公开完整只读工具集合"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    incomplete_tool_list if item.scenario_id == probe.scenario_id else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
 
 
 def test_real_cli_writes_report_without_endpoint(

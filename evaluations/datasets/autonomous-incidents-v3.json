@@ -159,7 +159,14 @@
             "addresses": ["10.77.0.2"],
             "peers": []
           },
-          "available_tools": ["get_node_summary", "probe_service_reachability"]
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
         },
         "list_network_listeners": {
           "complete": true,
@@ -215,7 +222,14 @@
             "addresses": ["10.77.0.2"],
             "peers": []
           },
-          "available_tools": ["get_node_summary", "probe_service_reachability"]
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
         },
         "get_wireguard_status": {
           "interface": "up",
@@ -281,7 +295,14 @@
             "addresses": ["10.77.0.2"],
             "peers": []
           },
-          "available_tools": ["get_node_summary", "probe_service_reachability"]
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
         }
       },
       "tool_arguments": {
@@ -357,7 +378,14 @@
             "addresses": ["10.77.0.2"],
             "peers": []
           },
-          "available_tools": ["get_node_summary", "probe_service_reachability"]
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
         },
         "probe_service_reachability": {
           "host": "10.77.0.2",
