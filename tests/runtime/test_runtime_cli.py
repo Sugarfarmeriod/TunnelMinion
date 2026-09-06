@@ -343,6 +343,13 @@ def test_runtime_port_validation_keeps_help_compact(
     assert len(help_text) < 2_000
     assert "65534" not in help_text
 
+    with pytest.raises(SystemExit) as top_level_help_exit:
+        cli.main(["--help"])
+    assert top_level_help_exit.value.code == 0
+    top_level_help = capsys.readouterr().out
+    assert len(top_level_help) < 2_000
+    assert "65534" not in top_level_help
+
     with pytest.raises(SystemExit) as invalid_exit:
         cli.main(["runtime", "configure", "--local-port", "1023"])
     assert invalid_exit.value.code == 2

@@ -10,6 +10,20 @@ import pytest
 from scripts.stage_runtime_package_ci import stage_runtime_package
 from scripts.verify_runtime_package_matrix import verify_runtime_package_matrix
 
+EXPECTED_COMMANDS = {
+    "gateway-configure",
+    "runtime-configure",
+    "runtime-start",
+    "runtime-start-repeat",
+    "runtime-status",
+    "runtime-stop",
+    "runtime-status-stopped",
+    "package-stage",
+    "package-activate",
+    "package-status",
+    "package-remove",
+}
+
 
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,6 +49,9 @@ def test_runtime_package_ci_staging_is_clean_and_confined(tmp_path: Path) -> Non
     assert not (staged / "stale.txt").exists()
     assert (staged / "package" / "tunnelminion.bin").read_bytes() == b"package"
     assert (staged / "manifest.json").is_file()
+    assert (staged / "package" / "runtime-package-manifest.json").read_bytes() == (
+        staged / "manifest.json"
+    ).read_bytes()
     assert (staged / "build-summary.json").is_file()
 
     _write_json(summary, {"package_id": "../escape"})
@@ -88,17 +105,39 @@ def _write_target(
     _write_json(
         directory / "clean-acceptance.json",
         {
+            "schema_version": "runtime-package-clean-acceptance/v1",
+            "candidate": manifest["candidate"],
             "manifest_sha256": manifest_digest,
             "passed": True,
             "program_data_entries": [],
             "source_entries": [],
             "components": [
                 {
+                    "component": "public-runtime",
+                    "passed": True,
                     "health_status": 200,
                     "app_status": 200,
                     "node_available": False,
                     "source_environment_present": False,
                     "external_http_proxy_blocked": True,
+                    "gateway_status": 401,
+                    "public_cli": True,
+                    "idempotent_start": True,
+                    "data_preserved": True,
+                    "secret_store_preserved": True,
+                    "secret_leak_detected": False,
+                    "process_cleanup_confirmed": True,
+                    "data_evidence": {
+                        "before": {"file_count": 2, "size_bytes": 20, "sha256": "d" * 64},
+                        "after": {"file_count": 2, "size_bytes": 20, "sha256": "d" * 64},
+                    },
+                    "secret_store_evidence": {
+                        "before": {"file_count": 1, "size_bytes": 10, "sha256": "e" * 64},
+                        "after": {"file_count": 1, "size_bytes": 10, "sha256": "e" * 64},
+                    },
+                    "commands": {
+                        name: {"exit_code": 0, "json_output": True} for name in EXPECTED_COMMANDS
+                    },
                     "runtime_package": {
                         "kind": "standalone",
                         "version": "0.1.0",
@@ -178,4 +217,54 @@ def test_runtime_package_matrix_rejects_lock_or_isolation_drift(tmp_path: Path) 
     acceptance["components"][0]["node_available"] = True
     _write_json(mac / "clean-acceptance.json", acceptance)
     with pytest.raises(ValueError, match="隔离运行证据"):
+        verify_runtime_package_matrix(evidence, receipt)
+
+
+def test_runtime_package_matrix_rejects_forged_lifecycle_evidence(tmp_path: Path) -> None:
+    digest = "f" * 64
+    receipt = tmp_path / "frontend-receipt.json"
+    _write_json(receipt, {"dist_sha256": digest, "file_count": 1})
+    evidence = tmp_path / "evidence"
+    windows = _write_target(
+        evidence,
+        platform_value="win32",
+        architecture="amd64",
+        frontend_digest=digest,
+        frontend_count=1,
+    )
+    _write_target(
+        evidence,
+        platform_value="darwin",
+        architecture="arm64",
+        frontend_digest=digest,
+        frontend_count=1,
+    )
+    path = windows / "clean-acceptance.json"
+    acceptance = json.loads(path.read_text(encoding="utf-8"))
+    acceptance["components"][0]["commands"].pop("runtime-start")
+    _write_json(path, acceptance)
+    with pytest.raises(ValueError, match="公开命令证据"):
+        verify_runtime_package_matrix(evidence, receipt)
+
+    acceptance["components"][0]["commands"]["runtime-start"] = {
+        "exit_code": 1,
+        "json_output": True,
+    }
+    _write_json(path, acceptance)
+    with pytest.raises(ValueError, match="公开命令证据"):
+        verify_runtime_package_matrix(evidence, receipt)
+
+    acceptance["components"][0]["commands"]["runtime-start"] = {
+        "exit_code": 0,
+        "json_output": True,
+    }
+    acceptance["components"][0]["data_evidence"]["after"]["sha256"] = "c" * 64
+    _write_json(path, acceptance)
+    with pytest.raises(ValueError, match="隔离运行证据"):
+        verify_runtime_package_matrix(evidence, receipt)
+
+    acceptance["components"][0]["data_evidence"]["after"]["sha256"] = "d" * 64
+    acceptance["candidate"]["id"] = "forged-candidate"
+    _write_json(path, acceptance)
+    with pytest.raises(ValueError, match="candidate"):
         verify_runtime_package_matrix(evidence, receipt)
