@@ -531,8 +531,11 @@ def test_investigator_completes_event_evidence_path_and_confirms_cited_root_caus
     assert all(
         request.messages[0].role == "system"
         and sum(message.role == "system" for message in request.messages) == 1
+        and request.messages[-1].role == "user"
+        and "以下是 Runtime 维护的当前只读调查约束：" in request.messages[-1].content
         for request in provider.requests
     )
+    assert provider.requests[1].messages[-2].role == "tool"
     assert constraints[0]["information_gaps"] == [
         "节点与可用地址",
         "监听地址与端口",
@@ -542,6 +545,13 @@ def test_investigator_completes_event_evidence_path_and_confirms_cited_root_caus
         "get_node_summary",
         "list_network_listeners",
     ]
+    assert constraints[0]["required_arguments_this_round"] == {
+        "get_node_summary": {},
+        "list_network_listeners": {},
+    }
+    assert constraints[2]["required_arguments_this_round"] == {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+    }
     assert constraints[-1]["information_gaps"] == []
     assert len(constraints[-1]["successful_evidence"]) == 3
     assert result.hypotheses[0].status.value == "supported"

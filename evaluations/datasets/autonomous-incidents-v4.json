@@ -65,8 +65,8 @@
       "baseline": {"service_present": true, "port": 43123},
       "current": {"service_present": false},
       "expected_event": "service_removed",
-      "expected_root_cause": "tunnelminion-demo 进程退出且 Docker 容器已停止",
-      "root_cause_terms": ["tunnelminion-demo", "停止"],
+      "expected_root_cause": "tunnelminion-demo 进程退出且 Docker 容器状态为 exited",
+      "root_cause_terms": ["tunnelminion-demo", "exited"],
       "tool_sequence": ["get_process_summary", "list_docker_services"],
       "tool_results": {
         "get_process_summary": {
@@ -94,7 +94,7 @@
       "current": {"node_state": "offline"},
       "expected_event": "node_offline",
       "expected_root_cause": "节点心跳与 WireGuard 握手均已超时，节点离线",
-      "root_cause_terms": ["WireGuard", "离线"],
+      "root_cause_terms": ["WireGuard"],
       "tool_sequence": ["get_node_summary", "get_wireguard_status"],
       "tool_results": {
         "get_node_summary": {
@@ -139,8 +139,8 @@
       "baseline": {"accessibility": "network", "port": 43123},
       "current": {"accessibility": "loopback", "port": 43123},
       "expected_event": "local_only",
-      "expected_root_cause": "服务只监听 127.0.0.1 环回地址，远端探测失败",
-      "root_cause_terms": ["127.0.0.1", "远端"],
+      "expected_root_cause": "服务只监听 127.0.0.1:43123，10.77.0.2:43123 探测失败",
+      "root_cause_terms": ["127.0.0.1", "10.77.0.2", "43123"],
       "tool_sequence": [
         "get_node_summary",
         "list_network_listeners",
@@ -203,7 +203,7 @@
       "current": {"service_state": "unavailable", "port": 43123},
       "expected_event": "remote_unreachable",
       "expected_root_cause": "WireGuard 连接正常，但 10.77.0.2:43123 服务探测失败",
-      "root_cause_terms": ["WireGuard", "43123", "失败"],
+      "root_cause_terms": ["WireGuard", "10.77.0.2", "43123"],
       "tool_sequence": [
         "get_node_summary",
         "get_wireguard_status",

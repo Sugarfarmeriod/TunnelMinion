@@ -417,7 +417,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
     assert report.scope == "isolated-real-model-local-runtime"
     assert report.source_revision == REVISION
     assert report.dataset_content_hash == (
-        "sha256:584292b504641134db166dae9d9b51db42f74dad3324f4866ff367e572ee3603"
+        "sha256:d4b519e6105028797f30000b5c06f9a905454264bf551428c85ee9e29ab13642"
     )
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations

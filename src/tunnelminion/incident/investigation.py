@@ -357,17 +357,12 @@ class IncidentInvestigator:
                     successful_tools,
                     remaining_tools,
                     round_tools,
+                    required_arguments=probe_arguments,
                     tool_contract_repaired=tool_contract_repaired,
                     report_repaired=report_repaired,
                     evidence_conflict=evidence_conflict,
                 )
-                round_messages = (
-                    ModelMessage(
-                        role="system",
-                        content=f"{messages[0].content}\n\n{constraint.content}",
-                    ),
-                    *messages[1:],
-                )
+                round_messages = (*messages, constraint)
             try:
                 invocation = await self._model.invoke(
                     ContextRequest(
@@ -751,6 +746,7 @@ class IncidentInvestigator:
         remaining_tools: tuple[str, ...],
         round_tools: tuple[ModelToolDefinition, ...],
         *,
+        required_arguments: dict[str, JsonValue] | None,
         tool_contract_repaired: bool,
         report_repaired: bool,
         evidence_conflict: bool,
@@ -758,9 +754,17 @@ class IncidentInvestigator:
         if evidence_conflict:
             instruction = "实时证据与触发快照冲突；返回 insufficient_evidence，不得确认根因。"
         elif remaining_tools:
-            instruction = "本轮必须调用 allowed_tools_this_round 中恰好一个工具，不得返回终态。"
+            correction = "本调查的无工具纠正机会已用完；" if tool_contract_repaired else ""
+            instruction = (
+                f"{correction}本轮只返回 allowed_tools_this_round 中恰好一个函数工具调用，"
+                "不得输出分析、正文或终态。"
+            )
         else:
-            instruction = "证据路径已完成；返回终态 JSON，并逐字引用 successful_evidence 中的 ID。"
+            correction = "上一份终态遗漏了完整证据引用；" if report_repaired else ""
+            instruction = (
+                f"{correction}证据路径已完成；用中文返回具体因果结论和终态 JSON，"
+                "并逐字引用 successful_evidence 中的全部 ID。"
+            )
         payload = {
             "event_type": incident.event.event_type.value,
             "attempted_tools": sorted(attempted_tools),
@@ -771,13 +775,21 @@ class IncidentInvestigator:
             },
             "information_gaps": [_EVIDENCE_GAP_LABELS[name] for name in remaining_tools],
             "allowed_tools_this_round": [item.name for item in round_tools],
+            "required_arguments_this_round": {
+                item.name: (
+                    required_arguments
+                    if item.name == "probe_service_reachability" and required_arguments is not None
+                    else {}
+                )
+                for item in round_tools
+            },
             "tool_contract_correction_used": tool_contract_repaired,
             "report_correction_used": report_repaired,
             "evidence_conflict": evidence_conflict,
             "instruction": instruction,
         }
         return ModelMessage(
-            role="system",
+            role="user",
             content="以下是 Runtime 维护的当前只读调查约束："
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         )
