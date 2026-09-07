@@ -20,7 +20,7 @@ class RequesterOperationInput(BaseModel):
     service_port: int = Field(ge=1, le=65535)
     bind_port: int = Field(ge=1024, le=65535)
     duration_seconds: int = Field(ge=1, le=86_400)
-    confirmed: bool
+    confirmed: bool = Field(strict=True)
 
 
 class RequesterOperationRecord(BaseModel):
