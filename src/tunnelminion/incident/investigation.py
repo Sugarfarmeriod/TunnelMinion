@@ -1024,7 +1024,11 @@ class IncidentInvestigator:
             ModelToolDefinition(
                 name=available[name].name,
                 description=available[name].description,
-                input_schema=available[name].input_schema,
+                input_schema=(
+                    available[name].input_schema
+                    if name == "probe_service_reachability"
+                    else {"type": "object", "additionalProperties": False}
+                ),
             )
             for name in READ_ONLY_INVESTIGATION_TOOLS
             if name in available

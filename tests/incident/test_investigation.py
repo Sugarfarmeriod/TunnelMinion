@@ -586,6 +586,10 @@ def test_local_service_added_only_exposes_incident_related_tools(tmp_path: Path)
     assert result.status is IncidentStatus.CONFIRMED
     assert [item.name for item in provider.requests[0].tools] == ["list_network_listeners"]
     assert [item.name for item in provider.requests[1].tools] == ["get_process_summary"]
+    assert provider.requests[1].tools[0].input_schema == {
+        "type": "object",
+        "additionalProperties": False,
+    }
     assert provider.requests[2].tools == ()
 
 
