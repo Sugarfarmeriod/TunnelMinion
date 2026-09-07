@@ -279,7 +279,9 @@ export function OperationsListPage() {
               defaultValue={defaultTargetNodeId}
               name="target_node_id"
             >
-              {incidentPrefill.kind === "valid" && !prefillTargetAvailable ? (
+              {incidentPrefill.kind === "valid" &&
+              peersQuery.data !== undefined &&
+              !prefillTargetAvailable ? (
                 <option value={incidentPrefill.targetNodeId}>
                   {incidentPrefill.targetNodeId} · 当前不合格
                 </option>
