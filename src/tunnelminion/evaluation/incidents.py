@@ -859,8 +859,12 @@ def _sum_optional(values: Iterable[int | None]) -> int | None:
 
 
 def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
+    payload = dataset.model_dump(mode="json")
+    for scenario in payload["scenarios"]:
+        for field in ("failing_tools", "required_tools", "forbidden_tools"):
+            scenario[field] = sorted(scenario[field])
     serialized = json.dumps(
-        dataset.model_dump(mode="json"),
+        payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
