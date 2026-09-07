@@ -45,6 +45,11 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态、事件
 - **WHEN** 同一调查已经使用一次合同纠正机会，模型在仍有可获取缺口时再次没有调用允许工具
 - **THEN** Runtime 从当前证据路径选择第一个可用只读工具，经既有 Tool Runtime 执行，并把该调用明确记录为 fallback 而不是模型选择
 
+#### Scenario: 模型服务暂时返回无效兼容响应
+
+- **WHEN** Provider 将一次无效兼容响应明确标记为可重试
+- **THEN** Runtime 在原模型轮次和墙钟预算内公开记录并重试一次，不执行工具；第二次无效响应或不可重试错误仍按原失败路径结束
+
 #### Scenario: 本机新增服务按依赖开放工具
 
 - **WHEN** `local_observation` 来源的 `service_added` 进入调查循环
@@ -88,6 +93,11 @@ Runtime MUST 对模型轮次、工具调用数、墙钟时间和上下文使用�
 
 - **WHEN** 调查已达到最大工具调用数且当前事件仍有未覆盖的信息缺口
 - **THEN** Runtime 不再调用模型或工具，报告已有事实、未知项和 `budget_exhausted` 停止原因
+
+#### Scenario: 墙钟预算在取得部分工具证据后耗尽
+
+- **WHEN** 调查已取得一项或多项成功工具证据，但后续模型调用达到墙钟上限
+- **THEN** Runtime 从已持久化调查轨迹恢复这些工具证据，以 `budget_exhausted` 结束且不丢失用户已看到的进展
 
 #### Scenario: 必要工具不可用
 

@@ -297,3 +297,4 @@ def test_rejects_malformed_responses(body: dict[str, object]) -> None:
     with pytest.raises(ProviderError) as caught:
         run(provider.complete(request(structured=True)))
     assert caught.value.code == ProviderErrorCode.INVALID_RESPONSE
+    assert caught.value.retryable is True

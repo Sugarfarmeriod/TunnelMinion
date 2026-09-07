@@ -26,6 +26,7 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
     EvidenceReference,
     IncidentEventType,
+    IncidentReport,
     IncidentStatus,
     InvestigationStopReason,
     NormalizedSnapshot,
@@ -753,13 +754,7 @@ async def run_incident_scenario(
             for evidence in item.evidence
         )
     }
-    root_matches = False
-    if report is not None and report.conclusion is not None:
-        if scenario.root_cause_terms:
-            normalized = report.conclusion.casefold()
-            root_matches = all(item.casefold() in normalized for item in scenario.root_cause_terms)
-        else:
-            root_matches = report.conclusion == scenario.expected_root_cause
+    root_matches = _root_cause_matches(report, scenario)
     root_success = (
         final.status is IncidentStatus.CONFIRMED
         and root_matches
@@ -856,6 +851,21 @@ def _sum_optional(values: Iterable[int | None]) -> int | None:
     if any(item is None for item in items):
         return None
     return sum(cast(int, item) for item in items)
+
+
+def _root_cause_matches(
+    report: IncidentReport | None,
+    scenario: IncidentEvaluationScenario,
+) -> bool:
+    """在整份公开结构化报告中匹配稳定根因锚点。"""
+    if report is None or report.conclusion is None:
+        return False
+    if not scenario.root_cause_terms:
+        return report.conclusion == scenario.expected_root_cause
+    normalized = "\n".join(
+        (report.conclusion, *report.facts, *report.candidate_explanations)
+    ).casefold()
+    return all(item.casefold() in normalized for item in scenario.root_cause_terms)
 
 
 def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:

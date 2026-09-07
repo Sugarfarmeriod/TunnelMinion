@@ -228,5 +228,7 @@ class OpenAICompatibleProvider:
             )
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ProviderError(
-                ProviderErrorCode.INVALID_RESPONSE, "模型响应不符合兼容协议"
+                ProviderErrorCode.INVALID_RESPONSE,
+                "模型响应不符合兼容协议",
+                retryable=True,
             ) from exc

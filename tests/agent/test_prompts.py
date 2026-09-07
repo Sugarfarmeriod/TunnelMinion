@@ -38,6 +38,7 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
     assert "information_gaps 非空时" in INCIDENT_INVESTIGATION_PROMPT.template
     assert "required_arguments_this_round" in INCIDENT_INVESTIGATION_PROMPT.template
     assert "不得只复述" in INCIDENT_INVESTIGATION_PROMPT.template
+    assert "120 个汉字" in INCIDENT_INVESTIGATION_PROMPT.template
     assert "successful_evidence 中全部真实 `toolrun_...` 证据" in (
         INCIDENT_INVESTIGATION_PROMPT.template
     )

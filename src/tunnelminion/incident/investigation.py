@@ -70,7 +70,7 @@ READ_ONLY_INVESTIGATION_TOOLS = (
     "probe_service_reachability",
 )
 
-_LOCAL_EVIDENCE_PATHS = {
+_LOCAL_EVIDENCE_PATHS: dict[IncidentEventType, tuple[str, ...]] = {
     IncidentEventType.SERVICE_ADDED: (
         "list_network_listeners",
         "get_process_summary",
@@ -228,11 +228,22 @@ class IncidentInvestigator:
                 return await self._run_loop(current, thread_id, run_id, token)
         except TimeoutError:
             token.cancel()
+            latest = self._store.get(current.incident_id) or current
+            evidence_by_id = {
+                str(
+                    reference.tool_run_id
+                    if reference.tool_run_id is not None
+                    else reference.snapshot_id
+                ): reference
+                for entry in latest.trace
+                for reference in entry.evidence
+            }
             return self._finish(
-                current,
+                latest,
                 IncidentStatus.BUDGET_EXHAUSTED,
                 InvestigationStopReason.BUDGET_EXHAUSTED,
                 "调查达到墙钟时间上限",
+                evidence=tuple(evidence_by_id.values()),
             )
         except (TypeError, ValueError, ValidationError):
             return self._finish(
@@ -268,7 +279,9 @@ class IncidentInvestigator:
         evidence = self._snapshot_evidence(incident)
         local = incident.event.source is SnapshotSource.LOCAL_OBSERVATION
         available_tools = {item.name: item for item in self._model_tools()} if local else {}
-        evidence_path = _LOCAL_EVIDENCE_PATHS[incident.event.event_type] if local else ()
+        evidence_path: tuple[str, ...] = (
+            _LOCAL_EVIDENCE_PATHS[incident.event.event_type] if local else ()
+        )
         current = incident
         tool_calls = 0
         attempted_tools: set[str] = set()
@@ -276,6 +289,7 @@ class IncidentInvestigator:
         tool_outputs: dict[str, JsonValue] = {}
         tool_contract_repaired = False
         report_repaired = False
+        invalid_response_retried = False
         evidence_conflict = False
         last_gap_signature: tuple[str, ...] | None = None
         for _ in range(self._limits.max_model_rounds):
@@ -393,6 +407,23 @@ class IncidentInvestigator:
                     cancellation.model,
                 )
             except ProviderError as exc:
+                if (
+                    exc.code is ProviderErrorCode.INVALID_RESPONSE
+                    and exc.retryable
+                    and not invalid_response_retried
+                ):
+                    invalid_response_retried = True
+                    current = self._append_trace(
+                        current,
+                        PublicTraceEntry(
+                            occurred_at=self._now(),
+                            kind="status",
+                            summary="模型返回暂时无效的兼容响应，Runtime 已重试一次",
+                            evidence=tuple(successful_tools.values()),
+                        ),
+                    )
+                    self._store.put_incident(current)
+                    continue
                 return self._provider_failure(
                     current,
                     exc,
@@ -538,9 +569,11 @@ class IncidentInvestigator:
                     "调查返回无效结构",
                     evidence=tuple(successful_tools.values()),
                 )
-            required_evidence = tuple(
-                successful_tools[name] for name in evidence_path if name in successful_tools
-            )
+            required_evidence_items: list[EvidenceReference] = []
+            for tool_name in evidence_path:
+                if tool_name in successful_tools:
+                    required_evidence_items.append(successful_tools[tool_name])
+            required_evidence = tuple(required_evidence_items)
             if (
                 not evidence_conflict
                 and evidence_path
@@ -762,8 +795,9 @@ class IncidentInvestigator:
         else:
             correction = "上一份终态遗漏了完整证据引用；" if report_repaired else ""
             instruction = (
-                f"{correction}证据路径已完成；用中文返回具体因果结论和终态 JSON，"
-                "并逐字引用 successful_evidence 中的全部 ID。"
+                f"{correction}证据路径已完成；只返回极简终态 JSON：保留一个 supported hypothesis、"
+                "最多三条 facts、空 unknowns 和不超过 120 个汉字的中文具体因果结论；"
+                "hypotheses 与 facts 合计逐字引用 successful_evidence 中的全部 ID。"
             )
         payload = {
             "event_type": incident.event.event_type.value,

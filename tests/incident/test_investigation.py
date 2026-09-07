@@ -135,6 +135,17 @@ class ScriptedProvider:
                 "provider unavailable",
                 retryable=True,
             )
+        if self.mode == "repeated_provider_invalid" or (
+            self.mode == "transient_provider_invalid" and len(self.requests) == 1
+        ):
+            raise ProviderError(
+                ProviderErrorCode.INVALID_RESPONSE,
+                "transient invalid response",
+                retryable=True,
+            )
+        if self.mode == "slow_after_tool" and len(self.requests) > 1:
+            await asyncio.sleep(1)
+            raise AssertionError("墙钟上限没有取消后续模型调用")
         if self.mode == "unknown_tool":
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="call-1", name="shell", arguments={}),)
@@ -1260,6 +1271,25 @@ def test_investigator_rejects_invalid_lifecycle_and_model_outputs(tmp_path: Path
         asyncio.run(naive.run(_incident(naive_store)))
 
 
+def test_investigator_retries_one_transient_invalid_provider_response(tmp_path: Path) -> None:
+    transient, transient_store, _, transient_provider = _runtime(
+        tmp_path, "transient_provider_invalid"
+    )
+    recovered = asyncio.run(
+        transient.run(_incident(transient_store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+
+    assert recovered.status is IncidentStatus.CONFIRMED
+    assert len(transient_provider.requests) == 4
+    assert any("无效的兼容响应" in item.summary for item in recovered.trace)
+
+    repeated, repeated_store, _, repeated_provider = _runtime(tmp_path, "repeated_provider_invalid")
+    failed = asyncio.run(repeated.run(_incident(repeated_store)))
+
+    assert failed.status is IncidentStatus.FAILED
+    assert len(repeated_provider.requests) == 2
+
+
 def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> None:
     provider_error = ProviderError(ProviderErrorCode.NETWORK_UNREACHABLE, "offline")
     unavailable, unavailable_store = _runtime_with_model(
@@ -1283,6 +1313,23 @@ def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> Non
         clock=lambda: NOW,
     )
     assert asyncio.run(slow.run(_incident(slow_store))).status is IncidentStatus.BUDGET_EXHAUSTED
+
+    partial, partial_store, partial_adapter, _ = _runtime(
+        tmp_path,
+        "slow_after_tool",
+        limits=InvestigationLimits(timeout_seconds=0.2),
+    )
+    partial_result = asyncio.run(
+        partial.run(_incident(partial_store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+    assert partial_result.status is IncidentStatus.BUDGET_EXHAUSTED
+    assert partial_adapter.calls == [{}]
+    assert partial_result.report is not None
+    assert (
+        len([item for item in partial_result.report.evidence if item.tool_run_id is not None]) == 1
+    )
+    assert any(item.kind == "tool" for item in partial_result.trace)
+    assert partial_store.get(partial_result.incident_id) == partial_result
 
 
 def test_configured_runner_uses_provider_when_available(tmp_path: Path) -> None:

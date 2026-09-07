@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 from scripts.run_incident_evaluation import main
 
 from tunnelminion.coordinator.contracts import ServiceAccessibility
+from tunnelminion.domain.identifiers import SnapshotId
 from tunnelminion.evaluation import incidents as incidents_module
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
@@ -17,7 +19,9 @@ from tunnelminion.evaluation.incidents import (
     run_incident_scenario,
 )
 from tunnelminion.incident.contracts import (
+    EvidenceReference,
     IncidentEventType,
+    IncidentReport,
     IncidentStatus,
     InvestigationStopReason,
 )
@@ -209,3 +213,24 @@ def test_exact_root_cause_match_is_supported_without_term_overrides(tmp_path: Pa
     )
 
     assert result.root_cause_success is True
+
+
+def test_root_cause_terms_cover_the_whole_public_structured_report() -> None:
+    scenario = next(item for item in load_dataset().scenarios if item.category == "local_only")
+    report = IncidentReport(
+        facts=("私网地址 10.77.0.2 的端口 43123 拒绝连接",),
+        candidate_explanations=("服务只监听 127.0.0.1",),
+        conclusion="监听配置导致远程不可达",
+        stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
+        evidence=(
+            EvidenceReference(
+                snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
+                observed_at=datetime(2026, 9, 7, tzinfo=UTC),
+                summary="固定测试证据",
+            ),
+        ),
+    )
+
+    assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        report, scenario
+    )

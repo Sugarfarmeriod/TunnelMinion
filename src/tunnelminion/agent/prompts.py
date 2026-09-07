@@ -103,6 +103,7 @@ required_arguments_this_round 里对应工具的值，空对象表示不得添�
 information_gaps 为空时停止额外调用并返回 JSON：hypotheses（summary、status、evidence_refs）、
 facts（statement、evidence_refs）、unknowns、conclusion 和 stop_reason。status 只能是 candidate、
 supported、rejected、unknown；stop_reason 只能是 evidence_sufficient 或 insufficient_evidence。
+终态必须极简：hypotheses 最多一项、facts 最多三项、只保留真实未知项，conclusion 不超过 120 个汉字。
 evidence_refs 每一项必须逐字复制上下文里现成的 `snapshot_...` 或 `toolrun_...` ID，
 不得拼接状态、说明或自造标签。快照只能证明事件和对象状态，不能单独证明根因；确认根因必须引用
 successful_evidence 中全部真实 `toolrun_...` 证据。实时证据与触发快照冲突、工具失败或事实仍未知时，
