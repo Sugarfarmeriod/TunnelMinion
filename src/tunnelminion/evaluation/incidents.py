@@ -317,12 +317,21 @@ class IncidentEvaluationMetrics(BaseModel):
     total_tokens: int | None = Field(default=None, ge=0)
 
 
+class IncidentModelServiceHealth(BaseModel):
+    """正式真实模型验收前后的最小、无凭据健康证据。"""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    status: Literal["healthy"]
+    loaded_model: str = Field(min_length=1)
+
+
 class IncidentEvaluationReport(BaseModel):
     """包含版本、逐场景失败分类与聚合指标的离线报告。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["incident-evaluation-report/v2"] = "incident-evaluation-report/v2"
+    schema_version: Literal["incident-evaluation-report/v3"] = "incident-evaluation-report/v3"
     dataset_id: str
     dataset_version: str
     model_name: str
@@ -335,6 +344,9 @@ class IncidentEvaluationReport(BaseModel):
     )
     source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    prompt_content_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    model_service_health_before: IncidentModelServiceHealth | None = None
+    model_service_health_after: IncidentModelServiceHealth | None = None
     scenarios: tuple[IncidentScenarioResult, ...]
     metrics: IncidentEvaluationMetrics
     quality_targets: dict[str, float] = Field(default_factory=dict)
@@ -1021,6 +1033,7 @@ async def run_incident_dataset(
         scope=("isolated-real-model-local-runtime" if real else "offline-scripted-local-runtime"),
         source_revision=source_revision,
         dataset_content_hash=_dataset_hash(dataset),
+        prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash if real else None,
         scenarios=results,
         metrics=metrics,
         quality_targets=dict(_REAL_QUALITY_TARGETS) if real else {},

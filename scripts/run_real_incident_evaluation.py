@@ -10,8 +10,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import httpx
+
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
+    IncidentModelServiceHealth,
     run_incident_dataset,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
@@ -42,11 +45,22 @@ def _repository_revision() -> str:
     return revision
 
 
+def _model_health(endpoint: str, expected_model: str) -> IncidentModelServiceHealth:
+    """读取最小健康字段，并拒绝后台静默切换模型。"""
+    response = httpx.get(endpoint, timeout=10.0)
+    response.raise_for_status()
+    health = IncidentModelServiceHealth.model_validate(response.json())
+    if health.loaded_model != expected_model:
+        raise RuntimeError("模型服务当前加载的模型与验收目标不一致")
+    return health
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """运行一次串行真实矩阵并保存不含凭据和 endpoint 的报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path)
     parser.add_argument("--endpoint", required=True)
+    parser.add_argument("--health-endpoint", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--provider-name", default="openai-compatible")
     parser.add_argument("--output", type=Path, required=True)
@@ -57,6 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     dataset = IncidentEvaluationDataset.model_validate_json(
         args.dataset.read_text(encoding="utf-8")
     )
+    health_before = _model_health(args.health_endpoint, args.model)
     provider = OpenAICompatibleProvider(
         OpenAICompatibleConfig(
             endpoint=args.endpoint,
@@ -75,6 +90,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_revision=_repository_revision(),
             )
         )
+    health_after = _model_health(args.health_endpoint, args.model)
+    report = report.model_copy(
+        update={
+            "model_service_health_before": health_before,
+            "model_service_health_after": health_after,
+        }
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
     print(

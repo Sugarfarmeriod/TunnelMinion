@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 from pydantic import JsonValue
 from scripts import run_real_incident_evaluation as real_cli
@@ -673,8 +674,15 @@ def test_real_cli_writes_report_without_endpoint(
     def repository_revision() -> str:
         return REVISION
 
+    health_calls: list[tuple[str, str]] = []
+
+    def model_health(endpoint: str, expected_model: str) -> real_cli.IncidentModelServiceHealth:
+        health_calls.append((endpoint, expected_model))
+        return real_cli.IncidentModelServiceHealth(status="healthy", loaded_model=expected_model)
+
     monkeypatch.setattr(real_cli, "OpenAICompatibleProvider", provider_factory)
     monkeypatch.setattr(real_cli, "_repository_revision", repository_revision)
+    monkeypatch.setattr(real_cli, "_model_health", model_health)
     output = tmp_path / "real-report.json"
 
     assert (
@@ -683,6 +691,8 @@ def test_real_cli_writes_report_without_endpoint(
                 str(V4_DATASET),
                 "--endpoint",
                 "http://127.0.0.1:9999/v1",
+                "--health-endpoint",
+                "http://127.0.0.1:9999/health",
                 "--model",
                 "test-model",
                 "--output",
@@ -695,3 +705,40 @@ def test_real_cli_writes_report_without_endpoint(
     payload = output.read_text(encoding="utf-8")
     assert '"scope":"isolated-real-model-local-runtime"' in payload.replace(" ", "")
     assert "127.0.0.1:9999" not in payload
+    parsed = json.loads(payload)
+    assert parsed["schema_version"] == "incident-evaluation-report/v3"
+    assert parsed["prompt_content_hash"].startswith("sha256:")
+    assert parsed["model_service_health_before"] == {
+        "status": "healthy",
+        "loaded_model": "test-model",
+    }
+    assert parsed["model_service_health_after"] == parsed["model_service_health_before"]
+    assert health_calls == [
+        ("http://127.0.0.1:9999/health", "test-model"),
+        ("http://127.0.0.1:9999/health", "test-model"),
+    ]
+
+
+def test_real_cli_health_rejects_a_different_loaded_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_health(endpoint: str, *, timeout: float) -> httpx.Response:
+        assert endpoint == "http://127.0.0.1:9999/health"
+        assert timeout == 10.0
+        return httpx.Response(
+            200,
+            json={"status": "healthy", "loaded_model": "loaded-model", "ignored": True},
+            request=httpx.Request("GET", endpoint),
+        )
+
+    monkeypatch.setattr(real_cli.httpx, "get", get_health)
+    assert (
+        real_cli._model_health(  # pyright: ignore[reportPrivateUsage]
+            "http://127.0.0.1:9999/health", "loaded-model"
+        ).status
+        == "healthy"
+    )
+    with pytest.raises(RuntimeError, match="加载的模型"):
+        real_cli._model_health(  # pyright: ignore[reportPrivateUsage]
+            "http://127.0.0.1:9999/health", "different-model"
+        )
