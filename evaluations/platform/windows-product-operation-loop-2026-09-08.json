@@ -1,11 +1,11 @@
 {
   "schema_version": "product-operation-loop-evidence/v1",
-  "recorded_at": "2026-09-08T00:30:00+08:00",
-  "product_revision": "1444c5cedec2a127c8b797a2799da6cd479f3e71",
+  "recorded_at": "2026-09-08T01:28:24+08:00",
+  "product_revision": "91122505e85d352f7670260e507bf96595ef3516",
   "scope": "isolated-windows-local",
   "deterministic_gates": {
     "python": {
-      "passed": 1449,
+      "passed": 1451,
       "skipped_platform_conditions": 6,
       "coverage_percent": 100.0
     },
@@ -36,8 +36,11 @@
       "wait_for_target_authorization",
       "single_idempotent_execute",
       "asgi_verification_callback",
+      "strict_callback_lease_binding",
       "memory_only_access_session",
       "same_origin_get_head_access",
+      "remote_status_revalidated_before_access",
+      "untrusted_remote_summary_redacted_before_persistence",
       "reject",
       "unknown_result_without_replay",
       "restart_loses_access_credential"
