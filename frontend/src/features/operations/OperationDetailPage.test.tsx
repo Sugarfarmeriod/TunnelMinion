@@ -435,4 +435,88 @@ describe("OperationDetailPage", () => {
       screen.queryByRole("button", { name: "批准一次" }),
     ).not.toBeInTheDocument();
   });
+
+  it("请求端复读授权后只执行一次，并只暴露不含凭据的本机访问地址", async () => {
+    const authorized = makeOperationDetail({
+      role: "requester",
+      state: "authorized",
+      summary: makeOperationSummary({ status: "authorized" }),
+      allowed_actions: ["refresh", "execute"],
+      last_checked_at: recordedAt,
+    });
+    const succeeded = makeOperationDetail({
+      role: "requester",
+      state: "succeeded",
+      summary: makeOperationSummary({ status: "succeeded" }),
+      allowed_actions: ["refresh", "access"],
+      last_checked_at: recordedAt,
+      access_expires_at: "2026-08-08T09:05:00+08:00",
+    });
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(authorized))
+      .mockReturnValueOnce(jsonResponse(authorized))
+      .mockReturnValueOnce(jsonResponse(succeeded));
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "执行操作" }));
+    expect(
+      await screen.findByRole("dialog", { name: "确认执行操作" }),
+    ).toHaveTextContent("响应未知时页面只查询，不自动重放");
+    const confirm = screen.getByRole("button", { name: "确认执行操作" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+
+    const access = await screen.findByRole("link", { name: "打开临时访问" });
+    expect(access).toHaveAttribute(
+      "href",
+      `/api/operations/${operationId}/access/`,
+    );
+    expect(access.getAttribute("href")).not.toMatch(/token|secret|credential/i);
+    const executeWrites = postCalls(fetchMock).filter(
+      ([path]) => path === `/api/operations/${operationId}/execute`,
+    );
+    expect(executeWrites).toHaveLength(1);
+    expect(JSON.parse(String(executeWrites[0]?.[1]?.body))).toEqual({
+      confirmed: true,
+    });
+    expect(
+      new Headers(executeWrites[0]?.[1]?.headers).get("X-TunnelMinion-Request"),
+    ).toBe("same-origin");
+  });
+
+  it("请求端结果未知时只允许刷新同一 operation，不自动重放执行", async () => {
+    const unknown = makeOperationDetail({
+      role: "requester",
+      state: "authorized",
+      summary: makeOperationSummary({ status: "authorized" }),
+      allowed_actions: ["refresh"],
+      execution_result_unknown: true,
+      error_code: "execution_result_unknown",
+      last_checked_at: recordedAt,
+    });
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(unknown))
+      .mockReturnValueOnce(jsonResponse(unknown));
+    const user = userEvent.setup();
+
+    renderDetail();
+    expect(
+      await screen.findByText("这条操作的写入结果尚未确认。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "执行操作" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "刷新远端状态" }));
+
+    await waitFor(() => expect(postCalls(fetchMock)).toHaveLength(1));
+    expect(postCalls(fetchMock)[0]?.[0]).toBe(
+      `/api/operations/${operationId}/refresh`,
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path]) => path === `/api/operations/${operationId}/execute`,
+      ),
+    ).toHaveLength(0);
+  });
 });

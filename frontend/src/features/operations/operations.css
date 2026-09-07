@@ -92,6 +92,58 @@
   margin: var(--space-1) 0;
 }
 
+.operation-request-card {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) * 0.75);
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+}
+
+.operation-request-card h3,
+.operation-request-card p {
+  margin-bottom: var(--space-2);
+  margin-top: 0;
+}
+
+.operation-request-form {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  margin-top: var(--space-4);
+}
+
+.operation-request-form label {
+  display: grid;
+  font-weight: 700;
+  gap: var(--space-1);
+}
+
+.operation-request-form input,
+.operation-request-form select {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) / 2);
+  color: var(--color-text);
+  font: inherit;
+  min-height: 2.75rem;
+  min-width: 0;
+  padding: var(--space-2);
+}
+
+.operation-request-form__confirmation {
+  align-items: start;
+  grid-column: 1 / -1;
+  grid-template-columns: auto 1fr;
+}
+
+.operation-request-form__confirmation input {
+  min-height: auto;
+}
+
+.operation-request-form button {
+  justify-self: start;
+}
+
 .operations-list,
 .operation-detail-list {
   display: grid;

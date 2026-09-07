@@ -14,7 +14,7 @@ import {
 } from "vitest";
 
 import { ChatPage } from "./ChatPage";
-import { makeOperationSummary } from "../operations/testFixtures";
+import { makeOperationListItem } from "../operations/testFixtures";
 import type {
   RunEvent,
   RunStatus,
@@ -360,7 +360,7 @@ describe("ChatPage", () => {
   it("把共享工具证据的操作链接到现有详情页", async () => {
     const backend = installBackend([makeMessage("assistant", "检查完成")]);
     backend.runs.set(runId, completedRun("检查完成"));
-    const related = makeOperationSummary({
+    const related = makeOperationListItem({
       tool_run_ids: [toolRun3],
       tool_name: "share_local_http_service",
     });
