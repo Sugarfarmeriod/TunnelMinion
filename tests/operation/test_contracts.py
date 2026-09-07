@@ -35,6 +35,7 @@ from tunnelminion.operation.contracts import (
     compute_idempotency_key,
     transition_operation,
 )
+from tunnelminion.operation.requester import RequesterOperationRecord
 
 
 def test_plan_validates_protocol_idempotency_key_and_request_scope() -> None:
@@ -299,6 +300,32 @@ def test_aggregate_rejects_child_from_another_operation() -> None:
     foreign = record.authorization.model_copy(update={"operation_id": OperationId.new()})
     with pytest.raises(ValidationError, match="同一个"):
         OperationRecord.model_validate({**record.model_dump(), "authorization": foreign})
+
+
+def test_requester_record_rejects_unknown_conflicts_and_mismatched_remote_summary() -> None:
+    operation_plan = plan()
+    planned = RequesterOperationRecord.planned(operation_plan)
+    assert planned.remote_summary is None
+
+    with pytest.raises(ValidationError, match="两种写结果未知"):
+        RequesterOperationRecord(
+            plan=operation_plan,
+            submission_result_unknown=True,
+            execution_result_unknown=True,
+            updated_at=NOW,
+        )
+    with pytest.raises(ValidationError, match="查询时间"):
+        RequesterOperationRecord(
+            plan=operation_plan,
+            last_checked_at=NOW + timedelta(seconds=1),
+            updated_at=NOW,
+        )
+    with pytest.raises(ValidationError, match="计划引用"):
+        RequesterOperationRecord(
+            plan=operation_plan,
+            remote_summary=OperationSummary.from_record(OperationRecord.planned(plan())),
+            updated_at=NOW,
+        )
 
 
 def test_summary_exposes_lifecycle_but_redacts_authentication_material() -> None:

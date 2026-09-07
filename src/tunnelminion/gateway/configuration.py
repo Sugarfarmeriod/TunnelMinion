@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -23,6 +24,7 @@ from tunnelminion.model.secrets import (
 )
 
 GATEWAY_TOKEN_PREFIX = "tmn_"
+DEFAULT_REQUESTER_CALLBACK_PORT = 18_900
 _SECRET_STORE_MARKER = "gateway-secret-store"
 
 
@@ -80,6 +82,11 @@ class GatewayConfiguration(BaseModel):
 
     bind: GatewayBindConfig
     limits: GatewayLimits = Field(default_factory=GatewayLimits)
+    requester_callback_port: int = Field(
+        default=DEFAULT_REQUESTER_CALLBACK_PORT,
+        ge=1024,
+        le=65535,
+    )
     peers: tuple[GatewayPeerConfig, ...] = ()
 
 
@@ -113,7 +120,20 @@ class GatewayConfigurationView(BaseModel):
     configured: bool
     bind: GatewayBindConfig | None = None
     limits: GatewayLimits | None = None
+    requester_callback_port: int | None = None
     peers: tuple[GatewayPeerView, ...] = ()
+
+
+@dataclass(frozen=True)
+class GatewayOperationPeer:
+    """只在服务端使用的固定操作对端和凭据。"""
+
+    node_id: NodeId
+    endpoint: str
+    target_host: str
+    requester_host: str
+    requester_callback_port: int
+    token: str = field(repr=False)
 
 
 class GatewayConfigurationRepository(Protocol):
@@ -169,13 +189,26 @@ class GatewayConfigurationService:
         self._secrets = secret_store
 
     def configure_local(
-        self, bind: GatewayBindConfig, limits: GatewayLimits | None = None
+        self,
+        bind: GatewayBindConfig,
+        limits: GatewayLimits | None = None,
+        *,
+        requester_callback_port: int | None = None,
     ) -> GatewayConfigurationView:
         """配置明确 WireGuard 监听地址，不接受通配或环回地址。"""
         existing = self._repository.load()
         value = GatewayConfiguration(
             bind=bind,
             limits=limits or (existing.limits if existing is not None else GatewayLimits()),
+            requester_callback_port=(
+                requester_callback_port
+                if requester_callback_port is not None
+                else (
+                    existing.requester_callback_port
+                    if existing is not None
+                    else DEFAULT_REQUESTER_CALLBACK_PORT
+                )
+            ),
             peers=existing.peers if existing is not None else (),
         )
         self._repository.save(value)
@@ -227,7 +260,45 @@ class GatewayConfigurationService:
             configured=True,
             bind=config.bind,
             limits=config.limits,
+            requester_callback_port=config.requester_callback_port,
             peers=peers,
+        )
+
+    def eligible_operation_peers(self, operation_name: str) -> tuple[GatewayPeerView, ...]:
+        """只返回明确允许该操作且凭据可用的固定对端。"""
+        return tuple(
+            peer
+            for peer in self.view().peers
+            if operation_name in peer.allowed_operations and peer.credential_configured
+        )
+
+    def resolve_operation_peer(
+        self,
+        node_id: NodeId,
+        operation_name: str,
+    ) -> GatewayOperationPeer:
+        """从服务端配置解析 endpoint、绑定地址和密钥环凭据。"""
+        config = self._require_config()
+        peer = next(
+            (
+                item
+                for item in config.peers
+                if item.node_id == node_id and operation_name in item.allowed_operations
+            ),
+            None,
+        )
+        if peer is None:
+            raise KeyError("gateway_operation_peer_not_found")
+        token = self._secrets.get(gateway_token_name(node_id))
+        if token is None:
+            raise RuntimeError(f"peer {node_id} 缺少网关凭据")
+        return GatewayOperationPeer(
+            node_id=node_id,
+            endpoint=peer.endpoint(),
+            target_host=peer.host,
+            requester_host=config.bind.host,
+            requester_callback_port=config.requester_callback_port,
+            token=token,
         )
 
     def build_security_policy(self) -> GatewaySecurityPolicy:
