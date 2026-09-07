@@ -10,11 +10,12 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tunnelminion.domain.identifiers import AuthorizationId, NodeId, OperationId, ResourceId
+from tunnelminion.gateway.configuration import GatewayPeerView
 from tunnelminion.operation.contracts import (
     CleanupRecord,
     CleanupResult,
@@ -29,6 +30,16 @@ from tunnelminion.operation.contracts import (
     VerificationResult,
 )
 from tunnelminion.operation.policy import AuthorizationService
+from tunnelminion.operation.requester import (
+    RequesterExecutionInput,
+    RequesterOperationInput,
+    RequesterOperationRecord,
+)
+from tunnelminion.operation.requester_service import (
+    RequesterAccessResponse,
+    RequesterOperationFailure,
+    RequesterOperationService,
+)
 
 _SENSITIVE_TEXT = re.compile(
     r"(?i)authorization\s*[:=]\s*(?:bearer\s+)?\S+"
@@ -56,6 +67,16 @@ class OperationAction(StrEnum):
     REJECT = "reject"
     CANCEL = "cancel"
     REVOKE = "revoke"
+    REFRESH = "refresh"
+    EXECUTE = "execute"
+    ACCESS = "access"
+
+
+class OperationRole(StrEnum):
+    """本机对一条操作实际持有的权限角色。"""
+
+    TARGET = "target"
+    REQUESTER = "requester"
 
 
 class OwnedResourceView(BaseModel):
@@ -142,9 +163,8 @@ def _allowed_actions(
     return _BASE_ALLOWED_ACTIONS.get(state, ())
 
 
-def _safe_summary(record: OperationRecord) -> OperationSummary:
-    """在详情边界再次过滤摘要中的自由文本。"""
-    summary = OperationSummary.from_record(record)
+def _safe_operation_summary(summary: OperationSummary) -> OperationSummary:
+    """在本机 API 边界再次过滤摘要中的自由文本。"""
     authorization_basis = (
         _safe_text(summary.authorization_basis) if summary.authorization_basis is not None else None
     )
@@ -156,14 +176,81 @@ def _safe_summary(record: OperationRecord) -> OperationSummary:
     return summary.model_copy(update={"authorization_basis": authorization_basis, "error": error})
 
 
+def _safe_summary(record: OperationRecord) -> OperationSummary:
+    return _safe_operation_summary(OperationSummary.from_record(record))
+
+
+def _requester_summary(record: RequesterOperationRecord) -> OperationSummary:
+    """在尚无远端摘要时只用本地计划生成最小列表事实。"""
+    if record.remote_summary is not None:
+        return _safe_operation_summary(record.remote_summary)
+    plan = record.plan
+    return OperationSummary(
+        operation_id=plan.operation_id,
+        thread_id=plan.thread_id,
+        run_id=plan.run_id,
+        tool_run_ids=plan.tool_run_ids,
+        request_node_id=plan.request_node_id,
+        target_node_id=plan.target_node_id,
+        tool_name=plan.tool_name,
+        level=plan.level,
+        status=OperationStatus.PLANNED,
+        authorization_kind=None,
+        authorization_basis=None,
+        bind_host=plan.access_scope.bind_host,
+        bind_port=plan.access_scope.bind_port,
+        absolute_expires_at=None,
+        resource_ids=(),
+        verification_results=(),
+        cleanup_result=None,
+        error=None,
+        updated_at=record.updated_at,
+    )
+
+
+class OperationListItemView(OperationSummary):
+    """合并目标端和请求端记录后的列表项。"""
+
+    role: OperationRole
+    submission_result_unknown: bool = False
+    execution_result_unknown: bool = False
+    last_checked_at: datetime | None = None
+    error_code: str | None = None
+
+    @classmethod
+    def from_target(cls, summary: OperationSummary) -> OperationListItemView:
+        return cls.model_validate(
+            {**_safe_operation_summary(summary).model_dump(), "role": "target"}
+        )
+
+    @classmethod
+    def from_requester(cls, record: RequesterOperationRecord) -> OperationListItemView:
+        return cls.model_validate(
+            {
+                **_requester_summary(record).model_dump(),
+                "role": "requester",
+                "submission_result_unknown": record.submission_result_unknown,
+                "execution_result_unknown": record.execution_result_unknown,
+                "last_checked_at": record.last_checked_at,
+                "error_code": record.error_code,
+            }
+        )
+
+
 class OperationDetailView(BaseModel):
     """本地页面需要的完整计划视图，不包含访问凭据和远端正文。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    role: OperationRole
     summary: OperationSummary
     state: OperationStatus
     allowed_actions: tuple[OperationAction, ...]
+    submission_result_unknown: bool
+    execution_result_unknown: bool
+    last_checked_at: datetime | None
+    error_code: str | None
+    access_expires_at: datetime | None
     service_id: str
     service_endpoint: str
     service_process_or_container: str
@@ -189,12 +276,18 @@ class OperationDetailView(BaseModel):
     ) -> OperationDetailView:
         plan = record.plan
         return cls(
+            role=OperationRole.TARGET,
             summary=_safe_summary(record),
             state=record.status,
             allowed_actions=_allowed_actions(
                 record.status,
                 revoke_available=revoke_available,
             ),
+            submission_result_unknown=False,
+            execution_result_unknown=False,
+            last_checked_at=None,
+            error_code=None,
+            access_expires_at=None,
             service_id=_safe_text(plan.service.service_id),
             service_endpoint=f"{plan.service.scheme}://{plan.service.host}:{plan.service.port}",
             service_process_or_container=_safe_text(plan.service.process_or_container),
@@ -230,6 +323,49 @@ class OperationDetailView(BaseModel):
                 }
                 for item in record.transitions
             ),
+        )
+
+    @classmethod
+    def from_requester(
+        cls,
+        record: RequesterOperationRecord,
+        *,
+        access_expires_at: datetime | None,
+    ) -> OperationDetailView:
+        """只展示请求端确实持有的计划、远端摘要和本机访问状态。"""
+        plan = record.plan
+        summary = _requester_summary(record)
+        actions = [OperationAction.REFRESH]
+        if not record.submission_result_unknown and not record.execution_result_unknown:
+            if record.error_code is None and summary.status is OperationStatus.AUTHORIZED:
+                actions.append(OperationAction.EXECUTE)
+            if summary.status is OperationStatus.SUCCEEDED and access_expires_at is not None:
+                actions.append(OperationAction.ACCESS)
+        return cls(
+            role=OperationRole.REQUESTER,
+            summary=summary,
+            state=summary.status,
+            allowed_actions=tuple(actions),
+            submission_result_unknown=record.submission_result_unknown,
+            execution_result_unknown=record.execution_result_unknown,
+            last_checked_at=record.last_checked_at,
+            error_code=record.error_code,
+            access_expires_at=access_expires_at,
+            service_id=_safe_text(plan.service.service_id),
+            service_endpoint=f"{plan.service.scheme}://{plan.service.host}:{plan.service.port}",
+            service_process_or_container=_safe_text(plan.service.process_or_container),
+            service_fingerprint=plan.service.fingerprint,
+            expected_change=_safe_text(plan.expected_change),
+            risk_summary=_safe_text(plan.risk_summary),
+            verification_method=_safe_text(plan.verification_method),
+            rollback_method=_safe_text(plan.rollback_method),
+            duration_seconds=plan.access_scope.duration_seconds,
+            created_at=plan.created_at,
+            owned_resources=(),
+            verification_summaries=(),
+            cleanup_record=None,
+            manual_action=None,
+            transitions=(),
         )
 
 
@@ -299,6 +435,7 @@ class OperationControlService:
         preauthorizations: PreauthorizationStore,
         authorization: AuthorizationService,
         lifecycle: OperationLifecycle | None = None,
+        requester: RequesterOperationService | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.node_id = node_id
@@ -306,18 +443,86 @@ class OperationControlService:
         self.preauthorizations = preauthorizations
         self.authorization = authorization
         self.lifecycle = lifecycle
+        self.requester = requester
         self.clock = clock or (lambda: datetime.now(UTC))
 
-    def list_operations(self) -> tuple[OperationSummary, ...]:
-        return self.operations.list_summaries()
+    def list_operations(self) -> tuple[OperationListItemView, ...]:
+        items = [
+            OperationListItemView.from_target(item) for item in self.operations.list_summaries()
+        ]
+        if self.requester is not None:
+            items.extend(
+                OperationListItemView.from_requester(item)
+                for item in self.requester.list_operations()
+            )
+        return tuple(sorted(items, key=lambda item: item.updated_at, reverse=True))
 
     def get_operation(self, operation_id: OperationId) -> OperationDetailView:
         record = self.operations.get(operation_id)
-        if record is None:
+        if record is not None:
+            return OperationDetailView.from_record(
+                record,
+                revoke_available=self.lifecycle is not None,
+            )
+        if self.requester is None:
             raise KeyError("operation_not_found")
-        return OperationDetailView.from_record(
+        requester = self._requester()
+        requester_record = requester.get_operation(operation_id)
+        return OperationDetailView.from_requester(
+            requester_record,
+            access_expires_at=requester.access_expires_at(operation_id),
+        )
+
+    def eligible_operation_peers(self) -> tuple[GatewayPeerView, ...]:
+        return self._requester().eligible_peers()
+
+    async def create_requester_operation(
+        self,
+        payload: RequesterOperationInput,
+    ) -> OperationDetailView:
+        requester = self._requester()
+        record = await requester.create_operation(payload)
+        return OperationDetailView.from_requester(
             record,
-            revoke_available=self.lifecycle is not None,
+            access_expires_at=requester.access_expires_at(record.plan.operation_id),
+        )
+
+    async def refresh_requester_operation(
+        self,
+        operation_id: OperationId,
+    ) -> OperationDetailView:
+        requester = self._requester()
+        record = await requester.refresh_operation(operation_id)
+        return OperationDetailView.from_requester(
+            record,
+            access_expires_at=requester.access_expires_at(operation_id),
+        )
+
+    async def execute_requester_operation(
+        self,
+        operation_id: OperationId,
+        payload: RequesterExecutionInput,
+    ) -> OperationDetailView:
+        requester = self._requester()
+        record = await requester.execute_operation(operation_id, payload)
+        return OperationDetailView.from_requester(
+            record,
+            access_expires_at=requester.access_expires_at(operation_id),
+        )
+
+    async def access_requester_operation(
+        self,
+        operation_id: OperationId,
+        *,
+        method: str,
+        path: str,
+        query: str,
+    ) -> RequesterAccessResponse:
+        return await self._requester().access_operation(
+            operation_id,
+            method=method,
+            path=path,
+            query=query,
         )
 
     def approve(self, operation_id: OperationId, payload: ApproveInput) -> OperationSummary:
@@ -396,6 +601,11 @@ class OperationControlService:
             revoked_at=self.clock(),
             local_control=True,
         )
+
+    def _requester(self) -> RequesterOperationService:
+        if self.requester is None:
+            raise RuntimeError("请求端操作服务当前不可用")
+        return self.requester
 
 
 _OPERATIONS_PAGE = """<!doctype html>
@@ -496,12 +706,39 @@ def create_operation_router(service: OperationControlService) -> APIRouter:
             return exc
         if isinstance(exc, KeyError):
             return HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+        if isinstance(exc, RequesterOperationFailure):
+            status_code = {
+                "access_session_unavailable": status.HTTP_410_GONE,
+                "access_response_too_large": status.HTTP_502_BAD_GATEWAY,
+                "access_upstream_timeout": status.HTTP_504_GATEWAY_TIMEOUT,
+                "access_upstream_unavailable": status.HTTP_502_BAD_GATEWAY,
+                "explicit_execution_required": status.HTTP_409_CONFLICT,
+                "explicit_intent_required": status.HTTP_409_CONFLICT,
+            }.get(exc.code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            return HTTPException(
+                status_code,
+                {"code": exc.code, "message": "请求未完成，请按当前状态处理"},
+            )
         if isinstance(exc, RuntimeError):
             return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
 
-    def list_operations() -> tuple[OperationSummary, ...]:
+    def list_operations() -> tuple[OperationListItemView, ...]:
         return service.list_operations()
+
+    def eligible_operation_peers() -> tuple[GatewayPeerView, ...]:
+        try:
+            return service.eligible_operation_peers()
+        except Exception as exc:
+            raise translate(exc) from exc
+
+    async def create_requester_operation(
+        payload: RequesterOperationInput,
+    ) -> OperationDetailView:
+        try:
+            return await service.create_requester_operation(payload)
+        except Exception as exc:
+            raise translate(exc) from exc
 
     def get_operation(value: str) -> OperationDetailView:
         try:
@@ -533,6 +770,44 @@ def create_operation_router(service: OperationControlService) -> APIRouter:
         except Exception as exc:
             raise translate(exc) from exc
 
+    async def refresh_requester_operation(value: str) -> OperationDetailView:
+        try:
+            return await service.refresh_requester_operation(operation_id(value))
+        except Exception as exc:
+            raise translate(exc) from exc
+
+    async def execute_requester_operation(
+        value: str,
+        payload: RequesterExecutionInput,
+    ) -> OperationDetailView:
+        try:
+            return await service.execute_requester_operation(operation_id(value), payload)
+        except Exception as exc:
+            raise translate(exc) from exc
+
+    async def access_requester_operation(
+        request: Request,
+        value: str,
+        path: str = "",
+    ) -> Response:
+        try:
+            result = await service.access_requester_operation(
+                operation_id(value),
+                method=request.method,
+                path=path,
+                query=request.url.query,
+            )
+        except Exception as exc:
+            raise translate(exc) from exc
+        headers = {"Cache-Control": "no-store"}
+        if result.content_type is not None:
+            headers["Content-Type"] = result.content_type
+        return Response(
+            content=b"" if request.method == "HEAD" else result.content,
+            status_code=result.status_code,
+            headers=headers,
+        )
+
     def list_preauthorizations() -> tuple[Preauthorization, ...]:
         return service.preauthorizations.list_all()
 
@@ -552,11 +827,49 @@ def create_operation_router(service: OperationControlService) -> APIRouter:
         return HTMLResponse(_OPERATIONS_PAGE)
 
     router.add_api_route("/api/operations", list_operations, methods=["GET"])
+    router.add_api_route("/api/operations", create_requester_operation, methods=["POST"])
+    router.add_api_route(
+        "/api/operations/eligible-peers",
+        eligible_operation_peers,
+        methods=["GET"],
+    )
     router.add_api_route("/api/operations/{value}", get_operation, methods=["GET"])
     router.add_api_route("/api/operations/{value}/approve", approve, methods=["POST"])
     router.add_api_route("/api/operations/{value}/reject", reject, methods=["POST"])
     router.add_api_route("/api/operations/{value}/cancel", cancel, methods=["POST"])
     router.add_api_route("/api/operations/{value}/revoke", revoke, methods=["POST"])
+    router.add_api_route(
+        "/api/operations/{value}/refresh",
+        refresh_requester_operation,
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/api/operations/{value}/execute",
+        execute_requester_operation,
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/api/operations/{value}/access",
+        access_requester_operation,
+        methods=["GET"],
+    )
+    router.add_api_route(
+        "/api/operations/{value}/access/{path:path}",
+        access_requester_operation,
+        methods=["GET"],
+    )
+    router.add_api_route(
+        "/api/operations/{value}/access",
+        access_requester_operation,
+        methods=["HEAD"],
+        include_in_schema=False,
+    )
+    router.add_api_route(
+        "/api/operations/{value}/access/{path:path}",
+        access_requester_operation,
+        methods=["HEAD"],
+        include_in_schema=False,
+    )
     router.add_api_route("/api/preauthorizations", list_preauthorizations, methods=["GET"])
     router.add_api_route("/api/preauthorizations", create_preauthorization, methods=["POST"])
     router.add_api_route(

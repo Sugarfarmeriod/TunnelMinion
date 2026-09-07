@@ -294,6 +294,9 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert "/api/threads" in paths
     assert "/api/runs/{value}/events" in paths
     assert "/api/operations" in paths
+    assert "/api/operations/eligible-peers" in paths
+    assert "/api/operations/{value}/execute" in paths
+    assert "/api/operations/{value}/access/{path}" in paths
     assert "/api/preauthorizations" in paths
     for original, legacy in (
         ("/chat", "/legacy/chat"),
@@ -310,6 +313,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.audit_sink.records == []
     assert bundle.tool_runtime
     assert bundle.tool_registry
+    assert bundle.requester_operation_service.list_operations() == ()
     assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
 

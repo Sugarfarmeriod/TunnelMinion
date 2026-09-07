@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from tunnelminion.agent.conversation import InMemoryConversationService
+from tunnelminion.agent.diagnostics import CrossNodeDiagnosticAgent, CrossNodeDiagnosticWorkflow
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
@@ -18,10 +20,18 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.remote import RemoteCapabilityLoader
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.gateway.client import FixedGatewayClient
+from tunnelminion.gateway.configuration import (
+    FileGatewayConfigurationRepository,
+    GatewayConfigurationService,
+    GatewayOperationPeer,
+    gateway_secret_store,
+)
 from tunnelminion.incident.investigation import ConfiguredIncidentRunner
 from tunnelminion.incident.observer import (
     IncidentObservationService,
@@ -38,7 +48,9 @@ from tunnelminion.model.configuration import (
 )
 from tunnelminion.model.secrets import KeyringSecretStore
 from tunnelminion.operation.definitions import register_safe_http_sharing_operation
+from tunnelminion.operation.http_sharing import UvicornProxyRuntime
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
+from tunnelminion.operation.requester_service import RequesterOperationService
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
     NetworkListenersAdapter,
@@ -90,6 +102,7 @@ class WindowsApplication:
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
     operation_control_service: OperationControlService
+    requester_operation_service: RequesterOperationService
     managed_node: ManagedNodeApplication
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
@@ -118,6 +131,53 @@ def load_or_create_node_id(path: Path) -> NodeId:
     temporary.write_text(str(node_id), encoding="utf-8")
     temporary.replace(path)
     return node_id
+
+
+def build_requester_operation_service(
+    *,
+    root: Path,
+    node_id: NodeId,
+    platform: Platform,
+    model_service: ModelConfigurationService,
+    tool_runtime: ToolRuntime,
+    audit_sink: InMemoryAuditSink,
+    stores: SQLiteStores,
+) -> RequesterOperationService:
+    """用现有模型、只读工具和固定 Gateway 组装请求端主路径。"""
+    configuration = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(root / "gateway.json"),
+        gateway_secret_store(root),
+    )
+
+    def client(peer: GatewayOperationPeer) -> FixedGatewayClient:
+        return FixedGatewayClient(
+            peer.endpoint,
+            peer.token,
+            node_id,
+            peer.node_id,
+            audit_sink,
+        )
+
+    def diagnostic_agent(peer: GatewayOperationPeer) -> CrossNodeDiagnosticAgent:
+        provider = model_service.create_provider()
+        return CrossNodeDiagnosticAgent(
+            CrossNodeDiagnosticWorkflow(
+                RemoteCapabilityLoader(client(peer), platform, peer.node_id),
+                tool_runtime,
+                node_id,
+            ),
+            provider,
+        )
+
+    return RequesterOperationService(
+        node_id=node_id,
+        store=stores.requester_operations,
+        configuration=configuration,
+        diagnostic_agent_factory=diagnostic_agent,
+        gateway_client_factory=client,
+        callback_runtime=UvicornProxyRuntime(),
+        clock=lambda: datetime.now(UTC),
+    )
 
 
 def build_windows_application(
@@ -181,11 +241,21 @@ def build_windows_application(
         stores.preauthorizations,
         OperationPolicy(registry, stores.preauthorizations),
     )
+    requester_operations = build_requester_operation_service(
+        root=root,
+        node_id=node_id,
+        platform=Platform.WINDOWS,
+        model_service=model_service,
+        tool_runtime=runtime,
+        audit_sink=audit,
+        stores=stores,
+    )
     operation_control = OperationControlService(
         node_id=node_id,
         operations=stores.operations,
         preauthorizations=stores.preauthorizations,
         authorization=authorization,
+        requester=requester_operations,
     )
     managed = build_managed_node_application(
         root,
@@ -280,6 +350,7 @@ def build_windows_application(
         conversations,
         memories,
         operation_control,
+        requester_operations,
         managed,
     )
 

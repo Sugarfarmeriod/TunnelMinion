@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from tests.operation.factories import FINGERPRINT, NOW, plan
 
 from tunnelminion.domain.identifiers import AuthorizationId, NodeId, OperationId, ResourceId
+from tunnelminion.gateway.configuration import GatewayPeerView
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.operation.contracts import (
     AuthorizationDecision,
@@ -26,12 +27,22 @@ from tunnelminion.operation.contracts import (
     OperationErrorCode,
     OperationRecord,
     OperationStatus,
+    OperationSummary,
     ResourceOwnership,
     VerificationRecord,
     VerificationResult,
     transition_operation,
 )
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
+from tunnelminion.operation.requester import (
+    RequesterExecutionInput,
+    RequesterOperationInput,
+    RequesterOperationRecord,
+)
+from tunnelminion.operation.requester_service import (
+    RequesterAccessResponse,
+    RequesterOperationService,
+)
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.web.operations import (
     OperationControlService,
@@ -86,7 +97,7 @@ def _awaiting_record(*, sensitive: bool = False) -> OperationRecord:
     )
 
 
-def _succeeded_record() -> OperationRecord:
+def _authorized_record() -> OperationRecord:
     awaiting = _awaiting_record()
     authorization = AuthorizationRecord(
         authorization_id=AuthorizationId.new(),
@@ -98,12 +109,16 @@ def _succeeded_record() -> OperationRecord:
         decided_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
     )
-    authorized = transition_operation(
+    return transition_operation(
         awaiting.model_copy(update={"authorization": authorization}),
         OperationStatus.AUTHORIZED,
         reason="本地批准",
         occurred_at=NOW,
     )
+
+
+def _succeeded_record() -> OperationRecord:
+    authorized = _authorized_record()
     executing = transition_operation(
         authorized,
         OperationStatus.EXECUTING,
@@ -187,10 +202,81 @@ def _cleanup_failed_record() -> OperationRecord:
 TARGET_NODE = NodeId.new()
 
 
+class FakeRequesterService:
+    """只验证本机 API 的角色路由，不重复请求编排单元测试。"""
+
+    def __init__(self, record: RequesterOperationRecord) -> None:
+        self.record = record
+        self.create_calls = 0
+        self.refresh_calls = 0
+        self.execute_calls = 0
+        self.access_calls: list[tuple[str, str, str]] = []
+
+    def eligible_peers(self) -> tuple[GatewayPeerView, ...]:
+        return (
+            GatewayPeerView(
+                node_id=self.record.plan.target_node_id,
+                host=self.record.plan.access_scope.bind_host,
+                port=8787,
+                allowed_tools=frozenset({"get_node_summary"}),
+                allowed_operations=frozenset({"share_local_http_service"}),
+                credential_configured=True,
+            ),
+        )
+
+    def list_operations(self) -> tuple[RequesterOperationRecord, ...]:
+        return (self.record,)
+
+    def get_operation(self, operation_id: OperationId) -> RequesterOperationRecord:
+        if operation_id != self.record.plan.operation_id:
+            raise KeyError("requester_operation_not_found")
+        return self.record
+
+    async def create_operation(
+        self,
+        value: RequesterOperationInput,
+    ) -> RequesterOperationRecord:
+        assert value.target_node_id == self.record.plan.target_node_id
+        self.create_calls += 1
+        return self.record
+
+    async def refresh_operation(self, operation_id: OperationId) -> RequesterOperationRecord:
+        _ = self.get_operation(operation_id)
+        self.refresh_calls += 1
+        return self.record
+
+    async def execute_operation(
+        self,
+        operation_id: OperationId,
+        value: RequesterExecutionInput,
+    ) -> RequesterOperationRecord:
+        _ = self.get_operation(operation_id)
+        assert value.confirmed
+        self.execute_calls += 1
+        return self.record
+
+    def access_expires_at(self, operation_id: OperationId) -> datetime | None:
+        _ = self.get_operation(operation_id)
+        return NOW + timedelta(minutes=5)
+
+    async def access_operation(
+        self,
+        operation_id: OperationId,
+        *,
+        method: str,
+        path: str,
+        query: str = "",
+    ) -> RequesterAccessResponse:
+        _ = self.get_operation(operation_id)
+        self.access_calls.append((method, path, query))
+        return RequesterAccessResponse(200, b"fixture", "text/plain")
+
+
 def _bundle(
     path: Path,
     *,
     lifecycle: FakeLifecycle | None = None,
+    requester: RequesterOperationService | None = None,
 ) -> tuple[TestClient, SQLiteStores, OperationControlService]:
     stores = SQLiteStores.open(path)
     registry = ToolRegistry()
@@ -205,6 +291,7 @@ def _bundle(
         preauthorizations=stores.preauthorizations,
         authorization=authorization,
         lifecycle=lifecycle,
+        requester=requester,
         clock=lambda: NOW,
     )
     app = FastAPI()
@@ -480,6 +567,91 @@ def test_active_revoke_uses_resource_owner_and_never_claims_success_without_it(
     assert revoked.status_code == 200
     assert revoked.json()["status"] == "rolled_back"
     assert lifecycle.calls == 1
+
+
+def test_requester_api_merges_roles_and_routes_only_requester_actions(tmp_path: Path) -> None:
+    remote = _authorized_record()
+    requester_record = RequesterOperationRecord(
+        plan=remote.plan,
+        remote_summary=OperationSummary.from_record(remote),
+        last_checked_at=NOW,
+        updated_at=NOW,
+    )
+    requester = FakeRequesterService(requester_record)
+    client, stores, _ = _bundle(
+        tmp_path / "runtime.sqlite3",
+        requester=cast(RequesterOperationService, requester),
+    )
+    target = _awaiting_record()
+    stores.operations.put(target)
+
+    listed = client.get("/api/operations").json()
+    assert {item["role"] for item in listed} == {"target", "requester"}
+    requester_id = str(requester_record.plan.operation_id)
+    detail = client.get(f"/api/operations/{requester_id}").json()
+    assert detail["role"] == "requester"
+    assert detail["allowed_actions"] == ["refresh", "execute"]
+    assert detail["last_checked_at"] == NOW.isoformat().replace("+00:00", "Z")
+    assert client.get(f"/api/operations/{target.plan.operation_id}").json()["role"] == "target"
+    assert (
+        client.post(
+            f"/api/operations/{requester_id}/approve",
+            json={
+                "operator": "target-local-user",
+                "expires_at": (NOW + timedelta(minutes=1)).isoformat(),
+            },
+        ).status_code
+        == 404
+    )
+
+    peers = client.get("/api/operations/eligible-peers")
+    assert peers.status_code == 200
+    assert peers.json()[0]["node_id"] == str(remote.plan.target_node_id)
+    assert "token" not in peers.text.lower()
+
+    payload = {
+        "target_node_id": str(remote.plan.target_node_id),
+        "service_port": 8080,
+        "bind_port": 18881,
+        "duration_seconds": 300,
+        "confirmed": True,
+    }
+    assert client.post("/api/operations", json=payload).status_code == 200
+    assert requester.create_calls == 1
+    assert (
+        client.post(
+            "/api/operations",
+            json={**payload, "endpoint": "http://attacker.example", "token": "secret"},
+        ).status_code
+        == 422
+    )
+    assert requester.create_calls == 1
+
+    assert client.post(f"/api/operations/{requester_id}/refresh").status_code == 200
+    assert requester.refresh_calls == 1
+    assert (
+        client.post(
+            f"/api/operations/{requester_id}/execute",
+            json={"confirmed": True},
+        ).status_code
+        == 200
+    )
+    assert requester.execute_calls == 1
+
+    requester.record = requester.record.model_copy(
+        update={"execution_result_unknown": True, "error_code": "execution_result_unknown"}
+    )
+    unknown = client.get(f"/api/operations/{requester_id}").json()
+    assert unknown["execution_result_unknown"] is True
+    assert unknown["allowed_actions"] == ["refresh"]
+
+    response = client.get(f"/api/operations/{requester_id}/access/assets/app.css?v=1")
+    assert response.status_code == 200
+    assert response.content == b"fixture"
+    assert response.headers["cache-control"] == "no-store"
+    assert requester.access_calls[-1] == ("GET", "assets/app.css", "v=1")
+    assert client.head(f"/api/operations/{requester_id}/access").content == b""
+    assert client.post(f"/api/operations/{requester_id}/access").status_code == 405
 
 
 def test_direct_input_validation_and_conflict_paths(tmp_path: Path) -> None:
