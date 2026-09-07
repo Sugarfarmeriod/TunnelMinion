@@ -1,0 +1,410 @@
+{
+  "schema_version": "incident-evaluation/v1",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v4",
+  "model_name": "fixed-incident-model-v1",
+  "provider_name": "offline-script",
+  "prompt_version": "incident-investigation-v3",
+  "tool_versions": {
+    "get_node_summary": "1.0",
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "normal-refresh",
+      "category": "normal",
+      "baseline": {},
+      "current": {},
+      "expected_event": null,
+      "tool_sequence": [],
+      "tool_results": {},
+      "failing_tools": [],
+      "required_tools": [],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 0,
+      "expected_status": null,
+      "expected_stop_reason": null,
+      "outcome": "none"
+    },
+    {
+      "scenario_id": "service-added-process",
+      "category": "service_added",
+      "baseline": {"service_present": false},
+      "current": {"service_present": true, "port": 43123},
+      "expected_event": "service_added",
+      "expected_root_cause": "tunnelminion-demo 新进程开始监听 0.0.0.0:43123",
+      "root_cause_terms": ["tunnelminion-demo", "43123"],
+      "tool_sequence": ["list_network_listeners", "get_process_summary"],
+      "tool_results": {
+        "list_network_listeners": {
+          "complete": true,
+          "listeners": [
+            {"protocol": "tcp", "address": "0.0.0.0", "port": 43123, "pid": 4242}
+          ]
+        },
+        "get_process_summary": {
+          "complete": true,
+          "processes": [{"pid": 4242, "name": "tunnelminion-demo", "state": "running"}]
+        }
+      },
+      "failing_tools": [],
+      "required_tools": ["list_network_listeners", "get_process_summary"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 2,
+      "expected_status": "confirmed",
+      "expected_stop_reason": "evidence_sufficient",
+      "outcome": "confirmed"
+    },
+    {
+      "scenario_id": "service-removed-process",
+      "category": "service_removed",
+      "baseline": {"service_present": true, "port": 43123},
+      "current": {"service_present": false},
+      "expected_event": "service_removed",
+      "expected_root_cause": "tunnelminion-demo 进程退出且 Docker 容器已停止",
+      "root_cause_terms": ["tunnelminion-demo", "停止"],
+      "tool_sequence": ["get_process_summary", "list_docker_services"],
+      "tool_results": {
+        "get_process_summary": {
+          "complete": true,
+          "processes": [],
+          "missing_process": "tunnelminion-demo"
+        },
+        "list_docker_services": {
+          "available": true,
+          "containers": [{"name": "tunnelminion-demo", "state": "exited", "ports": []}]
+        }
+      },
+      "failing_tools": [],
+      "required_tools": ["get_process_summary", "list_docker_services"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 2,
+      "expected_status": "confirmed",
+      "expected_stop_reason": "evidence_sufficient",
+      "outcome": "confirmed"
+    },
+    {
+      "scenario_id": "node-offline-wireguard",
+      "category": "node_offline",
+      "baseline": {"node_state": "online"},
+      "current": {"node_state": "offline"},
+      "expected_event": "node_offline",
+      "expected_root_cause": "节点心跳与 WireGuard 握手均已超时，节点离线",
+      "root_cause_terms": ["WireGuard", "离线"],
+      "tool_sequence": ["get_node_summary", "get_wireguard_status"],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "state": "offline",
+          "last_seen_seconds_ago": 900
+        },
+        "get_wireguard_status": {
+          "interface": "up",
+          "peer_state": "stale",
+          "latest_handshake_seconds_ago": 900
+        }
+      },
+      "failing_tools": [],
+      "required_tools": ["get_node_summary", "get_wireguard_status"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 2,
+      "expected_status": "confirmed",
+      "expected_stop_reason": "evidence_sufficient",
+      "outcome": "confirmed"
+    },
+    {
+      "scenario_id": "directory-became-stale",
+      "category": "state_stale",
+      "baseline": {"node_freshness": "fresh", "service_freshness": "fresh"},
+      "current": {"node_freshness": "stale", "service_freshness": "stale"},
+      "expected_event": "state_stale",
+      "tool_sequence": [],
+      "tool_results": {},
+      "failing_tools": [],
+      "required_tools": [],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 1,
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "snapshot_only_evidence"
+    },
+    {
+      "scenario_id": "loopback-listener",
+      "category": "local_only",
+      "baseline": {"accessibility": "network", "port": 43123},
+      "current": {"accessibility": "loopback", "port": 43123},
+      "expected_event": "local_only",
+      "expected_root_cause": "服务只监听 127.0.0.1 环回地址，远端探测失败",
+      "root_cause_terms": ["127.0.0.1", "远端"],
+      "tool_sequence": [
+        "get_node_summary",
+        "list_network_listeners",
+        "probe_service_reachability"
+      ],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
+        },
+        "list_network_listeners": {
+          "complete": true,
+          "listeners": [
+            {"protocol": "tcp", "address": "127.0.0.1", "port": 43123, "pid": 4242}
+          ]
+        },
+        "probe_service_reachability": {
+          "host": "10.77.0.2",
+          "port": 43123,
+          "reachable": false,
+          "error": "connection_refused"
+        }
+      },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
+      "failing_tools": [],
+      "required_tools": [
+        "get_node_summary",
+        "list_network_listeners",
+        "probe_service_reachability"
+      ],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 2,
+      "expected_status": "confirmed",
+      "expected_stop_reason": "evidence_sufficient",
+      "outcome": "confirmed"
+    },
+    {
+      "scenario_id": "remote-unreachable",
+      "category": "remote_unreachable",
+      "baseline": {"service_state": "available", "port": 43123},
+      "current": {"service_state": "unavailable", "port": 43123},
+      "expected_event": "remote_unreachable",
+      "expected_root_cause": "WireGuard 连接正常，但 10.77.0.2:43123 服务探测失败",
+      "root_cause_terms": ["WireGuard", "43123", "失败"],
+      "tool_sequence": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
+        },
+        "get_wireguard_status": {
+          "interface": "up",
+          "peer_state": "connected",
+          "latest_handshake_seconds_ago": 12
+        },
+        "probe_service_reachability": {
+          "host": "10.77.0.2",
+          "port": 43123,
+          "reachable": false,
+          "error": "connection_refused"
+        }
+      },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
+      "failing_tools": [],
+      "required_tools": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 2,
+      "expected_status": "confirmed",
+      "expected_stop_reason": "evidence_sufficient",
+      "outcome": "confirmed"
+    },
+    {
+      "scenario_id": "docker-unavailable",
+      "category": "docker_unavailable",
+      "baseline": {"service_present": true, "port": 43123},
+      "current": {"service_present": false},
+      "expected_event": "service_removed",
+      "tool_sequence": ["list_docker_services"],
+      "tool_results": {},
+      "failing_tools": ["list_docker_services"],
+      "required_tools": ["list_docker_services"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 0,
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "docker_tool_unavailable"
+    },
+    {
+      "scenario_id": "necessary-tool-failed",
+      "category": "tool_failure",
+      "baseline": {"accessibility": "network", "port": 43123},
+      "current": {"accessibility": "loopback", "port": 43123},
+      "expected_event": "local_only",
+      "tool_sequence": ["get_node_summary", "probe_service_reachability"],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
+        }
+      },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
+      "failing_tools": ["probe_service_reachability"],
+      "required_tools": ["get_node_summary", "probe_service_reachability"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 0,
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "necessary_tool_failed"
+    },
+    {
+      "scenario_id": "model-unavailable",
+      "category": "model_failure",
+      "baseline": {"service_state": "available", "port": 43123},
+      "current": {"service_state": "unavailable", "port": 43123},
+      "expected_event": "remote_unreachable",
+      "tool_sequence": [],
+      "tool_results": {},
+      "failing_tools": [],
+      "required_tools": [],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 0,
+      "expected_status": "investigation_unavailable",
+      "expected_stop_reason": "model_unavailable",
+      "outcome": "model_failure",
+      "failure_class": "model_unavailable"
+    },
+    {
+      "scenario_id": "tool-budget-exhausted",
+      "category": "budget_exhausted",
+      "baseline": {"service_present": false},
+      "current": {"service_present": true, "port": 43123},
+      "expected_event": "service_added",
+      "tool_sequence": ["list_network_listeners"],
+      "tool_results": {
+        "list_network_listeners": {
+          "complete": true,
+          "listeners": [
+            {"protocol": "tcp", "address": "0.0.0.0", "port": 43123, "pid": 4242}
+          ]
+        }
+      },
+      "failing_tools": [],
+      "required_tools": ["list_network_listeners"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 0,
+      "expected_status": "budget_exhausted",
+      "expected_stop_reason": "budget_exhausted",
+      "outcome": "budget",
+      "failure_class": "tool_budget_exhausted"
+    },
+    {
+      "scenario_id": "snapshot-probe-conflict",
+      "category": "evidence_conflict",
+      "baseline": {"service_state": "available", "port": 43123},
+      "current": {"service_state": "unavailable", "port": 43123},
+      "expected_event": "remote_unreachable",
+      "tool_sequence": ["get_node_summary", "probe_service_reachability"],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
+        },
+        "probe_service_reachability": {
+          "host": "10.77.0.2",
+          "port": 43123,
+          "reachable": true,
+          "latency_ms": 4
+        }
+      },
+      "tool_arguments": {
+        "probe_service_reachability": {"host": "10.77.0.2", "port": 43123}
+      },
+      "failing_tools": [],
+      "required_tools": ["get_node_summary", "probe_service_reachability"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 1,
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "evidence_conflict"
+    }
+  ]
+}

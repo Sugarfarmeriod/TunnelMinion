@@ -51,7 +51,7 @@ def test_real_factory_prepares_scoped_secret_free_fixture(tmp_path: Path) -> Non
     assert len(incidents) == 1
     assert str(incidents[0].incident_id) == incident_summary["incident_id"]
     assert incidents[0].report is not None
-    assert incidents[0].report.conclusion == "服务只监听环回地址，远端探测因此失败"
+    assert incidents[0].report.conclusion == "服务只监听 127.0.0.1 环回地址，远端探测失败"
 
 
 def test_cli_writes_receipt_outside_product_data(tmp_path: Path) -> None:

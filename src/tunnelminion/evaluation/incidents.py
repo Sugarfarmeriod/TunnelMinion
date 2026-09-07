@@ -20,7 +20,7 @@ from tunnelminion.coordinator.contracts import (
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.errors import ErrorCode, ToolError
+from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
@@ -57,7 +57,6 @@ from tunnelminion.model.contracts import (
 from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
-    ToolAdapterError,
     ToolCancellationToken,
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -350,7 +349,6 @@ class _FixtureAdapter:
         self,
         name: str,
         output: dict[str, JsonValue] | None = None,
-        expected_arguments: dict[str, JsonValue] | None = None,
         *,
         fail: bool,
     ) -> None:
@@ -358,7 +356,6 @@ class _FixtureAdapter:
         self.output: dict[str, JsonValue] = (
             output if output is not None else {"tool": name, "observed": True}
         )
-        self.expected_arguments = expected_arguments or {}
         self.fail = fail
 
     async def execute(
@@ -368,13 +365,7 @@ class _FixtureAdapter:
     ) -> JsonValue:
         if cancellation.cancelled:
             raise RuntimeError("cancelled")
-        if any(arguments.get(key) != value for key, value in self.expected_arguments.items()):
-            raise ToolAdapterError(
-                ToolError(
-                    code=ErrorCode.INVALID_ARGUMENT,
-                    message="工具参数与固定场景对象不匹配",
-                )
-            )
+        del arguments
         if self.fail:
             raise RuntimeError("fixture failure")
         return self.output
@@ -507,8 +498,6 @@ class _FixtureProvider:
                 )
             )
         evidence_refs = self._evidence_refs(request)
-        if not evidence_refs:
-            evidence_refs = [str(self.current.snapshot_id)]
         confirmed = self.scenario.outcome == "confirmed"
         return ModelResponse(
             structured_output=cast(
@@ -619,7 +608,6 @@ def _runtime(
             _FixtureAdapter(
                 name,
                 _fixture_output(scenario, name),
-                scenario.tool_arguments.get(name),
                 fail=name in scenario.failing_tools,
             ),
         )

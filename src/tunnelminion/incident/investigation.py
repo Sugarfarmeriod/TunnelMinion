@@ -7,6 +7,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
@@ -68,6 +69,41 @@ READ_ONLY_INVESTIGATION_TOOLS = (
     "list_docker_services",
     "probe_service_reachability",
 )
+
+_LOCAL_EVIDENCE_PATHS = {
+    IncidentEventType.SERVICE_ADDED: (
+        "list_network_listeners",
+        "get_process_summary",
+    ),
+    IncidentEventType.SERVICE_REMOVED: (
+        "get_process_summary",
+        "list_docker_services",
+    ),
+    IncidentEventType.NODE_OFFLINE: (
+        "get_node_summary",
+        "get_wireguard_status",
+    ),
+    IncidentEventType.LOCAL_ONLY: (
+        "get_node_summary",
+        "list_network_listeners",
+        "probe_service_reachability",
+    ),
+    IncidentEventType.REMOTE_UNREACHABLE: (
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability",
+    ),
+    IncidentEventType.STATE_STALE: (),
+}
+
+_EVIDENCE_GAP_LABELS = {
+    "get_node_summary": "节点与可用地址",
+    "get_wireguard_status": "WireGuard 当前状态",
+    "list_network_listeners": "监听地址与端口",
+    "get_process_summary": "监听进程归属",
+    "list_docker_services": "Docker 服务生命周期",
+    "probe_service_reachability": "目标端口可达性",
+}
 
 
 class InvestigationToolExecutor(Protocol):
@@ -213,27 +249,35 @@ class IncidentInvestigator:
         run_id: RunId,
         cancellation: InvestigationCancellation,
     ) -> Incident:
+        if (
+            incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+            and incident.event.event_type is IncidentEventType.STATE_STALE
+        ):
+            return self._finish(
+                incident,
+                IncidentStatus.INSUFFICIENT_EVIDENCE,
+                InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                "当前状态已经陈旧，无法用它确认实时根因",
+                evidence=tuple(self._snapshot_evidence(incident).values()),
+            )
         messages = [
             ModelMessage(role="system", content=INCIDENT_INVESTIGATION_PROMPT.template),
             ModelMessage(role="user", content=self._incident_context(incident)),
         ]
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
-        tools = (
-            self._model_tools() if incident.event.source is SnapshotSource.LOCAL_OBSERVATION else ()
-        )
-        local_service_added = (
-            incident.event.source is SnapshotSource.LOCAL_OBSERVATION
-            and incident.event.event_type is IncidentEventType.SERVICE_ADDED
-        )
-        if local_service_added:
-            tools = tuple(
-                item
-                for item in tools
-                if item.name in {"list_network_listeners", "get_process_summary"}
-            )
+        local = incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+        available_tools = {item.name: item for item in self._model_tools()} if local else {}
+        evidence_path = _LOCAL_EVIDENCE_PATHS[incident.event.event_type] if local else ()
         current = incident
         tool_calls = 0
+        attempted_tools: set[str] = set()
+        successful_tools: dict[str, EvidenceReference] = {}
+        tool_outputs: dict[str, JsonValue] = {}
+        tool_contract_repaired = False
+        report_repaired = False
+        evidence_conflict = False
+        last_gap_signature: tuple[str, ...] | None = None
         for _ in range(self._limits.max_model_rounds):
             if cancellation.cancelled:
                 return self._finish(
@@ -241,12 +285,84 @@ class IncidentInvestigator:
                     IncidentStatus.CANCELLED,
                     InvestigationStopReason.CANCELLED,
                     "调查已取消",
+                    evidence=tuple(successful_tools.values()),
                 )
-            round_tools = (
-                tuple(item for item in tools if item.name == "list_network_listeners")
-                if local_service_added and tool_calls == 0
-                else tools
+            remaining_tools = tuple(name for name in evidence_path if name not in attempted_tools)
+            if (
+                remaining_tools
+                and not evidence_conflict
+                and tool_calls >= self._limits.max_tool_calls
+            ):
+                return self._finish(
+                    current,
+                    IncidentStatus.BUDGET_EXHAUSTED,
+                    InvestigationStopReason.BUDGET_EXHAUSTED,
+                    "调查工具调用达到上限，仍有信息缺口",
+                    evidence=tuple(successful_tools.values()),
+                )
+            probe_arguments = self._probe_arguments(
+                incident,
+                tool_outputs.get("get_node_summary"),
             )
+            round_tools = (
+                ()
+                if evidence_conflict
+                else self._eligible_tools(
+                    incident,
+                    remaining_tools,
+                    available_tools,
+                    probe_ready=probe_arguments is not None,
+                )
+            )
+            gap_signature = (
+                ("evidence_conflict",)
+                if evidence_conflict
+                else remaining_tools
+                if evidence_path
+                else ()
+            )
+            if local and evidence_path and gap_signature != last_gap_signature:
+                summary = (
+                    "实时只读证据与触发快照冲突，停止追加取证"
+                    if evidence_conflict
+                    else "剩余信息缺口："
+                    + "、".join(_EVIDENCE_GAP_LABELS[name] for name in remaining_tools)
+                    if remaining_tools
+                    else "事件证据路径已完整，等待模型生成证据化报告"
+                )
+                current = self._append_trace(
+                    current,
+                    PublicTraceEntry(
+                        occurred_at=self._now(),
+                        kind="status",
+                        summary=summary,
+                        evidence=tuple(successful_tools.values()),
+                    ),
+                )
+                self._store.put_incident(current)
+                last_gap_signature = gap_signature
+            if remaining_tools and not evidence_conflict and not round_tools:
+                return self._finish(
+                    current,
+                    IncidentStatus.INSUFFICIENT_EVIDENCE,
+                    InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                    "当前节点缺少填补信息缺口所需的只读工具或安全参数",
+                    evidence=tuple(successful_tools.values()),
+                )
+            round_messages = tuple(messages)
+            if local:
+                round_messages += (
+                    self._evidence_gap_message(
+                        incident,
+                        attempted_tools,
+                        successful_tools,
+                        remaining_tools,
+                        round_tools,
+                        tool_contract_repaired=tool_contract_repaired,
+                        report_repaired=report_repaired,
+                        evidence_conflict=evidence_conflict,
+                    ),
+                )
             try:
                 invocation = await self._model.invoke(
                     ContextRequest(
@@ -256,14 +372,12 @@ class IncidentInvestigator:
                         run_id=run_id,
                         prompt_id=INCIDENT_INVESTIGATION_PROMPT.prompt_id,
                         prompt_version=INCIDENT_INVESTIGATION_PROMPT.version,
-                        messages=tuple(messages),
+                        messages=round_messages,
                         tools=round_tools,
                         tool_results=tuple(tool_results),
-                        require_tool_call=bool(round_tools) and tool_calls == 0,
+                        require_tool_call=bool(round_tools),
                         response_schema=(
-                            _InvestigationDecision.model_json_schema()
-                            if not round_tools or tool_calls > 0
-                            else None
+                            _InvestigationDecision.model_json_schema() if not round_tools else None
                         ),
                         evidence=(
                             make_context_reference(
@@ -279,37 +393,43 @@ class IncidentInvestigator:
                     cancellation.model,
                 )
             except ProviderError as exc:
-                return self._provider_failure(current, exc)
+                return self._provider_failure(
+                    current,
+                    exc,
+                    evidence=tuple(successful_tools.values()),
+                )
             response = invocation.response
-            if (
-                not response.tool_calls
-                and tool_calls == 0
-                and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
-            ):
-                use_fallback = local_service_added
-                if not use_fallback:
-                    try:
-                        self._parse_decision(response.structured_output, response.content)
-                    except (TypeError, ValueError, ValidationError):
-                        use_fallback = True
-                if use_fallback:
-                    fallback_name = (
-                        "list_network_listeners"
-                        if incident.event.object_kind is SnapshotObjectKind.SERVICE
-                        else "get_node_summary"
+            if not response.tool_calls and round_tools:
+                if not tool_contract_repaired:
+                    tool_contract_repaired = True
+                    current = self._append_trace(
+                        current,
+                        PublicTraceEntry(
+                            occurred_at=self._now(),
+                            kind="status",
+                            summary="模型未按当前信息缺口选择工具，Runtime 已请求一次纠正",
+                        ),
                     )
-                    response = response.model_copy(
-                        update={
-                            "content": "",
-                            "tool_calls": (
-                                ToolCall(
-                                    call_id=f"fallback-{run_id}",
-                                    name=fallback_name,
-                                    arguments={},
-                                ),
-                            ),
-                        }
-                    )
+                    self._store.put_incident(current)
+                    continue
+                fallback = self._fallback_call(
+                    run_id,
+                    round_tools,
+                    probe_arguments,
+                )
+                current = self._append_trace(
+                    current,
+                    PublicTraceEntry(
+                        occurred_at=self._now(),
+                        kind="status",
+                        summary=(
+                            "模型纠正后仍未选择工具，Runtime 执行受控只读 fallback："
+                            f"{fallback.name}"
+                        ),
+                    ),
+                )
+                self._store.put_incident(current)
+                response = response.model_copy(update={"content": "", "tool_calls": (fallback,)})
             if response.tool_calls:
                 if len(response.tool_calls) != 1 or tool_calls >= self._limits.max_tool_calls:
                     return self._finish(
@@ -317,6 +437,7 @@ class IncidentInvestigator:
                         IncidentStatus.BUDGET_EXHAUSTED,
                         InvestigationStopReason.BUDGET_EXHAUSTED,
                         "调查工具调用达到上限或单轮请求过多",
+                        evidence=tuple(successful_tools.values()),
                     )
                 call = response.tool_calls[0]
                 if call.name not in {item.name for item in round_tools}:
@@ -325,6 +446,7 @@ class IncidentInvestigator:
                         IncidentStatus.FAILED,
                         InvestigationStopReason.FAILED,
                         "模型请求了未允许的工具",
+                        evidence=tuple(successful_tools.values()),
                     )
                 messages.append(
                     ModelMessage(
@@ -343,10 +465,17 @@ class IncidentInvestigator:
                         ),
                         tool_name=call.name,
                         arguments=call.arguments,
+                        required_arguments=(
+                            probe_arguments
+                            if call.name == "probe_service_reachability"
+                            and probe_arguments is not None
+                            else {}
+                        ),
                     ),
                     cancellation.tool,
                 )
                 tool_calls += 1
+                attempted_tools.add(call.name)
                 reference = EvidenceReference(
                     tool_run_id=result.tool_run_id,
                     observed_at=self._now(),
@@ -357,6 +486,8 @@ class IncidentInvestigator:
                     ToolExecutionStatus.PARTIAL,
                 }:
                     evidence[str(result.tool_run_id)] = reference
+                    successful_tools[call.name] = reference
+                    tool_outputs[call.name] = result.output
                 tool_results.append(
                     ToolResultContext(
                         tool_run_id=result.tool_run_id,
@@ -380,6 +511,22 @@ class IncidentInvestigator:
                     ),
                 )
                 self._store.put_incident(current)
+                if result.status not in {
+                    ToolExecutionStatus.SUCCESS,
+                    ToolExecutionStatus.PARTIAL,
+                }:
+                    return self._finish(
+                        current,
+                        IncidentStatus.INSUFFICIENT_EVIDENCE,
+                        InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                        f"必要只读工具 {call.name} 不可用",
+                        evidence=tuple(successful_tools.values()),
+                    )
+                evidence_conflict = evidence_conflict or self._is_snapshot_conflict(
+                    incident,
+                    call.name,
+                    result.output,
+                )
                 continue
             try:
                 decision = self._parse_decision(response.structured_output, response.content)
@@ -389,13 +536,43 @@ class IncidentInvestigator:
                     IncidentStatus.FAILED,
                     InvestigationStopReason.FAILED,
                     "调查返回无效结构",
+                    evidence=tuple(successful_tools.values()),
                 )
-            return self._apply_decision(current, decision, evidence)
+            required_evidence = tuple(
+                successful_tools[name] for name in evidence_path if name in successful_tools
+            )
+            if (
+                not evidence_conflict
+                and evidence_path
+                and decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT
+                and not self._decision_covers_required_evidence(decision, required_evidence)
+                and not report_repaired
+            ):
+                report_repaired = True
+                current = self._append_trace(
+                    current,
+                    PublicTraceEntry(
+                        occurred_at=self._now(),
+                        kind="status",
+                        summary="模型终态未完整引用现有证据，Runtime 已请求一次报告纠正",
+                        evidence=required_evidence,
+                    ),
+                )
+                self._store.put_incident(current)
+                continue
+            return self._apply_decision(
+                current,
+                decision,
+                evidence,
+                required_evidence=required_evidence,
+                evidence_conflict=evidence_conflict,
+            )
         return self._finish(
             current,
             IncidentStatus.BUDGET_EXHAUSTED,
             InvestigationStopReason.BUDGET_EXHAUSTED,
             "调查达到模型轮次上限",
+            evidence=tuple(successful_tools.values()),
         )
 
     def _apply_decision(
@@ -403,9 +580,13 @@ class IncidentInvestigator:
         incident: Incident,
         decision: _InvestigationDecision,
         evidence: dict[str, EvidenceReference],
+        *,
+        required_evidence: tuple[EvidenceReference, ...] = (),
+        evidence_conflict: bool = False,
     ) -> Incident:
         hypotheses: list[IncidentHypothesis] = []
         cited: dict[str, EvidenceReference] = {}
+        supporting_cited: dict[str, EvidenceReference] = {}
         for item in decision.hypotheses:
             refs = tuple(evidence[key] for key in item.evidence_refs if key in evidence)
             status = (
@@ -422,20 +603,32 @@ class IncidentInvestigator:
                 )
             )
             cited.update((key, evidence[key]) for key in item.evidence_refs if key in evidence)
+            if status is HypothesisStatus.SUPPORTED:
+                supporting_cited.update(
+                    (key, evidence[key]) for key in item.evidence_refs if key in evidence
+                )
         facts: list[str] = []
         for item in decision.facts:
             refs = tuple(evidence[key] for key in item.evidence_refs if key in evidence)
             if refs:
                 facts.append(item.statement)
                 cited.update((key, evidence[key]) for key in item.evidence_refs if key in evidence)
+                supporting_cited.update(
+                    (key, evidence[key]) for key in item.evidence_refs if key in evidence
+                )
         supported = any(item.status is HypothesisStatus.SUPPORTED for item in hypotheses)
-        has_tool_evidence = any(item.tool_run_id is not None for item in cited.values())
+        has_tool_evidence = any(item.tool_run_id is not None for item in supporting_cited.values())
+        required_ids = {
+            str(item.tool_run_id) for item in required_evidence if item.tool_run_id is not None
+        }
         confirmed = (
             decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT
             and decision.conclusion is not None
-            and bool(cited)
+            and bool(supporting_cited)
             and supported
             and has_tool_evidence
+            and required_ids.issubset(supporting_cited)
+            and not evidence_conflict
         )
         unknowns = list(decision.unknowns)
         if not confirmed and decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT:
@@ -484,8 +677,10 @@ class IncidentInvestigator:
         status: IncidentStatus,
         reason: InvestigationStopReason,
         unknown: str,
+        *,
+        evidence: tuple[EvidenceReference, ...] = (),
     ) -> Incident:
-        report = IncidentReport(unknowns=(unknown,), stop_reason=reason)
+        report = IncidentReport(unknowns=(unknown,), stop_reason=reason, evidence=evidence)
         current = incident.transition(status, at=self._now(), report=report)
         current = self._append_trace(
             current,
@@ -498,7 +693,13 @@ class IncidentInvestigator:
         self._store.put_incident(current)
         return current
 
-    def _provider_failure(self, incident: Incident, error: ProviderError) -> Incident:
+    def _provider_failure(
+        self,
+        incident: Incident,
+        error: ProviderError,
+        *,
+        evidence: tuple[EvidenceReference, ...] = (),
+    ) -> Incident:
         status = (
             IncidentStatus.INVESTIGATION_UNAVAILABLE
             if error.code
@@ -520,7 +721,139 @@ class IncidentInvestigator:
             if status is IncidentStatus.CANCELLED
             else InvestigationStopReason.FAILED
         )
-        return self._finish(incident, status, reason, "模型调查不可用")
+        return self._finish(incident, status, reason, "模型调查不可用", evidence=evidence)
+
+    @staticmethod
+    def _eligible_tools(
+        incident: Incident,
+        remaining_tools: tuple[str, ...],
+        available_tools: dict[str, ModelToolDefinition],
+        *,
+        probe_ready: bool,
+    ) -> tuple[ModelToolDefinition, ...]:
+        names = remaining_tools
+        if incident.event.event_type is IncidentEventType.SERVICE_ADDED:
+            names = names[:1]
+        if not probe_ready:
+            names = tuple(name for name in names if name != "probe_service_reachability")
+        return tuple(available_tools[name] for name in names if name in available_tools)
+
+    @staticmethod
+    def _evidence_gap_message(
+        incident: Incident,
+        attempted_tools: set[str],
+        successful_tools: dict[str, EvidenceReference],
+        remaining_tools: tuple[str, ...],
+        round_tools: tuple[ModelToolDefinition, ...],
+        *,
+        tool_contract_repaired: bool,
+        report_repaired: bool,
+        evidence_conflict: bool,
+    ) -> ModelMessage:
+        if evidence_conflict:
+            instruction = "实时证据与触发快照冲突；返回 insufficient_evidence，不得确认根因。"
+        elif remaining_tools:
+            instruction = "本轮必须调用 allowed_tools_this_round 中恰好一个工具，不得返回终态。"
+        else:
+            instruction = "证据路径已完成；返回终态 JSON，并逐字引用 successful_evidence 中的 ID。"
+        payload = {
+            "event_type": incident.event.event_type.value,
+            "attempted_tools": sorted(attempted_tools),
+            "successful_evidence": {
+                name: str(reference.tool_run_id)
+                for name, reference in successful_tools.items()
+                if reference.tool_run_id is not None
+            },
+            "information_gaps": [_EVIDENCE_GAP_LABELS[name] for name in remaining_tools],
+            "allowed_tools_this_round": [item.name for item in round_tools],
+            "tool_contract_correction_used": tool_contract_repaired,
+            "report_correction_used": report_repaired,
+            "evidence_conflict": evidence_conflict,
+            "instruction": instruction,
+        }
+        return ModelMessage(
+            role="system",
+            content="以下是 Runtime 维护的当前只读调查约束："
+            + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        )
+
+    def _fallback_call(
+        self,
+        run_id: RunId,
+        round_tools: tuple[ModelToolDefinition, ...],
+        probe_arguments: dict[str, JsonValue] | None,
+    ) -> ToolCall:
+        name = round_tools[0].name
+        arguments = probe_arguments or {} if name == "probe_service_reachability" else {}
+        return ToolCall(
+            call_id=f"fallback-{run_id}-{name}",
+            name=name,
+            arguments=arguments,
+        )
+
+    def _probe_arguments(
+        self,
+        incident: Incident,
+        node_summary: JsonValue | None,
+    ) -> dict[str, JsonValue] | None:
+        if not isinstance(node_summary, dict):
+            return None
+        wireguard = node_summary.get("wireguard")
+        addresses = wireguard.get("addresses") if isinstance(wireguard, dict) else None
+        affected = self._affected_object_context(incident)
+        port = affected.get("port") if affected is not None else None
+        if not isinstance(addresses, list) or not isinstance(port, int):
+            return None
+        for value in addresses:
+            if not isinstance(value, str):
+                continue
+            try:
+                address = ip_address(value.split("/", maxsplit=1)[0].split("%", maxsplit=1)[0])
+            except ValueError:
+                continue
+            if (
+                address.version == 4
+                and address.is_private
+                and not address.is_loopback
+                and not address.is_link_local
+                and not address.is_unspecified
+            ):
+                return {"host": str(address), "port": port}
+        return None
+
+    @staticmethod
+    def _is_snapshot_conflict(
+        incident: Incident,
+        tool_name: str,
+        output: JsonValue | None,
+    ) -> bool:
+        return bool(
+            tool_name == "probe_service_reachability"
+            and isinstance(output, dict)
+            and output.get("reachable") is True
+            and incident.event.event_type
+            in {IncidentEventType.LOCAL_ONLY, IncidentEventType.REMOTE_UNREACHABLE}
+        )
+
+    @staticmethod
+    def _decision_covers_required_evidence(
+        decision: _InvestigationDecision,
+        required_evidence: tuple[EvidenceReference, ...],
+    ) -> bool:
+        required_ids = {
+            str(item.tool_run_id) for item in required_evidence if item.tool_run_id is not None
+        }
+        cited = {
+            reference
+            for item in decision.hypotheses
+            if item.status is HypothesisStatus.SUPPORTED
+            for reference in item.evidence_refs
+        } | {reference for item in decision.facts for reference in item.evidence_refs}
+        return bool(
+            decision.conclusion
+            and any(item.status is HypothesisStatus.SUPPORTED for item in decision.hypotheses)
+            and required_ids.issubset(cited)
+        )
 
     def _model_tools(self) -> tuple[ModelToolDefinition, ...]:
         available = {item.name: item for item in self._registry.model_tools(self._platform)}

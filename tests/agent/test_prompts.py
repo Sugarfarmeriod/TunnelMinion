@@ -23,8 +23,8 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
         )
         assert definition.change_note
 
-    assert INCIDENT_INVESTIGATION_PROMPT.version == "v2"
-    assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "2.0.0"
+    assert INCIDENT_INVESTIGATION_PROMPT.version == "v3"
+    assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "3.0.0"
 
     assert (
         PROMPT_REGISTRY.resolve(
@@ -35,7 +35,10 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
         == REAL_MODEL_EVALUATION_PROMPT
     )
     assert "不得拼接状态、说明或自造标签" in INCIDENT_INVESTIGATION_PROMPT.template
-    assert "至少引用一项真实 `toolrun_...` 证据" in INCIDENT_INVESTIGATION_PROMPT.template
+    assert "information_gaps 非空时" in INCIDENT_INVESTIGATION_PROMPT.template
+    assert "successful_evidence 中全部真实 `toolrun_...` 证据" in (
+        INCIDENT_INVESTIGATION_PROMPT.template
+    )
 
 
 def test_registry_rejects_duplicate_unknown_and_task_mismatch() -> None:

@@ -30,6 +30,7 @@ from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
 
 V2_DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
 V3_DATASET = Path("evaluations/datasets/autonomous-incidents-v3.json")
+V4_DATASET = Path("evaluations/datasets/autonomous-incidents-v4.json")
 REVISION = "a" * 40
 
 
@@ -220,12 +221,16 @@ class _ConflictProvider:
 
 
 def _scenario(scenario_id: str) -> IncidentEvaluationScenario:
-    dataset = IncidentEvaluationDataset.model_validate_json(V2_DATASET.read_text(encoding="utf-8"))
+    dataset = IncidentEvaluationDataset.model_validate_json(V4_DATASET.read_text(encoding="utf-8"))
     return next(item for item in dataset.scenarios if item.scenario_id == scenario_id)
 
 
 def _v3_dataset() -> IncidentEvaluationDataset:
     return IncidentEvaluationDataset.model_validate_json(V3_DATASET.read_text(encoding="utf-8"))
+
+
+def _v4_dataset() -> IncidentEvaluationDataset:
+    return IncidentEvaluationDataset.model_validate_json(V4_DATASET.read_text(encoding="utf-8"))
 
 
 def _serialized_requests(provider: _CapturingProvider) -> str:
@@ -235,7 +240,7 @@ def _serialized_requests(provider: _CapturingProvider) -> str:
     )
 
 
-def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
+def test_real_mode_rejects_tool_outside_current_information_gap_without_leaking_answers(
     tmp_path: Path,
 ) -> None:
     provider = _CapturingProvider(
@@ -244,7 +249,7 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
     result = asyncio.run(
         run_incident_scenario(
             next(
-                item for item in _v3_dataset().scenarios if item.scenario_id == "loopback-listener"
+                item for item in _v4_dataset().scenarios if item.scenario_id == "loopback-listener"
             ),
             SQLiteIncidentStore(tmp_path / "unexpected.sqlite3"),
             provider=provider,
@@ -254,14 +259,14 @@ def test_real_mode_scores_actual_nonessential_tool_without_leaking_answers(
     )
 
     assert result.selected_tools == ("get_wireguard_status",)
-    assert result.executed_tools == ("get_wireguard_status",)
+    assert result.executed_tools == ()
     assert result.fallback_tools == ()
     assert result.tool_selection_success is False
     assert result.unnecessary_tool_calls == 1
     assert result.task_completed is False
-    assert result.model_input_tokens == 30
-    assert result.model_output_tokens == 7
-    assert result.model_total_tokens == 37
+    assert result.model_input_tokens == 10
+    assert result.model_output_tokens == 2
+    assert result.model_total_tokens == 12
     captured = _serialized_requests(provider)
     assert "tool_sequence" not in captured
     assert "required_tools" not in captured
@@ -289,23 +294,46 @@ def test_real_mode_does_not_credit_runtime_fallback_as_model_selection(tmp_path:
     )
 
     assert result.selected_tools == ()
-    assert result.executed_tools == ("list_network_listeners",)
-    assert result.fallback_tools == ("list_network_listeners",)
+    assert result.executed_tools == ("list_network_listeners", "get_process_summary")
+    assert result.fallback_tools == ("list_network_listeners", "get_process_summary")
     assert result.tool_selection_success is False
 
 
-def test_real_mode_rejects_schema_valid_but_wrong_fixture_target(tmp_path: Path) -> None:
-    provider = _CapturingProvider(
-        ToolCall(
-            call_id="wrong-target",
-            name="probe_service_reachability",
-            arguments={"host": "10.77.0.2", "port": 1},
+def test_repeated_no_tool_responses_use_bounded_fallback_with_discovered_probe_target(
+    tmp_path: Path,
+) -> None:
+    provider = _CapturingProvider(None)
+    scenario = next(
+        item for item in _v4_dataset().scenarios if item.scenario_id == "loopback-listener"
+    )
+
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "probe-fallback.sqlite3"),
+            provider=provider,
+            provider_name="test-provider",
+            model_name="test-model",
         )
     )
+
+    assert result.selected_tools == ()
+    assert result.runtime_tool_attempts == (
+        "get_node_summary",
+        "list_network_listeners",
+        "probe_service_reachability",
+    )
+    assert result.fallback_tools == result.runtime_tool_attempts
+    assert result.executed_tools == result.runtime_tool_attempts
+    assert result.tool_runs[-1].arguments == {"host": "10.77.0.2", "port": 43123}
+
+
+def test_real_mode_rejects_schema_valid_but_wrong_fixture_target(tmp_path: Path) -> None:
+    provider = _ConflictProvider(probe_port=1)
     result = asyncio.run(
         run_incident_scenario(
             next(
-                item for item in _v3_dataset().scenarios if item.scenario_id == "loopback-listener"
+                item for item in _v4_dataset().scenarios if item.scenario_id == "loopback-listener"
             ),
             SQLiteIncidentStore(tmp_path / "invalid.sqlite3"),
             provider=provider,
@@ -315,10 +343,13 @@ def test_real_mode_rejects_schema_valid_but_wrong_fixture_target(tmp_path: Path)
     )
 
     assert result.invalid_tool_arguments == 1
-    assert result.runtime_tool_attempts == ("probe_service_reachability",)
-    assert result.executed_tools == ()
-    assert result.tool_runs[0].error_code == "invalid_argument"
-    assert result.evidence_count == 0
+    assert result.runtime_tool_attempts == (
+        "get_node_summary",
+        "probe_service_reachability",
+    )
+    assert result.executed_tools == ("get_node_summary",)
+    assert result.tool_runs[1].error_code == "invalid_argument"
+    assert result.evidence_count == 1
     assert result.tool_selection_success is False
     assert result.task_completed is False
 
@@ -374,7 +405,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
     provider = _CapturingProvider(None)
     report = asyncio.run(
         run_incident_dataset(
-            _v3_dataset(),
+            _v4_dataset(),
             SQLiteIncidentStore(tmp_path / "real-v3.sqlite3"),
             provider=provider,
             provider_name="test-provider",
@@ -386,7 +417,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
     assert report.scope == "isolated-real-model-local-runtime"
     assert report.source_revision == REVISION
     assert report.dataset_content_hash == (
-        "sha256:35acec612daeb7e8d8e8c71ead955d86071cb30a00a3f6b2a438ce87ab445be4"
+        "sha256:584292b504641134db166dae9d9b51db42f74dad3324f4866ff367e572ee3603"
     )
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations
@@ -401,7 +432,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
 def test_real_dataset_highlights_unsupported_confirmation_attempt(tmp_path: Path) -> None:
     report = asyncio.run(
         run_incident_dataset(
-            _v3_dataset(),
+            _v4_dataset(),
             SQLiteIncidentStore(tmp_path / "unsupported.sqlite3"),
             provider=_UnsupportedProvider(),
             provider_name="test-provider",
@@ -419,7 +450,7 @@ def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
     tmp_path: Path,
 ) -> None:
     scenario = next(
-        item for item in _v3_dataset().scenarios if item.category == "evidence_conflict"
+        item for item in _v4_dataset().scenarios if item.category == "evidence_conflict"
     )
     provider = _ConflictProvider()
     result = asyncio.run(
@@ -451,7 +482,7 @@ def test_conflicting_evidence_stays_unknown_and_missing_usage_stays_unknown(
 
 def test_conflict_wrong_target_cannot_pass_success_metrics(tmp_path: Path) -> None:
     scenario = next(
-        item for item in _v3_dataset().scenarios if item.category == "evidence_conflict"
+        item for item in _v4_dataset().scenarios if item.category == "evidence_conflict"
     )
     result = asyncio.run(
         run_incident_scenario(
@@ -471,7 +502,7 @@ def test_conflict_wrong_target_cannot_pass_success_metrics(tmp_path: Path) -> No
 
 
 def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> None:
-    dataset = _v3_dataset()
+    dataset = _v4_dataset()
     conflict = dataset.scenarios[-1]
     reordered = IncidentEvaluationDataset.model_validate(
         dataset.model_dump()
@@ -488,8 +519,9 @@ def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> No
         )
     )
 
-    assert report.metrics.conflict_confirmations == 1
-    assert "evidence_conflict_confirmed" in report.safety_gate_violations
+    assert report.metrics.conflict_confirmations == 0
+    assert report.metrics.unsupported_assertion_rate > 0
+    assert "unsupported_assertion_rate" in report.safety_gate_violations
     assert report.ready_for_operation_stage is False
 
 
@@ -498,7 +530,7 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Provider、模型和代码提交"):
         asyncio.run(
             run_incident_dataset(
-                _v3_dataset(),
+                _v4_dataset(),
                 SQLiteIncidentStore(tmp_path / "missing-meta.sqlite3"),
                 provider=provider,
             )
@@ -506,7 +538,7 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="完整的小写 Git 提交"):
         asyncio.run(
             run_incident_dataset(
-                _v3_dataset(),
+                _v4_dataset(),
                 SQLiteIncidentStore(tmp_path / "short-revision.sqlite3"),
                 provider=provider,
                 provider_name="test-provider",
@@ -527,7 +559,7 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
             )
         )
 
-    dataset = _v3_dataset()
+    dataset = _v4_dataset()
     with pytest.raises(ValueError, match="Prompt 版本"):
         asyncio.run(
             run_incident_dataset(
@@ -555,7 +587,7 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
 
 
 def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
-    dataset = _v3_dataset()
+    dataset = _v4_dataset()
     scenario = dataset.scenarios[1]
     with pytest.raises(ValueError, match="工具夹具只能包含"):
         IncidentEvaluationScenario.model_validate(
@@ -648,7 +680,7 @@ def test_real_cli_writes_report_without_endpoint(
     assert (
         real_cli.main(
             [
-                str(V3_DATASET),
+                str(V4_DATASET),
                 "--endpoint",
                 "http://127.0.0.1:9999/v1",
                 "--model",

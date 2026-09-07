@@ -43,6 +43,7 @@ from tunnelminion.incident.contracts import (
     SnapshotSource,
 )
 from tunnelminion.incident.investigation import (
+    READ_ONLY_INVESTIGATION_TOOLS,
     ConfiguredIncidentRunner,
     IncidentInvestigator,
     InvestigationCancellation,
@@ -90,9 +91,10 @@ SERVICE_ADDED_LATER = ServiceId("service_33333333333333333333333333333333")
 class RecordingAdapter:
     """只记录真正通过 schema 和策略的调用。"""
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, include_node_address: bool = True) -> None:
         self.calls: list[dict[str, JsonValue]] = []
         self.fail = fail
+        self.include_node_address = include_node_address
 
     async def execute(
         self,
@@ -103,7 +105,10 @@ class RecordingAdapter:
         self.calls.append(arguments)
         if self.fail:
             raise RuntimeError("fixture tool failure")
-        return {"status": "network-listening"}
+        result: dict[str, JsonValue] = {"status": "network-listening"}
+        if self.include_node_address:
+            result["wireguard"] = {"addresses": ["10.77.0.2"]}
+        return result
 
 
 class ScriptedProvider:
@@ -134,6 +139,19 @@ class ScriptedProvider:
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="call-1", name="shell", arguments={}),)
             )
+        if self.mode == "forced_listener":
+            return ModelResponse(
+                tool_calls=(
+                    ToolCall(call_id="call-1", name="list_network_listeners", arguments={}),
+                )
+            )
+        if self.mode == "multiple_tools":
+            return ModelResponse(
+                tool_calls=(
+                    ToolCall(call_id="call-1", name="get_node_summary", arguments={}),
+                    ToolCall(call_id="call-2", name="list_network_listeners", arguments={}),
+                )
+            )
         if self.mode == "invalid_response":
             return ModelResponse()
         if self.mode == "missing_initial_tool" and len(self.requests) == 1:
@@ -150,6 +168,18 @@ class ScriptedProvider:
                     ],
                     "facts": [],
                     "unknowns": ["尚未读取监听状态"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                }
+            )
+        if self.mode in {"always_no_tool", "always_no_tool_missing_probe_target"} or (
+            self.mode == "valid_missing_initial_tool_twice" and len(self.requests) <= 2
+        ):
+            return ModelResponse(
+                structured_output={
+                    "hypotheses": [],
+                    "facts": [],
+                    "unknowns": ["尚未读取实时状态"],
                     "conclusion": None,
                     "stop_reason": "insufficient_evidence",
                 }
@@ -178,37 +208,62 @@ class ScriptedProvider:
                     }
                 )
             )
-        if self.mode == "endless" or len(self.requests) == 1:
-            arguments: dict[str, JsonValue] = (
-                {"unexpected": True} if self.mode == "invalid_arguments" else {}
-            )
+        premature_stop = self.mode == "premature_after_first_tool" and len(self.requests) == 2
+        if self.mode == "endless" or (request.tools and not premature_stop):
+            name = request.tools[0].name if request.tools else "list_network_listeners"
+            arguments: dict[str, JsonValue] = {}
+            if self.mode == "invalid_arguments":
+                arguments = {"unexpected": True}
+            elif name == "probe_service_reachability":
+                arguments = {
+                    "host": "8.8.8.8" if self.mode == "wrong_probe_target" else "10.77.0.2",
+                    "port": 43123,
+                }
             return ModelResponse(
                 tool_calls=(
                     ToolCall(
                         call_id=f"call-{len(self.requests)}",
-                        name="list_network_listeners",
+                        name=name,
                         arguments=arguments,
                     ),
                 )
             )
-        tool_run_id = self._latest_tool_run_id(request)
+        tool_run_ids = self._tool_run_ids(request)
         if self.mode == "unsupported_claim":
-            tool_run_id = "toolrun_ffffffffffffffffffffffffffffffff"
+            tool_run_ids = ["toolrun_ffffffffffffffffffffffffffffffff"]
+        elif self.mode == "missing_report_reference_once" and len(self.requests) == 3:
+            tool_run_ids = tool_run_ids[-1:]
+        hypotheses = [
+            {
+                "summary": "服务仅监听本机地址",
+                "status": "supported",
+                "evidence_refs": tool_run_ids,
+            }
+        ]
+        facts = [
+            {
+                "statement": "监听工具已返回结构化结果",
+                "evidence_refs": tool_run_ids,
+            }
+        ]
+        if self.mode == "rejected_evidence_refs":
+            hypotheses = [
+                {
+                    "summary": "服务仅监听本机地址",
+                    "status": "supported",
+                    "evidence_refs": tool_run_ids[:1],
+                },
+                {
+                    "summary": "其余证据支持另一个已排除解释",
+                    "status": "rejected",
+                    "evidence_refs": tool_run_ids[1:],
+                },
+            ]
+            facts = []
         content = json.dumps(
             {
-                "hypotheses": [
-                    {
-                        "summary": "服务仅监听本机地址",
-                        "status": "supported",
-                        "evidence_refs": [tool_run_id],
-                    }
-                ],
-                "facts": [
-                    {
-                        "statement": "监听工具已返回结构化结果",
-                        "evidence_refs": [tool_run_id],
-                    }
-                ],
+                "hypotheses": hypotheses,
+                "facts": facts,
                 "unknowns": [],
                 "conclusion": "服务仅监听本机地址",
                 "stop_reason": "evidence_sufficient",
@@ -219,10 +274,12 @@ class ScriptedProvider:
         )
 
     @staticmethod
-    def _latest_tool_run_id(request: ModelRequest) -> str:
-        message = next(item for item in reversed(request.messages) if item.role == "tool")
-        payload = json.loads(message.content)
-        return str(payload["result"]["tool_run_id"])
+    def _tool_run_ids(request: ModelRequest) -> list[str]:
+        return [
+            str(json.loads(message.content)["result"]["tool_run_id"])
+            for message in request.messages
+            if message.role == "tool"
+        ]
 
 
 class RaisingRuntime:
@@ -255,13 +312,55 @@ def _incident(
     source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION,
     event_type: IncidentEventType = IncidentEventType.LOCAL_ONLY,
 ) -> Incident:
+    baseline_id = SnapshotId("snapshot_00000000000000000000000000000001")
+    current_id = SnapshotId("snapshot_00000000000000000000000000000002")
+    service = SnapshotService(
+        service_id=SERVICE,
+        node_id=NODE,
+        state=SnapshotServiceState.AVAILABLE,
+        source=source,
+        freshness=SnapshotFreshness.FRESH,
+        evidence_at=NOW,
+        protocol=ServiceProtocol.HTTP,
+        port=43123,
+        accessibility=ServiceAccessibility.NETWORK,
+    )
+    if store.get_snapshot(baseline_id) is None:
+        store.put_snapshot(
+            NormalizedSnapshot(
+                snapshot_id=baseline_id,
+                observed_at=NOW,
+                revision=1,
+                services=() if event_type is IncidentEventType.SERVICE_ADDED else (service,),
+            )
+        )
+    if store.get_snapshot(current_id) is None:
+        current_service = service.model_copy(
+            update={
+                "accessibility": (
+                    ServiceAccessibility.LOOPBACK
+                    if event_type is IncidentEventType.LOCAL_ONLY
+                    else ServiceAccessibility.NETWORK
+                )
+            }
+        )
+        store.put_snapshot(
+            NormalizedSnapshot(
+                snapshot_id=current_id,
+                observed_at=NOW,
+                revision=2,
+                services=()
+                if event_type is IncidentEventType.SERVICE_REMOVED
+                else (current_service,),
+            )
+        )
     event = SnapshotDiffEvent(
         event_type=event_type,
         object_kind=SnapshotObjectKind.SERVICE,
         object_id=str(SERVICE),
         target_node_id=NODE,
-        baseline_snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
-        current_snapshot_id=SnapshotId("snapshot_00000000000000000000000000000002"),
+        baseline_snapshot_id=baseline_id,
+        current_snapshot_id=current_id,
         baseline_revision=1,
         current_revision=2,
         observed_at=NOW,
@@ -301,17 +400,46 @@ def _runtime(
     extra_tool_names: tuple[str, ...] = (),
 ) -> tuple[IncidentInvestigator, SQLiteIncidentStore, RecordingAdapter, ScriptedProvider]:
     registry = ToolRegistry()
-    adapter = RecordingAdapter(fail=mode == "tool_failure")
-    for name in (tool_name, *extra_tool_names):
+    adapter = RecordingAdapter(
+        fail=mode == "tool_failure",
+        include_node_address=mode != "always_no_tool_missing_probe_target",
+    )
+    names = tuple(dict.fromkeys((tool_name, *extra_tool_names, *READ_ONLY_INVESTIGATION_TOOLS)))
+    for name in names:
         registry.register(
             ToolDefinition(
                 name=name,
                 version=ProtocolVersion(major=1, minor=0),
                 description="只读调查工具",
-                input_schema={"type": "object", "additionalProperties": False},
+                input_schema=(
+                    {
+                        "type": "object",
+                        "properties": {
+                            "host": {"type": "string"},
+                            "port": {"type": "integer"},
+                        },
+                        "required": ["host", "port"],
+                        "additionalProperties": False,
+                    }
+                    if name == "probe_service_reachability"
+                    else {"type": "object", "additionalProperties": False}
+                ),
                 output_schema={
                     "type": "object",
-                    "properties": {"status": {"type": "string"}},
+                    "properties": {
+                        "status": {"type": "string"},
+                        "wireguard": {
+                            "type": "object",
+                            "properties": {
+                                "addresses": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                }
+                            },
+                            "required": ["addresses"],
+                            "additionalProperties": False,
+                        },
+                    },
                     "required": ["status"],
                     "additionalProperties": False,
                 },
@@ -363,7 +491,7 @@ def _runtime_with_model(
     return investigator, store
 
 
-def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
+def test_investigator_completes_event_evidence_path_and_confirms_cited_root_cause(
     tmp_path: Path,
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, "success")
@@ -374,14 +502,45 @@ def test_investigator_selects_one_read_only_tool_and_confirms_cited_root_cause(
     assert result.report is not None
     assert result.report.conclusion == "服务仅监听本机地址"
     assert result.report.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT
-    assert len(result.report.evidence) == 1
-    assert adapter.calls == [{}]
-    assert len(provider.requests) == 2
-    assert provider.requests[0].require_tool_call is True
-    assert provider.requests[0].response_schema is None
-    assert provider.requests[1].require_tool_call is False
-    assert provider.requests[1].response_schema is not None
-    assert {item.name for item in provider.requests[0].tools} == {"list_network_listeners"}
+    assert len(result.report.evidence) == 3
+    assert adapter.calls == [{}, {}, {"host": "10.77.0.2", "port": 43123}]
+    assert len(provider.requests) == 4
+    assert all(item.require_tool_call for item in provider.requests[:3])
+    assert all(item.response_schema is None for item in provider.requests[:3])
+    assert provider.requests[3].require_tool_call is False
+    assert provider.requests[3].response_schema is not None
+    assert {item.name for item in provider.requests[0].tools} == {
+        "get_node_summary",
+        "list_network_listeners",
+    }
+    assert {item.name for item in provider.requests[1].tools} == {
+        "list_network_listeners",
+        "probe_service_reachability",
+    }
+    assert [item.name for item in provider.requests[2].tools] == ["probe_service_reachability"]
+    constraints = [
+        json.loads(
+            next(
+                message.content
+                for message in request.messages
+                if message.content.startswith("以下是 Runtime 维护的当前只读调查约束：")
+            ).partition("：")[2]
+        )
+        for request in provider.requests
+    ]
+    assert constraints[0]["information_gaps"] == [
+        "节点与可用地址",
+        "监听地址与端口",
+        "目标端口可达性",
+    ]
+    assert constraints[0]["allowed_tools_this_round"] == [
+        "get_node_summary",
+        "list_network_listeners",
+    ]
+    assert constraints[-1]["information_gaps"] == []
+    assert len(constraints[-1]["successful_evidence"]) == 3
+    assert result.hypotheses[0].status.value == "supported"
+    assert len(result.hypotheses[0].evidence) == 3
     assert store.get(result.incident_id) == result
 
 
@@ -398,14 +557,12 @@ def test_local_service_added_only_exposes_incident_related_tools(tmp_path: Path)
 
     assert result.status is IncidentStatus.CONFIRMED
     assert [item.name for item in provider.requests[0].tools] == ["list_network_listeners"]
-    assert {item.name for item in provider.requests[1].tools} == {
-        "list_network_listeners",
-        "get_process_summary",
-    }
+    assert [item.name for item in provider.requests[1].tools] == ["get_process_summary"]
+    assert provider.requests[2].tools == ()
 
 
 @pytest.mark.parametrize("mode", ["missing_initial_tool", "valid_missing_initial_tool"])
-def test_local_service_added_uses_read_only_fallback_when_provider_ignores_required_tool_call(
+def test_local_service_added_corrects_one_ignored_required_tool_call(
     tmp_path: Path,
     mode: str,
 ) -> None:
@@ -422,19 +579,59 @@ def test_local_service_added_uses_read_only_fallback_when_provider_ignores_requi
     )
 
     assert result.status is IncidentStatus.CONFIRMED
-    assert adapter.calls == [{}]
-    assert len(provider.requests) == 2
-    assert provider.requests[0].require_tool_call is True
-    assert provider.requests[0].response_schema is None
-    assert provider.requests[1].require_tool_call is False
-    assert provider.requests[1].response_schema is not None
-    fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
-    assert fallback.content == ""
-    assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
-    assert fallback.tool_calls[0].name == "list_network_listeners"
+    assert adapter.calls == [{}, {}]
+    assert len(provider.requests) == 4
+    assert all(item.require_tool_call for item in provider.requests[:3])
+    assert provider.requests[3].response_schema is not None
+    assert any("请求一次纠正" in item.summary for item in result.trace)
+    assert not any("fallback" in item.summary for item in result.trace)
 
 
-def test_valid_local_non_added_service_decision_does_not_trigger_fallback(
+def test_local_service_added_rejects_premature_terminal_and_collects_process_evidence(
+    tmp_path: Path,
+) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "premature_after_first_tool")
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}, {}]
+    assert len(provider.requests) == 4
+    assert any("请求一次纠正" in item.summary for item in result.trace)
+    assert [item.tool_name for item in result.trace if item.kind == "tool"] == [
+        "list_network_listeners",
+        "get_process_summary",
+    ]
+
+
+def test_final_report_gets_one_chance_to_add_every_required_evidence_reference(
+    tmp_path: Path,
+) -> None:
+    investigator, store, _, provider = _runtime(tmp_path, "missing_report_reference_once")
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert result.report is not None and len(result.report.evidence) == 2
+    assert len(provider.requests) == 4
+    assert sum("报告纠正" in item.summary for item in result.trace) == 1
+
+
+def test_rejected_hypothesis_evidence_cannot_unlock_confirmation(tmp_path: Path) -> None:
+    investigator, store, _, provider = _runtime(tmp_path, "rejected_evidence_refs")
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert len(provider.requests) == 5
+    assert sum("报告纠正" in item.summary for item in result.trace) == 1
+
+
+def test_valid_local_non_added_early_stop_is_corrected(
     tmp_path: Path,
 ) -> None:
     investigator, store, adapter, provider = _runtime(tmp_path, "valid_missing_initial_tool")
@@ -443,9 +640,65 @@ def test_valid_local_non_added_service_decision_does_not_trigger_fallback(
         investigator.run(_incident(store, event_type=IncidentEventType.LOCAL_ONLY))
     )
 
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}, {}, {"host": "10.77.0.2", "port": 43123}]
+    assert len(provider.requests) == 5
+    assert any("请求一次纠正" in item.summary for item in result.trace)
+    assert not any("fallback" in item.summary for item in result.trace)
+
+
+def test_local_incident_corrects_one_no_tool_response_before_using_fallback(
+    tmp_path: Path,
+) -> None:
+    investigator, store, adapter, provider = _runtime(
+        tmp_path,
+        "valid_missing_initial_tool_twice",
+    )
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert adapter.calls == [{}, {}]
+    assert len(provider.requests) == 4
+    assert any(item.kind == "status" and "纠正" in item.summary for item in result.trace)
+    assert any("fallback：list_network_listeners" in item.summary for item in result.trace)
+    fallback = next(item for item in provider.requests[2].messages if item.role == "assistant")
+    assert fallback.content == ""
+    assert fallback.tool_calls[0].call_id.startswith("fallback-run_")
+
+
+def test_fallback_stops_when_probe_target_cannot_be_derived(tmp_path: Path) -> None:
+    investigator, store, adapter, provider = _runtime(
+        tmp_path,
+        "always_no_tool_missing_probe_target",
+    )
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
     assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
-    assert adapter.calls == []
-    assert len(provider.requests) == 1
+    assert adapter.calls == [{}, {}]
+    assert len(provider.requests) == 3
+    assert result.report is not None
+    assert "安全参数" in result.report.unknowns[0]
+
+
+def test_repeated_fallback_calls_use_unique_tool_call_ids(tmp_path: Path) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "always_no_tool")
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert adapter.calls == [{}, {}, {"host": "10.77.0.2", "port": 43123}]
+    fallback_ids = [
+        call.call_id
+        for message in provider.requests[-1].messages
+        if message.role == "assistant"
+        for call in message.tool_calls
+        if call.call_id.startswith("fallback-")
+    ]
+    assert len(fallback_ids) == len(set(fallback_ids)) == 3
 
 
 @pytest.mark.parametrize(
@@ -474,6 +727,49 @@ def test_remote_incident_never_uses_local_read_only_fallback(
     assert provider.requests[0].response_schema is not None
 
 
+def test_local_stale_state_stops_without_model_or_live_tools(tmp_path: Path) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "success")
+
+    result = asyncio.run(
+        investigator.run(_incident(store, event_type=IncidentEventType.STATE_STALE))
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.report is not None
+    assert result.report.stop_reason is InvestigationStopReason.INSUFFICIENT_EVIDENCE
+    assert len(result.report.evidence) == 2
+    assert adapter.calls == []
+    assert provider.requests == []
+
+
+def test_local_incident_stops_when_required_read_only_tools_are_unavailable(
+    tmp_path: Path,
+) -> None:
+    registry = ToolRegistry()
+    store = SQLiteIncidentStore(tmp_path / "missing-tools.sqlite3")
+    provider = ScriptedProvider("success")
+    investigator = IncidentInvestigator(
+        ContextModelRuntime(
+            provider,
+            provider_name="scripted",
+            model_name="fixture",
+            tool_schema_version="incident-tools/v1",
+        ),
+        registry,
+        ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink()),
+        store,
+        Platform.WINDOWS,
+        clock=lambda: NOW,
+    )
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert provider.requests == []
+    assert result.report is not None
+    assert "缺少填补信息缺口" in result.report.unknowns[0]
+
+
 @pytest.mark.parametrize(
     "source",
     [SnapshotSource.COORDINATOR_DIRECTORY, SnapshotSource.AGGREGATED],
@@ -482,7 +778,7 @@ def test_remote_incident_rejects_model_selected_local_tool(
     tmp_path: Path,
     source: SnapshotSource,
 ) -> None:
-    investigator, store, adapter, provider = _runtime(tmp_path, "success")
+    investigator, store, adapter, provider = _runtime(tmp_path, "forced_listener")
 
     result = asyncio.run(investigator.run(_incident(store, source=source)))
 
@@ -492,18 +788,18 @@ def test_remote_incident_rejects_model_selected_local_tool(
     assert provider.requests[0].require_tool_call is False
 
 
-def test_invalid_local_node_response_keeps_node_summary_fallback(tmp_path: Path) -> None:
+def test_repeated_invalid_local_node_response_uses_node_summary_fallback(tmp_path: Path) -> None:
     investigator, store, adapter, provider = _runtime(
         tmp_path,
-        "missing_initial_tool",
+        "valid_missing_initial_tool_twice",
         tool_name="get_node_summary",
     )
 
     result = asyncio.run(investigator.run(_local_node_incident(store)))
 
     assert result.status is IncidentStatus.CONFIRMED
-    assert adapter.calls == [{}]
-    fallback = next(item for item in provider.requests[1].messages if item.role == "assistant")
+    assert adapter.calls == [{}, {}]
+    fallback = next(item for item in provider.requests[2].messages if item.role == "assistant")
     assert fallback.tool_calls[0].name == "get_node_summary"
 
 
@@ -551,6 +847,78 @@ def test_investigator_context_includes_affected_service_details(tmp_path: Path) 
     assert affected["protocol"] == "http"
     assert affected["port"] == 54123
     assert affected["accessibility"] == "loopback"
+
+
+def test_probe_fallback_only_uses_a_valid_private_ipv4_and_incident_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    investigator, store, _, _ = _runtime(tmp_path, "probe-arguments")
+    incident = _incident(store)
+
+    assert (
+        investigator._probe_arguments(incident, None)  # pyright: ignore[reportPrivateUsage]
+        is None
+    )
+
+    def missing_affected(_: Incident) -> None:
+        return None
+
+    monkeypatch.setattr(investigator, "_affected_object_context", missing_affected)
+    assert (
+        investigator._probe_arguments(  # pyright: ignore[reportPrivateUsage]
+            incident,
+            {"wireguard": {"addresses": ["10.77.0.2"]}},
+        )
+        is None
+    )
+
+    def affected(_: Incident) -> dict[str, JsonValue]:
+        return {"port": 43123}
+
+    monkeypatch.setattr(investigator, "_affected_object_context", affected)
+    assert (
+        investigator._probe_arguments(  # pyright: ignore[reportPrivateUsage]
+            incident,
+            {"wireguard": {"addresses": "10.77.0.2"}},
+        )
+        is None
+    )
+    assert (
+        investigator._probe_arguments(  # pyright: ignore[reportPrivateUsage]
+            incident,
+            {
+                "wireguard": {
+                    "addresses": [
+                        1,
+                        "not-an-ip",
+                        "fd00::1",
+                        "8.8.8.8",
+                        "127.0.0.1",
+                        "169.254.1.2",
+                        "0.0.0.0",
+                    ]
+                }
+            },
+        )
+        is None
+    )
+    assert investigator._probe_arguments(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        {"wireguard": {"addresses": ["10.77.0.2/32"]}},
+    ) == {"host": "10.77.0.2", "port": 43123}
+
+
+def test_probe_target_must_match_node_summary_and_incident_port(tmp_path: Path) -> None:
+    investigator, store, adapter, provider = _runtime(tmp_path, "wrong_probe_target")
+
+    result = asyncio.run(investigator.run(_incident(store)))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert adapter.calls == [{}, {}]
+    assert len(provider.requests) == 3
+    assert result.report is not None
+    assert "probe_service_reachability 不可用" in result.report.unknowns[0]
 
 
 def test_investigator_context_falls_back_to_baseline_node(tmp_path: Path) -> None:
@@ -642,7 +1010,7 @@ def test_tool_failure_is_preserved_but_cannot_support_a_root_cause(tmp_path: Pat
 def test_unproven_model_conclusion_is_downgraded_to_insufficient_evidence(
     tmp_path: Path,
 ) -> None:
-    investigator, store, _, _ = _runtime(tmp_path, "unsupported_claim")
+    investigator, store, _, provider = _runtime(tmp_path, "unsupported_claim")
 
     result = asyncio.run(investigator.run(_incident(store)))
 
@@ -650,6 +1018,8 @@ def test_unproven_model_conclusion_is_downgraded_to_insufficient_evidence(
     assert result.report is not None
     assert result.report.conclusion is None
     assert "有效证据引用" in result.report.unknowns[-1]
+    assert len(provider.requests) == 5
+    assert sum("报告纠正" in item.summary for item in result.trace) == 1
 
 
 def test_snapshot_alone_cannot_confirm_root_cause(tmp_path: Path) -> None:
@@ -675,14 +1045,31 @@ def test_model_failure_budget_and_cancellation_have_explicit_stop_reasons(
     assert unavailable_result.report is not None
     assert unavailable_result.report.stop_reason is InvestigationStopReason.MODEL_UNAVAILABLE
 
-    limited, limited_store, adapter, _ = _runtime(
+    limited, limited_store, adapter, limited_provider = _runtime(
         tmp_path,
         "endless",
-        limits=InvestigationLimits(max_model_rounds=1, max_tool_calls=1),
+        limits=InvestigationLimits(max_model_rounds=6, max_tool_calls=1),
     )
     limited_result = asyncio.run(limited.run(_incident(limited_store)))
     assert limited_result.status is IncidentStatus.BUDGET_EXHAUSTED
     assert adapter.calls == [{}]
+    assert limited_result.report is not None and len(limited_result.report.evidence) == 1
+    assert len(limited_provider.requests) == 1
+
+    round_limited, round_store, round_adapter, round_provider = _runtime(
+        tmp_path,
+        "valid_missing_initial_tool_twice",
+        limits=InvestigationLimits(max_model_rounds=1),
+    )
+    round_result = asyncio.run(round_limited.run(_incident(round_store)))
+    assert round_result.status is IncidentStatus.BUDGET_EXHAUSTED
+    assert round_adapter.calls == []
+    assert len(round_provider.requests) == 1
+
+    multiple, multiple_store, multiple_adapter, _ = _runtime(tmp_path, "multiple_tools")
+    multiple_result = asyncio.run(multiple.run(_incident(multiple_store)))
+    assert multiple_result.status is IncidentStatus.BUDGET_EXHAUSTED
+    assert multiple_adapter.calls == []
 
     cancelled, cancelled_store, cancelled_adapter, _ = _runtime(tmp_path, "cancelled")
     token = InvestigationCancellation()

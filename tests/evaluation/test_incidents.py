@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 from scripts.run_incident_evaluation import main
 
+from tunnelminion.coordinator.contracts import ServiceAccessibility
 from tunnelminion.evaluation import incidents as incidents_module
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
@@ -24,7 +25,7 @@ from tunnelminion.incident.investigation import READ_ONLY_INVESTIGATION_TOOLS
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.tools.contracts import ToolCancellationToken
 
-DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
+DATASET = Path("evaluations/datasets/autonomous-incidents-v4.json")
 
 
 def load_dataset() -> IncidentEvaluationDataset:
@@ -51,6 +52,7 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
         "tool_failure",
         "model_failure",
         "budget_exhausted",
+        "evidence_conflict",
     }
     assert report.scope == "offline-scripted-local-runtime"
     stale = next(item for item in report.scenarios if item.category == "state_stale")
@@ -82,7 +84,13 @@ def test_dataset_rejects_missing_category_unknown_tool_and_overlap() -> None:
     with pytest.raises(ValidationError, match="缺少必要故障类别"):
         replacement = dataset.scenarios[0].model_copy(update={"scenario_id": "second-normal"})
         IncidentEvaluationDataset.model_validate(
-            dataset.model_dump() | {"scenarios": (*dataset.scenarios[:-1], replacement)}
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    replacement if item.category == "budget_exhausted" else item
+                    for item in dataset.scenarios
+                )
+            }
         )
     scenario = dataset.scenarios[1]
     with pytest.raises(ValidationError, match="六个只读工具"):
@@ -148,6 +156,30 @@ def test_fixture_cancellation_capabilities_and_missing_event_guard(tmp_path: Pat
         scenario, current
     )
     assert provider.capabilities.tool_calls is True
+    scenario_without_arguments = scenario.model_copy(update={"tool_arguments": {}})
+    loopback = current.model_copy(
+        update={
+            "services": (
+                current.services[0].model_copy(
+                    update={"accessibility": ServiceAccessibility.LOOPBACK}
+                ),
+            )
+        }
+    )
+    fallback = incidents_module._FixtureProvider(  # pyright: ignore[reportPrivateUsage]
+        scenario_without_arguments,
+        loopback,
+    )
+    assert fallback._arguments(  # pyright: ignore[reportPrivateUsage]
+        "probe_service_reachability"
+    ) == {"host": "127.0.0.1", "port": 43123}
+    empty = incidents_module._FixtureProvider(  # pyright: ignore[reportPrivateUsage]
+        scenario_without_arguments,
+        current.model_copy(update={"services": ()}),
+    )
+    assert empty._arguments(  # pyright: ignore[reportPrivateUsage]
+        "probe_service_reachability"
+    ) == {"host": "10.77.0.2", "port": 43123}
 
     impossible = dataset.scenarios[0].model_copy(
         update={
@@ -164,3 +196,16 @@ def test_fixture_cancellation_capabilities_and_missing_event_guard(tmp_path: Pat
                 SQLiteIncidentStore(tmp_path / "missing-event.sqlite3"),
             )
         )
+
+
+def test_exact_root_cause_match_is_supported_without_term_overrides(tmp_path: Path) -> None:
+    scenario = load_dataset().scenarios[1].model_copy(update={"root_cause_terms": ()})
+
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "exact-root.sqlite3"),
+        )
+    )
+
+    assert result.root_cause_success is True
