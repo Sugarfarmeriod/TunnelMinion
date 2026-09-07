@@ -89,6 +89,11 @@ Runtime MUST 对模型轮次、工具调用数、墙钟时间和上下文使用�
 - **WHEN** 一个候选根因覆盖当前事件的完整证据路径、引用全部对应 tool run 且不存在冲突关键证据
 - **THEN** Agent 停止额外调用并生成引用这些 tool run 的确认结论
 
+#### Scenario: 远端不可达只有现象证据
+
+- **WHEN** `remote_unreachable` 已取得节点、WireGuard 与目标探测结果，但没有监听或进程证据可证明具体故障层
+- **THEN** Runtime 保留全部只读证据并以 `insufficient_evidence` 停止，不调用模型把探测失败扩写成未监听、进程退出或崩溃根因
+
 #### Scenario: 模型过早返回确认终态
 
 - **WHEN** 模型返回 `evidence_sufficient`，但当前事件仍有未尝试工具或终态没有引用全部所需成功证据

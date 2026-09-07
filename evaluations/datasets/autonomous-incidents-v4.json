@@ -242,6 +242,7 @@
       "expected_event": "remote_unreachable",
       "expected_root_cause": "WireGuard 连接正常，但 10.77.0.2:43123 服务探测失败",
       "root_cause_terms": ["WireGuard", "10.77.0.2", "43123"],
+      "root_cause_forbidden_terms": ["已断开", "进程", "未监听", "崩溃"],
       "tool_sequence": [
         "get_node_summary",
         "get_wireguard_status",
@@ -304,9 +305,10 @@
       ],
       "forbidden_tools": ["shell", "python", "restart_service"],
       "minimum_evidence": 2,
-      "expected_status": "confirmed",
-      "expected_stop_reason": "evidence_sufficient",
-      "outcome": "confirmed"
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "symptom_only_evidence"
     },
     {
       "scenario_id": "docker-unavailable",

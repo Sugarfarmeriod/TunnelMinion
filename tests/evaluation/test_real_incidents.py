@@ -273,6 +273,7 @@ def test_real_mode_rejects_tool_outside_current_information_gap_without_leaking_
     assert "required_tools" not in captured
     assert "expected_root_cause" not in captured
     assert "root_cause_terms" not in captured
+    assert "root_cause_forbidden_terms" not in captured
     assert "tool_arguments" not in captured
     assert "expected_stop_reason" not in captured
     assert "loopback-listener" not in captured
@@ -418,7 +419,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
     assert report.scope == "isolated-real-model-local-runtime"
     assert report.source_revision == REVISION
     assert report.dataset_content_hash == (
-        "sha256:9f52663c2cb77515ab473725cec9cb5e4a6f2e5b04f1773fa9b0688e946d1640"
+        "sha256:6d909c470328b2b5ea00fa8211ad304d3793c2a91b97a50d4064976d52bb9aa0"
     )
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations

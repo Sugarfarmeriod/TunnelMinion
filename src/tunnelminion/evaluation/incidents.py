@@ -122,6 +122,7 @@ class IncidentEvaluationScenario(BaseModel):
     expected_event: IncidentEventType | None
     expected_root_cause: str | None = Field(default=None, min_length=1, max_length=320)
     root_cause_terms: tuple[str, ...] = Field(default=(), max_length=8)
+    root_cause_forbidden_terms: tuple[str, ...] = Field(default=(), max_length=8)
     tool_sequence: tuple[str, ...] = Field(default=(), max_length=8)
     tool_results: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
     tool_arguments: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
@@ -763,6 +764,7 @@ async def run_incident_scenario(
         and evidence_count >= scenario.minimum_evidence
         and scenario.required_tools.issubset(cited_tools)
         if scenario.expected_root_cause is not None
+        and scenario.expected_status is IncidentStatus.CONFIRMED
         else None
     )
     unsupported = bool(
@@ -872,12 +874,16 @@ def _root_cause_matches(
             *(item.summary for item in hypotheses if item.status is HypothesisStatus.SUPPORTED),
         )
     ).casefold()
-    return all(item.casefold() in normalized for item in scenario.root_cause_terms)
+    return all(item.casefold() in normalized for item in scenario.root_cause_terms) and not any(
+        item.casefold() in normalized for item in scenario.root_cause_forbidden_terms
+    )
 
 
 def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
     payload = dataset.model_dump(mode="json")
     for scenario in payload["scenarios"]:
+        if not scenario["root_cause_forbidden_terms"]:
+            scenario.pop("root_cause_forbidden_terms")
         for field in ("failing_tools", "required_tools", "forbidden_tools"):
             scenario[field] = sorted(scenario[field])
     serialized = json.dumps(

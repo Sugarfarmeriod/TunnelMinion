@@ -294,7 +294,23 @@ class IncidentInvestigator:
                     "调查已取消",
                     evidence=tuple(successful_tools.values()),
                 )
-            remaining_tools = tuple(name for name in evidence_path if name not in attempted_tools)
+            remaining_tools: tuple[str, ...] = tuple(
+                name for name in evidence_path if name not in attempted_tools
+            )
+            if (
+                local
+                and not remaining_tools
+                and not evidence_conflict
+                and incident.event.event_type is IncidentEventType.REMOTE_UNREACHABLE
+                and self._remote_evidence_is_symptom_only(tool_outputs)
+            ):
+                return self._finish(
+                    current,
+                    IncidentStatus.INSUFFICIENT_EVIDENCE,
+                    InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                    "当前证据只确认远端不可达，缺少监听或进程证据，无法确认具体根因",
+                    evidence=tuple(successful_tools.values()),
+                )
             if (
                 remaining_tools
                 and not evidence_conflict
@@ -890,6 +906,18 @@ class IncidentInvestigator:
     def _has_usable_output(output: JsonValue | None) -> bool:
         return not (
             isinstance(output, dict) and output.get("availability") in {"degraded", "unavailable"}
+        )
+
+    @staticmethod
+    def _remote_evidence_is_symptom_only(tool_outputs: dict[str, JsonValue]) -> bool:
+        wireguard = tool_outputs.get("get_wireguard_status")
+        probe = tool_outputs.get("probe_service_reachability")
+        return bool(
+            isinstance(wireguard, dict)
+            and wireguard.get("availability") == "available"
+            and wireguard.get("interface_up") is True
+            and isinstance(probe, dict)
+            and probe.get("reachable") is False
         )
 
     def _is_snapshot_conflict(

@@ -33,11 +33,11 @@
 
 4. **工具失败和预算由 Runtime 直接裁决。** 必要工具返回失败、拒绝、无效参数，或虽成功执行但生产输出声明 `degraded` / `unavailable` 时，必要信息已不可获得，Runtime 立即生成 `insufficient_evidence`；已有工具轨迹与证据引用保持可见。墙钟超时或后续结构失败统一从 store 恢复最新进度。若仍有缺口但工具调用预算已满，则直接生成 `budget_exhausted`，不再请求模型给出可能越界的终态。Provider 不可用继续沿用现有 `investigation_unavailable`。
 
-5. **最终确认同时校验覆盖、引用和快照一致性。** 所有事件所需工具必须成功且输出可用，模型的 supported hypothesis、facts 或 conclusion 必须引用这些真实 `toolrun_...`。Runtime 对 `service_added` 的监听缺失、`service_removed` 的同端口容器仍运行、`node_offline` 的目标 Agent 正常、`local_only` 的同端口非环回监听，以及可达性事件探测成功执行确定性冲突检查；任一冲突都只能以 `insufficient_evidence` 收口。模型在缺口未清空时返回终态会继续取证；缺口已清空但遗漏引用时允许一次独立的终态格式纠正。第二次仍不满足门槛则保留无依据尝试并降级。
+5. **最终确认同时校验覆盖、因果充分性、引用和快照一致性。** 所有事件所需工具必须成功且输出可用，模型的 supported hypothesis、facts 或 conclusion 必须引用这些真实 `toolrun_...`。Runtime 对 `service_added` 的监听缺失、`service_removed` 的同端口容器仍运行、`node_offline` 的目标 Agent 正常、`local_only` 的同端口非环回监听，以及可达性事件探测成功执行确定性冲突检查；任一冲突都只能以 `insufficient_evidence` 收口。当前 `remote_unreachable` 路径只有节点、WireGuard 与目标探测证据，只能确认不可达现象，缺少监听或进程证据时由 Runtime 保守停止，不让模型把症状扩写成根因。模型在缺口未清空时返回终态会继续取证；缺口已清空但遗漏引用时允许一次独立的终态格式纠正。第二次仍不满足门槛则保留无依据尝试并降级。
 
 6. **公开信息缺口复用现有 trace，不扩展持久化合同。** 每次工具选择、合同纠正、剩余缺口变化和最终报告写入现有 `PublicTraceEntry`；候选假设仍由现有 `IncidentHypothesis` 保存，最终结构化决定更新状态和证据。不新增数据库迁移或只使用一次的新抽象。
 
-7. **Prompt 和验收矩阵必须可追溯。** 生产事故 Prompt 升级到新版本，明确事件语义、信息缺口和证据引用规则。v4 夹具使用生产 `CollectionResult`、节点、WireGuard 与可达性输出形状；Docker 采集用只读 `docker ps -a` 覆盖退出容器。根因评分只读取结论、facts 和 supported hypothesis，不读取 candidate；实时节点摘要与离线触发快照冲突的场景不再设置可得分根因。v3 和既有报告保持原样。正式报告必须记录精确模型路径、Provider、Prompt、工具版本、数据集哈希、代码提交及模型服务前后健康状态。
+7. **Prompt 和验收矩阵必须可追溯。** 生产事故 Prompt 升级到新版本，明确事件语义、信息缺口和证据引用规则。v4 夹具使用生产 `CollectionResult`、节点、WireGuard 与可达性输出形状；Docker 采集用只读 `docker ps -a` 覆盖退出容器。根因评分只读取结论、facts 和 supported hypothesis，不读取 candidate，并拒绝固定场景声明的反向状态词；实时节点摘要与离线触发快照冲突及只有症状证据的场景不计入可得分根因。v3 和既有报告保持原样。正式报告必须记录精确模型路径、Provider、Prompt、工具版本、数据集哈希、代码提交及模型服务前后健康状态。
 
 ## Risks / Trade-offs
 

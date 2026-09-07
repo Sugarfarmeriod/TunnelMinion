@@ -83,6 +83,10 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
         for item in report.scenarios
         if item.failure_class is not None
     )
+    remote = next(item for item in report.scenarios if item.category == "remote_unreachable")
+    assert remote.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert remote.root_cause_success is None
+    assert remote.model_calls == 3
 
 
 def test_dataset_rejects_missing_category_unknown_tool_and_overlap() -> None:
@@ -246,6 +250,20 @@ def test_root_cause_terms_only_credit_supported_public_findings() -> None:
     )
     assert not incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
         report, scenario, (candidate,)
+    )
+
+    remote = next(
+        item for item in load_dataset().scenarios if item.category == "remote_unreachable"
+    )
+    expected = report.model_copy(update={"conclusion": remote.expected_root_cause, "facts": ()})
+    opposite = expected.model_copy(
+        update={"conclusion": "WireGuard 已断开，因此 10.77.0.2:43123 不可达"}
+    )
+    assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        expected, remote
+    )
+    assert not incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        opposite, remote
     )
 
 
