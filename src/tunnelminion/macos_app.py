@@ -26,7 +26,11 @@ from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
-from tunnelminion.app import default_data_dir, load_or_create_node_id
+from tunnelminion.app import (
+    build_requester_operation_service,
+    default_data_dir,
+    load_or_create_node_id,
+)
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway import create_gateway_router
@@ -63,6 +67,7 @@ from tunnelminion.operation.definitions import register_safe_http_sharing_operat
 from tunnelminion.operation.evidence import HTTPServiceProbeEvidenceProvider
 from tunnelminion.operation.http_sharing import HTTPSharingAdapter, HTTPSharingConfig
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
+from tunnelminion.operation.requester_service import RequesterOperationService
 from tunnelminion.operation.workflow import OperationWorkflow, RequesterVerifier
 from tunnelminion.platforms.macos.adapters import (
     DockerServicesAdapter,
@@ -124,6 +129,7 @@ class MacOSLocalApplication:
     conversation_service: InMemoryConversationService
     memory_service: LongTermMemoryService
     operation_control_service: OperationControlService
+    requester_operation_service: RequesterOperationService
     managed_node: ManagedNodeApplication
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
@@ -301,11 +307,21 @@ def build_macos_local_application(
         stores.preauthorizations,
         OperationPolicy(node.tool_registry, stores.preauthorizations),
     )
+    requester_operations = build_requester_operation_service(
+        root=node.root,
+        node_id=node.node_id,
+        platform=Platform.MACOS,
+        model_service=node.model_service,
+        tool_runtime=node.tool_runtime,
+        audit_sink=node.audit_sink,
+        stores=stores,
+    )
     operation_control = OperationControlService(
         node_id=node.node_id,
         operations=stores.operations,
         preauthorizations=stores.preauthorizations,
         authorization=authorization,
+        requester=requester_operations,
     )
     managed = build_managed_node_application(
         node.root,
@@ -396,6 +412,7 @@ def build_macos_local_application(
         conversations,
         memories,
         operation_control,
+        requester_operations,
         managed,
     )
 

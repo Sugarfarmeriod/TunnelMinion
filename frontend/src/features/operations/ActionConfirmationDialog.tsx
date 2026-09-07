@@ -77,7 +77,13 @@ export function ActionConfirmationDialog({
       });
       return;
     }
-    onConfirm({ action });
+    if (action === "execute") {
+      onConfirm({ action, confirmed: true });
+      return;
+    }
+    if (action === "revoke") {
+      onConfirm({ action });
+    }
   }
 
   const title = `确认${operationActionLabels[action]}`;
@@ -156,6 +162,13 @@ export function ActionConfirmationDialog({
           {action === "revoke" ? (
             <p className="operation-dialog__warning">
               撤销会触发本机生命周期清理。若清理不能安全完成，详情会保留受影响资源和人工处理建议。
+            </p>
+          ) : null}
+
+          {action === "execute" ? (
+            <p className="operation-dialog__warning">
+              请求端会先开放一次性验证回调，再执行同一 operation
+              ID。响应未知时页面只查询，不自动重放。
             </p>
           ) : null}
 

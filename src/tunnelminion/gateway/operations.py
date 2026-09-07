@@ -285,6 +285,7 @@ def create_requester_verification_router(
     target_node_id: NodeId,
     callback_token: str,
     verifier: RequesterVerifier,
+    expected_plan: OperationPlan | None = None,
 ) -> APIRouter:
     """创建只在一次验收期间监听请求节点 WireGuard 地址的回调路由。"""
     if len(callback_token) < 43:
@@ -306,6 +307,7 @@ def create_requester_verification_router(
             request.plan.request_node_id != local_node_id
             or request.plan.target_node_id != target_node_id
             or request.lease.operation_id != request.plan.operation_id
+            or (expected_plan is not None and request.plan != expected_plan)
         ):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "验证回调节点或操作不匹配")
         verification = await verifier.verify(

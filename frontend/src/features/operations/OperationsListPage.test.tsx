@@ -1,12 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OperationSummary } from "./schemas";
-import { makeOperationSummary } from "./testFixtures";
+import type { OperationListItem } from "./schemas";
+import {
+  makeOperationDetail,
+  makeOperationListItem,
+  targetNodeId,
+} from "./testFixtures";
 import { OperationsListPage } from "./OperationsListPage";
 
 function jsonResponse(payload: unknown): Promise<Response> {
@@ -15,6 +25,15 @@ function jsonResponse(payload: unknown): Promise<Response> {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }),
+  );
+}
+
+function mockOperationsAndPeers(
+  fetchMock: ReturnType<typeof vi.fn<typeof fetch>>,
+  operations: OperationListItem[],
+) {
+  fetchMock.mockImplementation((input) =>
+    jsonResponse(input === "/api/operations" ? operations : []),
   );
 }
 
@@ -50,7 +69,7 @@ describe("OperationsListPage", () => {
   });
 
   it("先显示 loading，再显示明确空状态", async () => {
-    fetchMock.mockReturnValueOnce(jsonResponse([]));
+    mockOperationsAndPeers(fetchMock, []);
 
     renderList();
 
@@ -58,12 +77,16 @@ describe("OperationsListPage", () => {
     expect(
       await screen.findByRole("heading", { name: "当前没有操作记录" }),
     ).toBeVisible();
-    expect(screen.getByText(/已有操作/)).toBeVisible();
+    expect(
+      screen.getByText(
+        "聊天、模型或 Coordinator 不可用时，这里仍会保留已有操作。",
+      ),
+    ).toBeVisible();
   });
 
   it("显示状态摘要但详情链接只携带 operation ID", async () => {
-    const summary = makeOperationSummary();
-    fetchMock.mockReturnValueOnce(jsonResponse([summary]));
+    const summary = makeOperationListItem();
+    mockOperationsAndPeers(fetchMock, [summary]);
 
     renderList();
 
@@ -71,7 +94,7 @@ describe("OperationsListPage", () => {
     expect(screen.getByText(summary.request_node_id)).toBeVisible();
     expect(screen.getByText(summary.target_node_id)).toBeVisible();
     expect(
-      screen.getByRole("link", { name: "查看服务端最新详情" }),
+      screen.getByRole("link", { name: "查看操作最新详情" }),
     ).toHaveAttribute("href", `/app/operations/${summary.operation_id}`);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/operations",
@@ -80,27 +103,38 @@ describe("OperationsListPage", () => {
   });
 
   it("刷新失败时保留并明确标记陈旧列表", async () => {
-    const staleSummary: OperationSummary = makeOperationSummary({
+    const staleSummary: OperationListItem = makeOperationListItem({
       tool_name: "旧列表里的工具",
     });
-    fetchMock
-      .mockReturnValueOnce(jsonResponse([staleSummary]))
-      .mockRejectedValueOnce(new TypeError("offline"));
+    let listCalls = 0;
+    fetchMock.mockImplementation((input) => {
+      if (input !== "/api/operations") {
+        return jsonResponse([]);
+      }
+      listCalls += 1;
+      return listCalls === 1
+        ? jsonResponse([staleSummary])
+        : Promise.reject(new TypeError("offline"));
+    });
     const user = userEvent.setup();
 
     renderList();
-    await screen.findByText("旧列表里的工具");
+    await screen.findByText(/旧列表里的工具/);
     await user.click(screen.getByRole("button", { name: "刷新列表" }));
 
     expect(
       await screen.findByText("刷新失败，下面是上一次成功读取的陈旧列表。"),
     ).toBeVisible();
-    expect(screen.getByText("旧列表里的工具")).toBeVisible();
+    expect(screen.getByText(/旧列表里的工具/)).toBeVisible();
     expect(screen.getByText(/按 operation ID 单独读取/)).toBeVisible();
   });
 
   it("初次错误提供第一个可键盘触发的恢复按钮", async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+    fetchMock.mockImplementation((input) =>
+      input === "/api/operations"
+        ? Promise.reject(new TypeError("offline"))
+        : jsonResponse([]),
+    );
     const user = userEvent.setup();
 
     renderList();
@@ -111,5 +145,67 @@ describe("OperationsListPage", () => {
     const retry = screen.getByRole("button", { name: "重新读取" });
     await user.tab();
     expect(retry).toHaveFocus();
+  });
+
+  it("只向合格对端提交一次有限字段并导航到同一操作", async () => {
+    const detail = makeOperationDetail({ role: "requester" });
+    fetchMock.mockImplementation((input, init) => {
+      if (input === "/api/operations/eligible-peers") {
+        return jsonResponse([
+          {
+            node_id: targetNodeId,
+            host: "10.77.0.1",
+            port: 8787,
+            allowed_tools: ["get_node_summary"],
+            allowed_operations: ["share_local_http_service"],
+            credential_configured: true,
+          },
+        ]);
+      }
+      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+        return jsonResponse(detail);
+      }
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    renderList();
+    await screen.findByRole("option", { name: new RegExp(targetNodeId) });
+    await user.click(
+      screen.getByRole("checkbox", { name: /目标节点批准后会创建/ }),
+    );
+    const submit = screen.getByRole("button", { name: "生成计划并请求批准" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    await waitFor(() => {
+      const writes = fetchMock.mock.calls.filter(
+        ([path, init]) =>
+          path === "/api/operations" &&
+          (init?.method ?? "GET").toUpperCase() === "POST",
+      );
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(String(writes[0]?.[1]?.body))).toEqual({
+        target_node_id: targetNodeId,
+        service_port: 8080,
+        bind_port: 18881,
+        duration_seconds: 300,
+        confirmed: true,
+      });
+    });
+  });
+
+  it("没有合格对端时禁用新建但保留已有操作", async () => {
+    mockOperationsAndPeers(fetchMock, [makeOperationListItem()]);
+
+    renderList();
+
+    expect(await screen.findByText(/当前没有已配置凭据/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "生成计划并请求批准" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("link", { name: "查看操作最新详情" }),
+    ).toBeVisible();
   });
 });

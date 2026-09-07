@@ -29,6 +29,10 @@ from tunnelminion.operation.contracts import (
     Preauthorization,
     PreauthorizationStore,
 )
+from tunnelminion.operation.requester import (
+    RequesterOperationRecord,
+    RequesterOperationStore,
+)
 
 
 class _SQLiteDatabase:
@@ -71,6 +75,15 @@ class _SQLiteDatabase:
                     ON operations(status);
                 CREATE INDEX IF NOT EXISTS operations_target
                     ON operations(target_node_id);
+                CREATE TABLE IF NOT EXISTS requester_operations (
+                    operation_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    target_node_id TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS requester_operations_target
+                    ON requester_operations(target_node_id);
                 CREATE TABLE IF NOT EXISTS operation_authorizations (
                     authorization_id TEXT PRIMARY KEY,
                     operation_id TEXT NOT NULL,
@@ -426,6 +439,48 @@ class SQLiteOperationStore:
         return tuple(OperationSummary.from_record(item) for item in self.list_all())
 
 
+class SQLiteRequesterOperationStore:
+    """请求端计划和脱敏远端摘要的 SQLite 适配器。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, record: RequesterOperationRecord) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO requester_operations(
+                    operation_id, idempotency_key, target_node_id, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(operation_id) DO UPDATE SET
+                    idempotency_key=excluded.idempotency_key,
+                    target_node_id=excluded.target_node_id,
+                    updated_at=excluded.updated_at,
+                    payload=excluded.payload""",
+                (
+                    str(record.plan.operation_id),
+                    record.plan.idempotency_key,
+                    str(record.plan.target_node_id),
+                    record.updated_at.isoformat(),
+                    record.model_dump_json(),
+                ),
+            )
+
+    def get(self, operation_id: OperationId) -> RequesterOperationRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM requester_operations WHERE operation_id=?",
+                (str(operation_id),),
+            ).fetchone()
+        return RequesterOperationRecord.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[RequesterOperationRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM requester_operations ORDER BY rowid"
+            ).fetchall()
+        return tuple(RequesterOperationRecord.model_validate_json(row[0]) for row in rows)
+
+
 class SQLitePreauthorizationStore:
     """细粒度 L2 预授权的 SQLite 适配器。"""
 
@@ -499,6 +554,7 @@ class SQLiteStores:
     artifacts: SQLiteToolArtifactStore
     memories: SQLiteLongTermMemoryStore
     operations: OperationStore
+    requester_operations: RequesterOperationStore
     preauthorizations: PreauthorizationStore
 
     @classmethod
@@ -510,5 +566,6 @@ class SQLiteStores:
             artifacts=SQLiteToolArtifactStore(database),
             memories=SQLiteLongTermMemoryStore(database),
             operations=SQLiteOperationStore(database),
+            requester_operations=SQLiteRequesterOperationStore(database),
             preauthorizations=SQLitePreauthorizationStore(database),
         )

@@ -25,7 +25,7 @@ from tunnelminion.domain.versioning import ProtocolVersion
 
 OPERATION_PROTOCOL_VERSION = ProtocolVersion(major=1, minor=0)
 _SENSITIVE_TEXT = re.compile(
-    r"(?i)(authorization|x-tunnelminion-share-token)\s*[:=]\s*\S+"
+    r"(?i)(authorization|x-tunnelminion-share-token)\s*[:=]\s*(?:bearer\s+)?\S+"
     r"|bearer\s+\S+"
     r"|tmn_share_[A-Za-z0-9_-]+"
 )
@@ -602,6 +602,25 @@ class OperationSummary(BaseModel):
     error: OperationError | None
     updated_at: datetime
 
+    def redacted(self) -> Self:
+        """返回可安全持久化和展示的摘要副本。"""
+        return self.model_copy(
+            update={
+                "authorization_basis": (
+                    _redact_public_text(self.authorization_basis)
+                    if self.authorization_basis is not None
+                    else None
+                ),
+                "error": (
+                    self.error.model_copy(
+                        update={"message": _redact_public_text(self.error.message)}
+                    )
+                    if self.error is not None
+                    else None
+                ),
+            }
+        )
+
     @classmethod
     def from_record(cls, record: OperationRecord) -> Self:
         """从完整记录构造不含凭据和远端正文的摘要。"""
@@ -619,9 +638,7 @@ class OperationSummary(BaseModel):
                 record.authorization.kind if record.authorization is not None else None
             ),
             authorization_basis=(
-                _redact_public_text(record.authorization.basis)
-                if record.authorization is not None
-                else None
+                record.authorization.basis if record.authorization is not None else None
             ),
             bind_host=record.plan.access_scope.bind_host,
             bind_port=record.plan.access_scope.bind_port,
@@ -629,15 +646,9 @@ class OperationSummary(BaseModel):
             resource_ids=tuple(item.resource_id for item in record.resources),
             verification_results=tuple(item.result for item in record.verifications),
             cleanup_result=record.cleanup.result if record.cleanup is not None else None,
-            error=(
-                record.error.model_copy(
-                    update={"message": _redact_public_text(record.error.message)}
-                )
-                if record.error is not None
-                else None
-            ),
+            error=record.error,
             updated_at=record.updated_at,
-        )
+        ).redacted()
 
 
 class OperationStore(Protocol):

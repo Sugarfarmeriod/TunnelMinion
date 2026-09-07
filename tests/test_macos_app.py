@@ -300,6 +300,9 @@ def test_macos_local_resources_degrade_without_model(
     client = cast(ApiClient, TestClient(bundle.app, base_url="http://127.0.0.1"))
 
     paths = set(bundle.app.openapi()["paths"])
+    assert "/api/operations/eligible-peers" in paths
+    assert "/api/operations/{value}/execute" in paths
+    assert bundle.requester_operation_service.list_operations() == ()
     for original, legacy in (
         ("/chat", "/legacy/chat"),
         ("/resources", "/legacy/resources"),

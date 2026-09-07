@@ -1,4 +1,8 @@
-import type { OperationDetail, OperationSummary } from "./schemas";
+import type {
+  OperationDetail,
+  OperationListItem,
+  OperationSummary,
+} from "./schemas";
 
 export const operationId = `operation_${"1".repeat(32)}`;
 export const requestNodeId = `node_${"5".repeat(32)}`;
@@ -33,14 +37,34 @@ export function makeOperationSummary(
   };
 }
 
+export function makeOperationListItem(
+  overrides: Partial<OperationListItem> = {},
+): OperationListItem {
+  return {
+    ...makeOperationSummary(overrides),
+    role: "target",
+    submission_result_unknown: false,
+    execution_result_unknown: false,
+    last_checked_at: null,
+    error_code: null,
+    ...overrides,
+  };
+}
+
 export function makeOperationDetail(
   overrides: Partial<OperationDetail> = {},
 ): OperationDetail {
   const state = overrides.state ?? "awaiting_authorization";
   return {
+    role: "target",
     summary: overrides.summary ?? makeOperationSummary({ status: state }),
     state,
     allowed_actions: ["approve", "reject", "cancel"],
+    submission_result_unknown: false,
+    execution_result_unknown: false,
+    last_checked_at: null,
+    error_code: null,
+    access_expires_at: null,
     service_id: "local-admin",
     service_endpoint: "http://127.0.0.1:8080",
     service_process_or_container: "local-admin.exe",

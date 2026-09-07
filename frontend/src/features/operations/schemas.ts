@@ -35,7 +35,12 @@ export const operationActionSchema = z.enum([
   "reject",
   "cancel",
   "revoke",
+  "refresh",
+  "execute",
+  "access",
 ]);
+
+export const operationRoleSchema = z.enum(["target", "requester"]);
 
 const verificationResultSchema = z.enum([
   "passed",
@@ -95,7 +100,32 @@ export const operationSummarySchema = z
   })
   .strict();
 
-export const operationListSchema = z.array(operationSummarySchema);
+export const operationListItemSchema = operationSummarySchema
+  .extend({
+    role: operationRoleSchema,
+    submission_result_unknown: z.boolean(),
+    execution_result_unknown: z.boolean(),
+    last_checked_at: timestampSchema.nullable(),
+    error_code: z.string().nullable(),
+  })
+  .strict();
+
+export const operationListSchema = z.array(operationListItemSchema);
+
+export const eligibleOperationPeerSchema = z
+  .object({
+    node_id: nodeIdSchema,
+    host: z.string(),
+    port: z.number().int().min(1024).max(65_535),
+    allowed_tools: z.array(z.string()),
+    allowed_operations: z.array(z.string()),
+    credential_configured: z.boolean(),
+  })
+  .strict();
+
+export const eligibleOperationPeersSchema = z.array(
+  eligibleOperationPeerSchema,
+);
 
 const ownedResourceSchema = z
   .object({
@@ -136,9 +166,15 @@ const operationTransitionSchema = z
 
 export const operationDetailSchema = z
   .object({
+    role: operationRoleSchema,
     summary: operationSummarySchema,
     state: operationStatusSchema,
     allowed_actions: z.array(operationActionSchema),
+    submission_result_unknown: z.boolean(),
+    execution_result_unknown: z.boolean(),
+    last_checked_at: timestampSchema.nullable(),
+    error_code: z.string().nullable(),
+    access_expires_at: timestampSchema.nullable(),
     service_id: z.string(),
     service_endpoint: z.string(),
     service_process_or_container: z.string(),
@@ -179,5 +215,8 @@ export const operationDetailSchema = z
 
 export type OperationStatus = z.infer<typeof operationStatusSchema>;
 export type OperationAction = z.infer<typeof operationActionSchema>;
+export type OperationRole = z.infer<typeof operationRoleSchema>;
 export type OperationSummary = z.infer<typeof operationSummarySchema>;
+export type OperationListItem = z.infer<typeof operationListItemSchema>;
 export type OperationDetail = z.infer<typeof operationDetailSchema>;
+export type EligibleOperationPeer = z.infer<typeof eligibleOperationPeerSchema>;

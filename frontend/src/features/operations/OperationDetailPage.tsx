@@ -13,8 +13,11 @@ import {
 import {
   getOperation,
   isUnknownOperationWriteError,
+  executeRequesterOperation,
+  operationAccessUrl,
   operationActionWasAdjudicated,
   operationQueryKeys,
+  refreshRequesterOperation,
   serverAllowsAction,
   submitOperationAction,
   type OperationActionPayload,
@@ -199,6 +202,42 @@ export function OperationDetailPage() {
     return latest;
   }
 
+  async function refreshRequesterState(): Promise<OperationDetail> {
+    if (operationId === undefined) {
+      throw new Error("operation id missing");
+    }
+    const latest = await refreshRequesterOperation(operationId);
+    queryClient.setQueryData(operationQueryKeys.detail(operationId), latest);
+    return latest;
+  }
+
+  async function refreshVisibleDetail() {
+    if (preparingAction !== null || submitting || query.data === undefined) {
+      return;
+    }
+    if (query.data.role === "target") {
+      await query.refetch();
+      return;
+    }
+    setPreparingAction("refresh");
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const latest = await refreshRequesterState();
+      setActionMessage(
+        latest.error_code === null
+          ? "已查询目标节点的最新状态，没有重放任何写请求。"
+          : `目标节点状态查询未完成：${latest.error_code}。页面没有重放写请求。`,
+      );
+    } catch (error) {
+      setActionError(
+        `无法刷新目标节点状态：${readableOperationError(error as Error)}`,
+      );
+    } finally {
+      setPreparingAction(null);
+    }
+  }
+
   async function prepareAction(
     action: OperationAction,
     returnFocus: HTMLElement | null,
@@ -235,8 +274,15 @@ export function OperationDetailPage() {
     }
     setActionError(null);
     try {
-      const latest = await readLatest();
-      if (operationActionWasAdjudicated(pending, latest)) {
+      const latest =
+        pending.action === "execute"
+          ? await refreshRequesterState()
+          : await readLatest();
+      const adjudicated =
+        pending.action === "execute"
+          ? !latest.execution_result_unknown && latest.error_code === null
+          : operationActionWasAdjudicated(pending, latest);
+      if (adjudicated) {
         setUnknownResult((current) =>
           current?.action === pending.action &&
           current.initialState === pending.initialState
@@ -244,7 +290,9 @@ export function OperationDetailPage() {
             : current,
         );
         setActionMessage(
-          "写请求响应曾经未知；随后只读查询显示 state 或 allowed_actions 已变化，服务端已经裁决原动作。页面没有重放写请求，也不根据响应缺失猜测成功。",
+          pending.action === "execute"
+            ? "执行响应曾经未知；随后只查询了原 operation ID，目标节点已返回明确状态。页面没有重放执行，也不根据响应缺失猜测成功。"
+            : "写请求响应曾经未知；随后只读查询显示 state 或 allowed_actions 已变化，服务端已经裁决原动作。页面没有重放写请求，也不根据响应缺失猜测成功。",
         );
         return;
       }
@@ -274,16 +322,35 @@ export function OperationDetailPage() {
     const submittedAction = confirmation.action;
     const submittedDetail = confirmation.detail;
     try {
-      await submitOperationAction(operationId, payload);
+      let latest: OperationDetail;
+      if (payload.action === "execute") {
+        latest = await executeRequesterOperation(operationId);
+      } else {
+        await submitOperationAction(operationId, payload);
+        closeConfirmation();
+        try {
+          latest = await readLatest();
+        } catch (error) {
+          setActionError(
+            `服务器已回应写请求，但最新详情读取失败：${readableOperationError(error as Error)} 不会自动重放写请求。`,
+          );
+          return;
+        }
+      }
+      queryClient.setQueryData(operationQueryKeys.detail(operationId), latest);
+      void queryClient.invalidateQueries({ queryKey: operationQueryKeys.list });
       closeConfirmation();
-      try {
-        await readLatest();
+      if (latest.execution_result_unknown || latest.submission_result_unknown) {
         setActionMessage(
-          `服务器已回应${operationActionLabels[submittedAction]}请求，并已重新读取最新详情。`,
+          "服务端无法确认写入结果。页面没有重放；请只刷新原 operation ID。",
         );
-      } catch (error) {
-        setActionError(
-          `服务器已回应写请求，但最新详情读取失败：${readableOperationError(error as Error)} 不会自动重放写请求。`,
+      } else if (latest.error_code !== null) {
+        setActionMessage(
+          `${operationActionLabels[submittedAction]}未完成：${latest.error_code}。页面没有自动重试。`,
+        );
+      } else {
+        setActionMessage(
+          `服务器已回应${operationActionLabels[submittedAction]}请求。`,
         );
       }
     } catch (error) {
@@ -364,9 +431,15 @@ export function OperationDetailPage() {
 
   const detail = query.data;
   const summary = detail.summary;
+  const serverResultUnknown =
+    detail.submission_result_unknown || detail.execution_result_unknown;
   const actions = detail.allowed_actions.filter((action) =>
     serverAllowsAction(detail, action),
   );
+  const confirmationActions = actions.filter(
+    (action) => action !== "refresh" && action !== "access",
+  );
+  const canAccess = actions.includes("access");
 
   return (
     <section
@@ -378,7 +451,9 @@ export function OperationDetailPage() {
       </Link>
       <header className="operation-detail-header">
         <div>
-          <p className="eyebrow">服务端最新详情</p>
+          <p className="eyebrow">
+            {detail.role === "target" ? "目标端本机权威记录" : "请求端远端摘要"}
+          </p>
           <h2 id="operation-detail-title" ref={detailTitleRef} tabIndex={-1}>
             {detail.service_id}
           </h2>
@@ -391,11 +466,17 @@ export function OperationDetailPage() {
             {operationStatusLabels[detail.state]}
           </span>
           <button
-            disabled={query.isFetching || submitting}
+            disabled={
+              query.isFetching || submitting || preparingAction !== null
+            }
             type="button"
-            onClick={() => void query.refetch()}
+            onClick={() => void refreshVisibleDetail()}
           >
-            {query.isFetching ? "正在刷新……" : "刷新详情"}
+            {query.isFetching || preparingAction === "refresh"
+              ? "正在刷新……"
+              : detail.role === "requester"
+                ? "刷新远端状态"
+                : "刷新详情"}
           </button>
         </div>
       </header>
@@ -407,6 +488,18 @@ export function OperationDetailPage() {
         >
           <strong>刷新失败，下面是上一次成功读取的陈旧详情。</strong>
           <span>在重新读到服务端允许动作前，不应把这里的状态视为最新。</span>
+        </div>
+      ) : null}
+
+      {serverResultUnknown ? (
+        <div
+          className="operations-callout operations-callout--danger"
+          role="alert"
+        >
+          <strong>这条操作的写入结果尚未确认。</strong>
+          <span>
+            页面只允许刷新原 operation ID，不会重新创建计划或自动执行。
+          </span>
         </div>
       ) : null}
 
@@ -471,6 +564,10 @@ export function OperationDetailPage() {
         <DetailList
           title="访问者、端口与有效期"
           items={[
+            {
+              label: "本机角色",
+              value: detail.role === "target" ? "目标端" : "请求端",
+            },
             { label: "请求节点（访问者）", value: summary.request_node_id },
             { label: "目标节点", value: summary.target_node_id },
             { label: "绑定地址", value: summary.bind_host },
@@ -479,6 +576,10 @@ export function OperationDetailPage() {
             {
               label: "绝对到期时间",
               value: formatOperationTime(summary.absolute_expires_at),
+            },
+            {
+              label: "本机访问会话到期",
+              value: formatOperationTime(detail.access_expires_at),
             },
           ]}
         />
@@ -500,6 +601,14 @@ export function OperationDetailPage() {
               label: "最后更新",
               value: formatOperationTime(summary.updated_at),
             },
+            {
+              label: "最后查询目标节点",
+              value: formatOperationTime(detail.last_checked_at),
+            },
+            {
+              label: "请求端错误码",
+              value: detail.error_code ?? "无",
+            },
           ]}
         />
         {summary.error === null ? null : (
@@ -519,8 +628,19 @@ export function OperationDetailPage() {
             </p>
           </section>
         )}
-        <LifecycleEvidence detail={detail} />
-        <OperationHistory detail={detail} />
+        {detail.role === "target" ? (
+          <>
+            <LifecycleEvidence detail={detail} />
+            <OperationHistory detail={detail} />
+          </>
+        ) : (
+          <section className="operation-detail-card">
+            <h3>请求端持有的信息</h3>
+            <p>
+              这里只保存计划、脱敏远端摘要和查询时间。完整授权、资源、验证与清理记录仍由目标节点持有。
+            </p>
+          </section>
+        )}
       </div>
 
       <section
@@ -530,33 +650,48 @@ export function OperationDetailPage() {
         <div>
           <h3 id="operation-actions-title">服务端当前允许动作</h3>
           <p>
-            每次打开确认前都会重新按 ID 读取详情。模型或 Coordinator
-            离线不会替代本机服务端判断。
+            {detail.role === "target"
+              ? "每次打开确认前都会重新按 ID 读取详情；模型或 Coordinator 离线不会替代本机判断。"
+              : "执行前会先刷新目标节点状态；访问凭据只在本机服务端内存中，不会进入浏览器。"}
           </p>
         </div>
         <div className="operation-actions__buttons">
-          {unknownResult !== null ? (
+          {unknownResult !== null || serverResultUnknown ? (
             <span>写入结果未知期间只允许查询最新状态，不提供写动作。</span>
-          ) : actions.length === 0 ? (
+          ) : confirmationActions.length === 0 && !canAccess ? (
             <span>当前没有可提交动作。</span>
           ) : (
-            actions.map((action) => (
-              <button
-                key={action}
-                id={`operation-action-${action}`}
-                disabled={
-                  preparingAction !== null || submitting || query.isRefetchError
-                }
-                type="button"
-                onClick={(event) =>
-                  void prepareAction(action, event.currentTarget)
-                }
-              >
-                {preparingAction === action
-                  ? "正在复读详情……"
-                  : operationActionLabels[action]}
-              </button>
-            ))
+            <>
+              {confirmationActions.map((action) => (
+                <button
+                  key={action}
+                  id={`operation-action-${action}`}
+                  disabled={
+                    preparingAction !== null ||
+                    submitting ||
+                    query.isRefetchError
+                  }
+                  type="button"
+                  onClick={(event) =>
+                    void prepareAction(action, event.currentTarget)
+                  }
+                >
+                  {preparingAction === action
+                    ? "正在复读详情……"
+                    : operationActionLabels[action]}
+                </button>
+              ))}
+              {canAccess ? (
+                <a
+                  className="operation-link"
+                  href={operationAccessUrl(summary.operation_id)}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  打开临时访问
+                </a>
+              ) : null}
+            </>
           )}
         </div>
       </section>

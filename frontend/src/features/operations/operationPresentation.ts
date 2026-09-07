@@ -26,6 +26,9 @@ export const operationActionLabels: Record<OperationAction, string> = {
   reject: "拒绝",
   cancel: "取消操作",
   revoke: "主动撤销",
+  refresh: "刷新远端状态",
+  execute: "执行操作",
+  access: "打开临时访问",
 };
 
 export function operationTone(state: OperationStatus): OperationTone {

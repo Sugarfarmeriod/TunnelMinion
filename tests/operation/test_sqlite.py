@@ -14,8 +14,10 @@ from tunnelminion.operation.contracts import (
     OperationRecord,
     OperationStatus,
     OperationStore,
+    OperationSummary,
     transition_operation,
 )
+from tunnelminion.operation.requester import RequesterOperationRecord
 
 
 def test_operation_store_persists_indexes_children_and_summaries(tmp_path: Path) -> None:
@@ -94,6 +96,30 @@ def test_operation_store_update_removes_stale_child_rows(tmp_path: Path) -> None
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
+def test_requester_operation_store_recovers_without_persisting_credentials(tmp_path: Path) -> None:
+    path = tmp_path / "runtime.sqlite3"
+    operation_plan = plan()
+    record = RequesterOperationRecord(
+        plan=operation_plan,
+        remote_summary=OperationSummary.from_record(OperationRecord.planned(operation_plan)),
+        last_checked_at=NOW + timedelta(seconds=1),
+        updated_at=NOW + timedelta(seconds=1),
+    )
+    stores = SQLiteStores.open(path)
+    assert stores.requester_operations.get(operation_plan.operation_id) is None
+    target_record = OperationRecord.planned(operation_plan)
+    stores.operations.put(target_record)
+    stores.requester_operations.put(record)
+
+    reopened = SQLiteStores.open(path)
+    assert reopened.operations.get(operation_plan.operation_id) == target_record
+    assert reopened.requester_operations.get(operation_plan.operation_id) == record
+    assert reopened.requester_operations.list_all() == (record,)
+    content = path.read_bytes()
+    assert b"tmn_share_" not in content
+    assert b"access_token" not in content
+
+
 def test_idempotency_index_rejects_second_operation_for_same_plan(tmp_path: Path) -> None:
     store = SQLiteStores.open(tmp_path / "runtime.sqlite3").operations
     first_plan = plan()
@@ -124,6 +150,7 @@ def test_schema_initialization_is_repeatable_and_legacy_data_survives_downgrade(
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT payload FROM checkpoints").fetchone()[0] == "{}"
         for table in (
+            "requester_operations",
             "operation_preauthorizations",
             "operation_transitions",
             "operation_cleanups",

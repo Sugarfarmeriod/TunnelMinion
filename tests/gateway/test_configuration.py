@@ -22,6 +22,7 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.security import GatewayBindConfig, GatewayLimits
 from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretStore
+from tunnelminion.operation.requester import RequesterOperationInput
 
 
 class MemorySecrets:
@@ -78,6 +79,7 @@ def test_configure_provision_replace_revoke_and_delete(tmp_path: Path) -> None:
 
     configured = service.configure_local(GatewayBindConfig(host="10.77.0.1"))
     assert configured.configured is True
+    assert configured.requester_callback_port == 18_900
     assert configured.peers == ()
     first = peer()
     token = generate_gateway_token()
@@ -100,6 +102,10 @@ def test_configure_provision_replace_revoke_and_delete(tmp_path: Path) -> None:
     assert changed.limits == limits
     preserved = service.configure_local(GatewayBindConfig(host="10.77.0.1"))
     assert preserved.limits == limits
+    changed_port = service.configure_local(
+        GatewayBindConfig(host="10.77.0.1"), requester_callback_port=19_001
+    )
+    assert changed_port.requester_callback_port == 19_001
     policy = service.build_security_policy()
     assert policy.authenticate(f"Bearer {secrets.values[gateway_token_name(first.node_id)]}")
 
@@ -160,3 +166,51 @@ def test_gateway_secret_store_selection_is_explicit_and_persistent(tmp_path: Pat
     selected = configure_gateway_secret_store(tmp_path, GatewaySecretStoreKind.RESTRICTED_FILE)
     assert isinstance(selected, RestrictedFileSecretStore)
     assert isinstance(gateway_secret_store(tmp_path), RestrictedFileSecretStore)
+
+
+def test_operation_peer_resolution_stays_server_side_and_filters_credentials(
+    tmp_path: Path,
+) -> None:
+    repository = FileGatewayConfigurationRepository(tmp_path / "gateway.json")
+    secrets = MemorySecrets()
+    service = GatewayConfigurationService(repository, secrets)
+    service.configure_local(GatewayBindConfig(host="10.77.0.1"), requester_callback_port=19_001)
+    allowed = peer()
+    denied = peer()
+    denied = denied.model_copy(update={"allowed_operations": frozenset()})
+    missing_credential = peer()
+    service.provision_peer(GatewayPeerInput(peer=allowed, token=generate_gateway_token()))
+    service.provision_peer(GatewayPeerInput(peer=denied, token=generate_gateway_token()))
+    service.provision_peer(
+        GatewayPeerInput(peer=missing_credential, token=generate_gateway_token())
+    )
+    secrets.delete(gateway_token_name(missing_credential.node_id))
+
+    eligible = service.eligible_operation_peers("share_local_http_service")
+    assert tuple(item.node_id for item in eligible) == (allowed.node_id,)
+    resolved = service.resolve_operation_peer(allowed.node_id, "share_local_http_service")
+    assert resolved.endpoint == f"http://{allowed.host}:{allowed.port}"
+    assert resolved.target_host == allowed.host
+    assert resolved.requester_host == "10.77.0.1"
+    assert resolved.requester_callback_port == 19_001
+    assert resolved.token == secrets.values[gateway_token_name(allowed.node_id)]
+    assert resolved.token not in repr(resolved)
+
+    with pytest.raises(KeyError, match="gateway_operation_peer_not_found"):
+        service.resolve_operation_peer(denied.node_id, "share_local_http_service")
+    with pytest.raises(RuntimeError, match="缺少网关凭据"):
+        service.resolve_operation_peer(missing_credential.node_id, "share_local_http_service")
+
+
+def test_requester_input_forbids_browser_control_of_trusted_fields() -> None:
+    values = {
+        "target_node_id": NodeId.new(),
+        "service_port": 8080,
+        "bind_port": 18_881,
+        "duration_seconds": 300,
+        "confirmed": True,
+    }
+    assert RequesterOperationInput.model_validate(values).service_port == 8080
+    for field in ("endpoint", "token", "bind_host", "evidence", "callback_token"):
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RequesterOperationInput.model_validate({**values, field: "attacker-controlled"})

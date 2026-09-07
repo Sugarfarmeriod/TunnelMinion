@@ -1,7 +1,7 @@
 {
   "schema_version": "local-product-interface-baseline/v1",
-  "accepted_at": "2026-08-11T12:15:00Z",
-  "product_source_revision": "d85c3288381d9e9d8fca74732a7aee4595574ade",
+  "accepted_at": "2026-09-08T00:20:00+08:00",
+  "product_source_revision": "1444c5cedec2a127c8b797a2799da6cd479f3e71",
   "fixture_policy": {
     "isolated_temporary_data": true,
     "secret_store_reads_allowed": false,
@@ -42,13 +42,17 @@
     }
   ],
   "openapi": {
-    "canonical_json_bytes": 89537,
-    "sha256": "1983aefdcdfca88a1d58715786ff55c0b79308a245d7a03c40e7f5b307a3f958",
+    "canonical_json_bytes": 98287,
+    "sha256": "64bab79eccbe69a8a6ca2a4379ccc54a1f00b9b2c3a311854d02b391670ef76e",
     "critical_paths": [
       "/api/resources/overview",
       "/api/incidents/{value}",
       "/api/incidents/{value}/follow-up",
       "/api/operations/{value}",
+      "/api/operations/eligible-peers",
+      "/api/operations/{value}/refresh",
+      "/api/operations/{value}/execute",
+      "/api/operations/{value}/access/{path}",
       "/api/threads",
       "/api/runs/{value}/events",
       "/api/memories",

@@ -1,12 +1,15 @@
 import { ApiError, requestJson } from "../../api/client";
 
 import {
+  eligibleOperationPeersSchema,
   operationDetailSchema,
   operationListSchema,
   operationSummarySchema,
   type OperationAction,
   type OperationDetail,
+  type OperationListItem,
   type OperationSummary,
+  type EligibleOperationPeer,
 } from "./schemas";
 
 export const operationQueryKeys = {
@@ -16,8 +19,15 @@ export const operationQueryKeys = {
     ["operations", "detail", operationId] as const,
 };
 
-export function listOperations(): Promise<OperationSummary[]> {
+export function listOperations(): Promise<OperationListItem[]> {
   return requestJson("/api/operations", operationListSchema);
+}
+
+export function listEligibleOperationPeers(): Promise<EligibleOperationPeer[]> {
+  return requestJson(
+    "/api/operations/eligible-peers",
+    eligibleOperationPeersSchema,
+  );
 }
 
 export function getOperation(operationId: string): Promise<OperationDetail> {
@@ -38,11 +48,58 @@ export type OperationActionPayload =
       operator: "target-local-user";
       reason: string;
     }
-  | { action: "revoke" };
+  | { action: "revoke" }
+  | { action: "execute"; confirmed: true };
+
+export interface RequesterOperationInput {
+  target_node_id: string;
+  service_port: number;
+  bind_port: number;
+  duration_seconds: number;
+  confirmed: true;
+}
+
+export function createRequesterOperation(
+  payload: RequesterOperationInput,
+): Promise<OperationDetail> {
+  return requestJson("/api/operations", operationDetailSchema, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function refreshRequesterOperation(
+  operationId: string,
+): Promise<OperationDetail> {
+  return requestJson(
+    `/api/operations/${encodeURIComponent(operationId)}/refresh`,
+    operationDetailSchema,
+    { method: "POST" },
+  );
+}
+
+export function executeRequesterOperation(
+  operationId: string,
+): Promise<OperationDetail> {
+  return requestJson(
+    `/api/operations/${encodeURIComponent(operationId)}/execute`,
+    operationDetailSchema,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    },
+  );
+}
+
+export function operationAccessUrl(operationId: string): string {
+  return `/api/operations/${encodeURIComponent(operationId)}/access/`;
+}
 
 export function submitOperationAction(
   operationId: string,
-  payload: OperationActionPayload,
+  payload: Exclude<OperationActionPayload, { action: "execute" }>,
 ): Promise<OperationSummary> {
   const { action } = payload;
   const body =
@@ -112,7 +169,10 @@ export function operationActionWasAdjudicated(
 }
 
 function withoutAction(
-  payload: Exclude<OperationActionPayload, { action: "revoke" }>,
+  payload: Extract<
+    OperationActionPayload,
+    { action: "approve" | "reject" | "cancel" }
+  >,
 ): Record<string, string> {
   if (payload.action === "approve") {
     return { operator: payload.operator, expires_at: payload.expires_at };
@@ -128,6 +188,24 @@ const actionStates: Record<
   reject: ["awaiting_authorization"],
   cancel: ["planned", "awaiting_authorization", "authorized"],
   revoke: ["succeeded"],
+  refresh: [
+    "planned",
+    "awaiting_authorization",
+    "authorized",
+    "executing",
+    "verifying",
+    "succeeded",
+    "expiring",
+    "expired",
+    "rolling_back",
+    "rolled_back",
+    "cleanup_failed",
+    "rejected",
+    "cancelled",
+    "authorization_expired",
+  ],
+  execute: ["authorized"],
+  access: ["succeeded"],
 };
 
 export function serverAllowsAction(
@@ -136,6 +214,9 @@ export function serverAllowsAction(
 ): boolean {
   return (
     detail.allowed_actions.includes(action) &&
-    actionStates[action].includes(detail.state)
+    actionStates[action].includes(detail.state) &&
+    (detail.role === "target"
+      ? ["approve", "reject", "cancel", "revoke"].includes(action)
+      : ["refresh", "execute", "access"].includes(action))
   );
 }
