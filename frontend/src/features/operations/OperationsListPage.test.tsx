@@ -17,7 +17,10 @@ import {
   makeOperationListItem,
   targetNodeId,
 } from "./testFixtures";
-import { OperationsListPage } from "./OperationsListPage";
+import {
+  OperationsListPage,
+  parseIncidentOperationPrefill,
+} from "./OperationsListPage";
 
 function jsonResponse(payload: unknown): Promise<Response> {
   return Promise.resolve(
@@ -37,7 +40,7 @@ function mockOperationsAndPeers(
   );
 }
 
-function renderList() {
+function renderList(initialEntry = "/app/operations") {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -46,9 +49,7 @@ function renderList() {
   function Wrapper({ children }: PropsWithChildren) {
     return (
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/app/operations"]}>
-          {children}
-        </MemoryRouter>
+        <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>
       </QueryClientProvider>
     );
   }
@@ -193,6 +194,124 @@ describe("OperationsListPage", () => {
         confirmed: true,
       });
     });
+  });
+
+  it("校验 Incident 预填并在用户再次确认后只提交一次", async () => {
+    const incidentId = `incident_${"8".repeat(32)}`;
+    const detail = makeOperationDetail({ role: "requester" });
+    fetchMock.mockImplementation((input, init) => {
+      if (input === "/api/operations/eligible-peers") {
+        return jsonResponse([
+          {
+            node_id: targetNodeId,
+            host: "10.77.0.1",
+            port: 8787,
+            allowed_tools: ["get_node_summary"],
+            allowed_operations: ["share_local_http_service"],
+            credential_configured: true,
+          },
+        ]);
+      }
+      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+        return jsonResponse(detail);
+      }
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    renderList(
+      `/app/operations?incident_id=${incidentId}&target_node_id=${targetNodeId}&service_port=4312`,
+    );
+
+    expect(
+      await screen.findByText(`来自 Incident ${incidentId}`),
+    ).toBeVisible();
+    expect(screen.getByLabelText("目标节点")).toHaveValue(targetNodeId);
+    expect(screen.getByLabelText("目标服务端口")).toHaveValue(4312);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([, init]) => (init?.method ?? "GET").toUpperCase() === "POST",
+      ),
+    ).toHaveLength(0);
+
+    await user.click(
+      screen.getByRole("checkbox", { name: /目标节点批准后会创建/ }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "生成计划并请求批准" }),
+    );
+
+    await waitFor(() => {
+      const writes = fetchMock.mock.calls.filter(
+        ([path, init]) =>
+          path === "/api/operations" &&
+          (init?.method ?? "GET").toUpperCase() === "POST",
+      );
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(String(writes[0]?.[1]?.body))).toEqual({
+        target_node_id: targetNodeId,
+        service_port: 4312,
+        bind_port: 18881,
+        duration_seconds: 300,
+        confirmed: true,
+      });
+    });
+  });
+
+  it("Incident 目标不再合格时不静默改选或提交", async () => {
+    const incidentId = `incident_${"8".repeat(32)}`;
+    const unavailableTarget = `node_${"9".repeat(32)}`;
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(
+        input === "/api/operations/eligible-peers"
+          ? [
+              {
+                node_id: targetNodeId,
+                host: "10.77.0.1",
+                port: 8787,
+                allowed_tools: ["get_node_summary"],
+                allowed_operations: ["share_local_http_service"],
+                credential_configured: true,
+              },
+            ]
+          : [],
+      ),
+    );
+
+    renderList(
+      `/app/operations?incident_id=${incidentId}&target_node_id=${unavailableTarget}&service_port=4312`,
+    );
+
+    expect(
+      await screen.findByText(/该目标当前不在服务端返回的合格对端中/),
+    ).toBeVisible();
+    expect(screen.getByLabelText("目标节点")).toHaveValue(unavailableTarget);
+    expect(
+      screen.getByRole("button", { name: "生成计划并请求批准" }),
+    ).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
+    ).toBe(false);
+  });
+
+  it("拒绝缺字段、重复字段和越界端口的 Incident 预填", () => {
+    expect(parseIncidentOperationPrefill(new URLSearchParams())).toEqual({
+      kind: "none",
+    });
+    expect(
+      parseIncidentOperationPrefill(
+        new URLSearchParams(
+          "incident_id=bad&target_node_id=bad&service_port=0",
+        ),
+      ),
+    ).toEqual({ kind: "invalid" });
+    expect(
+      parseIncidentOperationPrefill(
+        new URLSearchParams(
+          `incident_id=incident_${"8".repeat(32)}&target_node_id=${targetNodeId}&target_node_id=${targetNodeId}&service_port=8080`,
+        ),
+      ),
+    ).toEqual({ kind: "invalid" });
   });
 
   it("没有合格对端时禁用新建但保留已有操作", async () => {

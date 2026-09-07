@@ -9,6 +9,15 @@ import {
   type ResourceOverview,
 } from "../../api/schemas/overview";
 import { runSchema } from "../chat/contracts";
+import {
+  listOperations,
+  operationQueryKeys,
+} from "../operations/operationsApi";
+
+import {
+  incidentOperationHandoff,
+  operationsRequiringAttention,
+} from "./overviewActions";
 
 import "./overview.css";
 
@@ -585,7 +594,105 @@ function ServiceList({ data }: { data: ResourceOverview["services"] }) {
   );
 }
 
-function IncidentList({ data }: { data: ResourceOverview["incidents"] }) {
+function OperationAttentionCard() {
+  const query = useQuery({
+    queryKey: operationQueryKeys.list,
+    queryFn: listOperations,
+  });
+  const attention = operationsRequiringAttention(query.data ?? []);
+
+  return (
+    <article
+      aria-labelledby="overview-operation-attention"
+      className="overview-card"
+    >
+      <div className="overview-card__heading">
+        <h3 id="overview-operation-attention">待你处理的操作</h3>
+        <StatusBadge
+          tone={
+            query.isError
+              ? "danger"
+              : attention.some((item) => item.kind === "cleanup")
+                ? "danger"
+                : attention.length > 0
+                  ? "warning"
+                  : "neutral"
+          }
+        >
+          {query.isPending
+            ? "正在读取"
+            : query.isError
+              ? "暂时不可用"
+              : attention.length === 0
+                ? "当前没有待办"
+                : `${attention.length} 项待办`}
+        </StatusBadge>
+      </div>
+
+      {query.isPending ? (
+        <p aria-live="polite" role="status">
+          正在读取本机操作待办……
+        </p>
+      ) : query.isError ? (
+        <div className="overview-operation-error" role="alert">
+          <p>操作待办暂时无法读取；资源和 incident 总览不受影响。</p>
+          <button type="button" onClick={() => void query.refetch()}>
+            重新读取操作待办
+          </button>
+        </div>
+      ) : attention.length === 0 ? (
+        <p className="overview-empty">
+          当前没有需要你批准、执行、确认结果或处理清理失败的操作。
+        </p>
+      ) : (
+        <ul className="overview-resource-list">
+          {attention.map(({ kind, label, operation }) => (
+            <li key={`${operation.role}-${operation.operation_id}`}>
+              <div className="overview-resource-list__heading">
+                <strong>{operation.tool_name}</strong>
+                <StatusBadge tone={kind === "cleanup" ? "danger" : "warning"}>
+                  {label}
+                </StatusBadge>
+              </div>
+              <p>
+                {operation.role === "target" ? "目标端" : "请求端"} · 目标节点{" "}
+                {operation.target_node_id.slice(0, 13)}
+              </p>
+              <p className="overview-resource-list__evidence">
+                最后更新：{formatTimestamp(operation.updated_at)}
+              </p>
+              <Link
+                className="overview-operation-link"
+                to={`/app/operations/${encodeURIComponent(operation.operation_id)}`}
+              >
+                打开最新操作详情
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="overview-next-step">
+        <strong>下一步：</strong>
+        {attention.length > 0 ? (
+          "先打开详情复读最新计划和允许动作，再作决定。"
+        ) : (
+          <Link to="/app/operations">查看全部操作记录</Link>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function IncidentList({
+  data,
+  nodes,
+  services,
+}: {
+  data: ResourceOverview["incidents"];
+  nodes: ResourceOverview["nodes"]["items"];
+  services: ResourceOverview["services"]["items"];
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const detail = useQuery({
@@ -623,6 +730,22 @@ function IncidentList({ data }: { data: ResourceOverview["incidents"] }) {
       followUp.mutate(value);
     }
   }
+
+  const handoff =
+    detail.data === undefined
+      ? null
+      : incidentOperationHandoff(
+          {
+            incidentId: detail.data.incident.incident_id,
+            status: detail.data.incident.status,
+            eventType: detail.data.incident.event.event_type,
+            objectKind: detail.data.incident.event.object_kind,
+            objectId: detail.data.incident.event.object_id,
+            targetNodeId: detail.data.incident.event.target_node_id,
+          },
+          nodes,
+          services,
+        );
 
   return (
     <SectionCard
@@ -720,6 +843,21 @@ function IncidentList({ data }: { data: ResourceOverview["incidents"] }) {
                 </ul>
               ) : (
                 <p>没有已记录的未知项。</p>
+              )}
+              <h5>处理</h5>
+              {handoff?.available ? (
+                <div className="incident-operation-handoff">
+                  <p>
+                    只会预填目标节点和端口；进入页面不会创建操作，调查结论也不会成为授权。
+                  </p>
+                  <Link className="incident-operation-link" to={handoff.href}>
+                    生成候选处理计划
+                  </Link>
+                </div>
+              ) : (
+                <p className="overview-empty">
+                  {handoff?.message ?? "当前没有可安全生成的候选处理入口。"}
+                </p>
               )}
               <form className="incident-follow-up" onSubmit={submitFollowUp}>
                 <label htmlFor="incident-question">针对这个事件追问</label>
@@ -846,9 +984,14 @@ export function OverviewPage() {
         <ModelCard data={data.model} />
         <CoordinatorCard data={data.coordinator} />
         <NetworkPathCard data={data.network_path} />
+        <IncidentList
+          data={data.incidents}
+          nodes={data.nodes.items}
+          services={data.services.items}
+        />
+        <OperationAttentionCard />
         <NodeList data={data.nodes} />
         <ServiceList data={data.services} />
-        <IncidentList data={data.incidents} />
       </div>
     </section>
   );

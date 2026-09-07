@@ -56,6 +56,15 @@
   margin: 0;
 }
 
+.overview-operation-error {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.overview-operation-error button {
+  justify-self: start;
+}
+
 .overview-query-error button {
   justify-self: start;
   margin-top: var(--space-2);
@@ -212,6 +221,23 @@
 .incident-follow-up {
   display: grid;
   gap: var(--space-2);
+}
+
+.incident-operation-handoff {
+  background: var(--color-accent-soft);
+  border-radius: calc(var(--radius-panel) / 2);
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.incident-operation-link,
+.overview-operation-link {
+  font-weight: 700;
+  justify-self: start;
+  overflow-wrap: anywhere;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.18em;
 }
 
 .incident-follow-up textarea {
