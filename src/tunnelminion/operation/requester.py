@@ -23,6 +23,14 @@ class RequesterOperationInput(BaseModel):
     confirmed: bool = Field(strict=True)
 
 
+class RequesterExecutionInput(BaseModel):
+    """浏览器执行已授权操作时必须再次明确确认。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmed: bool = Field(strict=True)
+
+
 class RequesterOperationRecord(BaseModel):
     """可恢复但不持有目标端权威证据或访问凭据的请求端记录。"""
 
