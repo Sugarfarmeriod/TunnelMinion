@@ -238,7 +238,12 @@ def _candidate(
     return OperationPlan.model_validate(values)
 
 
-def _remote(operation_plan: OperationPlan, status: OperationStatus) -> RemoteOperationResult:
+def _remote(
+    operation_plan: OperationPlan,
+    status: OperationStatus,
+    *,
+    absolute_expires_at: datetime | None = None,
+) -> RemoteOperationResult:
     record = OperationRecord.planned(operation_plan)
     paths = {
         OperationStatus.PLANNED: (),
@@ -267,7 +272,9 @@ def _remote(operation_plan: OperationPlan, status: OperationStatus) -> RemoteOpe
     return RemoteOperationResult(
         protocol=GATEWAY_PROTOCOL,
         execution_node_id=operation_plan.target_node_id,
-        summary=OperationSummary.from_record(record),
+        summary=OperationSummary.from_record(record).model_copy(
+            update={"absolute_expires_at": absolute_expires_at}
+        ),
     )
 
 
@@ -480,6 +487,20 @@ async def test_known_submit_failure_and_bad_remote_summary_are_persisted(tmp_pat
         "remote_integrity_error"
     )
 
+    secret = f"tmn_share_{'s' * 43}"
+    untrusted = _remote(failed.plan, OperationStatus.AWAITING_AUTHORIZATION)
+    client.get_result = untrusted.model_copy(
+        update={
+            "summary": untrusted.summary.model_copy(
+                update={"authorization_basis": f"Authorization: Bearer {secret}"}
+            )
+        }
+    )
+    sanitized = await service.refresh_operation(failed.plan.operation_id)
+    assert sanitized.remote_summary is not None
+    assert sanitized.remote_summary.authorization_basis == "[REDACTED]"
+    assert secret.encode() not in (tmp_path / "runtime.sqlite3").read_bytes()
+
 
 @pytest.mark.anyio
 async def test_cancelled_submit_is_persisted_as_unknown_before_propagation(tmp_path: Path) -> None:
@@ -623,7 +644,12 @@ async def test_authorized_execute_captures_memory_token_and_proxies_get_head(
             ).verification.result.value
             == "failed"
         )
-        client.execute_result = _remote(plan, OperationStatus.SUCCEEDED)
+        client.execute_result = _remote(
+            plan,
+            OperationStatus.SUCCEEDED,
+            absolute_expires_at=lease.expires_at,
+        )
+        client.get_result = client.execute_result
 
     client.on_execute = callback
     executed = await service.execute_operation(
@@ -678,6 +704,13 @@ async def test_authorized_execute_captures_memory_token_and_proxies_get_head(
     upstream_mode[0] = "offline"
     with pytest.raises(RequesterOperationFailure, match="access_upstream_unavailable"):
         await service.access_operation(created.plan.operation_id, method="GET", path="")
+
+    client.get_result = _remote(created.plan, OperationStatus.ROLLED_BACK)
+    request_count = len(upstream_requests)
+    with pytest.raises(RequesterOperationFailure, match="access_session_unavailable"):
+        await service.access_operation(created.plan.operation_id, method="GET", path="")
+    assert len(upstream_requests) == request_count
+    assert service.access_expires_at(created.plan.operation_id) is None
 
     now[0] = lease.expires_at
     assert service.access_expires_at(created.plan.operation_id) is None
@@ -784,17 +817,17 @@ async def test_execute_bind_unknown_and_authorization_fail_closed(tmp_path: Path
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("lease_seconds", [300, 301])
-async def test_failed_or_oversized_verification_never_creates_access_session(
+@pytest.mark.parametrize("case", ["unhealthy", "oversized", "revoked", "expiry_mismatch"])
+async def test_invalid_or_mismatched_verification_never_creates_access_session(
     tmp_path: Path,
-    lease_seconds: int,
+    case: str,
 ) -> None:
     runtime = FakeCallbackRuntime()
     agent = FakeDiagnosticAgent(_candidate)
     client = FakeGatewayClient()
 
     def unhealthy(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503)
+        return httpx.Response(503 if case == "unhealthy" else 204)
 
     service, _stores, _configuration, _local, remote = _service(
         tmp_path,
@@ -812,7 +845,8 @@ async def test_failed_or_oversized_verification_never_creates_access_session(
         lease_id=LeaseId.new(),
         operation_id=created.plan.operation_id,
         starts_at=NOW,
-        expires_at=NOW + timedelta(seconds=lease_seconds),
+        expires_at=NOW + timedelta(seconds=301 if case == "oversized" else 300),
+        revoked_at=NOW + timedelta(seconds=1) if case == "revoked" else None,
     )
 
     async def callback(plan: OperationPlan, value: RequesterVerificationCallback) -> None:
@@ -826,8 +860,18 @@ async def test_failed_or_oversized_verification_never_creates_access_session(
             ),
         )
         verification = RemoteVerificationResult.model_validate_json(response.content).verification
-        assert verification.result.value == "failed"
-        client.execute_result = _remote(plan, OperationStatus.ROLLED_BACK)
+        assert verification.result.value == ("passed" if case == "expiry_mismatch" else "failed")
+        client.execute_result = _remote(
+            plan,
+            (
+                OperationStatus.SUCCEEDED
+                if case == "expiry_mismatch"
+                else OperationStatus.ROLLED_BACK
+            ),
+            absolute_expires_at=(
+                lease.expires_at - timedelta(seconds=1) if case == "expiry_mismatch" else None
+            ),
+        )
 
     client.on_execute = callback
     rolled_back = await service.execute_operation(
@@ -835,5 +879,7 @@ async def test_failed_or_oversized_verification_never_creates_access_session(
         RequesterExecutionInput(confirmed=True),
     )
     assert rolled_back.remote_summary is not None
-    assert rolled_back.remote_summary.status is OperationStatus.ROLLED_BACK
+    assert rolled_back.remote_summary.status is (
+        OperationStatus.SUCCEEDED if case == "expiry_mismatch" else OperationStatus.ROLLED_BACK
+    )
     assert service.access_expires_at(created.plan.operation_id) is None

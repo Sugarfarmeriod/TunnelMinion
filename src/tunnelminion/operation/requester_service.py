@@ -136,14 +136,13 @@ class _CapturingRequesterVerifier:
         self,
         plan: OperationPlan,
         delegate: GatewayRequesterVerifier,
-        save_session: Callable[[_AccessSession], None],
         clock: Callable[[], datetime],
     ) -> None:
         self._plan = plan
         self._delegate = delegate
-        self._save_session = save_session
         self._clock = clock
         self._used = False
+        self._session: _AccessSession | None = None
         self._lock = threading.Lock()
 
     async def verify(
@@ -156,18 +155,28 @@ class _CapturingRequesterVerifier:
             if self._used:
                 return self._failure("验证回调已使用")
             self._used = True
+        now = self._clock()
         if (
             plan != self._plan
             or lease.operation_id != plan.operation_id
-            or lease.expires_at <= self._clock()
+            or lease.revoked_at is not None
+            or lease.starts_at > now
+            or lease.expires_at <= now
             or lease.expires_at - lease.starts_at
             > timedelta(seconds=plan.access_scope.duration_seconds)
         ):
             return self._failure("验证回调计划或租约不匹配")
         result = await self._delegate.verify(plan, lease, access_token)
         if result.result is VerificationResult.PASSED:
-            self._save_session(_AccessSession(plan, lease, access_token))
+            with self._lock:
+                self._session = _AccessSession(plan, lease, access_token)
         return result
+
+    @property
+    def captured_session(self) -> _AccessSession | None:
+        """返回本次回调捕获、但尚未激活的内存会话。"""
+        with self._lock:
+            return self._session
 
     def _failure(self, message: str) -> VerificationRecord:
         return VerificationRecord(
@@ -346,7 +355,6 @@ class RequesterOperationService:
                 ),
                 transport=self._verification_transport,
             ),
-            self._save_session,
             self._clock,
         )
         callback_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -407,10 +415,10 @@ class RequesterOperationService:
             result,
             unknown_field="execution_result_unknown",
         )
-        if (
-            updated.remote_summary is None
-            or updated.remote_summary.status is not OperationStatus.SUCCEEDED
-        ):
+        session = verifier.captured_session
+        if session is not None and self._session_expires_at(session, updated) is not None:
+            self._save_session(session)
+        else:
             self._drop_session(operation_id)
         return updated
 
@@ -419,16 +427,11 @@ class RequesterOperationService:
         record = self.get_operation(operation_id)
         with self._session_lock:
             session = self._sessions.get(str(operation_id))
-            if (
-                session is None
-                or session.plan != record.plan
-                or session.lease.expires_at <= self._clock()
-                or record.remote_summary is None
-                or record.remote_summary.status is not OperationStatus.SUCCEEDED
-            ):
+            expires_at = self._session_expires_at(session, record)
+            if expires_at is None:
                 self._sessions.pop(str(operation_id), None)
                 return None
-            return session.lease.expires_at
+            return expires_at
 
     async def access_operation(
         self,
@@ -442,6 +445,7 @@ class RequesterOperationService:
         verb = method.upper()
         if verb not in {"GET", "HEAD"}:
             raise RequesterOperationFailure("access_method_not_allowed")
+        await self.refresh_operation(operation_id)
         if self.access_expires_at(operation_id) is None:
             raise RequesterOperationFailure("access_session_unavailable")
         with self._session_lock:
@@ -525,8 +529,9 @@ class RequesterOperationService:
         unknown_field: str | None = None,
     ) -> RequesterOperationRecord:
         now = self._clock()
+        summary = result.summary.redacted()
         updates: dict[str, object] = {
-            "remote_summary": result.summary,
+            "remote_summary": summary,
             "submission_result_unknown": False,
             "execution_result_unknown": False,
             "last_checked_at": now,
@@ -551,7 +556,7 @@ class RequesterOperationService:
                 ),
             )
         self._store.put(updated)
-        if result.summary.status is not OperationStatus.SUCCEEDED:
+        if summary.status is not OperationStatus.SUCCEEDED:
             self._drop_session(record.plan.operation_id)
         return updated
 
@@ -581,6 +586,28 @@ class RequesterOperationService:
     def _save_session(self, session: _AccessSession) -> None:
         with self._session_lock:
             self._sessions[str(session.plan.operation_id)] = session
+
+    def _session_expires_at(
+        self,
+        session: _AccessSession | None,
+        record: RequesterOperationRecord,
+    ) -> datetime | None:
+        summary = record.remote_summary
+        now = self._clock()
+        if (
+            session is None
+            or session.plan != record.plan
+            or session.lease.operation_id != record.plan.operation_id
+            or session.lease.revoked_at is not None
+            or session.lease.starts_at > now
+            or session.lease.expires_at <= now
+            or record.error_code is not None
+            or summary is None
+            or summary.status is not OperationStatus.SUCCEEDED
+            or summary.absolute_expires_at != session.lease.expires_at
+        ):
+            return None
+        return session.lease.expires_at
 
     def _drop_session(self, operation_id: OperationId) -> None:
         with self._session_lock:
