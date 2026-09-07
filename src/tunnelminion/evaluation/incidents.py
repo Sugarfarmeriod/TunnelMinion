@@ -224,6 +224,13 @@ class IncidentEvaluationDataset(BaseModel):
                         raise ValueError("v3 可达性场景必须让模型先发现探测地址")
         if set(self.tool_versions) != set(READ_ONLY_INVESTIGATION_TOOLS):
             raise ValueError("数据集必须固定全部六个只读工具版本")
+        if int(self.dataset_version[1:]) >= 4 and any(
+            scenario.expected_status is IncidentStatus.CONFIRMED
+            and scenario.expected_root_cause is not None
+            and not scenario.root_cause_forbidden_terms
+            for scenario in self.scenarios
+        ):
+            raise ValueError("v4 已确认根因场景必须声明反向状态词")
         return self
 
 

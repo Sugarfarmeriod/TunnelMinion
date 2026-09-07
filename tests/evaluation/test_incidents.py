@@ -146,6 +146,17 @@ def test_dataset_rejects_incoherent_expectations_and_versions() -> None:
         versions.pop(next(iter(versions)))
         versions["future_tool"] = "v1"
         IncidentEvaluationDataset.model_validate(dataset.model_dump() | {"tool_versions": versions})
+    with pytest.raises(ValidationError, match="必须声明反向状态词"):
+        unprotected = scenario.model_copy(update={"root_cause_forbidden_terms": ()})
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    unprotected if item.scenario_id == scenario.scenario_id else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
 
 
 def test_fixture_cancellation_capabilities_and_missing_event_guard(tmp_path: Path) -> None:
@@ -252,18 +263,43 @@ def test_root_cause_terms_only_credit_supported_public_findings() -> None:
         report, scenario, (candidate,)
     )
 
-    remote = next(
-        item for item in load_dataset().scenarios if item.category == "remote_unreachable"
+
+@pytest.mark.parametrize(
+    ("scenario_id", "opposite_conclusion"),
+    [
+        ("service-added-process", "tunnelminion-demo 未监听 43123，进程已崩溃"),
+        (
+            "service-removed-process",
+            "Docker 并非 Exited，tunnelminion-demo 仍在运行并监听 43123",
+        ),
+        (
+            "loopback-listener",
+            "服务并非只监听 127.0.0.1，10.77.0.2:43123 可正常访问",
+        ),
+    ],
+)
+def test_scored_root_cause_scenarios_reject_opposite_states(
+    scenario_id: str,
+    opposite_conclusion: str,
+) -> None:
+    scenario = next(item for item in load_dataset().scenarios if item.scenario_id == scenario_id)
+    expected = IncidentReport(
+        conclusion=scenario.expected_root_cause,
+        stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
+        evidence=(
+            EvidenceReference(
+                snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
+                observed_at=datetime(2026, 9, 7, tzinfo=UTC),
+                summary="固定评分证据",
+            ),
+        ),
     )
-    expected = report.model_copy(update={"conclusion": remote.expected_root_cause, "facts": ()})
-    opposite = expected.model_copy(
-        update={"conclusion": "WireGuard 已断开，因此 10.77.0.2:43123 不可达"}
-    )
+    opposite = expected.model_copy(update={"conclusion": opposite_conclusion})
     assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
-        expected, remote
+        expected, scenario
     )
     assert not incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
-        opposite, remote
+        opposite, scenario
     )
 
 

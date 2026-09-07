@@ -38,6 +38,7 @@
       "expected_event": "service_added",
       "expected_root_cause": "tunnelminion-demo 新进程开始监听 0.0.0.0:43123",
       "root_cause_terms": ["tunnelminion-demo", "43123"],
+      "root_cause_forbidden_terms": ["未监听", "停止监听", "已退出", "已崩溃"],
       "tool_sequence": ["list_network_listeners", "get_process_summary"],
       "tool_results": {
         "list_network_listeners": {
@@ -81,6 +82,7 @@
       "expected_event": "service_removed",
       "expected_root_cause": "进程摘要未见 tunnelminion-demo，Docker 历史记录显示 43123 容器为 Exited",
       "root_cause_terms": ["tunnelminion-demo", "43123", "Exited"],
+      "root_cause_forbidden_terms": ["仍在运行", "正在运行", "仍在监听", "继续监听"],
       "tool_sequence": ["get_process_summary", "list_docker_services"],
       "tool_results": {
         "get_process_summary": {
@@ -172,6 +174,7 @@
       "expected_event": "local_only",
       "expected_root_cause": "服务只监听 127.0.0.1:43123，10.77.0.2:43123 探测失败",
       "root_cause_terms": ["127.0.0.1", "10.77.0.2", "43123"],
+      "root_cause_forbidden_terms": ["并非只监听", "同时监听", "探测成功", "连接成功", "访问成功"],
       "tool_sequence": [
         "get_node_summary",
         "list_network_listeners",
@@ -242,7 +245,6 @@
       "expected_event": "remote_unreachable",
       "expected_root_cause": "WireGuard 连接正常，但 10.77.0.2:43123 服务探测失败",
       "root_cause_terms": ["WireGuard", "10.77.0.2", "43123"],
-      "root_cause_forbidden_terms": ["已断开", "进程", "未监听", "崩溃"],
       "tool_sequence": [
         "get_node_summary",
         "get_wireguard_status",
