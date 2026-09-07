@@ -13,12 +13,12 @@
 
 - [x] 3.1 完成 React 组件与 API 回归测试，证明预填仍需明确确认、创建只发送一次且 Operation API 失败不影响 incident 总览
 - [x] 3.2 增加隔离 Playwright 路径，走通远端 incident → 预填表单 → Operation 详情，并验证 Overview 待办筛选和零自动 POST
-- [ ] 3.3 更新正式包浏览器验收，确认默认 Overview 可发现既有目标端待审批记录，不修改真实网络或服务
+- [x] 3.3 更新正式包浏览器验收，确认默认 Overview 可发现既有目标端待审批记录，不修改真实网络或服务
 
 ## 4. 阶段门禁与模型成本证据
 
-- [ ] 4.1 运行与本阶段相称的 Python、React、Playwright、静态检查和 OpenSpec 严格门禁，修复可重复回归
-- [ ] 4.2 确定性门禁通过后串行运行一次现有 Qwen 候选计划主路径评测，记录工具选择、完成率、错误参数、安全拦截、延迟和 token；仅重复 OOM 时降级 DeepSeek V4 Flash
+- [x] 4.1 运行与本阶段相称的 Python、React、Playwright、静态检查和 OpenSpec 严格门禁，修复可重复回归
+- [x] 4.2 确定性门禁通过后串行运行一次现有 Qwen 候选计划主路径评测，记录工具选择、完成率、错误参数、安全拦截、延迟和 token；仅重复 OOM 时降级 DeepSeek V4 Flash
 
 ## 5. 独立审计与交付
 
