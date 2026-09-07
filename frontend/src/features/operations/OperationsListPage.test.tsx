@@ -78,7 +78,9 @@ describe("OperationsListPage", () => {
       await screen.findByRole("heading", { name: "当前没有操作记录" }),
     ).toBeVisible();
     expect(
-      screen.getByText("聊天、模型或 Coordinator 不可用时，这里仍会保留已有操作。"),
+      screen.getByText(
+        "聊天、模型或 Coordinator 不可用时，这里仍会保留已有操作。",
+      ),
     ).toBeVisible();
   });
 

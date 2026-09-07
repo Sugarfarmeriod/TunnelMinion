@@ -1,0 +1,64 @@
+{
+  "schema_version": "product-operation-loop-evidence/v1",
+  "recorded_at": "2026-09-08T00:30:00+08:00",
+  "product_revision": "1444c5cedec2a127c8b797a2799da6cd479f3e71",
+  "scope": "isolated-windows-local",
+  "deterministic_gates": {
+    "python": {
+      "passed": 1449,
+      "skipped_platform_conditions": 6,
+      "coverage_percent": 100.0
+    },
+    "react_vitest": {
+      "files_passed": 15,
+      "tests_passed": 95
+    },
+    "playwright": {
+      "browsers": [
+        "chromium",
+        "webkit"
+      ],
+      "tests_passed": 38
+    },
+    "ruff": "passed",
+    "pyright": "passed",
+    "openspec_strict": "passed",
+    "frontend_build": "passed",
+    "frontend_size_gate": "passed",
+    "frontend_supply_chain_tests": "passed"
+  },
+  "main_path_evidence": {
+    "requester_domain": "tests/operation/test_requester.py::test_authorized_execute_captures_memory_token_and_proxies_get_head",
+    "local_api": "tests/web/test_operation_control.py::test_requester_api_merges_roles_and_routes_only_requester_actions",
+    "browser": "frontend/e2e/operation-detail.spec.ts::浏览器完成请求、等待批准、执行、访问、重启降级和目标端拒绝",
+    "covered_outcomes": [
+      "create_and_persist_before_submit",
+      "wait_for_target_authorization",
+      "single_idempotent_execute",
+      "asgi_verification_callback",
+      "memory_only_access_session",
+      "same_origin_get_head_access",
+      "reject",
+      "unknown_result_without_replay",
+      "restart_loses_access_credential"
+    ]
+  },
+  "isolation": {
+    "fake_gateway_transport": true,
+    "asgi_callback_transport": true,
+    "browser_loopback_endpoint": "127.0.0.1:4174",
+    "browser_server_stopped_after_suite": true,
+    "wireguard_modified": false,
+    "firewall_modified": false,
+    "routes_modified": false,
+    "dns_modified": false,
+    "docker_modified": false,
+    "production_service_modified": false,
+    "existing_8080_or_8787_process_modified": false,
+    "real_model_calls": 0
+  },
+  "observations": [
+    "FastAPI TestClient emits an existing StarletteDeprecationWarning; it does not affect this product path or its acceptance result.",
+    "Real cross-node callback reachability remains outside this isolated stage and requires separate user authorization."
+  ]
+}

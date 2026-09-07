@@ -21,6 +21,7 @@ from pydantic import JsonValue
 from tunnelminion import cli
 from tunnelminion.agent.conversation import StartRunInput
 from tunnelminion.agent.coordinator import CoordinatorCache
+from tunnelminion.agent.diagnostics import CrossNodeDiagnosticAgent
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.managed_coordinator import ManagedCoordinatorLoops, ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ManagedNodeConfig, ManagedNodeState, ManagedNodeStatus
@@ -47,6 +48,8 @@ from tunnelminion.domain.identifiers import (
     ThreadId,
 )
 from tunnelminion.domain.tools import Platform
+from tunnelminion.gateway.client import FixedGatewayClient
+from tunnelminion.gateway.configuration import GatewayOperationPeer
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.incident.observer import IncidentObservationService
 from tunnelminion.macos_app import SafeSharingGatewaySettings
@@ -344,6 +347,17 @@ def test_node_id_is_created_once_and_application_is_composed(
 
     monkeypatch.setattr(ModelConfigurationService, "create_provider", create_provider)
     assert bundle.create_read_only_agent()
+    peer = GatewayOperationPeer(
+        node_id=NodeId.new(),
+        endpoint="http://10.77.0.1:8787",
+        target_host="10.77.0.1",
+        requester_host="10.77.0.2",
+        requester_callback_port=18_900,
+        token="x" * 32,
+    )
+    requester_service = cast(Any, bundle.requester_operation_service)
+    assert isinstance(requester_service._gateway_client_factory(peer), FixedGatewayClient)
+    assert isinstance(requester_service._diagnostic_agent_factory(peer), CrossNodeDiagnosticAgent)
 
     async def conversation_scenario() -> ThreadId:
         thread = bundle.conversation_service.create_thread()

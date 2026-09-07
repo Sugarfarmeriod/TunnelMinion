@@ -41,6 +41,7 @@ from tunnelminion.operation.requester import (
 )
 from tunnelminion.operation.requester_service import (
     RequesterAccessResponse,
+    RequesterOperationFailure,
     RequesterOperationService,
 )
 from tunnelminion.tools.registry import ToolRegistry
@@ -645,6 +646,19 @@ def test_requester_api_merges_roles_and_routes_only_requester_actions(tmp_path: 
     assert unknown["execution_result_unknown"] is True
     assert unknown["allowed_actions"] == ["refresh"]
 
+    succeeded = _succeeded_record()
+    requester.record = RequesterOperationRecord(
+        plan=succeeded.plan,
+        remote_summary=OperationSummary.from_record(succeeded),
+        last_checked_at=NOW,
+        updated_at=NOW,
+    )
+    requester_id = str(succeeded.plan.operation_id)
+    assert client.get(f"/api/operations/{requester_id}").json()["allowed_actions"] == [
+        "refresh",
+        "access",
+    ]
+
     response = client.get(f"/api/operations/{requester_id}/access/assets/app.css?v=1")
     assert response.status_code == 200
     assert response.content == b"fixture"
@@ -652,6 +666,75 @@ def test_requester_api_merges_roles_and_routes_only_requester_actions(tmp_path: 
     assert requester.access_calls[-1] == ("GET", "assets/app.css", "v=1")
     assert client.head(f"/api/operations/{requester_id}/access").content == b""
     assert client.post(f"/api/operations/{requester_id}/access").status_code == 405
+
+
+def test_requester_api_returns_safe_failures_and_minimal_local_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote = _authorized_record()
+    requester = FakeRequesterService(RequesterOperationRecord.planned(remote.plan))
+    client, _, _ = _bundle(
+        tmp_path / "runtime.sqlite3",
+        requester=cast(RequesterOperationService, requester),
+    )
+    requester_id = str(remote.plan.operation_id)
+    detail = client.get(f"/api/operations/{requester_id}")
+    assert detail.status_code == 200
+    assert detail.json()["state"] == "planned"
+    assert detail.json()["allowed_actions"] == ["refresh"]
+
+    payload = {
+        "target_node_id": str(remote.plan.target_node_id),
+        "service_port": 8080,
+        "bind_port": 18881,
+        "duration_seconds": 300,
+        "confirmed": True,
+    }
+    for code, expected_status in (
+        ("access_session_unavailable", 410),
+        ("plan_unavailable", 503),
+    ):
+
+        async def fail_create(
+            _value: RequesterOperationInput,
+            selected_code: str = code,
+        ) -> RequesterOperationRecord:
+            raise RequesterOperationFailure(selected_code)
+
+        monkeypatch.setattr(requester, "create_operation", fail_create)
+        response = client.post("/api/operations", json=payload)
+        assert response.status_code == expected_status
+        assert response.json()["detail"]["code"] == code
+
+    missing_id = str(OperationId.new())
+    assert client.post(f"/api/operations/{missing_id}/refresh").status_code == 404
+    assert (
+        client.post(
+            f"/api/operations/{missing_id}/execute",
+            json={"confirmed": True},
+        ).status_code
+        == 404
+    )
+    assert client.get(f"/api/operations/{missing_id}/access/").status_code == 404
+
+    async def untyped_access(
+        operation_id: OperationId,
+        *,
+        method: str,
+        path: str,
+        query: str = "",
+    ) -> RequesterAccessResponse:
+        del operation_id, method, path, query
+        return RequesterAccessResponse(200, b"fixture", None)
+
+    monkeypatch.setattr(requester, "access_operation", untyped_access)
+    untyped = client.get(f"/api/operations/{requester_id}/access/")
+    assert untyped.status_code == 200
+    assert untyped.headers.get("content-type") is None
+
+    unavailable_client, _, _ = _bundle(tmp_path / "unavailable.sqlite3")
+    assert unavailable_client.get("/api/operations/eligible-peers").status_code == 503
 
 
 def test_direct_input_validation_and_conflict_paths(tmp_path: Path) -> None:

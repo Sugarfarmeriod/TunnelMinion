@@ -122,6 +122,7 @@ class FakeGatewayClient:
         self.get_calls = 0
         self.execute_calls = 0
         self.before_submit: Callable[[OperationPlan], None] | None = None
+        self.on_get: Callable[[], None] | None = None
         self.on_execute: (
             Callable[[OperationPlan, RequesterVerificationCallback], Awaitable[None]] | None
         ) = None
@@ -142,6 +143,8 @@ class FakeGatewayClient:
     async def get_operation(self, operation_id: OperationId) -> RemoteOperationResult:
         del operation_id
         self.get_calls += 1
+        if self.on_get is not None:
+            self.on_get()
         if isinstance(self.get_result, RemoteGatewayError):
             raise self.get_result
         assert self.get_result is not None
@@ -687,7 +690,7 @@ async def test_execute_bind_unknown_and_authorization_fail_closed(tmp_path: Path
     agent = FakeDiagnosticAgent(_candidate)
     client = FakeGatewayClient()
     runtime = FakeCallbackRuntime(fail_start=True)
-    service, _stores, _configuration, _local, remote = _service(
+    service, _stores, configuration, _local, remote = _service(
         tmp_path / "bind", agent, client, callback_runtime=runtime
     )
     client.before_submit = lambda operation_plan: setattr(
@@ -703,6 +706,14 @@ async def test_execute_bind_unknown_and_authorization_fail_closed(tmp_path: Path
     assert client.execute_calls == 0
     assert runtime.starts == 1
     assert runtime.stops == 0
+
+    client.on_get = configuration.delete
+    unavailable = await service.execute_operation(
+        created.plan.operation_id,
+        RequesterExecutionInput(confirmed=True),
+    )
+    assert unavailable.error_code == "gateway_operation_peer_unavailable"
+    assert client.execute_calls == 0
 
     with pytest.raises(RequesterOperationFailure, match="explicit_execution_required"):
         await service.execute_operation(
