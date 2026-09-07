@@ -57,6 +57,7 @@
     "existing_8080_or_8787_process_modified": false,
     "real_model_calls": 0
   },
+  "real_model_evidence": "evaluations/platform/qwen36-windows-product-operation-loop-2026-09-08.json",
   "observations": [
     "FastAPI TestClient emits an existing StarletteDeprecationWarning; it does not affect this product path or its acceptance result.",
     "Real cross-node callback reachability remains outside this isolated stage and requires separate user authorization."
