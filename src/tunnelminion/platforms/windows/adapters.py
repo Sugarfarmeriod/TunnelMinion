@@ -203,7 +203,7 @@ class ProcessSummaryAdapter:
 
 
 class DockerServicesAdapter:
-    """只调用 `docker ps`，不读取环境变量或执行控制操作。"""
+    """只调用 `docker ps -a`，不读取环境变量或执行控制操作。"""
 
     def __init__(self, runner: CommandRunner, docker_path: str) -> None:
         self._runner = runner
@@ -218,7 +218,7 @@ class DockerServicesAdapter:
         if cancellation.cancelled:
             raise asyncio.CancelledError
         result = await self._runner.run(
-            (self._docker_path, "ps", "--no-trunc", "--format", "{{json .}}"), 10
+            (self._docker_path, "ps", "-a", "--no-trunc", "--format", "{{json .}}"), 10
         )
         if result.returncode != 0:
             return _json_value(

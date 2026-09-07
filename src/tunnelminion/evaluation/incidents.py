@@ -20,12 +20,15 @@ from tunnelminion.coordinator.contracts import (
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.errors import ErrorCode, ToolError
+from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
     EvidenceReference,
+    HypothesisStatus,
     IncidentEventType,
+    IncidentHypothesis,
+    IncidentReport,
     IncidentStatus,
     InvestigationStopReason,
     NormalizedSnapshot,
@@ -57,7 +60,6 @@ from tunnelminion.model.contracts import (
 from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
-    ToolAdapterError,
     ToolCancellationToken,
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -120,6 +122,7 @@ class IncidentEvaluationScenario(BaseModel):
     expected_event: IncidentEventType | None
     expected_root_cause: str | None = Field(default=None, min_length=1, max_length=320)
     root_cause_terms: tuple[str, ...] = Field(default=(), max_length=8)
+    root_cause_forbidden_terms: tuple[str, ...] = Field(default=(), max_length=8)
     tool_sequence: tuple[str, ...] = Field(default=(), max_length=8)
     tool_results: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
     tool_arguments: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
@@ -221,6 +224,13 @@ class IncidentEvaluationDataset(BaseModel):
                         raise ValueError("v3 可达性场景必须让模型先发现探测地址")
         if set(self.tool_versions) != set(READ_ONLY_INVESTIGATION_TOOLS):
             raise ValueError("数据集必须固定全部六个只读工具版本")
+        if int(self.dataset_version[1:]) >= 4 and any(
+            scenario.expected_status is IncidentStatus.CONFIRMED
+            and scenario.expected_root_cause is not None
+            and not scenario.root_cause_forbidden_terms
+            for scenario in self.scenarios
+        ):
+            raise ValueError("v4 已确认根因场景必须声明反向状态词")
         return self
 
 
@@ -318,12 +328,21 @@ class IncidentEvaluationMetrics(BaseModel):
     total_tokens: int | None = Field(default=None, ge=0)
 
 
+class IncidentModelServiceHealth(BaseModel):
+    """正式真实模型验收前后的最小、无凭据健康证据。"""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    status: Literal["healthy"]
+    loaded_model: str = Field(min_length=1)
+
+
 class IncidentEvaluationReport(BaseModel):
     """包含版本、逐场景失败分类与聚合指标的离线报告。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["incident-evaluation-report/v2"] = "incident-evaluation-report/v2"
+    schema_version: Literal["incident-evaluation-report/v3"] = "incident-evaluation-report/v3"
     dataset_id: str
     dataset_version: str
     model_name: str
@@ -336,6 +355,9 @@ class IncidentEvaluationReport(BaseModel):
     )
     source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    prompt_content_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    model_service_health_before: IncidentModelServiceHealth | None = None
+    model_service_health_after: IncidentModelServiceHealth | None = None
     scenarios: tuple[IncidentScenarioResult, ...]
     metrics: IncidentEvaluationMetrics
     quality_targets: dict[str, float] = Field(default_factory=dict)
@@ -350,7 +372,6 @@ class _FixtureAdapter:
         self,
         name: str,
         output: dict[str, JsonValue] | None = None,
-        expected_arguments: dict[str, JsonValue] | None = None,
         *,
         fail: bool,
     ) -> None:
@@ -358,7 +379,6 @@ class _FixtureAdapter:
         self.output: dict[str, JsonValue] = (
             output if output is not None else {"tool": name, "observed": True}
         )
-        self.expected_arguments = expected_arguments or {}
         self.fail = fail
 
     async def execute(
@@ -368,13 +388,7 @@ class _FixtureAdapter:
     ) -> JsonValue:
         if cancellation.cancelled:
             raise RuntimeError("cancelled")
-        if any(arguments.get(key) != value for key, value in self.expected_arguments.items()):
-            raise ToolAdapterError(
-                ToolError(
-                    code=ErrorCode.INVALID_ARGUMENT,
-                    message="工具参数与固定场景对象不匹配",
-                )
-            )
+        del arguments
         if self.fail:
             raise RuntimeError("fixture failure")
         return self.output
@@ -507,8 +521,6 @@ class _FixtureProvider:
                 )
             )
         evidence_refs = self._evidence_refs(request)
-        if not evidence_refs:
-            evidence_refs = [str(self.current.snapshot_id)]
         confirmed = self.scenario.outcome == "confirmed"
         return ModelResponse(
             structured_output=cast(
@@ -619,7 +631,6 @@ def _runtime(
             _FixtureAdapter(
                 name,
                 _fixture_output(scenario, name),
-                scenario.tool_arguments.get(name),
                 fail=name in scenario.failing_tools,
             ),
         )
@@ -753,19 +764,14 @@ async def run_incident_scenario(
             for evidence in item.evidence
         )
     }
-    root_matches = False
-    if report is not None and report.conclusion is not None:
-        if scenario.root_cause_terms:
-            normalized = report.conclusion.casefold()
-            root_matches = all(item.casefold() in normalized for item in scenario.root_cause_terms)
-        else:
-            root_matches = report.conclusion == scenario.expected_root_cause
+    root_matches = _root_cause_matches(report, scenario, final.hypotheses)
     root_success = (
         final.status is IncidentStatus.CONFIRMED
         and root_matches
         and evidence_count >= scenario.minimum_evidence
         and scenario.required_tools.issubset(cited_tools)
         if scenario.expected_root_cause is not None
+        and scenario.expected_status is IncidentStatus.CONFIRMED
         else None
     )
     unsupported = bool(
@@ -858,9 +864,33 @@ def _sum_optional(values: Iterable[int | None]) -> int | None:
     return sum(cast(int, item) for item in items)
 
 
+def _root_cause_matches(
+    report: IncidentReport | None,
+    scenario: IncidentEvaluationScenario,
+    hypotheses: tuple[IncidentHypothesis, ...] = (),
+) -> bool:
+    """只在已证实的公开结论、事实与假设中匹配稳定根因锚点。"""
+    if report is None or report.conclusion is None:
+        return False
+    if not scenario.root_cause_terms:
+        return report.conclusion == scenario.expected_root_cause
+    normalized = "\n".join(
+        (
+            report.conclusion,
+            *report.facts,
+            *(item.summary for item in hypotheses if item.status is HypothesisStatus.SUPPORTED),
+        )
+    ).casefold()
+    return all(item.casefold() in normalized for item in scenario.root_cause_terms) and not any(
+        item.casefold() in normalized for item in scenario.root_cause_forbidden_terms
+    )
+
+
 def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
     payload = dataset.model_dump(mode="json")
     for scenario in payload["scenarios"]:
+        if not scenario["root_cause_forbidden_terms"]:
+            scenario.pop("root_cause_forbidden_terms")
         for field in ("failing_tools", "required_tools", "forbidden_tools"):
             scenario[field] = sorted(scenario[field])
     serialized = json.dumps(
@@ -1033,6 +1063,7 @@ async def run_incident_dataset(
         scope=("isolated-real-model-local-runtime" if real else "offline-scripted-local-runtime"),
         source_revision=source_revision,
         dataset_content_hash=_dataset_hash(dataset),
+        prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash if real else None,
         scenarios=results,
         metrics=metrics,
         quality_targets=dict(_REAL_QUALITY_TARGETS) if real else {},

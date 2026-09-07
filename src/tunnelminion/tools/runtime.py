@@ -90,7 +90,11 @@ class ToolRuntime:
                 ),
             )
 
-        validation_error = self._validate_arguments(entry, request.arguments)
+        validation_error = self._validate_arguments(
+            entry,
+            request.arguments,
+            request.required_arguments,
+        )
         if validation_error is not None:
             return self._finish(
                 request,
@@ -216,7 +220,9 @@ class ToolRuntime:
 
     @staticmethod
     def _validate_arguments(
-        entry: RegisteredTool, arguments: dict[str, JsonValue]
+        entry: RegisteredTool,
+        arguments: dict[str, JsonValue],
+        required_arguments: dict[str, JsonValue] | None,
     ) -> ToolError | None:
         errors = sorted(
             Draft202012Validator(entry.definition.input_schema).iter_errors(  # pyright: ignore[reportUnknownMemberType]
@@ -224,6 +230,11 @@ class ToolRuntime:
             ),
             key=lambda error: tuple(str(part) for part in error.absolute_path),
         )
+        if not errors and required_arguments is not None and arguments != required_arguments:
+            return ToolError(
+                code=ErrorCode.INVALID_ARGUMENT,
+                message="工具参数不匹配本轮可信约束",
+            )
         if not errors:
             return None
         first = errors[0]
