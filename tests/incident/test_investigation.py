@@ -523,11 +523,16 @@ def test_investigator_completes_event_evidence_path_and_confirms_cited_root_caus
             next(
                 message.content
                 for message in request.messages
-                if message.content.startswith("以下是 Runtime 维护的当前只读调查约束：")
-            ).partition("：")[2]
+                if "以下是 Runtime 维护的当前只读调查约束：" in message.content
+            ).split("以下是 Runtime 维护的当前只读调查约束：", maxsplit=1)[1]
         )
         for request in provider.requests
     ]
+    assert all(
+        request.messages[0].role == "system"
+        and sum(message.role == "system" for message in request.messages) == 1
+        for request in provider.requests
+    )
     assert constraints[0]["information_gaps"] == [
         "节点与可用地址",
         "监听地址与端口",

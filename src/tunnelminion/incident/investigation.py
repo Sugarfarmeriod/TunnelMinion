@@ -351,17 +351,22 @@ class IncidentInvestigator:
                 )
             round_messages = tuple(messages)
             if local:
-                round_messages += (
-                    self._evidence_gap_message(
-                        incident,
-                        attempted_tools,
-                        successful_tools,
-                        remaining_tools,
-                        round_tools,
-                        tool_contract_repaired=tool_contract_repaired,
-                        report_repaired=report_repaired,
-                        evidence_conflict=evidence_conflict,
+                constraint = self._evidence_gap_message(
+                    incident,
+                    attempted_tools,
+                    successful_tools,
+                    remaining_tools,
+                    round_tools,
+                    tool_contract_repaired=tool_contract_repaired,
+                    report_repaired=report_repaired,
+                    evidence_conflict=evidence_conflict,
+                )
+                round_messages = (
+                    ModelMessage(
+                        role="system",
+                        content=f"{messages[0].content}\n\n{constraint.content}",
                     ),
+                    *messages[1:],
                 )
             try:
                 invocation = await self._model.invoke(
