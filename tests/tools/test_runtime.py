@@ -129,6 +129,53 @@ def test_rejects_unsupported_platform_and_arguments_before_adapter_call() -> Non
     assert audit.records[-1].status is ToolExecutionStatus.FAILED
 
 
+def test_trusted_arguments_must_match_exactly_when_present() -> None:
+    adapter = FakeToolAdapter()
+    runtime, _ = build_runtime(adapter)
+
+    unconstrained = run(runtime.execute(request(port=80, note="ordinary optional value")))
+    exact = run(
+        runtime.execute(
+            ToolExecutionRequest(
+                context=context(),
+                tool_name="probe_service",
+                arguments={"port": 81},
+                required_arguments={"port": 81},
+            )
+        )
+    )
+    extra = run(
+        runtime.execute(
+            ToolExecutionRequest(
+                context=context(),
+                tool_name="probe_service",
+                arguments={"port": 82, "note": "model-added"},
+                required_arguments={"port": 82},
+            )
+        )
+    )
+    forbidden_optional = run(
+        runtime.execute(
+            ToolExecutionRequest(
+                context=context(),
+                tool_name="probe_service",
+                arguments={"port": 83},
+                required_arguments={},
+            )
+        )
+    )
+
+    assert unconstrained.status is ToolExecutionStatus.SUCCESS
+    assert exact.status is ToolExecutionStatus.SUCCESS
+    assert extra.error is not None and extra.error.code is ErrorCode.INVALID_ARGUMENT
+    assert forbidden_optional.error is not None
+    assert forbidden_optional.error.code is ErrorCode.INVALID_ARGUMENT
+    assert adapter.calls == [
+        {"port": 80, "note": "ordinary optional value"},
+        {"port": 81},
+    ]
+
+
 def test_success_is_correlated_and_arguments_are_redacted() -> None:
     adapter = FakeToolAdapter()
     runtime, audit = build_runtime(adapter)

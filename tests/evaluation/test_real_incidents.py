@@ -418,7 +418,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
     assert report.scope == "isolated-real-model-local-runtime"
     assert report.source_revision == REVISION
     assert report.dataset_content_hash == (
-        "sha256:7da21b73def9420f9e87cd82f4a6ce9c7536d76680486d6ddedb5491a2bcd3cc"
+        "sha256:9f52663c2cb77515ab473725cec9cb5e4a6f2e5b04f1773fa9b0688e946d1640"
     )
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations
@@ -504,10 +504,12 @@ def test_conflict_wrong_target_cannot_pass_success_metrics(tmp_path: Path) -> No
 
 def test_conflict_confirmation_is_a_hard_readiness_failure(tmp_path: Path) -> None:
     dataset = _v4_dataset()
-    conflict = dataset.scenarios[-1]
+    conflict = next(
+        item for item in dataset.scenarios if item.scenario_id == "snapshot-probe-conflict"
+    )
+    others = tuple(item for item in dataset.scenarios if item.scenario_id != conflict.scenario_id)
     reordered = IncidentEvaluationDataset.model_validate(
-        dataset.model_dump()
-        | {"scenarios": (dataset.scenarios[0], conflict, *dataset.scenarios[1:-1])}
+        dataset.model_dump() | {"scenarios": (others[0], conflict, *others[1:])}
     )
     report = asyncio.run(
         run_incident_dataset(
@@ -608,10 +610,15 @@ def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
             scenario.model_dump() | {"expected_root_cause": None}
         )
 
-    conflict = dataset.scenarios[-1].model_copy(update={"category": "tool_failure"})
+    without_conflicts = tuple(
+        item.model_copy(update={"category": "tool_failure"})
+        if item.category == "evidence_conflict"
+        else item
+        for item in dataset.scenarios
+    )
     with pytest.raises(ValueError, match="必须包含证据冲突"):
         IncidentEvaluationDataset.model_validate(
-            dataset.model_dump() | {"scenarios": (*dataset.scenarios[:-1], conflict)}
+            dataset.model_dump() | {"scenarios": without_conflicts}
         )
 
     missing_result = scenario.model_copy(update={"tool_results": {}})

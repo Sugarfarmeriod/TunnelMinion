@@ -72,7 +72,7 @@ class ToolExecutionRequest(BaseModel):
     tool_run_id: ToolRunId | None = None
     tool_name: str = Field(min_length=1, max_length=128)
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
-    required_arguments: dict[str, JsonValue] = Field(default_factory=dict)
+    required_arguments: dict[str, JsonValue] | None = None
 
 
 class ToolExecutionStatus(StrEnum):

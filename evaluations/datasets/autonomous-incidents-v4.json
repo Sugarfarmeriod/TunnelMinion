@@ -41,14 +41,28 @@
       "tool_sequence": ["list_network_listeners", "get_process_summary"],
       "tool_results": {
         "list_network_listeners": {
-          "complete": true,
-          "listeners": [
-            {"protocol": "tcp", "address": "0.0.0.0", "port": 43123, "pid": 4242}
+          "availability": "available",
+          "items": [
+            {
+              "protocol": "tcp",
+              "address": "0.0.0.0",
+              "port": 43123,
+              "pid": 4242,
+              "process_name": "tunnelminion-demo"
+            }
           ]
         },
         "get_process_summary": {
-          "complete": true,
-          "processes": [{"pid": 4242, "name": "tunnelminion-demo", "state": "running"}]
+          "availability": "available",
+          "items": [
+            {
+              "pid": 4242,
+              "name": "tunnelminion-demo",
+              "status": "running",
+              "memory_bytes": 1048576,
+              "thread_count": 4
+            }
+          ]
         }
       },
       "failing_tools": [],
@@ -65,18 +79,25 @@
       "baseline": {"service_present": true, "port": 43123},
       "current": {"service_present": false},
       "expected_event": "service_removed",
-      "expected_root_cause": "tunnelminion-demo 进程退出且 Docker 容器状态为 exited",
-      "root_cause_terms": ["tunnelminion-demo", "Docker"],
+      "expected_root_cause": "进程摘要未见 tunnelminion-demo，Docker 历史记录显示 43123 容器为 Exited",
+      "root_cause_terms": ["tunnelminion-demo", "43123", "Exited"],
       "tool_sequence": ["get_process_summary", "list_docker_services"],
       "tool_results": {
         "get_process_summary": {
-          "complete": true,
-          "processes": [],
-          "missing_process": "tunnelminion-demo"
+          "availability": "available",
+          "items": []
         },
         "list_docker_services": {
-          "available": true,
-          "containers": [{"name": "tunnelminion-demo", "state": "exited", "ports": []}]
+          "availability": "available",
+          "items": [
+            {
+              "container_id": "abc123",
+              "name": "tunnelminion-demo",
+              "image": "tunnelminion-demo:latest",
+              "ports": "0.0.0.0:43123->43123/tcp",
+              "status": "Exited (0) 5 minutes ago"
+            }
+          ]
         }
       },
       "failing_tools": [],
@@ -93,28 +114,38 @@
       "baseline": {"node_state": "online"},
       "current": {"node_state": "offline"},
       "expected_event": "node_offline",
-      "expected_root_cause": "节点心跳与 WireGuard 握手均已超时，节点离线",
-      "root_cause_terms": ["WireGuard"],
-      "tool_sequence": ["get_node_summary", "get_wireguard_status"],
+      "tool_sequence": ["get_node_summary"],
       "tool_results": {
         "get_node_summary": {
           "node_id": "node_0123456789abcdef0123456789abcdef",
-          "state": "offline",
-          "last_seen_seconds_ago": 900
-        },
-        "get_wireguard_status": {
-          "interface": "up",
-          "peer_state": "stale",
-          "latest_handshake_seconds_ago": 900
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
         }
       },
       "failing_tools": [],
-      "required_tools": ["get_node_summary", "get_wireguard_status"],
+      "required_tools": ["get_node_summary"],
       "forbidden_tools": ["shell", "python", "restart_service"],
       "minimum_evidence": 2,
-      "expected_status": "confirmed",
-      "expected_stop_reason": "evidence_sufficient",
-      "outcome": "confirmed"
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "node_snapshot_conflict"
     },
     {
       "scenario_id": "directory-became-stale",
@@ -169,16 +200,23 @@
           ]
         },
         "list_network_listeners": {
-          "complete": true,
-          "listeners": [
-            {"protocol": "tcp", "address": "127.0.0.1", "port": 43123, "pid": 4242}
+          "availability": "available",
+          "items": [
+            {
+              "protocol": "tcp",
+              "address": "127.0.0.1",
+              "port": 43123,
+              "pid": 4242,
+              "process_name": "tunnelminion-demo"
+            }
           ]
         },
         "probe_service_reachability": {
           "host": "10.77.0.2",
           "port": 43123,
           "reachable": false,
-          "error": "connection_refused"
+          "latency_ms": null,
+          "error_code": "unreachable"
         }
       },
       "tool_arguments": {
@@ -232,15 +270,27 @@
           ]
         },
         "get_wireguard_status": {
-          "interface": "up",
-          "peer_state": "connected",
-          "latest_handshake_seconds_ago": 12
+          "availability": "available",
+          "interface": "HomeMac",
+          "interface_up": true,
+          "addresses": ["10.77.0.2"],
+          "peers": [
+            {
+              "public_key_summary": "peer-key…1234",
+              "endpoint": null,
+              "allowed_addresses": ["10.77.0.1/32"],
+              "latest_handshake_epoch": 1788364800,
+              "received_bytes": 1024,
+              "sent_bytes": 2048
+            }
+          ]
         },
         "probe_service_reachability": {
           "host": "10.77.0.2",
           "port": 43123,
           "reachable": false,
-          "error": "connection_refused"
+          "latency_ms": null,
+          "error_code": "unreachable"
         }
       },
       "tool_arguments": {
@@ -265,8 +315,15 @@
       "current": {"service_present": false},
       "expected_event": "service_removed",
       "tool_sequence": ["list_docker_services"],
-      "tool_results": {},
-      "failing_tools": ["list_docker_services"],
+      "tool_results": {
+        "list_docker_services": {
+          "availability": "unavailable",
+          "items": [],
+          "error_code": "dependency_unavailable",
+          "error_message": "Docker daemon 不可用"
+        }
+      },
+      "failing_tools": [],
       "required_tools": ["list_docker_services"],
       "forbidden_tools": ["shell", "python", "restart_service"],
       "minimum_evidence": 0,
@@ -343,9 +400,15 @@
       "tool_sequence": ["list_network_listeners"],
       "tool_results": {
         "list_network_listeners": {
-          "complete": true,
-          "listeners": [
-            {"protocol": "tcp", "address": "0.0.0.0", "port": 43123, "pid": 4242}
+          "availability": "available",
+          "items": [
+            {
+              "protocol": "tcp",
+              "address": "0.0.0.0",
+              "port": 43123,
+              "pid": 4242,
+              "process_name": "tunnelminion-demo"
+            }
           ]
         }
       },
@@ -391,7 +454,8 @@
           "host": "10.77.0.2",
           "port": 43123,
           "reachable": true,
-          "latency_ms": 4
+          "latency_ms": 4,
+          "error_code": null
         }
       },
       "tool_arguments": {
@@ -405,6 +469,57 @@
       "expected_stop_reason": "insufficient_evidence",
       "outcome": "insufficient",
       "failure_class": "evidence_conflict"
+    },
+    {
+      "scenario_id": "snapshot-listener-conflict",
+      "category": "evidence_conflict",
+      "baseline": {"accessibility": "network", "port": 43123},
+      "current": {"accessibility": "loopback", "port": 43123},
+      "expected_event": "local_only",
+      "tool_sequence": ["get_node_summary", "list_network_listeners"],
+      "tool_results": {
+        "get_node_summary": {
+          "node_id": "node_0123456789abcdef0123456789abcdef",
+          "platform": "windows",
+          "agent_status": "ready",
+          "model_status": "ready",
+          "wireguard": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": ["10.77.0.2"],
+            "peers": []
+          },
+          "available_tools": [
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+            "get_node_summary"
+          ]
+        },
+        "list_network_listeners": {
+          "availability": "available",
+          "items": [
+            {
+              "protocol": "tcp",
+              "address": "0.0.0.0",
+              "port": 43123,
+              "pid": 4242,
+              "process_name": "tunnelminion-demo"
+            }
+          ]
+        }
+      },
+      "failing_tools": [],
+      "required_tools": ["get_node_summary", "list_network_listeners"],
+      "forbidden_tools": ["shell", "python", "restart_service"],
+      "minimum_evidence": 1,
+      "expected_status": "insufficient_evidence",
+      "expected_stop_reason": "insufficient_evidence",
+      "outcome": "insufficient",
+      "failure_class": "listener_snapshot_conflict"
     }
   ]
 }

@@ -23,7 +23,7 @@
 
 ### Requirement: Agent 只能动态选择既有只读工具
 
-Investigation Agent SHALL 只能从当前策略、平台、节点状态、事件证据路径和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。当前节点的本机工具 MUST 只向 `local_observation` 来源的 incident 暴露和执行。本机 `service_added` 的证据路径 MUST 覆盖监听与进程，本机 `service_removed` MUST 覆盖进程与 Docker 生命周期，本机 `node_offline` MUST 覆盖节点与 WireGuard，本机 `local_only` MUST 覆盖节点、监听与目标可达性，本机 `remote_unreachable` MUST 覆盖节点、WireGuard 与目标可达性；`state_stale` MUST 不执行本机工具并以当前信息不可用收口。每轮只能暴露仍能填补缺口且依赖已满足的相关工具；模型未按要求选择工具时，Runtime MUST 先进行一次有界纠正，再通过同一 Tool Runtime 执行一个确定性只读 fallback。纠正和 fallback MUST 受轮次、平台策略、参数校验、调用预算与审计约束，且 MUST NOT 应用于远端、Coordinator 目录或聚合来源。
+Investigation Agent SHALL 只能从当前策略、平台、节点状态、事件证据路径和任务阶段允许的 `get_node_summary`、`get_wireguard_status`、`list_network_listeners`、`get_process_summary`、`list_docker_services`、`probe_service_reachability` 中选择工具。所有参数 MUST 由 Tool Runtime 校验；本轮附带可信参数字典时，实际参数 MUST 与它完全相等，空字典 MUST 禁止附加可选参数，未附带可信参数时仍按普通 schema 校验。系统 MUST NOT 提供 Shell、Python、未知工具或任何写操作。当前节点的本机工具 MUST 只向 `local_observation` 来源的 incident 暴露和执行。本机 `service_added` 的证据路径 MUST 覆盖监听与进程，本机 `service_removed` MUST 覆盖进程与 Docker 生命周期，本机 `node_offline` MUST 覆盖节点与 WireGuard，本机 `local_only` MUST 覆盖节点、监听与目标可达性，本机 `remote_unreachable` MUST 覆盖节点、WireGuard 与目标可达性；`state_stale` MUST 不执行本机工具并以当前信息不可用收口。每轮只能暴露仍能填补缺口且依赖已满足的相关工具；模型未按要求选择工具时，Runtime MUST 先进行一次有界纠正，再通过同一 Tool Runtime 执行一个确定性只读 fallback。纠正和 fallback MUST 受轮次、平台策略、参数校验、调用预算与审计约束，且 MUST NOT 应用于远端、Coordinator 目录或聚合来源。
 
 #### Scenario: Agent 需要区分进程退出与容器退出
 
@@ -60,6 +60,11 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态、事件
 - **WHEN** `local_only` 或 `remote_unreachable` 尚未成功执行 `get_node_summary`
 - **THEN** Runtime 只暴露当前相关的非探测工具；节点摘要成功后才允许模型用其中的地址和 incident 端口调用 `probe_service_reachability`，Tool Runtime 拒绝任何不匹配该地址或端口的调用且不执行适配器
 
+#### Scenario: 模型给可信调用追加可选参数
+
+- **WHEN** Runtime 已为本轮工具指定空参数或固定探测目标，而模型额外加入 `limit`、超时或其他 schema 允许的可选参数
+- **THEN** Tool Runtime 以参数不匹配拒绝该调用，且适配器不得收到请求
+
 #### Scenario: 后续工具调用与终态 Schema 同时启用
 
 - **WHEN** 信息缺口已清空的轮次携带调查终态 JSON Schema，模型返回 `content=null` 和一个工具调用
@@ -77,7 +82,7 @@ Investigation Agent SHALL 只能从当前策略、平台、节点状态、事件
 
 ### Requirement: 调查必须在明确停止条件下生成证据化报告
 
-Runtime MUST 对模型轮次、工具调用数、墙钟时间和上下文使用设置上限，并在事件证据路径完整且根因证据充分、必要信息不可获得、证据冲突、预算耗尽、用户取消或运行失败时停止。报告 SHALL 区分已确认事实、候选解释、未知项、停止原因和证据引用。确认结论 MUST 引用该事件证据路径中全部成功工具结果；模型遗漏引用时 Runtime MUST 允许至多一次终态纠正，第二次仍不满足时 MUST 保留该无依据尝试并降级为 `insufficient_evidence`。没有有效证据或证据路径未完成的断言 MUST NOT 成为确认结论。
+Runtime MUST 对模型轮次、工具调用数、墙钟时间和上下文使用设置上限，并在事件证据路径完整且根因证据充分、必要信息不可获得、证据冲突、预算耗尽、用户取消或运行失败时停止。报告 SHALL 区分已确认事实、候选解释、未知项、停止原因和证据引用。确认结论 MUST 引用该事件证据路径中全部成功且生产输出声明可用的工具结果；`degraded` 或 `unavailable` 输出不得填补信息缺口。Runtime MUST 对每类非陈旧本机事件至少执行一个与触发快照对应的确定性冲突检查。模型遗漏引用时 Runtime MUST 允许至多一次终态纠正，第二次仍不满足时 MUST 保留该无依据尝试并降级为 `insufficient_evidence`。没有有效证据、证据路径未完成或只存在未证实候选解释的断言 MUST NOT 成为确认结论。
 
 #### Scenario: 根因证据充分
 
@@ -104,10 +109,25 @@ Runtime MUST 对模型轮次、工具调用数、墙钟时间和上下文使用�
 - **WHEN** 证据路径中的必要工具失败、被策略拒绝或参数无法通过校验
 - **THEN** Runtime 停止后续取证并以 `insufficient_evidence` 结束，不用模型常识补写实时事实，已有工具轨迹保持可见
 
+#### Scenario: 工具调用成功但生产采集结果不可用
+
+- **WHEN** 必要只读工具执行状态为成功，但结构化输出的 `availability` 为 `degraded` 或 `unavailable`
+- **THEN** Runtime 不把它记为成功信息缺口证据，保留该 tool run 并直接以 `insufficient_evidence` 结束
+
 #### Scenario: 实时证据与触发快照冲突
 
 - **WHEN** 成功的只读工具结果与 incident 触发快照对同一状态给出冲突结论
 - **THEN** Agent 保持候选或未知状态并以 `insufficient_evidence` 结束，不把任一侧单独升级为确认根因
+
+#### Scenario: 环回快照与非环回监听冲突
+
+- **WHEN** `local_only` 触发快照声明目标端口只在本机可用，但实时监听结果显示同一端口绑定 `0.0.0.0` 或其他非环回地址
+- **THEN** Runtime 标记证据冲突、停止追加取证并禁止确认根因
+
+#### Scenario: 取得工具证据后调查结构失败
+
+- **WHEN** 至少一个只读工具结果已写入公开轨迹，后续模型响应或结构处理失败
+- **THEN** Runtime 从持久化 incident 恢复最新轨迹和工具证据，以 `failed` 结束且不得把已有进展清空
 
 #### Scenario: 陈旧状态没有可用当前证据
 

@@ -146,6 +146,8 @@ class ScriptedProvider:
         if self.mode == "slow_after_tool" and len(self.requests) > 1:
             await asyncio.sleep(1)
             raise AssertionError("墙钟上限没有取消后续模型调用")
+        if self.mode == "invalid_after_tool" and len(self.requests) > 1:
+            raise ValueError("post-tool invalid response")
         if self.mode == "unknown_tool":
             return ModelResponse(
                 tool_calls=(ToolCall(call_id="call-1", name="shell", arguments={}),)
@@ -1330,6 +1332,109 @@ def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> Non
     )
     assert any(item.kind == "tool" for item in partial_result.trace)
     assert partial_store.get(partial_result.incident_id) == partial_result
+
+    invalid, invalid_store, invalid_adapter, _ = _runtime(tmp_path, "invalid_after_tool")
+    invalid_result = asyncio.run(
+        invalid.run(_incident(invalid_store, event_type=IncidentEventType.SERVICE_ADDED))
+    )
+    assert invalid_result.status is IncidentStatus.FAILED
+    assert invalid_adapter.calls == [{}]
+    assert invalid_result.report is not None
+    assert (
+        len([item for item in invalid_result.report.evidence if item.tool_run_id is not None]) == 1
+    )
+    assert any(item.kind == "tool" for item in invalid_result.trace)
+
+
+@pytest.mark.parametrize(
+    ("event_type", "tool_name", "output"),
+    [
+        (
+            IncidentEventType.SERVICE_ADDED,
+            "list_network_listeners",
+            {"availability": "available", "items": []},
+        ),
+        (
+            IncidentEventType.SERVICE_REMOVED,
+            "list_docker_services",
+            {
+                "availability": "available",
+                "items": [
+                    {
+                        "name": "tunnelminion-demo",
+                        "ports": "0.0.0.0:43123->43123/tcp",
+                        "status": "Up 1 minute",
+                    }
+                ],
+            },
+        ),
+        (
+            IncidentEventType.NODE_OFFLINE,
+            "get_node_summary",
+            {"node_id": str(NODE), "agent_status": "ready"},
+        ),
+        (
+            IncidentEventType.LOCAL_ONLY,
+            "list_network_listeners",
+            {
+                "availability": "available",
+                "items": [{"address": "0.0.0.0", "port": 43123}],
+            },
+        ),
+        (
+            IncidentEventType.REMOTE_UNREACHABLE,
+            "probe_service_reachability",
+            {"host": "10.77.0.2", "port": 43123, "reachable": True},
+        ),
+    ],
+)
+def test_live_tool_outputs_detect_deterministic_snapshot_conflicts(
+    tmp_path: Path,
+    event_type: IncidentEventType,
+    tool_name: str,
+    output: JsonValue,
+) -> None:
+    investigator, store, _, _ = _runtime(tmp_path, f"conflict-{event_type.value}")
+    incident = (
+        _local_node_incident(store)
+        if event_type is IncidentEventType.NODE_OFFLINE
+        else _incident(store, event_type=event_type)
+    )
+
+    assert investigator._is_snapshot_conflict(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        tool_name,
+        output,
+    )
+
+
+def test_snapshot_conflict_helpers_handle_unrelated_and_non_ip_values(tmp_path: Path) -> None:
+    investigator, store, _, _ = _runtime(tmp_path, "conflict-helper-edges")
+    incident = _incident(store)
+
+    assert not investigator._is_snapshot_conflict(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        "list_network_listeners",
+        None,
+    )
+    assert investigator._is_snapshot_conflict(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        "get_node_summary",
+        {"node_id": "node_ffffffffffffffffffffffffffffffff"},
+    )
+    assert (
+        investigator._collection_items(  # pyright: ignore[reportPrivateUsage]
+            None,
+            "listeners",
+        )
+        is None
+    )
+    assert investigator._is_loopback_address(  # pyright: ignore[reportPrivateUsage]
+        "localhost"
+    )
+    assert not investigator._is_loopback_address(  # pyright: ignore[reportPrivateUsage]
+        "not-an-address"
+    )
 
 
 def test_configured_runner_uses_provider_when_available(tmp_path: Path) -> None:

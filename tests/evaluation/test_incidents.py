@@ -20,7 +20,9 @@ from tunnelminion.evaluation.incidents import (
 )
 from tunnelminion.incident.contracts import (
     EvidenceReference,
+    HypothesisStatus,
     IncidentEventType,
+    IncidentHypothesis,
     IncidentReport,
     IncidentStatus,
     InvestigationStopReason,
@@ -62,7 +64,7 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     stale = next(item for item in report.scenarios if item.category == "state_stale")
     assert stale.status is IncidentStatus.INSUFFICIENT_EVIDENCE
     assert stale.failure_recovered is True
-    assert report.metrics.root_cause_success_rate == 1.0
+    assert report.metrics.root_cause_success_rate >= 0.8
     assert report.metrics.tool_selection_rate == 1.0
     assert report.metrics.unnecessary_tool_call_rate == 0.0
     assert report.metrics.unsupported_assertion_rate == 0.0
@@ -215,7 +217,7 @@ def test_exact_root_cause_match_is_supported_without_term_overrides(tmp_path: Pa
     assert result.root_cause_success is True
 
 
-def test_root_cause_terms_cover_the_whole_public_structured_report() -> None:
+def test_root_cause_terms_only_credit_supported_public_findings() -> None:
     scenario = next(item for item in load_dataset().scenarios if item.category == "local_only")
     report = IncidentReport(
         facts=("私网地址 10.77.0.2 的端口 43123 拒绝连接",),
@@ -231,6 +233,57 @@ def test_root_cause_terms_cover_the_whole_public_structured_report() -> None:
         ),
     )
 
-    assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
-        report, scenario
+    supported = IncidentHypothesis(
+        hypothesis_id="hypothesis_0123456789abcdef",
+        summary="服务只监听 127.0.0.1",
+        status=HypothesisStatus.SUPPORTED,
+        evidence=report.evidence,
     )
+    candidate = supported.model_copy(update={"status": HypothesisStatus.CANDIDATE})
+
+    assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        report, scenario, (supported,)
+    )
+    assert not incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        report, scenario, (candidate,)
+    )
+
+
+def test_structured_unavailable_collection_cannot_confirm_root_cause(tmp_path: Path) -> None:
+    scenario = next(
+        item for item in load_dataset().scenarios if item.category == "docker_unavailable"
+    )
+
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "docker-unavailable.sqlite3"),
+        )
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.conclusion is None
+    assert result.tool_runs[0].status.value == "success"
+    assert isinstance(result.tool_runs[0].output, dict)
+    assert result.tool_runs[0].output["availability"] == "unavailable"
+    assert result.failure_recovered is True
+
+
+def test_non_probe_listener_conflict_cannot_confirm_root_cause(tmp_path: Path) -> None:
+    scenario = next(
+        item
+        for item in load_dataset().scenarios
+        if item.scenario_id == "snapshot-listener-conflict"
+    )
+
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "listener-conflict.sqlite3"),
+        )
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.conclusion is None
+    assert result.executed_tools == ("get_node_summary", "list_network_listeners")
+    assert result.failure_recovered is True

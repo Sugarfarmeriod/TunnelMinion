@@ -8,7 +8,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from ipaddress import ip_address
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
@@ -228,29 +228,22 @@ class IncidentInvestigator:
                 return await self._run_loop(current, thread_id, run_id, token)
         except TimeoutError:
             token.cancel()
-            latest = self._store.get(current.incident_id) or current
-            evidence_by_id = {
-                str(
-                    reference.tool_run_id
-                    if reference.tool_run_id is not None
-                    else reference.snapshot_id
-                ): reference
-                for entry in latest.trace
-                for reference in entry.evidence
-            }
+            latest, latest_evidence = self._latest_with_evidence(current)
             return self._finish(
                 latest,
                 IncidentStatus.BUDGET_EXHAUSTED,
                 InvestigationStopReason.BUDGET_EXHAUSTED,
                 "调查达到墙钟时间上限",
-                evidence=tuple(evidence_by_id.values()),
+                evidence=latest_evidence,
             )
         except (TypeError, ValueError, ValidationError):
+            latest, latest_evidence = self._latest_with_evidence(current)
             return self._finish(
-                current,
+                latest,
                 IncidentStatus.FAILED,
                 InvestigationStopReason.FAILED,
                 "调查返回无效结构",
+                evidence=latest_evidence,
             )
 
     async def _run_loop(
@@ -512,13 +505,6 @@ class IncidentInvestigator:
                     observed_at=self._now(),
                     summary=f"只读工具 {call.name} 以 {result.status.value} 状态结束",
                 )
-                if result.status in {
-                    ToolExecutionStatus.SUCCESS,
-                    ToolExecutionStatus.PARTIAL,
-                }:
-                    evidence[str(result.tool_run_id)] = reference
-                    successful_tools[call.name] = reference
-                    tool_outputs[call.name] = result.output
                 tool_results.append(
                     ToolResultContext(
                         tool_run_id=result.tool_run_id,
@@ -553,10 +539,22 @@ class IncidentInvestigator:
                         f"必要只读工具 {call.name} 不可用",
                         evidence=tuple(successful_tools.values()),
                     )
+                if not self._has_usable_output(result.output):
+                    return self._finish(
+                        current,
+                        IncidentStatus.INSUFFICIENT_EVIDENCE,
+                        InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                        f"必要只读工具 {call.name} 没有返回可用于确认的完整数据",
+                        evidence=(*successful_tools.values(), reference),
+                    )
+                evidence[str(result.tool_run_id)] = reference
+                successful_tools[call.name] = reference
+                tool_outputs[call.name] = result.output
                 evidence_conflict = evidence_conflict or self._is_snapshot_conflict(
                     incident,
                     call.name,
                     result.output,
+                    tool_outputs,
                 )
                 continue
             try:
@@ -872,19 +870,133 @@ class IncidentInvestigator:
                 return {"host": str(address), "port": port}
         return None
 
+    def _latest_with_evidence(
+        self,
+        incident: Incident,
+    ) -> tuple[Incident, tuple[EvidenceReference, ...]]:
+        latest = self._store.get(incident.incident_id) or incident
+        evidence_by_id = {
+            str(
+                reference.tool_run_id
+                if reference.tool_run_id is not None
+                else reference.snapshot_id
+            ): reference
+            for entry in latest.trace
+            for reference in entry.evidence
+        }
+        return latest, tuple(evidence_by_id.values())
+
     @staticmethod
+    def _has_usable_output(output: JsonValue | None) -> bool:
+        return not (
+            isinstance(output, dict) and output.get("availability") in {"degraded", "unavailable"}
+        )
+
     def _is_snapshot_conflict(
+        self,
         incident: Incident,
         tool_name: str,
         output: JsonValue | None,
+        tool_outputs: dict[str, JsonValue] | None = None,
     ) -> bool:
-        return bool(
-            tool_name == "probe_service_reachability"
-            and isinstance(output, dict)
-            and output.get("reachable") is True
-            and incident.event.event_type
-            in {IncidentEventType.LOCAL_ONLY, IncidentEventType.REMOTE_UNREACHABLE}
-        )
+        if not isinstance(output, dict):
+            return False
+        event_type = incident.event.event_type
+        if tool_name == "probe_service_reachability":
+            return bool(
+                output.get("reachable") is True
+                and event_type
+                in {IncidentEventType.LOCAL_ONLY, IncidentEventType.REMOTE_UNREACHABLE}
+            )
+        if tool_name == "get_node_summary":
+            node_id = output.get("node_id")
+            if isinstance(node_id, str) and node_id != str(incident.event.target_node_id):
+                return True
+            return bool(
+                event_type is IncidentEventType.NODE_OFFLINE
+                and (
+                    output.get("state") in {"local", "online"}
+                    or output.get("agent_status") in {"online", "ready", "running"}
+                )
+            )
+
+        affected = self._affected_object_context(incident)
+        port = affected.get("port") if affected is not None else None
+        if not isinstance(port, int):
+            return False
+        if tool_name == "list_network_listeners" and event_type in {
+            IncidentEventType.SERVICE_ADDED,
+            IncidentEventType.LOCAL_ONLY,
+        }:
+            listeners = self._collection_items(output, "listeners")
+            if listeners is None:
+                return False
+            matching = tuple(item for item in listeners if item.get("port") == port)
+            if not matching:
+                return True
+            return bool(
+                event_type is IncidentEventType.LOCAL_ONLY
+                and any(
+                    isinstance(item.get("address"), str)
+                    and not self._is_loopback_address(str(item["address"]))
+                    for item in matching
+                )
+            )
+        if tool_name == "get_process_summary" and event_type is IncidentEventType.SERVICE_ADDED:
+            listeners = self._collection_items(
+                (tool_outputs or {}).get("list_network_listeners"),
+                "listeners",
+            )
+            processes = self._collection_items(output, "processes")
+            listener_pids = {
+                cast(int, item["pid"])
+                for item in listeners or ()
+                if item.get("port") == port and isinstance(item.get("pid"), int)
+            }
+            return bool(
+                listener_pids
+                and processes is not None
+                and any(
+                    item.get("pid") in listener_pids
+                    and str(item.get("status") or item.get("state") or "").casefold()
+                    in {"dead", "stopped", "zombie"}
+                    for item in processes
+                )
+            )
+        if tool_name == "list_docker_services" and event_type is IncidentEventType.SERVICE_REMOVED:
+            containers = self._collection_items(output, "containers")
+            return bool(
+                containers is not None
+                and any(
+                    str(port) in json.dumps(item.get("ports", ""), ensure_ascii=False)
+                    and (
+                        str(item.get("status") or item.get("state") or "")
+                        .casefold()
+                        .startswith(("up", "running", "restarting"))
+                    )
+                    for item in containers
+                )
+            )
+        return False
+
+    @staticmethod
+    def _collection_items(
+        output: JsonValue | None,
+        legacy_key: str,
+    ) -> tuple[dict[str, JsonValue], ...] | None:
+        if not isinstance(output, dict):
+            return None
+        values = output.get("items") if "items" in output else output.get(legacy_key)
+        if not isinstance(values, list):
+            return None
+        return tuple(item for item in values if isinstance(item, dict))
+
+    @staticmethod
+    def _is_loopback_address(value: str) -> bool:
+        try:
+            return ip_address(value.split("%", maxsplit=1)[0]).is_loopback
+        except ValueError:
+            return value.casefold() == "localhost"
 
     @staticmethod
     def _decision_covers_required_evidence(

@@ -199,7 +199,7 @@ def test_docker_adapter_only_returns_allowed_fields_and_handles_offline() -> Non
     item = cast(list[dict[str, JsonValue]], result["items"])[0]
     assert DockerService.model_validate(item).name == "pdf"
     assert "Environment" not in item
-    assert runner.commands[0][1:4] == ("ps", "--no-trunc", "--format")
+    assert runner.commands[0][1:5] == ("ps", "-a", "--no-trunc", "--format")
 
     runner.results["{{json .}}"] = command_result(stderr="daemon offline", returncode=1)
     offline = cast(dict[str, JsonValue], run(adapter.execute({}, token())))
