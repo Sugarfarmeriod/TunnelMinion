@@ -527,17 +527,23 @@ async def run_acceptance(args: argparse.Namespace) -> CrossNodeRealABReceipt:
         ):
             raise RuntimeError("真实跨节点调查未得到证据化确认结论")
 
-        _ssh(
-            args.ssh_target,
-            f"kill {remote_pid} 2>/dev/null || true",
-            cwd=repo,
-        )
-        remote_pid = ""
         gateway_cleaned = _wait_port(
             args.b_host,
             args.gateway_port,
             expected_open=False,
         )
+        if not gateway_cleaned:
+            _ssh(
+                args.ssh_target,
+                f"kill {remote_pid} 2>/dev/null || true",
+                cwd=repo,
+            )
+            gateway_cleaned = _wait_port(
+                args.b_host,
+                args.gateway_port,
+                expected_open=False,
+            )
+        remote_pid = ""
         target_audit = _wait_target_audit(args.ssh_target, remote_root, repo)
         service_cleaned = _remote_port_available(
             args.ssh_target,
@@ -689,6 +695,7 @@ async def _serve_target(args: argparse.Namespace) -> int:
             port=args.gateway_port,
             log_level="warning",
             access_log=False,
+            limit_max_requests=3,
         )
     )
     try:
@@ -716,8 +723,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--remote-python", default="/Users/mac/.local/bin/python3.11")
     run.add_argument("--a-host", default="10.77.0.2")
     run.add_argument("--b-host", default="10.77.0.1")
-    run.add_argument("--gateway-port", type=int, default=18_891)
-    run.add_argument("--service-port", type=int, default=18_892)
+    run.add_argument("--gateway-port", type=int, default=18_889)
+    run.add_argument("--service-port", type=int, default=18_888)
     run.add_argument("--output", type=Path)
     run.add_argument("--execute-approved", action="store_true")
 

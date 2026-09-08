@@ -19,8 +19,8 @@ def test_default_mode_only_prints_zero_side_effect_manifest(
     manifest = json.loads(capsys.readouterr().out)
     assert manifest["requires_explicit_execute_flag"] is True
     assert manifest["temporary_bindings"] == {
-        "gateway": "10.77.0.1:18891",
-        "loopback_service": "127.0.0.1:18892",
+        "gateway": "10.77.0.1:18889",
+        "loopback_service": "127.0.0.1:18888",
     }
     assert "现有 8080/8787 进程" in manifest["does_not_modify"]
     assert "操作系统 Keyring/Keychain 或任何用户秘密" in manifest["does_not_modify"]
@@ -31,7 +31,7 @@ def test_execute_mode_requires_output() -> None:
         main(["run", "--ssh-target", "10.77.0.1", "--execute-approved"])
 
 
-@pytest.mark.parametrize("ports", [(8080, 18892), (18891, 8787), (18891, 18891)])
+@pytest.mark.parametrize("ports", [(8080, 18888), (18889, 8787), (18889, 18889)])
 def test_temporary_ports_never_overlap_production_or_each_other(
     ports: tuple[int, int],
 ) -> None:
