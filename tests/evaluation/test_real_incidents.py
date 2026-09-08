@@ -683,8 +683,11 @@ def test_real_cli_writes_report_without_endpoint(
         return REVISION
 
     health_calls: list[tuple[str, str]] = []
+    attempt_ledger = tmp_path / "attempt-ledger.json"
 
     def model_health(endpoint: str, expected_model: str) -> real_cli.IncidentModelServiceHealth:
+        registered = json.loads(attempt_ledger.read_text(encoding="utf-8"))
+        assert registered["attempts"][0]["status"] == "running"
         health_calls.append((endpoint, expected_model))
         return real_cli.IncidentModelServiceHealth(status="healthy", loaded_model=expected_model)
 
@@ -705,6 +708,8 @@ def test_real_cli_writes_report_without_endpoint(
                 "test-model",
                 "--output",
                 str(output),
+                "--attempt-ledger",
+                str(attempt_ledger),
                 "--check",
             ]
         )
@@ -721,10 +726,31 @@ def test_real_cli_writes_report_without_endpoint(
         "loaded_model": "test-model",
     }
     assert parsed["model_service_health_after"] == parsed["model_service_health_before"]
+    attempts = json.loads(attempt_ledger.read_text(encoding="utf-8"))["attempts"]
+    assert len(attempts) == 1
+    assert attempts[0]["status"] == "completed"
+    assert attempts[0]["model_report_hash"].startswith("sha256:")
     assert health_calls == [
         ("http://127.0.0.1:9999/health", "test-model"),
         ("http://127.0.0.1:9999/health", "test-model"),
     ]
+
+    with pytest.raises(RuntimeError, match="同配置最终评测只能登记一次"):
+        real_cli.main(
+            [
+                str(V4_DATASET),
+                "--endpoint",
+                "http://127.0.0.1:9999/v1",
+                "--health-endpoint",
+                "http://127.0.0.1:9999/health",
+                "--model",
+                "test-model",
+                "--output",
+                str(tmp_path / "second-report.json"),
+                "--attempt-ledger",
+                str(attempt_ledger),
+            ]
+        )
 
 
 def test_real_cli_health_rejects_a_different_loaded_model(
@@ -750,3 +776,37 @@ def test_real_cli_health_rejects_a_different_loaded_model(
         real_cli._model_health(  # pyright: ignore[reportPrivateUsage]
             "http://127.0.0.1:9999/health", "different-model"
         )
+
+
+def test_real_cli_marks_registered_attempt_failed_before_model_use(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = tmp_path / "attempt-ledger.json"
+    monkeypatch.setattr(real_cli, "_repository_revision", lambda: REVISION)
+
+    def unavailable_health(*_args: object) -> real_cli.IncidentModelServiceHealth:
+        raise RuntimeError("health unavailable")
+
+    monkeypatch.setattr(real_cli, "_model_health", unavailable_health)
+
+    with pytest.raises(RuntimeError, match="health unavailable"):
+        real_cli.main(
+            [
+                str(V4_DATASET),
+                "--endpoint",
+                "http://127.0.0.1:9999/v1",
+                "--health-endpoint",
+                "http://127.0.0.1:9999/health",
+                "--model",
+                "test-model",
+                "--output",
+                str(tmp_path / "real-report.json"),
+                "--attempt-ledger",
+                str(ledger),
+            ]
+        )
+
+    attempt = json.loads(ledger.read_text(encoding="utf-8"))["attempts"][0]
+    assert attempt["status"] == "failed"
+    assert attempt["model_report_hash"] is None

@@ -18,6 +18,7 @@ from tunnelminion.evaluation.cross_node_evidence import (
     CrossNodePlatformMatrix,
     CrossNodePlatformReceipt,
     CrossNodeRealABReceipt,
+    FinalEvaluationAttemptLedger,
     build_final_metric_freeze,
     run_platform_acceptance,
     validate_platform_matrix,
@@ -95,6 +96,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     freeze.add_argument("--model-report", type=Path, action="append", required=True)
     freeze.add_argument("--platform-matrix", type=Path, required=True)
     freeze.add_argument("--real-ab", type=Path, required=True)
+    freeze.add_argument("--attempt-ledger", type=Path, required=True)
     freeze.add_argument("--output", type=Path, required=True)
     freeze.add_argument("--check", action="store_true")
 
@@ -132,7 +134,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.platform_matrix.read_text(encoding="utf-8")
     )
     real_ab = CrossNodeRealABReceipt.model_validate_json(args.real_ab.read_text(encoding="utf-8"))
-    frozen = build_final_metric_freeze(reports, matrix, real_ab)
+    attempt_ledger = FinalEvaluationAttemptLedger.model_validate_json(
+        args.attempt_ledger.read_text(encoding="utf-8")
+    )
+    frozen = build_final_metric_freeze(reports, matrix, real_ab, attempt_ledger)
     _write(args.output, frozen)
     return int(args.check and not frozen.passed)
 

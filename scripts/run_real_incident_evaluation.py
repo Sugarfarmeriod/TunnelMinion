@@ -5,16 +5,28 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
+from uuid import uuid4
 
 import httpx
 
+from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
+from tunnelminion.evaluation.cross_node_evidence import (
+    FinalEvaluationAttempt,
+    FinalEvaluationAttemptLedger,
+    model_content_hash,
+)
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
     IncidentModelServiceHealth,
+    incident_dataset_content_hash,
     run_incident_dataset,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
@@ -55,6 +67,66 @@ def _model_health(endpoint: str, expected_model: str) -> IncidentModelServiceHea
     return health
 
 
+@contextmanager
+def _attempt_ledger_lock(path: Path) -> Generator[None, None, None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = path.with_name(f"{path.name}.lock")
+    try:
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as error:
+        raise RuntimeError("最终评测尝试账本正在被另一个进程更新") from error
+    try:
+        yield
+    finally:
+        os.close(descriptor)
+        lock.unlink(missing_ok=True)
+
+
+def _write_attempt_ledger(path: Path, ledger: FinalEvaluationAttemptLedger) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(ledger.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _register_attempt(path: Path, attempt: FinalEvaluationAttempt) -> None:
+    with _attempt_ledger_lock(path):
+        attempts: tuple[FinalEvaluationAttempt, ...] = ()
+        if path.exists():
+            attempts = FinalEvaluationAttemptLedger.model_validate_json(
+                path.read_text(encoding="utf-8")
+            ).attempts
+        if any(item.configuration_key == attempt.configuration_key for item in attempts):
+            raise RuntimeError("同配置最终评测只能登记一次")
+        _write_attempt_ledger(path, FinalEvaluationAttemptLedger(attempts=(*attempts, attempt)))
+
+
+def _finish_attempt(
+    path: Path,
+    attempt_id: str,
+    status: Literal["completed", "failed"],
+    model_report_hash: str | None = None,
+) -> None:
+    with _attempt_ledger_lock(path):
+        ledger = FinalEvaluationAttemptLedger.model_validate_json(path.read_text(encoding="utf-8"))
+        if sum(item.attempt_id == attempt_id for item in ledger.attempts) != 1:
+            raise RuntimeError("最终评测尝试账本缺少当前登记")
+        updates = {
+            "status": status,
+            "finished_at": datetime.now(UTC),
+            "model_report_hash": model_report_hash,
+        }
+        attempts = tuple(
+            FinalEvaluationAttempt.model_validate(item.model_dump(mode="python") | updates)
+            if item.attempt_id == attempt_id
+            else item
+            for item in ledger.attempts
+        )
+        _write_attempt_ledger(path, FinalEvaluationAttemptLedger(attempts=attempts))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """运行一次串行真实矩阵并保存不含凭据和 endpoint 的报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -64,6 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--provider-name", default="openai-compatible")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--attempt-ledger", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
@@ -71,34 +144,61 @@ def main(argv: Sequence[str] | None = None) -> int:
     dataset = IncidentEvaluationDataset.model_validate_json(
         args.dataset.read_text(encoding="utf-8")
     )
-    health_before = _model_health(args.health_endpoint, args.model)
-    provider = OpenAICompatibleProvider(
-        OpenAICompatibleConfig(
-            endpoint=args.endpoint,
-            model=args.model,
-            timeout_seconds=args.timeout_seconds,
-        )
+    if args.output.exists():
+        raise RuntimeError("最终模型评测报告已存在，不得覆盖")
+    source_revision = _repository_revision()
+    attempt = FinalEvaluationAttempt(
+        attempt_id=f"eval_{uuid4().hex}",
+        source_revision=source_revision,
+        dataset_id=dataset.dataset_id,
+        dataset_version=dataset.dataset_version,
+        dataset_content_hash=incident_dataset_content_hash(dataset),
+        prompt_version=dataset.prompt_version,
+        prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash,
+        tool_versions=dataset.tool_versions,
+        provider_name=args.provider_name,
+        model_name=args.model,
+        registered_at=datetime.now(UTC),
     )
-    with TemporaryDirectory(prefix="tunnelminion-real-incident-eval-") as temporary:
-        report = asyncio.run(
-            run_incident_dataset(
-                dataset,
-                SQLiteIncidentStore(Path(temporary) / "incidents.sqlite3"),
-                provider=provider,
-                provider_name=args.provider_name,
-                model_name=args.model,
-                source_revision=_repository_revision(),
+    _register_attempt(args.attempt_ledger, attempt)
+    try:
+        health_before = _model_health(args.health_endpoint, args.model)
+        provider = OpenAICompatibleProvider(
+            OpenAICompatibleConfig(
+                endpoint=args.endpoint,
+                model=args.model,
+                timeout_seconds=args.timeout_seconds,
             )
         )
-    health_after = _model_health(args.health_endpoint, args.model)
-    report = report.model_copy(
-        update={
-            "model_service_health_before": health_before,
-            "model_service_health_after": health_after,
-        }
+        with TemporaryDirectory(prefix="tunnelminion-real-incident-eval-") as temporary:
+            report = asyncio.run(
+                run_incident_dataset(
+                    dataset,
+                    SQLiteIncidentStore(Path(temporary) / "incidents.sqlite3"),
+                    provider=provider,
+                    provider_name=args.provider_name,
+                    model_name=args.model,
+                    source_revision=source_revision,
+                )
+            )
+        health_after = _model_health(args.health_endpoint, args.model)
+        report = report.model_copy(
+            update={
+                "model_service_health_before": health_before,
+                "model_service_health_after": health_after,
+            }
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        _finish_attempt(args.attempt_ledger, attempt.attempt_id, "failed")
+        raise
+    _finish_attempt(
+        args.attempt_ledger,
+        attempt.attempt_id,
+        "completed",
+        model_content_hash(report),
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
     print(
         json.dumps(
             {

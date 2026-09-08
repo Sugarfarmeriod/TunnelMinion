@@ -15,6 +15,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfigurationService,
@@ -66,6 +67,7 @@ def _build_gateway_application(data_dir: Path) -> FastAPI:
         GatewayPeerInput(
             peer=GatewayPeerConfig(
                 node_id=peer_id,
+                platform=Platform.WINDOWS,
                 host="10.254.254.2",
                 allowed_tools=frozenset({"get_node_summary"}),
             ),

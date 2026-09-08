@@ -367,6 +367,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.create_read_only_agent()
     peer = GatewayOperationPeer(
         node_id=NodeId.new(),
+        platform=Platform.MACOS,
         endpoint="http://10.77.0.1:8787",
         target_host="10.77.0.1",
         requester_host="10.77.0.2",
@@ -909,6 +910,8 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
                 "10.77.0.1",
                 "--peer-node-id",
                 peer,
+                "--peer-platform",
+                "windows",
                 "--peer-host",
                 "10.77.0.2",
                 "--secret-store",
@@ -925,6 +928,7 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
     body = json.loads(output)
     assert body["gateway"]["configured"] is True
     assert body["gateway"]["peers"][0]["allowed_tools"] == ["get_node_summary"]
+    assert body["gateway"]["peers"][0]["platform"] == "windows"
     assert body["gateway"]["peers"][0]["allowed_operations"] == ["share_local_http_service"]
     assert token not in output
 

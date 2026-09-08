@@ -36,7 +36,7 @@ from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import ToolCancellationToken
 
-DATASET = Path("evaluations/datasets/autonomous-incidents-v5.json")
+DATASET = Path("evaluations/datasets/autonomous-incidents-v6.json")
 
 
 def load_dataset() -> IncidentEvaluationDataset:
@@ -214,6 +214,19 @@ def test_dataset_rejects_incoherent_expectations_and_versions() -> None:
                     item.model_copy(update={"request_platform": Platform.MACOS})
                     if item.execution_scope == "remote"
                     else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
+    with pytest.raises(ValidationError, match="平台身份不得作为根因文本评分词"):
+        platform_scored = remote.model_copy(
+            update={"root_cause_terms": (*remote.root_cause_terms, remote.target_platform.value)}
+        )
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    platform_scored if item.scenario_id == remote.scenario_id else item
                     for item in dataset.scenarios
                 )
             }

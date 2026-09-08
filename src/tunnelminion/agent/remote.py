@@ -115,10 +115,12 @@ class RemoteCapabilityLoader:
         client: FixedGatewayClient,
         local_platform: Platform,
         remote_node_id: NodeId,
+        remote_platform: Platform,
     ) -> None:
         self._client = client
         self._local_platform = local_platform
         self._remote_node_id = remote_node_id
+        self._remote_platform = remote_platform
 
     async def prepare(
         self,
@@ -138,6 +140,8 @@ class RemoteCapabilityLoader:
                 capabilities = await self._client.discover()
             except RemoteGatewayError as exc:
                 raise RemotePreparationError(exc.code, str(exc)) from exc
+        if capabilities.platform is not self._remote_platform:
+            raise RemotePreparationError(ErrorCode.FORBIDDEN, "远端能力平台与显式授权不匹配")
         summary_definition = next(
             (item for item in capabilities.tools if item.name == "get_node_summary"), None
         )
@@ -151,7 +155,7 @@ class RemoteCapabilityLoader:
             summary_definition.timeout_seconds,
             cancellation,
         )
-        summary = self._validate_summary(summary_result, capabilities.platform)
+        summary = self._validate_summary(summary_result)
         requested = frozenset(requested_tools)
         selected = tuple(
             item.model_copy(
@@ -176,7 +180,7 @@ class RemoteCapabilityLoader:
             tool_names=tuple(item.name for item in selected),
         )
 
-    def _validate_summary(self, result: RemoteToolResult, remote_platform: Platform) -> NodeSummary:
+    def _validate_summary(self, result: RemoteToolResult) -> NodeSummary:
         if result.status is not ToolExecutionStatus.SUCCESS:
             code = result.error.code if result.error is not None else ErrorCode.INTERNAL
             raise RemotePreparationError(code, "远端节点摘要执行失败")
@@ -186,7 +190,7 @@ class RemoteCapabilityLoader:
             raise RemotePreparationError(ErrorCode.INTERNAL, "远端节点摘要格式无效") from exc
         if (
             summary.node_id != str(self._remote_node_id)
-            or summary.platform != remote_platform.value
+            or summary.platform != self._remote_platform.value
         ):
             raise RemotePreparationError(ErrorCode.FORBIDDEN, "远端节点摘要身份不匹配")
         return summary
@@ -239,6 +243,7 @@ class ConfiguredRemoteToolPreparer:
             client,
             self._local_platform,
             target_node_id,
+            peer.platform,
         ).prepare(context, peer.allowed_tools, cancellation)
 
     @staticmethod

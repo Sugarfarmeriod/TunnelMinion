@@ -285,6 +285,7 @@ class DynamicRemoteToolCoordinator:
             client,
             self._local_platform,
             target_node_id,
+            node.identity.platform,
         ).prepare(
             context,
             tuple(retained),

@@ -16,6 +16,7 @@ from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import LeaseId, NodeId, OperationId, ThreadId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.client import RemoteGatewayError
 from tunnelminion.gateway.configuration import (
@@ -305,6 +306,7 @@ def _service(
         GatewayPeerInput(
             peer=GatewayPeerConfig(
                 node_id=remote,
+                platform=Platform.MACOS,
                 host="10.77.0.1",
                 allowed_tools=frozenset(
                     {

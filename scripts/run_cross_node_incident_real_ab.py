@@ -338,6 +338,7 @@ async def _run_investigation(
                 peers=(
                     GatewayPeerConfig(
                         node_id=_TARGET_NODE,
+                        platform=Platform.MACOS,
                         host=endpoint_host,
                         port=gateway_port,
                         allowed_tools=frozenset(_REMOTE_TOOLS),

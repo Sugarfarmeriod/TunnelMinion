@@ -162,7 +162,7 @@ def build_requester_operation_service(
         provider = model_service.create_provider()
         return CrossNodeDiagnosticAgent(
             CrossNodeDiagnosticWorkflow(
-                RemoteCapabilityLoader(client(peer), platform, peer.node_id),
+                RemoteCapabilityLoader(client(peer), platform, peer.node_id, peer.platform),
                 tool_runtime,
                 node_id,
             ),

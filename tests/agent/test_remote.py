@@ -151,7 +151,8 @@ def build_loader(
     include_summary: bool = True,
     summary_value: JsonValue | None = None,
     summary_failure: bool = False,
-    summary_platform: str = "macos",
+    remote_platform: Platform = Platform.MACOS,
+    expected_remote_platform: Platform = Platform.MACOS,
 ) -> tuple[RemoteCapabilityLoader, ToolCallContext, InMemoryAuditSink, InMemoryAuditSink]:
     remote = NodeId.new()
     local = NodeId.new()
@@ -159,9 +160,9 @@ def build_loader(
     allowed = ["list_network_listeners"]
     if include_summary:
         registry.register(
-            definition("get_node_summary", platforms=frozenset({Platform.MACOS})),
+            definition("get_node_summary", platforms=frozenset({remote_platform})),
             StaticAdapter(
-                summary(remote, platform=summary_platform)
+                summary(remote, platform=remote_platform.value)
                 if summary_value is None
                 else summary_value,
                 fail=summary_failure,
@@ -169,17 +170,17 @@ def build_loader(
         )
         allowed.insert(0, "get_node_summary")
     registry.register(
-        definition("list_network_listeners", platforms=frozenset({Platform.MACOS})),
+        definition("list_network_listeners", platforms=frozenset({remote_platform})),
         StaticAdapter({"availability": "available", "items": []}),
     )
     remote_audit = InMemoryAuditSink()
-    runtime = ToolRuntime(registry, Platform.MACOS, remote_audit)
+    runtime = ToolRuntime(registry, remote_platform, remote_audit)
     policy = GatewaySecurityPolicy([GatewayPeerPolicy.from_token(local, TOKEN, allowed)])
     app = FastAPI()
     app.include_router(
         create_gateway_router(
             remote,
-            Platform.MACOS,
+            remote_platform,
             registry,
             runtime,
             policy,
@@ -202,7 +203,7 @@ def build_loader(
         execution_node_id=remote,
     )
     return (
-        RemoteCapabilityLoader(client, Platform.WINDOWS, remote),
+        RemoteCapabilityLoader(client, Platform.WINDOWS, remote, expected_remote_platform),
         context,
         local_audit,
         remote_audit,
@@ -308,6 +309,7 @@ def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
         GatewayPeerInput(
             peer=GatewayPeerConfig(
                 node_id=remote,
+                platform=Platform.MACOS,
                 host="10.77.0.1",
                 allowed_tools=frozenset({"get_node_summary", "list_network_listeners"}),
             ),
@@ -445,7 +447,7 @@ def test_remote_preparation_rejects_missing_failed_malformed_and_wrong_summary()
         run(wrong.prepare(context, ("list_network_listeners",)))
     assert identity.value.code is ErrorCode.FORBIDDEN
 
-    wrong_platform, context, _, _ = build_loader(summary_platform="windows")
+    wrong_platform, context, _, _ = build_loader(remote_platform=Platform.WINDOWS)
     with pytest.raises(RemotePreparationError) as platform:
         run(wrong_platform.prepare(context, ("list_network_listeners",)))
     assert platform.value.code is ErrorCode.FORBIDDEN
@@ -471,7 +473,7 @@ def test_remote_preparation_exposes_nothing_when_offline_or_no_task_capability()
         InMemoryAuditSink(),
         transport=httpx.MockTransport(offline),
     )
-    offline_loader = RemoteCapabilityLoader(client, Platform.WINDOWS, remote)
+    offline_loader = RemoteCapabilityLoader(client, Platform.WINDOWS, remote, Platform.MACOS)
     with pytest.raises(RemotePreparationError) as unreachable:
         run(offline_loader.prepare(context, ("list_network_listeners",)))
     assert unreachable.value.code is ErrorCode.NODE_UNREACHABLE

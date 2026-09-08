@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfiguration,
@@ -45,6 +46,7 @@ def peer(node_id: NodeId | None = None, *, host: str = "10.77.0.2") -> GatewayPe
     """创建显式 peer 非秘密配置。"""
     return GatewayPeerConfig(
         node_id=node_id or NodeId.new(),
+        platform=Platform.MACOS,
         host=host,
         port=8787,
         allowed_tools=frozenset({"get_node_summary", "list_network_listeners"}),
@@ -86,6 +88,7 @@ def test_configure_provision_replace_revoke_and_delete(tmp_path: Path) -> None:
     assert token.startswith("tmn_")
     view = service.provision_peer(GatewayPeerInput(peer=first, token=token))
     assert view.peers[0].credential_configured is True
+    assert view.peers[0].platform is Platform.MACOS
     assert view.peers[0].allowed_operations == {"share_local_http_service"}
     assert secrets.values[gateway_token_name(first.node_id)] == token
     assert token not in (tmp_path / "gateway.json").read_text(encoding="utf-8")
@@ -190,6 +193,7 @@ def test_operation_peer_resolution_stays_server_side_and_filters_credentials(
     assert tuple(item.node_id for item in eligible) == (allowed.node_id,)
     resolved = service.resolve_operation_peer(allowed.node_id, "share_local_http_service")
     assert resolved.endpoint == f"http://{allowed.host}:{allowed.port}"
+    assert resolved.platform is Platform.MACOS
     assert resolved.target_host == allowed.host
     assert resolved.requester_host == "10.77.0.1"
     assert resolved.requester_callback_port == 19_001
@@ -233,6 +237,24 @@ def test_read_only_peer_resolution_intersects_allowed_tools_and_hides_credential
         service.resolve_tool_peer(allowed.node_id, ("get_process_summary",))
     with pytest.raises(RuntimeError, match="缺少网关凭据"):
         service.resolve_tool_peer(missing_credential.node_id, ("get_node_summary",))
+
+
+def test_read_only_peer_requires_a_trusted_target_platform(tmp_path: Path) -> None:
+    repository = FileGatewayConfigurationRepository(tmp_path / "gateway.json")
+    service = GatewayConfigurationService(repository, MemorySecrets())
+    service.configure_local(GatewayBindConfig(host="10.77.0.1"))
+    legacy = GatewayPeerConfig(
+        node_id=NodeId.new(),
+        host="10.77.0.2",
+        allowed_tools=frozenset({"get_node_summary"}),
+        allowed_operations=frozenset({"share_local_http_service"}),
+    )
+    service.provision_peer(GatewayPeerInput(peer=legacy, token=generate_gateway_token()))
+
+    with pytest.raises(KeyError, match="gateway_operation_peer_platform_missing"):
+        service.resolve_operation_peer(legacy.node_id, "share_local_http_service")
+    with pytest.raises(KeyError, match="gateway_tool_peer_platform_missing"):
+        service.resolve_tool_peer(legacy.node_id, ("get_node_summary",))
 
 
 def test_requester_input_forbids_browser_control_of_trusted_fields() -> None:

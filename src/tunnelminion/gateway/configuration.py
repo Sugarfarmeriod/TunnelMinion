@@ -11,6 +11,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import (
     GatewayBindConfig,
     GatewayLimits,
@@ -64,6 +65,7 @@ class GatewayPeerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     node_id: NodeId
+    platform: Platform | None = None
     host: str
     port: int = Field(default=8787, ge=1024, le=65535)
     allowed_tools: frozenset[str] = Field(min_length=1)
@@ -105,6 +107,7 @@ class GatewayPeerView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     node_id: NodeId
+    platform: Platform | None = None
     host: str
     port: int
     allowed_tools: frozenset[str]
@@ -129,6 +132,7 @@ class GatewayOperationPeer:
     """只在服务端使用的固定操作对端和凭据。"""
 
     node_id: NodeId
+    platform: Platform
     endpoint: str
     target_host: str
     requester_host: str
@@ -141,6 +145,7 @@ class GatewayToolPeer:
     """只在服务端使用的固定只读工具对端和凭据。"""
 
     node_id: NodeId
+    platform: Platform
     endpoint: str
     allowed_tools: tuple[str, ...]
     token: str = field(repr=False)
@@ -256,6 +261,7 @@ class GatewayConfigurationService:
         peers = tuple(
             GatewayPeerView(
                 node_id=item.node_id,
+                platform=item.platform,
                 host=item.host,
                 port=item.port,
                 allowed_tools=item.allowed_tools,
@@ -279,7 +285,9 @@ class GatewayConfigurationService:
         return tuple(
             peer
             for peer in self.view().peers
-            if operation_name in peer.allowed_operations and peer.credential_configured
+            if operation_name in peer.allowed_operations
+            and peer.platform is not None
+            and peer.credential_configured
         )
 
     def resolve_tool_peer(
@@ -292,6 +300,8 @@ class GatewayConfigurationService:
         peer = next((item for item in config.peers if item.node_id == node_id), None)
         if peer is None:
             raise KeyError("gateway_tool_peer_not_found")
+        if peer.platform is None:
+            raise KeyError("gateway_tool_peer_platform_missing")
         allowed = tuple(name for name in requested_tools if name in peer.allowed_tools)
         if not allowed:
             raise KeyError("gateway_tool_not_allowed")
@@ -300,6 +310,7 @@ class GatewayConfigurationService:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayToolPeer(
             node_id=node_id,
+            platform=peer.platform,
             endpoint=peer.endpoint(),
             allowed_tools=allowed,
             token=token,
@@ -322,11 +333,14 @@ class GatewayConfigurationService:
         )
         if peer is None:
             raise KeyError("gateway_operation_peer_not_found")
+        if peer.platform is None:
+            raise KeyError("gateway_operation_peer_platform_missing")
         token = self._secrets.get(gateway_token_name(node_id))
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayOperationPeer(
             node_id=node_id,
+            platform=peer.platform,
             endpoint=peer.endpoint(),
             target_host=peer.host,
             requester_host=config.bind.host,

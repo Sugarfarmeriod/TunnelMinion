@@ -198,13 +198,84 @@ class FinalMetricSnapshot(BaseModel):
         return cls.model_validate(metrics.model_dump(include=set(cls.model_fields), mode="json"))
 
 
+class FinalEvaluationAttempt(BaseModel):
+    """最终模型评测在调用模型前登记的一次尝试。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    attempt_id: str = Field(pattern=r"^eval_[0-9a-f]{32}$")
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    dataset_id: str
+    dataset_version: str
+    dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    prompt_version: str
+    prompt_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    tool_versions: dict[str, str]
+    provider_name: str
+    model_name: str
+    registered_at: datetime
+    finished_at: datetime | None = None
+    status: Literal["running", "completed", "failed"] = "running"
+    model_report_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @property
+    def configuration_key(self) -> tuple[object, ...]:
+        return (
+            self.source_revision,
+            self.dataset_id,
+            self.dataset_version,
+            self.dataset_content_hash,
+            self.prompt_version,
+            self.prompt_content_hash,
+            tuple(sorted(self.tool_versions.items())),
+            self.provider_name,
+            self.model_name,
+        )
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> FinalEvaluationAttempt:
+        if self.status == "running" and (
+            self.finished_at is not None or self.model_report_hash is not None
+        ):
+            raise ValueError("运行中的最终评测不得提前包含完成结果")
+        if self.status == "completed" and (
+            self.finished_at is None or self.model_report_hash is None
+        ):
+            raise ValueError("已完成的最终评测必须绑定结束时间和报告哈希")
+        if self.status == "failed" and (
+            self.finished_at is None or self.model_report_hash is not None
+        ):
+            raise ValueError("失败的最终评测必须记录结束时间且不得冒充报告")
+        if self.finished_at is not None and self.finished_at < self.registered_at:
+            raise ValueError("最终评测结束时间不得早于登记时间")
+        return self
+
+
+class FinalEvaluationAttemptLedger(BaseModel):
+    """候选提交的完整最终模型评测尝试账本。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["cross-node-incident-evaluation-attempts/v1"] = (
+        "cross-node-incident-evaluation-attempts/v1"
+    )
+    attempts: tuple[FinalEvaluationAttempt, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_attempt_ids(self) -> FinalEvaluationAttemptLedger:
+        identifiers = [item.attempt_id for item in self.attempts]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("最终评测尝试 ID 不得重复")
+        return self
+
+
 class FinalMetricFreeze(BaseModel):
     """只在全部证据同源且门禁通过时生成的最终指标冻结清单。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["cross-node-incident-final-metrics/v1"] = (
-        "cross-node-incident-final-metrics/v1"
+    schema_version: Literal["cross-node-incident-final-metrics/v2"] = (
+        "cross-node-incident-final-metrics/v2"
     )
     source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
     dataset_id: str
@@ -216,6 +287,8 @@ class FinalMetricFreeze(BaseModel):
     provider_name: str
     model_name: str
     evaluation_run_count: Literal[1] = 1
+    evaluation_attempt_id: str = Field(pattern=r"^eval_[0-9a-f]{32}$")
+    attempt_ledger_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     model_report_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     platform_matrix_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     real_ab_receipt_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
@@ -300,7 +373,7 @@ async def run_platform_acceptance(
     )
 
 
-def _model_hash(value: BaseModel) -> str:
+def model_content_hash(value: BaseModel) -> str:
     payload = json.dumps(
         value.model_dump(mode="json"),
         ensure_ascii=False,
@@ -323,6 +396,7 @@ def validate_platform_matrix(
         name
         for name, failed in {
             "receipt_failed": not windows.passed or not macos.passed,
+            "receipt_violations": bool(windows.violations or macos.violations),
             "source_revision_mismatch": windows.source_revision != macos.source_revision,
             "dataset_content_hash_mismatch": (
                 windows.dataset_content_hash != macos.dataset_content_hash
@@ -342,6 +416,12 @@ def validate_platform_matrix(
             "remote_local_tool_execution": bool(
                 windows.remote_local_tool_executions or macos.remote_local_tool_executions
             ),
+            "remote_fallback_tool_call": bool(
+                windows.remote_fallback_tool_calls or macos.remote_fallback_tool_calls
+            ),
+            "remote_incomplete": (
+                windows.remote_completion_rate != 1 or macos.remote_completion_rate != 1
+            ),
         }.items()
         if failed
     )
@@ -352,8 +432,8 @@ def validate_platform_matrix(
         tool_versions=windows.tool_versions,
         platforms=(Platform.WINDOWS, Platform.MACOS),
         receipt_hashes={
-            Platform.WINDOWS.value: _model_hash(windows),
-            Platform.MACOS.value: _model_hash(macos),
+            Platform.WINDOWS.value: model_content_hash(windows),
+            Platform.MACOS.value: model_content_hash(macos),
         },
         generated_at=datetime.now(UTC),
         violations=violations,
@@ -365,6 +445,7 @@ def build_final_metric_freeze(
     model_reports: tuple[IncidentEvaluationReport, ...],
     platform_matrix: CrossNodePlatformMatrix,
     real_ab: CrossNodeRealABReceipt,
+    attempt_ledger: FinalEvaluationAttemptLedger,
 ) -> FinalMetricFreeze:
     """拒绝多次挑选，并核对最终模型、双平台与真机证据同源。"""
     if len(model_reports) != 1:
@@ -372,6 +453,28 @@ def build_final_metric_freeze(
     report = model_reports[0]
     if report.source_revision is None or report.prompt_content_hash is None:
         raise ValueError("最终模型报告缺少提交或 Prompt 内容哈希")
+    report_configuration = (
+        report.source_revision,
+        report.dataset_id,
+        report.dataset_version,
+        report.dataset_content_hash,
+        report.prompt_version,
+        report.prompt_content_hash,
+        tuple(sorted(report.tool_versions.items())),
+        report.provider_name,
+        report.model_name,
+    )
+    matching_attempts = tuple(
+        item for item in attempt_ledger.attempts if item.configuration_key == report_configuration
+    )
+    if len(matching_attempts) != 1:
+        raise ValueError("同配置最终评测只能登记一次")
+    attempt = matching_attempts[0]
+    if attempt.status != "completed":
+        raise ValueError("最终模型评测账本尚未完成")
+    report_hash = model_content_hash(report)
+    if attempt.model_report_hash != report_hash:
+        raise ValueError("最终模型评测账本的报告哈希不一致")
     metrics = FinalMetricSnapshot.from_metrics(report.metrics)
     violations = tuple(
         name
@@ -429,9 +532,11 @@ def build_final_metric_freeze(
         tool_versions=report.tool_versions,
         provider_name=report.provider_name,
         model_name=report.model_name,
-        model_report_hash=_model_hash(report),
-        platform_matrix_hash=_model_hash(platform_matrix),
-        real_ab_receipt_hash=_model_hash(real_ab),
+        evaluation_attempt_id=attempt.attempt_id,
+        attempt_ledger_hash=model_content_hash(attempt_ledger),
+        model_report_hash=report_hash,
+        platform_matrix_hash=model_content_hash(platform_matrix),
+        real_ab_receipt_hash=model_content_hash(real_ab),
         metrics=metrics,
         generated_at=datetime.now(UTC),
         violations=violations,

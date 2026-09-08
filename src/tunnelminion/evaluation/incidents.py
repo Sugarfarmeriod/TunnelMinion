@@ -281,6 +281,13 @@ class IncidentEvaluationDataset(BaseModel):
             for scenario in self.scenarios
         ):
             raise ValueError("v5 incident 矩阵必须包含 Windows 请求 macOS 的远端场景")
+        if int(self.dataset_version[1:]) >= 6 and any(
+            scenario.execution_scope == "remote"
+            and scenario.target_platform.value.casefold()
+            in {term.casefold() for term in scenario.root_cause_terms}
+            for scenario in self.scenarios
+        ):
+            raise ValueError("v6 平台身份不得作为根因文本评分词")
         return self
 
 
@@ -815,6 +822,7 @@ def _remote_preparer(
                 peers=(
                     GatewayPeerConfig(
                         node_id=_REMOTE_NODE,
+                        platform=scenario.target_platform,
                         host="10.77.0.1",
                         allowed_tools=frozenset(READ_ONLY_INVESTIGATION_TOOLS),
                     ),
@@ -1158,7 +1166,7 @@ def _root_cause_matches(
     )
 
 
-def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
+def incident_dataset_content_hash(dataset: IncidentEvaluationDataset) -> str:
     payload = dataset.model_dump(mode="json")
     for scenario in payload["scenarios"]:
         if int(dataset.dataset_version[1:]) < 5:
@@ -1368,7 +1376,7 @@ async def run_incident_dataset(
             else "offline-scripted-local-runtime"
         ),
         source_revision=source_revision,
-        dataset_content_hash=_dataset_hash(dataset),
+        dataset_content_hash=incident_dataset_content_hash(dataset),
         prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash if real else None,
         scenarios=results,
         metrics=metrics,

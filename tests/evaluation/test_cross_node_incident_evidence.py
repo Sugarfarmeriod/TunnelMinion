@@ -19,7 +19,10 @@ from tunnelminion.evaluation import cross_node_evidence as evidence_module
 from tunnelminion.evaluation.cross_node_evidence import (
     CrossNodePlatformReceipt,
     CrossNodeRealABReceipt,
+    FinalEvaluationAttempt,
+    FinalEvaluationAttemptLedger,
     build_final_metric_freeze,
+    model_content_hash,
     run_platform_acceptance,
     validate_platform_matrix,
 )
@@ -35,7 +38,7 @@ from tunnelminion.incident.contracts import (
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
 
-DATASET = Path("evaluations/datasets/autonomous-incidents-v5.json")
+DATASET = Path("evaluations/datasets/autonomous-incidents-v6.json")
 REVISION = "a" * 40
 
 
@@ -139,13 +142,73 @@ def real_ab_receipt() -> CrossNodeRealABReceipt:
     )
 
 
+def attempt_ledger(report: IncidentEvaluationReport) -> FinalEvaluationAttemptLedger:
+    assert report.prompt_content_hash is not None
+    registered_at = datetime(2026, 9, 8, tzinfo=UTC)
+    return FinalEvaluationAttemptLedger(
+        attempts=(
+            FinalEvaluationAttempt(
+                attempt_id="eval_11111111111111111111111111111111",
+                source_revision=REVISION,
+                dataset_id=report.dataset_id,
+                dataset_version=report.dataset_version,
+                dataset_content_hash=report.dataset_content_hash,
+                prompt_version=report.prompt_version,
+                prompt_content_hash=report.prompt_content_hash,
+                tool_versions=report.tool_versions,
+                provider_name=report.provider_name,
+                model_name=report.model_name,
+                registered_at=registered_at,
+                finished_at=registered_at + timedelta(seconds=1),
+                status="completed",
+                model_report_hash=model_content_hash(report),
+            ),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"status": "running", "model_report_hash": None}, "运行中"),
+        ({"status": "running", "finished_at": None}, "运行中"),
+        ({"status": "completed", "finished_at": None}, "已完成"),
+        ({"status": "completed", "model_report_hash": None}, "已完成"),
+        ({"status": "failed", "finished_at": None, "model_report_hash": None}, "失败"),
+        ({"status": "failed"}, "失败"),
+        (
+            {"finished_at": datetime(2026, 9, 7, tzinfo=UTC)},
+            "不得早于登记时间",
+        ),
+    ],
+)
+def test_final_evaluation_attempt_rejects_inconsistent_lifecycle(
+    tmp_path: Path,
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    current = attempt_ledger(final_model_report(tmp_path)).attempts[0]
+
+    with pytest.raises(ValidationError, match=message):
+        FinalEvaluationAttempt.model_validate(current.model_dump(mode="python") | updates)
+
+
+def test_attempt_ledger_rejects_duplicate_ids(tmp_path: Path) -> None:
+    current = attempt_ledger(final_model_report(tmp_path)).attempts[0]
+
+    with pytest.raises(ValidationError, match="ID 不得重复"):
+        FinalEvaluationAttemptLedger(
+            attempts=(current, current.model_copy(update={"source_revision": "b" * 40}))
+        )
+
+
 def test_platform_receipt_proves_isolated_gateway_and_zero_local_execution() -> None:
     result = receipt(Platform.WINDOWS)
 
     assert result.passed is True
     assert result.host_platform is Platform.WINDOWS
     assert result.source_revision == REVISION
-    assert result.dataset_version == "v5"
+    assert result.dataset_version == "v6"
     assert result.network_transport == "in-memory-asgi"
     assert result.secret_store_accesses == 0
     assert result.system_writes_performed is False
@@ -187,6 +250,26 @@ def test_platform_matrix_requires_two_matching_real_hosts() -> None:
 
     with pytest.raises(ValueError, match="Windows 与 macOS"):
         validate_platform_matrix((windows, windows))
+
+
+@pytest.mark.parametrize(
+    ("updates", "violation"),
+    [
+        ({"violations": ("fixture",), "passed": True}, "receipt_violations"),
+        ({"remote_completion_rate": 0.0, "passed": True}, "remote_incomplete"),
+        ({"remote_fallback_tool_calls": 1, "passed": True}, "remote_fallback_tool_call"),
+    ],
+)
+def test_platform_matrix_recomputes_receipt_hard_gates(
+    updates: dict[str, object],
+    violation: str,
+) -> None:
+    windows = receipt(Platform.WINDOWS).model_copy(update=updates)
+
+    matrix = validate_platform_matrix((windows, receipt(Platform.MACOS)))
+
+    assert matrix.passed is False
+    assert violation in matrix.violations
 
 
 @pytest.mark.parametrize(
@@ -302,12 +385,15 @@ def test_platform_cli_binds_trusted_revision_and_writes_no_secret(
     assert json.loads(matrix_output.read_text(encoding="utf-8"))["passed"] is True
 
     model_report = tmp_path / "model-report.json"
+    report = final_model_report(tmp_path)
     model_report.write_text(
-        final_model_report(tmp_path).model_dump_json(indent=2),
+        report.model_dump_json(indent=2),
         encoding="utf-8",
     )
     real_ab = tmp_path / "real-ab.json"
     real_ab.write_text(real_ab_receipt().model_dump_json(indent=2), encoding="utf-8")
+    ledger = tmp_path / "attempt-ledger.json"
+    ledger.write_text(attempt_ledger(report).model_dump_json(indent=2))
     frozen = tmp_path / "final-metrics.json"
     assert (
         acceptance_cli.main(
@@ -319,6 +405,8 @@ def test_platform_cli_binds_trusted_revision_and_writes_no_secret(
                 str(matrix_output),
                 "--real-ab",
                 str(real_ab),
+                "--attempt-ledger",
+                str(ledger),
                 "--output",
                 str(frozen),
                 "--check",
@@ -335,10 +423,13 @@ def test_final_freeze_requires_one_same_revision_model_platform_and_ab_run(
     report = final_model_report(tmp_path)
     matrix = validate_platform_matrix((receipt(Platform.WINDOWS), receipt(Platform.MACOS)))
 
-    frozen = build_final_metric_freeze((report,), matrix, real_ab_receipt())
+    ledger = attempt_ledger(report)
+    frozen = build_final_metric_freeze((report,), matrix, real_ab_receipt(), ledger)
 
     assert frozen.passed is True
     assert frozen.evaluation_run_count == 1
+    assert frozen.evaluation_attempt_id == ledger.attempts[0].attempt_id
+    assert frozen.attempt_ledger_hash == model_content_hash(ledger)
     assert frozen.source_revision == REVISION
     assert frozen.dataset_content_hash == report.dataset_content_hash
     assert frozen.prompt_content_hash == INCIDENT_INVESTIGATION_PROMPT.content_hash
@@ -348,25 +439,64 @@ def test_final_freeze_requires_one_same_revision_model_platform_and_ab_run(
     assert frozen.violations == ()
 
     with pytest.raises(ValueError, match="只能提供一次"):
-        build_final_metric_freeze((report, report), matrix, real_ab_receipt())
+        build_final_metric_freeze((report, report), matrix, real_ab_receipt(), ledger)
 
     for incomplete in (
         report.model_copy(update={"source_revision": None}),
         report.model_copy(update={"prompt_content_hash": None}),
     ):
         with pytest.raises(ValueError, match="缺少提交或 Prompt"):
-            build_final_metric_freeze((incomplete,), matrix, real_ab_receipt())
+            build_final_metric_freeze((incomplete,), matrix, real_ab_receipt(), ledger)
+
+    duplicated = ledger.model_copy(
+        update={
+            "attempts": (
+                *ledger.attempts,
+                ledger.attempts[0].model_copy(
+                    update={"attempt_id": "eval_22222222222222222222222222222222"}
+                ),
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="同配置最终评测只能登记一次"):
+        build_final_metric_freeze((report,), matrix, real_ab_receipt(), duplicated)
+
+    wrong_hash = attempt_ledger(report).model_copy(
+        update={
+            "attempts": (
+                attempt_ledger(report)
+                .attempts[0]
+                .model_copy(update={"model_report_hash": f"sha256:{'b' * 64}"}),
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="报告哈希"):
+        build_final_metric_freeze((report,), matrix, real_ab_receipt(), wrong_hash)
+
+    running = FinalEvaluationAttempt.model_validate(
+        ledger.attempts[0].model_dump(mode="python")
+        | {"status": "running", "finished_at": None, "model_report_hash": None}
+    )
+    with pytest.raises(ValueError, match="尚未完成"):
+        build_final_metric_freeze(
+            (report,),
+            matrix,
+            real_ab_receipt(),
+            FinalEvaluationAttemptLedger(attempts=(running,)),
+        )
 
     unsafe_report = report.model_copy(
         update={"metrics": report.metrics.model_copy(update={"remote_local_tool_executions": 1})}
     )
-    rejected = build_final_metric_freeze((unsafe_report,), matrix, real_ab_receipt())
+    rejected = build_final_metric_freeze(
+        (unsafe_report,), matrix, real_ab_receipt(), attempt_ledger(unsafe_report)
+    )
     assert rejected.passed is False
     assert rejected.violations == ("remote_local_tool_execution",)
 
     unsafe_real_ab = real_ab_receipt().model_copy(
         update={"local_tool_executions": 1, "passed": True}
     )
-    rejected = build_final_metric_freeze((report,), matrix, unsafe_real_ab)
+    rejected = build_final_metric_freeze((report,), matrix, unsafe_real_ab, ledger)
     assert rejected.passed is False
     assert rejected.violations == ("real_ab_local_tool_execution",)
