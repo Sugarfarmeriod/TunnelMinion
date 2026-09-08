@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 
 import pytest
+import uvicorn
+from fastapi import FastAPI
 from scripts.run_cross_node_incident_real_ab import (
+    _stop_when_requested,  # pyright: ignore[reportPrivateUsage]
     main,
     validate_ports,
 )
@@ -29,6 +34,16 @@ def test_default_mode_only_prints_zero_side_effect_manifest(
 def test_execute_mode_requires_output() -> None:
     with pytest.raises(SystemExit, match="--output"):
         main(["run", "--ssh-target", "10.77.0.1", "--execute-approved"])
+
+
+def test_target_stops_only_after_its_private_marker(tmp_path: Path) -> None:
+    marker = tmp_path / "stop"
+    marker.touch()
+    server = uvicorn.Server(uvicorn.Config(FastAPI()))
+
+    asyncio.run(_stop_when_requested(marker, server))
+
+    assert server.should_exit is True
 
 
 @pytest.mark.parametrize("ports", [(8080, 18888), (18889, 8787), (18889, 18889)])

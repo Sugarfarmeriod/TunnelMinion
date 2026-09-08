@@ -527,6 +527,11 @@ async def run_acceptance(args: argparse.Namespace) -> CrossNodeRealABReceipt:
         ):
             raise RuntimeError("真实跨节点调查未得到证据化确认结论")
 
+        _ssh(
+            args.ssh_target,
+            f"touch {remote_root}/stop",
+            cwd=repo,
+        )
         gateway_cleaned = _wait_port(
             args.b_host,
             args.gateway_port,
@@ -640,6 +645,13 @@ async def run_acceptance(args: argparse.Namespace) -> CrossNodeRealABReceipt:
             _remove_local(runtime)
 
 
+async def _stop_when_requested(stop_file: Path, server: uvicorn.Server) -> None:
+    """只响应验收临时目录内的停止标记。"""
+    while not stop_file.exists():
+        await asyncio.sleep(0.1)
+    server.should_exit = True
+
+
 async def _serve_target(args: argparse.Namespace) -> int:
     """仅由 Windows 编排器在 macOS 自有临时目录中启动。"""
     if sys.platform != "darwin":
@@ -695,13 +707,15 @@ async def _serve_target(args: argparse.Namespace) -> int:
             port=args.gateway_port,
             log_level="warning",
             access_log=False,
-            limit_max_requests=3,
         )
     )
+    stop_task = asyncio.create_task(_stop_when_requested(data_dir.parent / "stop", server))
     try:
         async with listener:
             await server.serve()
     finally:
+        stop_task.cancel()
+        await asyncio.gather(stop_task, return_exceptions=True)
         (data_dir / "target-audit.json").write_text(
             json.dumps(
                 [item.model_dump(mode="json") for item in node.audit_sink.records],
