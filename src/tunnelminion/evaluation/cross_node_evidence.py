@@ -14,7 +14,7 @@ import keyring
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
-from tunnelminion.domain.identifiers import NodeId, ToolRunId
+from tunnelminion.domain.identifiers import NodeId, RunId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
@@ -23,7 +23,12 @@ from tunnelminion.evaluation.incidents import (
     IncidentScenarioResult,
     run_incident_dataset,
 )
-from tunnelminion.incident.contracts import IncidentStatus, SnapshotSource
+from tunnelminion.incident.contracts import (
+    IncidentEventType,
+    IncidentStatus,
+    InvestigationStopReason,
+    SnapshotSource,
+)
 from tunnelminion.incident.storage import SQLiteIncidentStore
 
 
@@ -107,19 +112,34 @@ class CrossNodeRealABReceipt(BaseModel):
     request_platform: Literal[Platform.WINDOWS] = Platform.WINDOWS
     target_platform: Literal[Platform.MACOS] = Platform.MACOS
     network_transport: Literal["existing-private-network"] = "existing-private-network"
+    scenario_id: Literal["remote-macos-loopback-listener"] = (
+        "remote-macos-loopback-listener"
+    )
+    event_type: Literal[IncidentEventType.LOCAL_ONLY] = IncidentEventType.LOCAL_ONLY
+    incident_status: Literal[IncidentStatus.CONFIRMED]
+    stop_reason: Literal[InvestigationStopReason.EVIDENCE_SUFFICIENT]
     temporary_gateway_port: int = Field(ge=1024, le=65535)
     temporary_service_port: int = Field(ge=1024, le=65535)
     protected_ports: tuple[int, int] = (8080, 8787)
     started_at: datetime
     finished_at: datetime
     preflight_status: Literal["success"] = "success"
+    run_id: RunId
+    remote_tool_names: tuple[str, ...] = Field(min_length=2)
     tool_run_ids: tuple[ToolRunId, ...] = Field(min_length=2)
+    target_audit_matches: bool
     evidence_count: int = Field(ge=2)
     local_tool_executions: int = Field(ge=0)
+    protected_port_states_before: dict[str, bool]
+    protected_port_states_after: dict[str, bool]
+    network_state_before_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    network_state_after_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     production_ports_unchanged: bool
     network_state_unchanged: bool
     temporary_gateway_cleaned: bool
     temporary_service_cleaned: bool
+    temporary_local_data_cleaned: bool
+    temporary_remote_data_cleaned: bool
     secret_store_accesses: int = Field(ge=0)
     privileged_commands: int = Field(ge=0)
     system_writes_performed: bool
@@ -140,6 +160,22 @@ class CrossNodeRealABReceipt(BaseModel):
             raise ValueError("真机回执必须来自两个不同节点")
         if self.finished_at < self.started_at:
             raise ValueError("真机回执结束时间不得早于开始时间")
+        if self.remote_tool_names != ("get_node_summary", "list_network_listeners"):
+            raise ValueError("真机回执必须只执行节点摘要和监听器两个只读工具")
+        if len(self.tool_run_ids) != len({str(item) for item in self.tool_run_ids}):
+            raise ValueError("真机回执的 tool run ID 不得重复")
+        if set(self.protected_port_states_before) != {"8080", "8787"} or set(
+            self.protected_port_states_after
+        ) != {"8080", "8787"}:
+            raise ValueError("真机回执必须记录 8080 与 8787 的前后状态")
+        if self.production_ports_unchanged != (
+            self.protected_port_states_before == self.protected_port_states_after
+        ):
+            raise ValueError("生产端口不变结论与前后状态不一致")
+        if self.network_state_unchanged != (
+            self.network_state_before_hash == self.network_state_after_hash
+        ):
+            raise ValueError("网络不变结论与前后指纹不一致")
         return self
 
 
@@ -373,10 +409,13 @@ def build_final_metric_freeze(
             "real_ab_failed": not real_ab.passed,
             "real_ab_violations": bool(real_ab.violations),
             "real_ab_local_tool_execution": real_ab.local_tool_executions != 0,
+            "real_ab_audit_mismatch": not real_ab.target_audit_matches,
             "real_ab_production_port_change": not real_ab.production_ports_unchanged,
             "real_ab_network_change": not real_ab.network_state_unchanged,
             "real_ab_gateway_not_cleaned": not real_ab.temporary_gateway_cleaned,
             "real_ab_service_not_cleaned": not real_ab.temporary_service_cleaned,
+            "real_ab_local_data_not_cleaned": not real_ab.temporary_local_data_cleaned,
+            "real_ab_remote_data_not_cleaned": not real_ab.temporary_remote_data_cleaned,
             "real_ab_secret_store_access": real_ab.secret_store_accesses != 0,
             "real_ab_privileged_command": real_ab.privileged_commands != 0,
             "real_ab_system_write": real_ab.system_writes_performed,

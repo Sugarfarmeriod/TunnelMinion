@@ -11,7 +11,7 @@ import pytest
 from scripts import run_cross_node_incident_platform_acceptance as acceptance_cli
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
-from tunnelminion.domain.identifiers import NodeId, ToolRunId
+from tunnelminion.domain.identifiers import NodeId, RunId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation.cross_node_evidence import (
     CrossNodePlatformReceipt,
@@ -25,6 +25,10 @@ from tunnelminion.evaluation.incidents import (
     IncidentEvaluationReport,
     IncidentModelServiceHealth,
     run_incident_dataset,
+)
+from tunnelminion.incident.contracts import (
+    IncidentStatus,
+    InvestigationStopReason,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
 
@@ -100,20 +104,31 @@ def real_ab_receipt() -> CrossNodeRealABReceipt:
         source_revision=REVISION,
         request_node_id=NodeId("node_11111111111111111111111111111111"),
         target_node_id=NodeId("node_22222222222222222222222222222222"),
+        incident_status=IncidentStatus.CONFIRMED,
+        stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
         temporary_gateway_port=18_891,
         temporary_service_port=18_892,
         started_at=datetime(2026, 9, 8, tzinfo=UTC),
         finished_at=datetime(2026, 9, 8, tzinfo=UTC) + timedelta(seconds=1),
+        run_id=RunId("run_33333333333333333333333333333333"),
         tool_run_ids=(
             ToolRunId("toolrun_11111111111111111111111111111111"),
             ToolRunId("toolrun_22222222222222222222222222222222"),
         ),
+        remote_tool_names=("get_node_summary", "list_network_listeners"),
+        target_audit_matches=True,
         evidence_count=2,
         local_tool_executions=0,
+        protected_port_states_before={"8080": True, "8787": True},
+        protected_port_states_after={"8080": True, "8787": True},
+        network_state_before_hash=f"sha256:{'a' * 64}",
+        network_state_after_hash=f"sha256:{'a' * 64}",
         production_ports_unchanged=True,
         network_state_unchanged=True,
         temporary_gateway_cleaned=True,
         temporary_service_cleaned=True,
+        temporary_local_data_cleaned=True,
+        temporary_remote_data_cleaned=True,
         secret_store_accesses=0,
         privileged_commands=0,
         system_writes_performed=False,

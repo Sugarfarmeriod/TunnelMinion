@@ -849,8 +849,12 @@ async def run_incident_scenario(
     provider: ModelProvider | None = None,
     provider_name: str = "configured-provider",
     model_name: str = "configured-model",
+    remote_preparer: ConfiguredRemoteToolPreparer | None = None,
+    remote_request_audit: InMemoryAuditSink | None = None,
 ) -> IncidentScenarioResult:
     """运行真实 detector、Context Runtime、Tool Runtime 与报告收敛链。"""
+    if (remote_preparer is None) != (remote_request_audit is None):
+        raise ValueError("外部远端准备器与请求端审计必须同时提供")
     started = perf_counter()
     target_node_id = _REMOTE_NODE if scenario.execution_scope == "remote" else _NODE
     baseline = _snapshot(
@@ -929,7 +933,11 @@ async def run_incident_scenario(
     request_audit: InMemoryAuditSink | None = None
     target_audit: InMemoryAuditSink | None = None
     if scenario.execution_scope == "remote":
-        remote_tools, request_audit, target_audit = _remote_preparer(scenario, recording)
+        if remote_preparer is not None:
+            remote_tools = _RecordingRemotePreparer(remote_preparer, recording)
+            request_audit = remote_request_audit
+        else:
+            remote_tools, request_audit, target_audit = _remote_preparer(scenario, recording)
     investigator = IncidentInvestigator(
         recording,
         registry,
