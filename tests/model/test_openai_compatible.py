@@ -206,15 +206,22 @@ def timeout_error(request_value: httpx.Request) -> Exception:
     return httpx.ReadTimeout("secret-value", request=request_value)
 
 
+def protocol_error(request_value: httpx.Request) -> Exception:
+    return httpx.RemoteProtocolError("secret-value", request=request_value)
+
+
 @pytest.mark.parametrize(
-    ("exception_factory", "expected"),
+    ("exception_factory", "expected", "retryable"),
     [
-        (connect_error, ProviderErrorCode.NETWORK_UNREACHABLE),
-        (timeout_error, ProviderErrorCode.TIMEOUT),
+        (connect_error, ProviderErrorCode.NETWORK_UNREACHABLE, True),
+        (timeout_error, ProviderErrorCode.TIMEOUT, True),
+        (protocol_error, ProviderErrorCode.INVALID_RESPONSE, True),
     ],
 )
 def test_classifies_transport_errors(
-    exception_factory: Callable[[httpx.Request], Exception], expected: ProviderErrorCode
+    exception_factory: Callable[[httpx.Request], Exception],
+    expected: ProviderErrorCode,
+    retryable: bool,
 ) -> None:
     def handler(http_request: httpx.Request) -> httpx.Response:
         raise exception_factory(http_request)
@@ -223,6 +230,7 @@ def test_classifies_transport_errors(
     with pytest.raises(ProviderError) as caught:
         run(provider.complete(request()))
     assert caught.value.code == expected
+    assert caught.value.retryable is retryable
     assert "secret-value" not in str(caught.value)
 
 

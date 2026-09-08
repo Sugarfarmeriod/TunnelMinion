@@ -123,6 +123,12 @@ class OpenAICompatibleProvider:
                     "无法连接模型服务",
                     retryable=True,
                 ) from exc
+            except httpx.TransportError as exc:
+                raise ProviderError(
+                    ProviderErrorCode.INVALID_RESPONSE,
+                    "模型连接在响应完成前中断",
+                    retryable=True,
+                ) from exc
             finally:
                 if cancel_task is not None:
                     cancel_task.cancel()
