@@ -5,9 +5,9 @@
 
 ## 2. Incident Agent 跨节点闭环
 
-- [ ] 2.1 为 Windows caller → macOS execution、摘要预检证据、远端证据路径和调用关联编写调查测试
-- [ ] 2.2 接入 `local_node_id` 与远端准备器，修正 caller/execution，保证远端纠正后不 fallback 且失败诚实停止
-- [ ] 2.3 在 Windows/macOS 本地应用工厂接入同一准备器，验证无配置、模型失败和本机 incident 回归不受影响
+- [x] 2.1 为 Windows caller → macOS execution、摘要预检证据、远端证据路径和调用关联编写调查测试
+- [x] 2.2 接入 `local_node_id` 与远端准备器，修正 caller/execution，保证远端纠正后不 fallback 且失败诚实停止
+- [x] 2.3 在 Windows/macOS 本地应用工厂接入同一准备器，验证无配置、模型失败和本机 incident 回归不受影响
 
 ## 3. 固定评测与平台证据
 

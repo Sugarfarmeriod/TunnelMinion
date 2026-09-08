@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi import FastAPI
@@ -15,11 +16,23 @@ from pydantic import JsonValue
 
 from tunnelminion.agent.context_contracts import ContextRequest
 from tunnelminion.agent.context_runtime import ContextInvocation, ContextModelRuntime
+from tunnelminion.agent.remote import (
+    PreparedRemoteAgentTools,
+    RemotePreparationError,
+    RemoteToolExecutor,
+)
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceProtocol,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, SnapshotId
+from tunnelminion.domain.errors import ErrorCode
+from tunnelminion.domain.identifiers import (
+    NodeId,
+    RunId,
+    ServiceId,
+    SnapshotId,
+    ToolRunId,
+)
 from tunnelminion.domain.tools import (
     DataSensitivity,
     Platform,
@@ -64,8 +77,9 @@ from tunnelminion.model.contracts import (
     ProviderErrorCode,
     ToolCall,
 )
+from tunnelminion.platforms.windows.models import Availability, NodeSummary, WireGuardStatus
 from tunnelminion.tools.audit import InMemoryAuditSink
-from tunnelminion.tools.contracts import ToolCancellationToken
+from tunnelminion.tools.contracts import ToolCallContext, ToolCancellationToken
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 from tunnelminion.web.overview import (
@@ -86,6 +100,7 @@ NODE = NodeId("node_0123456789abcdef0123456789abcdef")
 SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
 SERVICE_ADDED = ServiceId("service_22222222222222222222222222222222")
 SERVICE_ADDED_LATER = ServiceId("service_33333333333333333333333333333333")
+REQUEST_NODE = NodeId("node_99999999999999999999999999999999")
 
 
 class RecordingAdapter:
@@ -319,6 +334,133 @@ class SlowRuntime:
         raise AssertionError("墙钟上限没有取消慢模型")
 
 
+class RecordingRemotePreparer:
+    """为调查单元测试返回已完成身份预检的远端工具集。"""
+
+    def __init__(
+        self,
+        prepared: PreparedRemoteAgentTools | None,
+        *,
+        error: RemotePreparationError | None = None,
+    ) -> None:
+        self.prepared = prepared
+        self.error = error
+        self.calls: list[tuple[NodeId, ToolCallContext, tuple[str, ...]]] = []
+
+    async def prepare(
+        self,
+        target_node_id: NodeId,
+        context: ToolCallContext,
+        requested_tools: tuple[str, ...],
+        cancellation: ToolCancellationToken | None = None,
+    ) -> PreparedRemoteAgentTools:
+        assert cancellation is not None and not cancellation.cancelled
+        self.calls.append((target_node_id, context, requested_tools))
+        if self.error is not None:
+            raise self.error
+        assert self.prepared is not None
+        return self.prepared
+
+
+def _remote_runtime(
+    tmp_path: Path,
+    mode: str,
+    *,
+    preparation_error: RemotePreparationError | None = None,
+) -> tuple[
+    IncidentInvestigator,
+    SQLiteIncidentStore,
+    RecordingAdapter,
+    RecordingAdapter,
+    ScriptedProvider,
+    RecordingRemotePreparer,
+    InMemoryAuditSink,
+]:
+    local_registry = ToolRegistry()
+    local_adapter = RecordingAdapter()
+    local_registry.register(
+        ToolDefinition(
+            name="list_network_listeners",
+            version=ProtocolVersion(major=1, minor=0),
+            description="本机监听",
+            input_schema={"type": "object", "additionalProperties": False},
+            output_schema={"type": "object"},
+            risk_level=RiskLevel.READ_ONLY,
+            platforms=frozenset({Platform.WINDOWS}),
+            timeout_seconds=1,
+            max_result_bytes=1024,
+            data_sensitivity=DataSensitivity.SYSTEM_METADATA,
+        ),
+        local_adapter,
+    )
+    remote_registry = ToolRegistry()
+    remote_adapter = RecordingAdapter()
+    for name in ("get_node_summary", "list_network_listeners"):
+        remote_registry.register(
+            ToolDefinition(
+                name=name,
+                version=ProtocolVersion(major=1, minor=0),
+                description="远端只读证据",
+                input_schema={"type": "object", "additionalProperties": False},
+                output_schema={"type": "object"},
+                risk_level=RiskLevel.READ_ONLY,
+                platforms=frozenset({Platform.WINDOWS}),
+                timeout_seconds=1,
+                max_result_bytes=1024,
+                data_sensitivity=DataSensitivity.SYSTEM_METADATA,
+            ),
+            remote_adapter,
+        )
+    remote_audit = InMemoryAuditSink()
+    remote_runtime = ToolRuntime(remote_registry, Platform.WINDOWS, remote_audit)
+    prepared = PreparedRemoteAgentTools(
+        node_summary=NodeSummary(
+            node_id=str(NODE),
+            platform="macos",
+            agent_status="ready",
+            model_status="unconfigured",
+            wireguard=WireGuardStatus(
+                availability=Availability.AVAILABLE,
+                interface="utun4",
+                interface_up=True,
+                addresses=("10.77.0.1",),
+            ),
+            available_tools=("get_node_summary", "list_network_listeners"),
+        ),
+        summary_tool_run_id=ToolRunId("toolrun_88888888888888888888888888888888"),
+        registry=remote_registry,
+        executor=cast(RemoteToolExecutor, remote_runtime),
+        tool_names=("get_node_summary", "list_network_listeners"),
+    )
+    preparer = RecordingRemotePreparer(prepared, error=preparation_error)
+    store = SQLiteIncidentStore(tmp_path / f"remote-{mode}.sqlite3")
+    provider = ScriptedProvider(mode)
+    investigator = IncidentInvestigator(
+        ContextModelRuntime(
+            provider,
+            provider_name="scripted",
+            model_name="fixture",
+            tool_schema_version="incident-tools/v1",
+        ),
+        local_registry,
+        ToolRuntime(local_registry, Platform.WINDOWS, InMemoryAuditSink()),
+        store,
+        Platform.WINDOWS,
+        local_node_id=REQUEST_NODE,
+        remote_tools=preparer,
+        clock=lambda: NOW,
+    )
+    return (
+        investigator,
+        store,
+        local_adapter,
+        remote_adapter,
+        provider,
+        preparer,
+        remote_audit,
+    )
+
+
 def _incident(
     store: SQLiteIncidentStore,
     *,
@@ -385,7 +527,11 @@ def _incident(
     return store.record_event(event)
 
 
-def _local_node_incident(store: SQLiteIncidentStore) -> Incident:
+def _local_node_incident(
+    store: SQLiteIncidentStore,
+    *,
+    source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION,
+) -> Incident:
     event = SnapshotDiffEvent(
         event_type=IncidentEventType.NODE_OFFLINE,
         object_kind=SnapshotObjectKind.NODE,
@@ -396,7 +542,7 @@ def _local_node_incident(store: SQLiteIncidentStore) -> Incident:
         baseline_revision=1,
         current_revision=2,
         observed_at=NOW,
-        source=SnapshotSource.LOCAL_OBSERVATION,
+        source=source,
         before_state="online",
         after_state="offline",
         dedup_key=f"sha256:{'c' * 64}",
@@ -757,6 +903,126 @@ def test_remote_incident_never_uses_local_read_only_fallback(
     assert provider.requests[0].tools == ()
     assert provider.requests[0].require_tool_call is False
     assert provider.requests[0].response_schema is not None
+
+
+def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
+    tmp_path: Path,
+) -> None:
+    (
+        investigator,
+        store,
+        local_adapter,
+        remote_adapter,
+        provider,
+        preparer,
+        remote_audit,
+    ) = _remote_runtime(tmp_path, "success")
+
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert result.report is not None
+    assert len(result.report.evidence) == 2
+    assert local_adapter.calls == []
+    assert remote_adapter.calls == [{}]
+    assert len(preparer.calls) == 1
+    target, context, requested = preparer.calls[0]
+    assert target == NODE
+    assert context.caller_node_id == REQUEST_NODE
+    assert context.execution_node_id == NODE
+    assert context.run_id == result.run_id
+    assert requested == ("get_node_summary", "list_network_listeners")
+    assert [item.name for item in provider.requests[0].tools] == [
+        "list_network_listeners"
+    ]
+    preflight = [
+        message
+        for message in provider.requests[0].messages
+        if message.role == "tool" and message.name == "get_node_summary"
+    ]
+    assert len(preflight) == 1
+    assert str(preparer.prepared.summary_tool_run_id) in preflight[0].content  # type: ignore[union-attr]
+    assert len(remote_audit.records) == 1
+    assert remote_audit.records[0].caller_node_id == REQUEST_NODE
+    assert remote_audit.records[0].execution_node_id == NODE
+    assert not any("fallback" in item.summary for item in result.trace)
+
+
+def test_remote_incident_never_falls_back_after_tool_contract_correction(
+    tmp_path: Path,
+) -> None:
+    investigator, store, local_adapter, remote_adapter, provider, _, _ = _remote_runtime(
+        tmp_path,
+        "always_no_tool",
+    )
+
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.AGGREGATED))
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert local_adapter.calls == []
+    assert remote_adapter.calls == []
+    assert len(provider.requests) == 2
+    assert sum("纠正" in item.summary for item in result.trace) == 1
+    assert not any("fallback" in item.summary for item in result.trace)
+
+
+def test_remote_preparation_failure_stops_without_model_or_local_tools(
+    tmp_path: Path,
+) -> None:
+    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = (
+        _remote_runtime(
+            tmp_path,
+            "remote-preparation-failed",
+            preparation_error=RemotePreparationError(
+                ErrorCode.UNAUTHENTICATED,
+                "fixture credential unavailable",
+            ),
+        )
+    )
+
+    result = asyncio.run(
+        investigator.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.report is not None
+    assert result.report.conclusion is None
+    assert local_adapter.calls == remote_adapter.calls == []
+    assert provider.requests == []
+    assert len(preparer.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [IncidentEventType.NODE_OFFLINE, IncidentEventType.STATE_STALE],
+)
+def test_remote_offline_or_stale_incident_does_not_prepare_or_call_model(
+    tmp_path: Path,
+    event_type: IncidentEventType,
+) -> None:
+    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = (
+        _remote_runtime(tmp_path, f"remote-{event_type.value}")
+    )
+    incident = (
+        _local_node_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY)
+        if event_type is IncidentEventType.NODE_OFFLINE
+        else _incident(
+            store,
+            source=SnapshotSource.COORDINATOR_DIRECTORY,
+            event_type=IncidentEventType.STATE_STALE,
+        )
+    )
+
+    result = asyncio.run(investigator.run(incident))
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert preparer.calls == []
+    assert provider.requests == []
+    assert local_adapter.calls == remote_adapter.calls == []
 
 
 def test_local_stale_state_stops_without_model_or_live_tools(tmp_path: Path) -> None:

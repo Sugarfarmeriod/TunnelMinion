@@ -20,7 +20,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
-from tunnelminion.agent.remote import RemoteCapabilityLoader
+from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer, RemoteCapabilityLoader
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
@@ -308,6 +308,16 @@ def build_windows_application(
             runtime,
             incident_store,
             Platform.WINDOWS,
+            local_node_id=node_id,
+            remote_tools=ConfiguredRemoteToolPreparer(
+                GatewayConfigurationService(
+                    FileGatewayConfigurationRepository(root / "gateway.json"),
+                    gateway_secret_store(root),
+                ),
+                node_id,
+                Platform.WINDOWS,
+                audit,
+            ),
         ),
         before_snapshot=before_snapshot,
     )

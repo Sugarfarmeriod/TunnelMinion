@@ -24,7 +24,8 @@ from tunnelminion.agent.context_runtime import (
     make_context_reference,
 )
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
-from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.agent.remote import PreparedRemoteAgentTools, RemotePreparationError
+from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
     EvidenceReference,
@@ -96,6 +97,30 @@ _LOCAL_EVIDENCE_PATHS: dict[IncidentEventType, tuple[str, ...]] = {
     IncidentEventType.STATE_STALE: (),
 }
 
+_REMOTE_EVIDENCE_PATHS: dict[IncidentEventType, tuple[str, ...]] = {
+    IncidentEventType.SERVICE_ADDED: (
+        "get_node_summary",
+        "list_network_listeners",
+        "get_process_summary",
+    ),
+    IncidentEventType.SERVICE_REMOVED: (
+        "get_node_summary",
+        "get_process_summary",
+        "list_docker_services",
+    ),
+    IncidentEventType.NODE_OFFLINE: (),
+    IncidentEventType.LOCAL_ONLY: (
+        "get_node_summary",
+        "list_network_listeners",
+    ),
+    IncidentEventType.REMOTE_UNREACHABLE: (
+        "get_node_summary",
+        "list_network_listeners",
+        "get_process_summary",
+    ),
+    IncidentEventType.STATE_STALE: (),
+}
+
 _EVIDENCE_GAP_LABELS = {
     "get_node_summary": "节点与可用地址",
     "get_wireguard_status": "WireGuard 当前状态",
@@ -124,6 +149,18 @@ class InvestigationModelRuntime(Protocol):
         request: ContextRequest,
         cancellation: CancellationToken | None = None,
     ) -> ContextInvocation: ...
+
+
+class InvestigationRemoteToolPreparer(Protocol):
+    """为一个已确定的远端目标准备只读工具。"""
+
+    async def prepare(
+        self,
+        target_node_id: NodeId,
+        context: ToolCallContext,
+        requested_tools: tuple[str, ...],
+        cancellation: ToolCancellationToken | None = None,
+    ) -> PreparedRemoteAgentTools: ...
 
 
 class InvestigationLimits(BaseModel):
@@ -189,14 +226,20 @@ class IncidentInvestigator:
         store: SQLiteIncidentStore,
         platform: Platform,
         *,
+        local_node_id: NodeId | None = None,
+        remote_tools: InvestigationRemoteToolPreparer | None = None,
         limits: InvestigationLimits | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        if remote_tools is not None and local_node_id is None:
+            raise ValueError("远端调查必须声明当前节点")
         self._model = model
         self._registry = registry
         self._tools = tools
         self._store = store
         self._platform = platform
+        self._local_node_id = local_node_id
+        self._remote_tools = remote_tools
         self._limits = limits or InvestigationLimits()
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -253,9 +296,21 @@ class IncidentInvestigator:
         run_id: RunId,
         cancellation: InvestigationCancellation,
     ) -> Incident:
-        if (
-            incident.event.source is SnapshotSource.LOCAL_OBSERVATION
-            and incident.event.event_type is IncidentEventType.STATE_STALE
+        local_node_id = self._local_node_id
+        target_node_id = incident.event.target_node_id
+        target_is_local = local_node_id is None or target_node_id == local_node_id
+        local = (
+            target_is_local and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
+        )
+        remote = (
+            local_node_id is not None
+            and target_node_id != local_node_id
+            and incident.event.source is not SnapshotSource.LOCAL_OBSERVATION
+        )
+        if (local and incident.event.event_type is IncidentEventType.STATE_STALE) or (
+            remote
+            and incident.event.event_type
+            in {IncidentEventType.NODE_OFFLINE, IncidentEventType.STATE_STALE}
         ):
             return self._finish(
                 incident,
@@ -270,16 +325,100 @@ class IncidentInvestigator:
         ]
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
-        local = incident.event.source is SnapshotSource.LOCAL_OBSERVATION
-        available_tools = {item.name: item for item in self._model_tools()} if local else {}
-        evidence_path: tuple[str, ...] = (
-            _LOCAL_EVIDENCE_PATHS[incident.event.event_type] if local else ()
-        )
         current = incident
         tool_calls = 0
         attempted_tools: set[str] = set()
         successful_tools: dict[str, EvidenceReference] = {}
         tool_outputs: dict[str, JsonValue] = {}
+        active_registry = self._registry
+        active_executor = self._tools
+        evidence_path = (
+            _LOCAL_EVIDENCE_PATHS[incident.event.event_type]
+            if local
+            else _REMOTE_EVIDENCE_PATHS[incident.event.event_type]
+            if remote
+            else ()
+        )
+        if remote:
+            assert local_node_id is not None
+            if self._remote_tools is None:
+                return self._finish(
+                    current,
+                    IncidentStatus.INSUFFICIENT_EVIDENCE,
+                    InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                    "目标节点没有可用的显式远端只读授权",
+                    evidence=tuple(evidence.values()),
+                )
+            context = ToolCallContext(
+                thread_id=thread_id,
+                run_id=run_id,
+                caller_node_id=local_node_id,
+                execution_node_id=target_node_id,
+            )
+            try:
+                prepared = await self._remote_tools.prepare(
+                    target_node_id,
+                    context,
+                    evidence_path,
+                    cancellation.tool,
+                )
+            except RemotePreparationError:
+                return self._finish(
+                    current,
+                    IncidentStatus.INSUFFICIENT_EVIDENCE,
+                    InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                    "目标节点的远端只读证据准备失败",
+                    evidence=tuple(evidence.values()),
+                )
+            active_registry = prepared.registry
+            active_executor = prepared.executor
+            summary_call = ToolCall(
+                call_id=f"remote-preflight-{run_id}",
+                name="get_node_summary",
+                arguments={},
+            )
+            summary_result = ToolExecutionResult(
+                tool_run_id=prepared.summary_tool_run_id,
+                status=ToolExecutionStatus.SUCCESS,
+                output=prepared.node_summary.model_dump(mode="json"),
+            )
+            summary_content = self._tool_result_content(summary_result)
+            summary_reference = EvidenceReference(
+                tool_run_id=prepared.summary_tool_run_id,
+                observed_at=self._now(),
+                summary="远端节点摘要预检成功",
+            )
+            messages.append(
+                ModelMessage(role="assistant", content="", tool_calls=(summary_call,))
+            )
+            tool_results.append(
+                ToolResultContext(
+                    tool_run_id=prepared.summary_tool_run_id,
+                    content=summary_content,
+                    tool_call_id=summary_call.call_id,
+                    tool_name=summary_call.name,
+                    content_bytes=len(summary_content.encode()),
+                )
+            )
+            evidence[str(prepared.summary_tool_run_id)] = summary_reference
+            attempted_tools.add("get_node_summary")
+            successful_tools["get_node_summary"] = summary_reference
+            tool_outputs["get_node_summary"] = prepared.node_summary.model_dump(mode="json")
+            tool_calls = 1
+            current = self._append_trace(
+                current,
+                PublicTraceEntry(
+                    occurred_at=self._now(),
+                    kind="tool",
+                    summary=summary_reference.summary,
+                    tool_name="get_node_summary",
+                    evidence=(summary_reference,),
+                ),
+            )
+            self._store.put_incident(current)
+        available_tools = {
+            item.name: item for item in self._model_tools(active_registry)
+        } if evidence_path else {}
         tool_contract_repaired = False
         report_repaired = False
         invalid_response_retried = False
@@ -344,7 +483,7 @@ class IncidentInvestigator:
                 if evidence_path
                 else ()
             )
-            if local and evidence_path and gap_signature != last_gap_signature:
+            if evidence_path and gap_signature != last_gap_signature:
                 summary = (
                     "实时只读证据与触发快照冲突，停止追加取证"
                     if evidence_conflict
@@ -373,7 +512,7 @@ class IncidentInvestigator:
                     evidence=tuple(successful_tools.values()),
                 )
             round_messages = tuple(messages)
-            if local:
+            if evidence_path:
                 constraint = self._evidence_gap_message(
                     incident,
                     attempted_tools,
@@ -452,6 +591,14 @@ class IncidentInvestigator:
                     )
                     self._store.put_incident(current)
                     continue
+                if not local:
+                    return self._finish(
+                        current,
+                        IncidentStatus.INSUFFICIENT_EVIDENCE,
+                        InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                        "模型仍未选择必要的远端只读工具",
+                        evidence=tuple(successful_tools.values()),
+                    )
                 fallback = self._fallback_call(
                     run_id,
                     round_tools,
@@ -495,13 +642,13 @@ class IncidentInvestigator:
                         tool_calls=response.tool_calls,
                     )
                 )
-                result = await self._tools.execute(
+                result = await active_executor.execute(
                     ToolExecutionRequest(
                         context=ToolCallContext(
                             thread_id=thread_id,
                             run_id=run_id,
-                            caller_node_id=incident.event.target_node_id,
-                            execution_node_id=incident.event.target_node_id,
+                            caller_node_id=local_node_id or target_node_id,
+                            execution_node_id=target_node_id,
                         ),
                         tool_name=call.name,
                         arguments=call.arguments,
@@ -1046,8 +1193,14 @@ class IncidentInvestigator:
             and required_ids.issubset(cited)
         )
 
-    def _model_tools(self) -> tuple[ModelToolDefinition, ...]:
-        available = {item.name: item for item in self._registry.model_tools(self._platform)}
+    def _model_tools(
+        self,
+        registry: ToolRegistry | None = None,
+    ) -> tuple[ModelToolDefinition, ...]:
+        available = {
+            item.name: item
+            for item in (registry or self._registry).model_tools(self._platform)
+        }
         return tuple(
             ModelToolDefinition(
                 name=available[name].name,
@@ -1189,13 +1342,19 @@ class ConfiguredIncidentRunner:
         store: SQLiteIncidentStore,
         platform: Platform,
         *,
+        local_node_id: NodeId | None = None,
+        remote_tools: InvestigationRemoteToolPreparer | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        if remote_tools is not None and local_node_id is None:
+            raise ValueError("远端调查必须声明当前节点")
         self._provider_factory = provider_factory
         self._registry = registry
         self._tools = tools
         self._store = store
         self._platform = platform
+        self._local_node_id = local_node_id
+        self._remote_tools = remote_tools
         self._clock = clock or (lambda: datetime.now(UTC))
 
     async def run(self, incident: Incident) -> Incident:
@@ -1224,6 +1383,8 @@ class ConfiguredIncidentRunner:
             self._tools,
             self._store,
             self._platform,
+            local_node_id=self._local_node_id,
+            remote_tools=self._remote_tools,
             clock=self._clock,
         ).run(incident)
 

@@ -27,6 +27,7 @@ from tests.test_app import (
 from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.managed_coordinator import ManagedCoordinatorLoops, ServiceSnapshotCache
+from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer
 from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.domain.identifiers import LeaseId, NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
@@ -279,6 +280,16 @@ def test_macos_local_resources_degrade_without_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """B 未配置模型时资源页和只读工具可用，只有 AI 运行入口拒绝。"""
+    observers: list[IncidentObservationService] = []
+
+    def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        observer = IncidentObservationService(
+            *args, **kwargs  # pyright: ignore[reportArgumentType]
+        )
+        observers.append(observer)
+        return observer
+
+    monkeypatch.setattr("tunnelminion.macos_app.IncidentObservationService", capture_observer)
 
     def no_password(_service: str, _name: str) -> None:
         return None
@@ -321,6 +332,12 @@ def test_macos_local_resources_degrade_without_model(
     enrollment = cast(dict[str, object], managed_body["enrollment"])
     assert enrollment["state"] == "unconfigured"
     assert bundle.managed_node.runtime is None
+    incident_runner = cast(
+        Any,
+        observers[0]._investigator,  # pyright: ignore[reportPrivateUsage]
+    )
+    assert incident_runner._local_node_id == bundle.node.node_id
+    assert isinstance(incident_runner._remote_tools, ConfiguredRemoteToolPreparer)
     overview = client.get("/api/resources/overview", headers={})
     overview_body = cast(dict[str, object], overview.json())
     assert overview.status_code == 200
