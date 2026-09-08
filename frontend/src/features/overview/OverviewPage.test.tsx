@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ResourceOverview } from "../../api/schemas/overview";
+import { makeOperationListItem } from "../operations/testFixtures";
 
 import { OverviewPage } from "./OverviewPage";
 
@@ -122,6 +123,11 @@ describe("OverviewPage", () => {
 
   beforeEach(() => {
     fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation((input) =>
+      input === "/api/operations"
+        ? jsonResponse([])
+        : Promise.reject(new TypeError(`unexpected request: ${String(input)}`)),
+    );
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -350,11 +356,21 @@ describe("OverviewPage", () => {
       suggested_questions: ["哪个进程持有这个监听端口？"],
       thread_id: null,
     };
-    fetchMock
-      .mockReturnValueOnce(jsonResponse(payload))
-      .mockReturnValueOnce(jsonResponse(detail))
-      .mockReturnValueOnce(
-        jsonResponse({
+    fetchMock.mockImplementation((input, init) => {
+      if (input === "/api/resources/overview") {
+        return jsonResponse(payload);
+      }
+      if (input === "/api/operations") {
+        return jsonResponse([]);
+      }
+      if (input === `/api/incidents/${incidentId}`) {
+        return jsonResponse(detail);
+      }
+      if (
+        input === `/api/incidents/${incidentId}/follow-up` &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse({
           run_id: runId,
           thread_id: threadId,
           status: "running",
@@ -364,8 +380,12 @@ describe("OverviewPage", () => {
           error_code: null,
           error_message: null,
           failure: null,
-        }),
+        });
+      }
+      return Promise.reject(
+        new TypeError(`unexpected request: ${String(input)}`),
       );
+    });
     const user = userEvent.setup();
     const { container } = renderOverview();
 
@@ -402,6 +422,209 @@ describe("OverviewPage", () => {
     );
   });
 
+  it("从已确认的远端 local-only incident 只导航到预填候选计划", async () => {
+    const payload = makeOverview();
+    const incidentId = `incident_${"4".repeat(32)}`;
+    const snapshotA = `snapshot_${"5".repeat(32)}`;
+    const snapshotB = `snapshot_${"6".repeat(32)}`;
+    payload.nodes.items = [
+      {
+        node_id: nodeA,
+        display_name: "本机",
+        platform: "windows",
+        state: "local",
+        source: "local_observation",
+        evidence_at: evidenceAt,
+        freshness: "live",
+        service_count: 0,
+      },
+      {
+        node_id: nodeB,
+        display_name: "远端 Mac",
+        platform: "macos",
+        state: "online",
+        source: "coordinator_directory",
+        evidence_at: evidenceAt,
+        freshness: "fresh",
+        service_count: 1,
+      },
+    ];
+    payload.services.items = [
+      {
+        service_id: serviceA,
+        node_id: nodeB,
+        display_name: "远端面板",
+        protocol: "tcp",
+        port: 4312,
+        access_address: "tcp://127.0.0.1:4312",
+        accessibility: "loopback",
+        lifecycle: "active",
+        state: "available",
+        source: "coordinator_directory",
+        evidence_at: evidenceAt,
+        freshness: "fresh",
+      },
+    ];
+    payload.incidents.items = [
+      {
+        incident_id: incidentId,
+        event_type: "local_only",
+        object_kind: "service",
+        object_id: serviceA,
+        severity: "warning",
+        status: "confirmed",
+        first_observed_at: evidenceAt,
+        last_observed_at: generatedAt,
+        conclusion: "远端服务只监听环回地址",
+      },
+    ];
+    const detail = {
+      incident: {
+        schema_version: "incident/v1",
+        incident_id: incidentId,
+        dedup_key: `sha256:${"a".repeat(64)}`,
+        event: {
+          event_type: "local_only",
+          object_kind: "service",
+          object_id: serviceA,
+          target_node_id: nodeB,
+          baseline_snapshot_id: snapshotA,
+          current_snapshot_id: snapshotB,
+          baseline_revision: 1,
+          current_revision: 2,
+          observed_at: evidenceAt,
+          source: "coordinator_directory",
+          before_state: "network",
+          after_state: "loopback",
+          dedup_key: `sha256:${"a".repeat(64)}`,
+        },
+        status: "confirmed",
+        created_at: evidenceAt,
+        last_observed_at: generatedAt,
+        run_id: `run_${"7".repeat(32)}`,
+        hypotheses: [],
+        trace: [],
+        report: {
+          facts: ["服务只监听环回地址"],
+          candidate_explanations: [],
+          unknowns: [],
+          conclusion: "远端服务只监听环回地址",
+          stop_reason: "evidence_sufficient",
+          evidence: [
+            {
+              snapshot_id: snapshotB,
+              tool_run_id: null,
+              observed_at: evidenceAt,
+              summary: "当前快照确认环回监听",
+            },
+          ],
+        },
+      },
+      suggested_questions: [],
+      thread_id: null,
+    };
+    fetchMock.mockImplementation((input) => {
+      if (input === "/api/resources/overview") {
+        return jsonResponse(payload);
+      }
+      if (input === "/api/operations") {
+        return jsonResponse([]);
+      }
+      if (input === `/api/incidents/${incidentId}`) {
+        return jsonResponse(detail);
+      }
+      return Promise.reject(
+        new TypeError(`unexpected request: ${String(input)}`),
+      );
+    });
+    const user = userEvent.setup();
+
+    renderOverview();
+    await user.click(
+      await screen.findByRole("button", { name: "查看调查详情" }),
+    );
+    const handoff = await screen.findByRole("link", {
+      name: "生成候选处理计划",
+    });
+
+    expect(handoff).toHaveAttribute(
+      "href",
+      `/app/operations?incident_id=${incidentId}&target_node_id=${nodeB}&service_port=4312`,
+    );
+    expect(screen.getByText(/调查结论也不会成为授权/)).toBeVisible();
+    await user.click(handoff);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([, init]) => (init?.method ?? "GET").toUpperCase() === "POST",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("只突出需要本机介入的操作，操作读取失败也不破坏 incident 总览", async () => {
+    const payload = makeOverview();
+    const operations = [
+      makeOperationListItem({ operation_id: `operation_${"1".repeat(32)}` }),
+      makeOperationListItem({
+        operation_id: `operation_${"2".repeat(32)}`,
+        role: "requester",
+        status: "authorized",
+      }),
+      makeOperationListItem({
+        operation_id: `operation_${"3".repeat(32)}`,
+        role: "requester",
+        status: "awaiting_authorization",
+      }),
+      makeOperationListItem({
+        operation_id: `operation_${"4".repeat(32)}`,
+        status: "succeeded",
+      }),
+      makeOperationListItem({
+        operation_id: `operation_${"5".repeat(32)}`,
+        execution_result_unknown: true,
+      }),
+      makeOperationListItem({
+        operation_id: `operation_${"6".repeat(32)}`,
+        status: "cleanup_failed",
+      }),
+    ];
+    fetchMock.mockImplementation((input) =>
+      input === "/api/resources/overview"
+        ? jsonResponse(payload)
+        : input === "/api/operations"
+          ? jsonResponse(operations)
+          : Promise.reject(
+              new TypeError(`unexpected request: ${String(input)}`),
+            ),
+    );
+
+    renderOverview();
+
+    expect(await screen.findByText("待本机批准")).toBeVisible();
+    expect(screen.getByText("待确认执行")).toBeVisible();
+    expect(screen.getByText("写入结果待确认")).toBeVisible();
+    expect(screen.getByText("清理失败，需人工处理")).toBeVisible();
+    expect(
+      screen.getAllByRole("link", { name: "打开最新操作详情" }),
+    ).toHaveLength(4);
+
+    cleanup();
+    fetchMock.mockImplementation((input) =>
+      input === "/api/resources/overview"
+        ? jsonResponse(payload)
+        : Promise.reject(new TypeError("operations offline")),
+    );
+    renderOverview();
+
+    expect(
+      await screen.findByRole("heading", { name: "事件与自主调查" }),
+    ).toBeVisible();
+    expect(
+      await screen.findByText(
+        "操作待办暂时无法读取；资源和 incident 总览不受影响。",
+      ),
+    ).toBeVisible();
+  });
+
   it("刷新失败时把旧结果标为缓存，并允许再次刷新后恢复", async () => {
     const first = makeOverview();
     first.nodes.items = [
@@ -424,10 +647,25 @@ describe("OverviewPage", () => {
         evidence_at: generatedAt,
       },
     ];
-    fetchMock
-      .mockReturnValueOnce(jsonResponse(first))
-      .mockRejectedValueOnce(new TypeError("network unavailable"))
-      .mockReturnValueOnce(jsonResponse(recovered));
+    let overviewCalls = 0;
+    fetchMock.mockImplementation((input) => {
+      if (input === "/api/operations") {
+        return jsonResponse([]);
+      }
+      if (input === "/api/resources/overview") {
+        overviewCalls += 1;
+        if (overviewCalls === 1) {
+          return jsonResponse(first);
+        }
+        if (overviewCalls === 2) {
+          return Promise.reject(new TypeError("network unavailable"));
+        }
+        return jsonResponse(recovered);
+      }
+      return Promise.reject(
+        new TypeError(`unexpected request: ${String(input)}`),
+      );
+    });
     const user = userEvent.setup();
 
     renderOverview();

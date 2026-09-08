@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   formatOperationTime,
@@ -17,8 +17,47 @@ import {
 } from "./operationsApi";
 import "./operations.css";
 
+const incidentIdPattern = /^incident_[0-9a-f]{32}$/;
+const nodeIdPattern = /^node_[0-9a-f]{32}$/;
+
+export type IncidentOperationPrefill =
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | {
+      kind: "valid";
+      incidentId: string;
+      servicePort: number;
+      targetNodeId: string;
+    };
+
+export function parseIncidentOperationPrefill(
+  searchParams: URLSearchParams,
+): IncidentOperationPrefill {
+  const names = ["incident_id", "target_node_id", "service_port"] as const;
+  if (names.every((name) => !searchParams.has(name))) {
+    return { kind: "none" };
+  }
+  if (names.some((name) => searchParams.getAll(name).length !== 1)) {
+    return { kind: "invalid" };
+  }
+  const incidentId = searchParams.get("incident_id") ?? "";
+  const targetNodeId = searchParams.get("target_node_id") ?? "";
+  const servicePort = Number(searchParams.get("service_port"));
+  if (
+    !incidentIdPattern.test(incidentId) ||
+    !nodeIdPattern.test(targetNodeId) ||
+    !Number.isInteger(servicePort) ||
+    servicePort < 1 ||
+    servicePort > 65_535
+  ) {
+    return { kind: "invalid" };
+  }
+  return { kind: "valid", incidentId, targetNodeId, servicePort };
+}
+
 export function OperationsListPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const createInFlight = useRef(false);
   const [creating, setCreating] = useState(false);
@@ -31,10 +70,31 @@ export function OperationsListPage() {
     queryKey: [...operationQueryKeys.all, "eligible-peers"],
     queryFn: listEligibleOperationPeers,
   });
+  const incidentPrefill = parseIncidentOperationPrefill(searchParams);
+  const prefillTargetAvailable =
+    incidentPrefill.kind === "valid" &&
+    peersQuery.data?.some(
+      (peer) => peer.node_id === incidentPrefill.targetNodeId,
+    ) === true;
+  const prefillBlocked =
+    incidentPrefill.kind === "invalid" ||
+    (incidentPrefill.kind === "valid" &&
+      peersQuery.data !== undefined &&
+      !prefillTargetAvailable);
+  const defaultTargetNodeId =
+    incidentPrefill.kind === "valid"
+      ? incidentPrefill.targetNodeId
+      : (peersQuery.data?.[0]?.node_id ?? "");
 
   async function createOperation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (createInFlight.current) {
+      return;
+    }
+    if (prefillBlocked) {
+      setCreateMessage(
+        "Incident 预填上下文已经失效；本次没有创建操作。请返回总览刷新，或打开普通新建入口。",
+      );
       return;
     }
     const form = new FormData(event.currentTarget);
@@ -122,6 +182,36 @@ export function OperationsListPage() {
             列表只显示摘要。打开详情后会按 ID 重新读取完整计划和服务端允许动作。
           </p>
         </div>
+
+        {incidentPrefill.kind === "valid" ? (
+          <div
+            className={`operations-callout ${prefillBlocked ? "operations-callout--warning" : ""}`}
+            role={prefillBlocked ? "alert" : "status"}
+          >
+            <strong>来自 Incident {incidentPrefill.incidentId}</strong>
+            <span>
+              已预填目标节点和端口；所有值仍会按最新证据重新诊断，调查结论不等于确认或授权。
+            </span>
+            {prefillBlocked ? (
+              <>
+                <span>
+                  该目标当前不在服务端返回的合格对端中，本次上下文请求已禁用。
+                </span>
+                <Link to="/app/operations">打开普通新建入口</Link>
+              </>
+            ) : (
+              <Link to="/app/overview">返回 Incident 总览</Link>
+            )}
+          </div>
+        ) : incidentPrefill.kind === "invalid" ? (
+          <div
+            className="operations-callout operations-callout--warning"
+            role="alert"
+          >
+            <strong>Incident 预填参数无效，本次上下文请求已禁用。</strong>
+            <Link to="/app/operations">打开普通新建入口</Link>
+          </div>
+        ) : null}
         <button
           disabled={query.isFetching}
           type="button"
@@ -179,12 +269,23 @@ export function OperationsListPage() {
           <label>
             目标节点
             <select
+              key={`${defaultTargetNodeId}-${peersQuery.data?.length ?? "loading"}`}
               required
               disabled={
-                peersQuery.data === undefined || peersQuery.data.length === 0
+                prefillBlocked ||
+                peersQuery.data === undefined ||
+                peersQuery.data.length === 0
               }
+              defaultValue={defaultTargetNodeId}
               name="target_node_id"
             >
+              {incidentPrefill.kind === "valid" &&
+              peersQuery.data !== undefined &&
+              !prefillTargetAvailable ? (
+                <option value={incidentPrefill.targetNodeId}>
+                  {incidentPrefill.targetNodeId} · 当前不合格
+                </option>
+              ) : null}
               {(peersQuery.data ?? []).map((peer) => (
                 <option key={peer.node_id} value={peer.node_id}>
                   {peer.node_id} · {peer.host}
@@ -195,7 +296,11 @@ export function OperationsListPage() {
           <label>
             目标服务端口
             <input
-              defaultValue="8080"
+              defaultValue={
+                incidentPrefill.kind === "valid"
+                  ? incidentPrefill.servicePort
+                  : 8080
+              }
               max="65535"
               min="1"
               name="service_port"
@@ -232,6 +337,7 @@ export function OperationsListPage() {
           <button
             disabled={
               creating ||
+              prefillBlocked ||
               peersQuery.data === undefined ||
               peersQuery.data.length === 0
             }
