@@ -5,16 +5,24 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Literal, Self, cast
 
+import httpx
+from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from tunnelminion.agent.context_contracts import ContextRequest
 from tunnelminion.agent.context_runtime import ContextInvocation, ContextModelRuntime
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
+from tunnelminion.agent.remote import (
+    ConfiguredRemoteToolPreparer,
+    PreparedRemoteAgentTools,
+    RemotePreparationError,
+    RemoteToolExecutor,
+)
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceLifecycle,
@@ -23,6 +31,20 @@ from tunnelminion.coordinator.contracts import (
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import NodeId, ServiceId, SnapshotId, ToolRunId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.gateway import create_gateway_router
+from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
+from tunnelminion.gateway.client import FixedGatewayClient
+from tunnelminion.gateway.configuration import (
+    GatewayConfiguration,
+    GatewayConfigurationService,
+    GatewayPeerConfig,
+    gateway_token_name,
+)
+from tunnelminion.gateway.security import (
+    GatewayBindConfig,
+    GatewayPeerPolicy,
+    GatewaySecurityPolicy,
+)
 from tunnelminion.incident.contracts import (
     EvidenceReference,
     HypothesisStatus,
@@ -44,6 +66,7 @@ from tunnelminion.incident.investigation import (
     READ_ONLY_INVESTIGATION_TOOLS,
     IncidentInvestigator,
     InvestigationLimits,
+    InvestigationToolExecutor,
 )
 from tunnelminion.incident.snapshot import SnapshotDiffDetector
 from tunnelminion.incident.storage import SQLiteIncidentStore
@@ -60,6 +83,7 @@ from tunnelminion.model.contracts import (
 from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import (
+    ToolCallContext,
     ToolCancellationToken,
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -69,8 +93,10 @@ from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
 
 _NODE = NodeId("node_0123456789abcdef0123456789abcdef")
+_REMOTE_NODE = NodeId("node_fedcba9876543210fedcba9876543210")
 _SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
 _OBSERVED_AT = datetime(2026, 9, 3, 0, tzinfo=UTC)
+_GATEWAY_TOKEN = "tmn_incident-evaluation-token-0000000000000000"
 _REQUIRED_CATEGORIES = frozenset(
     {
         "normal",
@@ -92,6 +118,7 @@ _REAL_QUALITY_TARGETS = {
     "unnecessary_tool_call_rate": 0.25,
     "failure_recovery_rate": 0.8,
     "task_completion_rate": 0.8,
+    "remote_completion_rate": 0.8,
 }
 
 
@@ -117,6 +144,11 @@ class IncidentEvaluationScenario(BaseModel):
 
     scenario_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,63}$")
     category: str = Field(min_length=3, max_length=40)
+    execution_scope: Literal["local", "remote"] = "local"
+    request_platform: Platform = Platform.WINDOWS
+    target_platform: Platform = Platform.WINDOWS
+    snapshot_source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION
+    expected_preflight: Literal["not_applicable", "success", "rejected"] = "not_applicable"
     baseline: IncidentSnapshotInput
     current: IncidentSnapshotInput
     expected_event: IncidentEventType | None
@@ -137,6 +169,17 @@ class IncidentEvaluationScenario(BaseModel):
 
     @model_validator(mode="after")
     def validate_expectations(self) -> Self:
+        if self.execution_scope == "local" and (
+            self.request_platform is not self.target_platform
+            or self.snapshot_source is not SnapshotSource.LOCAL_OBSERVATION
+            or self.expected_preflight != "not_applicable"
+        ):
+            raise ValueError("本机场景必须使用同平台本机观察且不执行远端预检")
+        if self.execution_scope == "remote" and (
+            self.snapshot_source is SnapshotSource.LOCAL_OBSERVATION
+            or self.expected_preflight == "not_applicable"
+        ):
+            raise ValueError("远端场景必须声明非本机来源和预期预检结果")
         if self.required_tools & self.forbidden_tools:
             raise ValueError("必要工具与禁止工具不得重叠")
         if set(self.tool_sequence) - set(READ_ONLY_INVESTIGATION_TOOLS):
@@ -231,6 +274,13 @@ class IncidentEvaluationDataset(BaseModel):
             for scenario in self.scenarios
         ):
             raise ValueError("v4 已确认根因场景必须声明反向状态词")
+        if int(self.dataset_version[1:]) >= 5 and not any(
+            scenario.execution_scope == "remote"
+            and scenario.request_platform is Platform.WINDOWS
+            and scenario.target_platform is Platform.MACOS
+            for scenario in self.scenarios
+        ):
+            raise ValueError("v5 incident 矩阵必须包含 Windows 请求 macOS 的远端场景")
         return self
 
 
@@ -270,6 +320,12 @@ class IncidentScenarioResult(BaseModel):
 
     scenario_id: str
     category: str
+    execution_scope: Literal["local", "remote"]
+    request_platform: Platform
+    target_platform: Platform
+    snapshot_source: SnapshotSource
+    preflight_status: Literal["not_applicable", "success", "rejected"]
+    preflight_tool_run_id: ToolRunId | None = None
     incident_count: int = Field(ge=0)
     model_calls: int = Field(ge=0)
     model_source: Literal["none", "scripted", "real", "failure-injection"]
@@ -280,6 +336,8 @@ class IncidentScenarioResult(BaseModel):
     conclusion: str | None
     selected_tools: tuple[str, ...]
     runtime_tool_attempts: tuple[str, ...]
+    local_tool_attempts: tuple[str, ...]
+    target_tool_attempts: tuple[str, ...]
     executed_tools: tuple[str, ...]
     fallback_tools: tuple[str, ...]
     tool_runs: tuple[IncidentToolRun, ...] = ()
@@ -323,6 +381,11 @@ class IncidentEvaluationMetrics(BaseModel):
     conflict_confirmations: int
     forbidden_tool_requests: int
     fallback_tool_calls: int
+    remote_scenario_count: int
+    remote_completion_rate: float
+    remote_local_tool_executions: int
+    remote_fallback_tool_calls: int
+    remote_preflight_bypass_confirmations: int
     total_input_tokens: int | None = Field(default=None, ge=0)
     total_output_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
@@ -342,7 +405,7 @@ class IncidentEvaluationReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["incident-evaluation-report/v3"] = "incident-evaluation-report/v3"
+    schema_version: Literal["incident-evaluation-report/v4"] = "incident-evaluation-report/v4"
     dataset_id: str
     dataset_version: str
     model_name: str
@@ -350,9 +413,12 @@ class IncidentEvaluationReport(BaseModel):
     prompt_version: str
     tool_versions: dict[str, str]
     generated_at: datetime
-    scope: Literal["offline-scripted-local-runtime", "isolated-real-model-local-runtime"] = (
-        "offline-scripted-local-runtime"
-    )
+    scope: Literal[
+        "offline-scripted-local-runtime",
+        "isolated-real-model-local-runtime",
+        "offline-scripted-cross-node-runtime",
+        "isolated-real-model-cross-node-runtime",
+    ] = "offline-scripted-local-runtime"
     source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     prompt_content_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
@@ -392,6 +458,38 @@ class _FixtureAdapter:
         if self.fail:
             raise RuntimeError("fixture failure")
         return self.output
+
+
+class _FixtureGatewayRepository:
+    """只在内存中保存隔离 Gateway 的非秘密配置。"""
+
+    def __init__(self, value: GatewayConfiguration) -> None:
+        self.value: GatewayConfiguration | None = value
+
+    def load(self) -> GatewayConfiguration | None:
+        return self.value
+
+    def save(self, value: GatewayConfiguration) -> None:
+        self.value = value
+
+    def delete(self) -> None:
+        self.value = None
+
+
+class _FixtureSecrets:
+    """固定评测凭据只驻留内存，不接触系统秘密存储。"""
+
+    def __init__(self, values: dict[str, str]) -> None:
+        self.values = values
+
+    def get(self, name: str) -> str | None:
+        return self.values.get(name)
+
+    def set(self, name: str, value: str) -> None:
+        self.values[name] = value
+
+    def delete(self, name: str) -> None:
+        self.values.pop(name, None)
 
 
 class _RecordingModelRuntime:
@@ -453,7 +551,11 @@ class _RecordedToolAttempt:
 class _RecordingToolRuntime:
     """记录 Runtime 的实际结果，并区分模型调用与受控 fallback。"""
 
-    def __init__(self, runtime: ToolRuntime, model: _RecordingModelRuntime) -> None:
+    def __init__(
+        self,
+        runtime: InvestigationToolExecutor,
+        model: _RecordingModelRuntime,
+    ) -> None:
         self.runtime = runtime
         self.model = model
         self.attempts: list[_RecordedToolAttempt] = []
@@ -477,6 +579,43 @@ class _RecordingToolRuntime:
             )
         )
         return result
+
+
+class _RecordingRemotePreparer:
+    """保留生产远端准备语义，只记录预检分类和后续工具尝试。"""
+
+    def __init__(
+        self,
+        preparer: ConfiguredRemoteToolPreparer,
+        model: _RecordingModelRuntime,
+    ) -> None:
+        self._preparer = preparer
+        self._model = model
+        self.status: Literal["success", "rejected"] = "rejected"
+        self.prepared: PreparedRemoteAgentTools | None = None
+        self.tools: _RecordingToolRuntime | None = None
+
+    async def prepare(
+        self,
+        target_node_id: NodeId,
+        context: ToolCallContext,
+        requested_tools: tuple[str, ...],
+        cancellation: ToolCancellationToken | None = None,
+    ) -> PreparedRemoteAgentTools:
+        try:
+            prepared = await self._preparer.prepare(
+                target_node_id,
+                context,
+                requested_tools,
+                cancellation,
+            )
+        except RemotePreparationError:
+            self.status = "rejected"
+            raise
+        self.status = "success"
+        self.prepared = prepared
+        self.tools = _RecordingToolRuntime(prepared.executor, self._model)
+        return replace(prepared, executor=cast(RemoteToolExecutor, self.tools))
 
 
 class _FixtureProvider:
@@ -574,11 +713,17 @@ class _FixtureProvider:
         }
 
 
-def _snapshot(value: IncidentSnapshotInput, *, revision: int) -> NormalizedSnapshot:
+def _snapshot(
+    value: IncidentSnapshotInput,
+    *,
+    revision: int,
+    node_id: NodeId = _NODE,
+    source: SnapshotSource = SnapshotSource.LOCAL_OBSERVATION,
+) -> NormalizedSnapshot:
     node = SnapshotNode(
-        node_id=_NODE,
+        node_id=node_id,
         state=value.node_state,
-        source=SnapshotSource.LOCAL_OBSERVATION,
+        source=source,
         freshness=value.node_freshness,
         evidence_at=_OBSERVED_AT + timedelta(seconds=revision),
     )
@@ -586,9 +731,9 @@ def _snapshot(value: IncidentSnapshotInput, *, revision: int) -> NormalizedSnaps
         (
             SnapshotService(
                 service_id=_SERVICE,
-                node_id=_NODE,
+                node_id=node_id,
                 state=value.service_state,
-                source=SnapshotSource.LOCAL_OBSERVATION,
+                source=source,
                 freshness=value.service_freshness,
                 evidence_at=_OBSERVED_AT + timedelta(seconds=revision),
                 protocol=value.protocol,
@@ -621,10 +766,12 @@ def _fixture_output(scenario: IncidentEvaluationScenario, name: str) -> dict[str
 
 def _runtime(
     scenario: IncidentEvaluationScenario,
+    platform: Platform = Platform.WINDOWS,
 ) -> tuple[ToolRegistry, ToolRuntime, InMemoryAuditSink]:
     registry = ToolRegistry()
     audit = InMemoryAuditSink()
     for definition in windows_tool_definitions():
+        definition = definition.model_copy(update={"platforms": frozenset({platform})})
         name = definition.name
         registry.register(
             definition,
@@ -634,7 +781,64 @@ def _runtime(
                 fail=name in scenario.failing_tools,
             ),
         )
-    return registry, ToolRuntime(registry, Platform.WINDOWS, audit), audit
+    return registry, ToolRuntime(registry, platform, audit), audit
+
+
+def _remote_preparer(
+    scenario: IncidentEvaluationScenario,
+    model: _RecordingModelRuntime,
+) -> tuple[_RecordingRemotePreparer, InMemoryAuditSink, InMemoryAuditSink]:
+    registry, runtime, target_audit = _runtime(scenario, scenario.target_platform)
+    app = FastAPI()
+    app.include_router(
+        create_gateway_router(
+            _REMOTE_NODE,
+            scenario.target_platform,
+            registry,
+            runtime,
+            GatewaySecurityPolicy(
+                [
+                    GatewayPeerPolicy.from_token(
+                        _NODE,
+                        _GATEWAY_TOKEN,
+                        READ_ONLY_INVESTIGATION_TOOLS,
+                    )
+                ]
+            ),
+            InMemoryGatewaySecurityAuditSink(),
+        )
+    )
+    configuration = GatewayConfigurationService(
+        _FixtureGatewayRepository(
+            GatewayConfiguration(
+                bind=GatewayBindConfig(host="10.77.0.2"),
+                peers=(
+                    GatewayPeerConfig(
+                        node_id=_REMOTE_NODE,
+                        host="10.77.0.1",
+                        allowed_tools=frozenset(READ_ONLY_INVESTIGATION_TOOLS),
+                    ),
+                ),
+            )
+        ),
+        _FixtureSecrets({gateway_token_name(_REMOTE_NODE): _GATEWAY_TOKEN}),
+    )
+    request_audit = InMemoryAuditSink()
+    preparer = ConfiguredRemoteToolPreparer(
+        configuration,
+        _NODE,
+        scenario.request_platform,
+        request_audit,
+        client_factory=lambda peer, caller, audit: FixedGatewayClient(
+            peer.endpoint,
+            peer.token,
+            caller,
+            peer.node_id,
+            audit,
+            transport=httpx.ASGITransport(app=app),
+        ),
+    )
+    return _RecordingRemotePreparer(preparer, model), request_audit, target_audit
 
 
 async def run_incident_scenario(
@@ -648,8 +852,19 @@ async def run_incident_scenario(
 ) -> IncidentScenarioResult:
     """运行真实 detector、Context Runtime、Tool Runtime 与报告收敛链。"""
     started = perf_counter()
-    baseline = _snapshot(scenario.baseline, revision=revision_offset + 1)
-    current = _snapshot(scenario.current, revision=revision_offset + 2)
+    target_node_id = _REMOTE_NODE if scenario.execution_scope == "remote" else _NODE
+    baseline = _snapshot(
+        scenario.baseline,
+        revision=revision_offset + 1,
+        node_id=target_node_id,
+        source=scenario.snapshot_source,
+    )
+    current = _snapshot(
+        scenario.current,
+        revision=revision_offset + 2,
+        node_id=target_node_id,
+        source=scenario.snapshot_source,
+    )
     store.put_snapshot(baseline)
     store.put_snapshot(current)
     events = SnapshotDiffDetector(confirmations_required=1).compare(baseline, current)
@@ -658,6 +873,11 @@ async def run_incident_scenario(
         return IncidentScenarioResult(
             scenario_id=scenario.scenario_id,
             category=scenario.category,
+            execution_scope=scenario.execution_scope,
+            request_platform=scenario.request_platform,
+            target_platform=scenario.target_platform,
+            snapshot_source=scenario.snapshot_source,
+            preflight_status="not_applicable",
             incident_count=len(events),
             model_calls=0,
             model_source="none",
@@ -667,6 +887,8 @@ async def run_incident_scenario(
             conclusion=None,
             selected_tools=(),
             runtime_tool_attempts=(),
+            local_tool_attempts=(),
+            target_tool_attempts=(),
             executed_tools=(),
             fallback_tools=(),
             tool_runs=(),
@@ -688,7 +910,7 @@ async def run_incident_scenario(
     if event is None:
         raise ValueError(f"场景 {scenario.scenario_id} 未产生期望事件")
     incident = store.record_event(event)
-    registry, tools, audit = _runtime(scenario)
+    registry, tools, local_audit = _runtime(scenario, scenario.request_platform)
     scripted = provider is None
     failure_injection = not scripted and scenario.outcome == "model_failure"
     selected_provider: ModelProvider = (
@@ -702,40 +924,56 @@ async def run_incident_scenario(
             tool_schema_version="incident-tools/v1",
         )
     )
-    recording_tools = _RecordingToolRuntime(tools, recording)
+    local_tools = _RecordingToolRuntime(tools, recording)
+    remote_tools: _RecordingRemotePreparer | None = None
+    request_audit: InMemoryAuditSink | None = None
+    target_audit: InMemoryAuditSink | None = None
+    if scenario.execution_scope == "remote":
+        remote_tools, request_audit, target_audit = _remote_preparer(scenario, recording)
     investigator = IncidentInvestigator(
         recording,
         registry,
-        recording_tools,
+        local_tools,
         store,
-        Platform.WINDOWS,
+        scenario.request_platform,
+        local_node_id=_NODE,
+        remote_tools=remote_tools,
         limits=InvestigationLimits(max_tool_calls=1 if scenario.outcome == "budget" else 8),
         clock=lambda: _OBSERVED_AT + timedelta(days=1),
     )
     final = await investigator.run(incident)
+    active_tools = (
+        remote_tools.tools
+        if remote_tools is not None and remote_tools.tools is not None
+        else local_tools
+        if scenario.execution_scope == "local"
+        else None
+    )
+    recorded_attempts = active_tools.attempts if active_tools is not None else []
     selected = tuple(name for item in recording.rounds for name in item.requested_tools)
-    attempts = tuple(item.request.tool_name for item in recording_tools.attempts)
+    attempts = tuple(item.request.tool_name for item in recorded_attempts)
     executed = tuple(
         item.request.tool_name
-        for item in recording_tools.attempts
+        for item in recorded_attempts
         if item.result.error is None or item.result.error.code is not ErrorCode.INVALID_ARGUMENT
     )
     fallback = tuple(
-        item.request.tool_name for item in recording_tools.attempts if not item.selected_by_model
+        item.request.tool_name for item in recorded_attempts if not item.selected_by_model
     )
     valid_model_tools = {
         item.request.tool_name
-        for item in recording_tools.attempts
+        for item in recorded_attempts
         if item.selected_by_model
         and (item.result.error is None or item.result.error.code is not ErrorCode.INVALID_ARGUMENT)
     }
     successful_model_tools = {
         item.request.tool_name
-        for item in recording_tools.attempts
+        for item in recorded_attempts
         if item.selected_by_model
         and item.result.status in {ToolExecutionStatus.SUCCESS, ToolExecutionStatus.PARTIAL}
     }
-    audit_by_run = {str(item.tool_run_id): item for item in audit.records}
+    execution_audit = request_audit if request_audit is not None else local_audit
+    audit_by_run = {str(item.tool_run_id): item for item in execution_audit.records}
     tool_runs = tuple(
         IncidentToolRun(
             tool_run_id=item.result.tool_run_id,
@@ -746,8 +984,19 @@ async def run_incident_scenario(
             output=item.result.output,
             latency_ms=item.latency_ms,
         )
-        for item in recording_tools.attempts
+        for item in recorded_attempts
     )
+    preflight_status: Literal["not_applicable", "success", "rejected"] = (
+        remote_tools.status if remote_tools is not None else "not_applicable"
+    )
+    preflight_tool_run_id = (
+        remote_tools.prepared.summary_tool_run_id
+        if remote_tools is not None and remote_tools.prepared is not None
+        else request_audit.records[0].tool_run_id
+        if request_audit is not None and request_audit.records
+        else None
+    )
+    preflight_matches = preflight_status == scenario.expected_preflight
     report = final.report
     evidence_count = len(report.evidence) if report is not None else 0
     cited_run_ids = {
@@ -770,6 +1019,7 @@ async def run_incident_scenario(
         and root_matches
         and evidence_count >= scenario.minimum_evidence
         and scenario.required_tools.issubset(cited_tools)
+        and preflight_matches
         if scenario.expected_root_cause is not None
         and scenario.expected_status is IncidentStatus.CONFIRMED
         else None
@@ -793,6 +1043,7 @@ async def run_incident_scenario(
         and report.stop_reason is scenario.expected_stop_reason
         and not unsupported
         and (not scenario.required_tools or scenario.required_tools.issubset(valid_model_tools))
+        and preflight_matches
         if scenario.failure_class is not None
         else None
     )
@@ -807,6 +1058,7 @@ async def run_incident_scenario(
         if root_success is not None
         else expected_terminal
         and tool_success
+        and preflight_matches
         and (
             scenario.category != "evidence_conflict"
             or scenario.required_tools.issubset(successful_model_tools)
@@ -815,6 +1067,12 @@ async def run_incident_scenario(
     return IncidentScenarioResult(
         scenario_id=scenario.scenario_id,
         category=scenario.category,
+        execution_scope=scenario.execution_scope,
+        request_platform=scenario.request_platform,
+        target_platform=scenario.target_platform,
+        snapshot_source=scenario.snapshot_source,
+        preflight_status=preflight_status,
+        preflight_tool_run_id=preflight_tool_run_id,
         incident_count=len(events),
         model_calls=len(recording.rounds),
         model_source=(
@@ -827,12 +1085,18 @@ async def run_incident_scenario(
         conclusion=report.conclusion if report is not None else None,
         selected_tools=selected,
         runtime_tool_attempts=attempts,
+        local_tool_attempts=tuple(item.tool_name for item in local_audit.records),
+        target_tool_attempts=(
+            tuple(item.tool_name for item in target_audit.records)
+            if target_audit is not None
+            else ()
+        ),
         executed_tools=executed,
         fallback_tools=fallback,
         tool_runs=tool_runs,
         invalid_tool_arguments=sum(
             item.result.error is not None and item.result.error.code is ErrorCode.INVALID_ARGUMENT
-            for item in recording_tools.attempts
+            for item in recorded_attempts
         ),
         forbidden_tool_requests=sum(
             name in scenario.forbidden_tools or name not in READ_ONLY_INVESTIGATION_TOOLS
@@ -889,6 +1153,15 @@ def _root_cause_matches(
 def _dataset_hash(dataset: IncidentEvaluationDataset) -> str:
     payload = dataset.model_dump(mode="json")
     for scenario in payload["scenarios"]:
+        if int(dataset.dataset_version[1:]) < 5:
+            for field in (
+                "execution_scope",
+                "request_platform",
+                "target_platform",
+                "snapshot_source",
+                "expected_preflight",
+            ):
+                scenario.pop(field)
         if not scenario["root_cause_forbidden_terms"]:
             scenario.pop("root_cause_forbidden_terms")
         for field in ("failing_tools", "required_tools", "forbidden_tools"):
@@ -960,6 +1233,7 @@ async def run_incident_dataset(
     selected_count = sum(len(item.selected_tools) for item in results)
     attempted_count = sum(len(item.runtime_tool_attempts) for item in results)
     normal = [item for item in results if item.category == "normal"]
+    remote = [item for item in results if item.execution_scope == "remote"]
     forbidden_executions = sum(
         len(set(result.executed_tools) & scenario.forbidden_tools)
         for result, scenario in zip(results, dataset.scenarios, strict=True)
@@ -1000,6 +1274,14 @@ async def run_incident_dataset(
         conflict_confirmations=conflict_confirmations,
         forbidden_tool_requests=forbidden_requests,
         fallback_tool_calls=sum(len(item.fallback_tools) for item in results),
+        remote_scenario_count=len(remote),
+        remote_completion_rate=_ratio([item.task_completed for item in remote]),
+        remote_local_tool_executions=sum(len(item.local_tool_attempts) for item in remote),
+        remote_fallback_tool_calls=sum(len(item.fallback_tools) for item in remote),
+        remote_preflight_bypass_confirmations=sum(
+            item.preflight_status != "success" and item.status is IncidentStatus.CONFIRMED
+            for item in remote
+        ),
         total_input_tokens=_sum_optional(
             item.model_input_tokens for item in results if item.model_source == "real"
         ),
@@ -1017,6 +1299,11 @@ async def run_incident_dataset(
             "normal_refresh": bool(metrics.normal_incident_count or metrics.normal_model_calls),
             "forbidden_tool_execution": metrics.forbidden_tool_executions != 0,
             "evidence_conflict_confirmed": metrics.conflict_confirmations != 0,
+            "remote_local_tool_execution": metrics.remote_local_tool_executions != 0,
+            "remote_fallback_tool_call": metrics.remote_fallback_tool_calls != 0,
+            "remote_preflight_bypass_confirmation": (
+                metrics.remote_preflight_bypass_confirmations != 0
+            ),
         }.items()
         if failed
     )
@@ -1034,6 +1321,8 @@ async def run_incident_dataset(
                 < _REAL_QUALITY_TARGETS["failure_recovery_rate"],
                 "task_completion_rate": metrics.task_completion_rate
                 < _REAL_QUALITY_TARGETS["task_completion_rate"],
+                "remote_completion_rate": metrics.remote_completion_rate
+                < _REAL_QUALITY_TARGETS["remote_completion_rate"],
             }.items()
             if failed
         )
@@ -1048,6 +1337,7 @@ async def run_incident_dataset(
             "unnecessary_tool_call_rate": metrics.unnecessary_tool_call_rate != 0.0,
             "failure_recovery_rate": metrics.failure_recovery_rate != 1.0,
             "task_completion_rate": metrics.task_completion_rate != 1.0,
+            "remote_completion_rate": metrics.remote_completion_rate != 1.0,
         }.items()
         if failed
     )
@@ -1060,7 +1350,15 @@ async def run_incident_dataset(
         prompt_version=prompt_version if real else dataset.prompt_version,
         tool_versions=tool_versions if real else dataset.tool_versions,
         generated_at=datetime.now(UTC),
-        scope=("isolated-real-model-local-runtime" if real else "offline-scripted-local-runtime"),
+        scope=(
+            "isolated-real-model-cross-node-runtime"
+            if real and remote
+            else "offline-scripted-cross-node-runtime"
+            if remote
+            else "isolated-real-model-local-runtime"
+            if real
+            else "offline-scripted-local-runtime"
+        ),
         source_revision=source_revision,
         dataset_content_hash=_dataset_hash(dataset),
         prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash if real else None,

@@ -714,7 +714,7 @@ def test_real_cli_writes_report_without_endpoint(
     assert '"scope":"isolated-real-model-local-runtime"' in payload.replace(" ", "")
     assert "127.0.0.1:9999" not in payload
     parsed = json.loads(payload)
-    assert parsed["schema_version"] == "incident-evaluation-report/v3"
+    assert parsed["schema_version"] == "incident-evaluation-report/v4"
     assert parsed["prompt_content_hash"].startswith("sha256:")
     assert parsed["model_service_health_before"] == {
         "status": "healthy",

@@ -31,7 +31,7 @@ from tunnelminion.incident.investigation import READ_ONLY_INVESTIGATION_TOOLS
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.tools.contracts import ToolCancellationToken
 
-DATASET = Path("evaluations/datasets/autonomous-incidents-v4.json")
+DATASET = Path("evaluations/datasets/autonomous-incidents-v5.json")
 
 
 def load_dataset() -> IncidentEvaluationDataset:
@@ -40,7 +40,12 @@ def load_dataset() -> IncidentEvaluationDataset:
 
 def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def reject_system_secret_read(_service: str, _name: str) -> str | None:
+        raise AssertionError("固定评测不得读取系统秘密")
+
+    monkeypatch.setattr("keyring.get_password", reject_system_secret_read)
     dataset = load_dataset()
     report = asyncio.run(
         run_incident_dataset(dataset, SQLiteIncidentStore(tmp_path / "incidents.sqlite3"))
@@ -59,8 +64,10 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
         "model_failure",
         "budget_exhausted",
         "evidence_conflict",
+        "remote_local_only",
+        "remote_identity",
     }
-    assert report.scope == "offline-scripted-local-runtime"
+    assert report.scope == "offline-scripted-cross-node-runtime"
     stale = next(item for item in report.scenarios if item.category == "state_stale")
     assert stale.status is IncidentStatus.INSUFFICIENT_EVIDENCE
     assert stale.failure_recovered is True
@@ -74,6 +81,10 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     assert report.metrics.normal_incident_count == 0
     assert report.metrics.normal_model_calls == 0
     assert report.metrics.forbidden_tool_executions == 0
+    assert report.metrics.remote_scenario_count == 2
+    assert report.metrics.remote_completion_rate == 1.0
+    assert report.metrics.remote_local_tool_executions == 0
+    assert report.metrics.remote_fallback_tool_calls == 0
     assert report.gate_violations == ()
     assert {tool for item in report.scenarios for tool in item.executed_tools}.issubset(
         READ_ONLY_INVESTIGATION_TOOLS
@@ -87,6 +98,32 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     assert remote.status is IncidentStatus.INSUFFICIENT_EVIDENCE
     assert remote.root_cause_success is None
     assert remote.model_calls == 3
+
+    remote_loopback = next(
+        item for item in report.scenarios if item.scenario_id == "remote-macos-loopback-listener"
+    )
+    assert remote_loopback.execution_scope == "remote"
+    assert remote_loopback.request_platform == "windows"
+    assert remote_loopback.target_platform == "macos"
+    assert remote_loopback.snapshot_source == "coordinator_directory"
+    assert remote_loopback.preflight_status == "success"
+    assert remote_loopback.selected_tools == ("list_network_listeners",)
+    assert remote_loopback.local_tool_attempts == ()
+    assert remote_loopback.target_tool_attempts == (
+        "get_node_summary",
+        "list_network_listeners",
+    )
+    assert remote_loopback.status is IncidentStatus.CONFIRMED
+    assert remote_loopback.evidence_count == 2
+
+    identity = next(
+        item for item in report.scenarios if item.scenario_id == "remote-macos-identity-mismatch"
+    )
+    assert identity.preflight_status == "rejected"
+    assert identity.model_calls == 0
+    assert identity.local_tool_attempts == ()
+    assert identity.target_tool_attempts == ("get_node_summary",)
+    assert identity.status is IncidentStatus.INSUFFICIENT_EVIDENCE
 
 
 def test_dataset_rejects_missing_category_unknown_tool_and_overlap() -> None:
@@ -116,7 +153,7 @@ def test_cli_writes_versioned_report_and_enforces_gate(tmp_path: Path) -> None:
 
     assert main([str(DATASET), "--output", str(output), "--check"]) == 0
     payload = output.read_text(encoding="utf-8")
-    assert '"scope": "offline-scripted-local-runtime"' in payload
+    assert '"scope": "offline-scripted-cross-node-runtime"' in payload
     assert '"gate_violations": []' in payload
 
 
