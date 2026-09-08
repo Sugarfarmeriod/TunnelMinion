@@ -261,7 +261,8 @@ def test_node_id_is_created_once_and_application_is_composed(
 
     def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
         observer = IncidentObservationService(
-            *args, **kwargs  # pyright: ignore[reportArgumentType]
+            *args,  # pyright: ignore[reportArgumentType]
+            **kwargs,  # pyright: ignore[reportArgumentType]
         )
         observers.append(observer)
         return observer

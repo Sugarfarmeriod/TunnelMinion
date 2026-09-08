@@ -119,9 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         windows = CrossNodePlatformReceipt.model_validate_json(
             args.windows.read_text(encoding="utf-8")
         )
-        macos = CrossNodePlatformReceipt.model_validate_json(
-            args.macos.read_text(encoding="utf-8")
-        )
+        macos = CrossNodePlatformReceipt.model_validate_json(args.macos.read_text(encoding="utf-8"))
         matrix = validate_platform_matrix((windows, macos))
         _write(args.output, matrix)
         return int(args.check and not matrix.passed)
@@ -133,9 +131,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     matrix = CrossNodePlatformMatrix.model_validate_json(
         args.platform_matrix.read_text(encoding="utf-8")
     )
-    real_ab = CrossNodeRealABReceipt.model_validate_json(
-        args.real_ab.read_text(encoding="utf-8")
-    )
+    real_ab = CrossNodeRealABReceipt.model_validate_json(args.real_ab.read_text(encoding="utf-8"))
     frozen = build_final_metric_freeze(reports, matrix, real_ab)
     _write(args.output, frozen)
     return int(args.check and not frozen.passed)

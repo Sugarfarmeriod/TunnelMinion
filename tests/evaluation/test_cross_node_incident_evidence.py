@@ -7,12 +7,15 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import keyring
 import pytest
+from pydantic import ValidationError
 from scripts import run_cross_node_incident_platform_acceptance as acceptance_cli
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
 from tunnelminion.domain.identifiers import NodeId, RunId, ToolRunId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.evaluation import cross_node_evidence as evidence_module
 from tunnelminion.evaluation.cross_node_evidence import (
     CrossNodePlatformReceipt,
     CrossNodeRealABReceipt,
@@ -182,6 +185,67 @@ def test_platform_matrix_requires_two_matching_real_hosts() -> None:
     assert mismatch.passed is False
     assert mismatch.violations == ("source_revision_mismatch",)
 
+    with pytest.raises(ValueError, match="Windows 与 macOS"):
+        validate_platform_matrix((windows, windows))
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"protected_ports": (8080, 9999)}, "必须保护"),
+        ({"temporary_gateway_port": 8080}, "不得占用"),
+        ({"temporary_service_port": 18_891}, "不得相同"),
+        (
+            {"target_node_id": NodeId("node_11111111111111111111111111111111")},
+            "两个不同节点",
+        ),
+        ({"finished_at": datetime(2026, 9, 7, tzinfo=UTC)}, "不得早于"),
+        (
+            {"remote_tool_names": ("get_node_summary", "get_process_summary")},
+            "只执行节点摘要和监听器",
+        ),
+        (
+            {
+                "tool_run_ids": (
+                    ToolRunId("toolrun_11111111111111111111111111111111"),
+                    ToolRunId("toolrun_11111111111111111111111111111111"),
+                )
+            },
+            "不得重复",
+        ),
+        ({"protected_port_states_after": {"8080": True}}, "前后状态"),
+        ({"production_ports_unchanged": False}, "生产端口不变结论"),
+        ({"network_state_unchanged": False}, "网络不变结论"),
+    ],
+)
+def test_real_ab_receipt_rejects_inconsistent_proof(
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        CrossNodeRealABReceipt.model_validate(real_ab_receipt().model_dump(mode="python") | updates)
+
+
+def test_platform_acceptance_rejects_invalid_remote_result_and_secret_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ValueError, match="缺少终态或预检分类"):
+        evidence_module._remote_receipt(  # pyright: ignore[reportPrivateUsage]
+            final_model_report(tmp_path).scenarios[0]
+        )
+
+    async def read_system_secret(
+        _dataset: IncidentEvaluationDataset,
+        _store: SQLiteIncidentStore,
+    ) -> IncidentEvaluationReport:
+        keyring.get_password("tunnelminion-test", "fixture")
+        raise AssertionError("secret rejection must raise first")
+
+    monkeypatch.setattr(evidence_module, "run_incident_dataset", read_system_secret)
+    with pytest.raises(RuntimeError, match="禁止访问系统秘密存储"):
+        asyncio.run(run_platform_acceptance(dataset(), Platform.WINDOWS, REVISION))
+
 
 def test_platform_cli_binds_trusted_revision_and_writes_no_secret(
     tmp_path: Path,
@@ -269,9 +333,7 @@ def test_final_freeze_requires_one_same_revision_model_platform_and_ab_run(
     tmp_path: Path,
 ) -> None:
     report = final_model_report(tmp_path)
-    matrix = validate_platform_matrix(
-        (receipt(Platform.WINDOWS), receipt(Platform.MACOS))
-    )
+    matrix = validate_platform_matrix((receipt(Platform.WINDOWS), receipt(Platform.MACOS)))
 
     frozen = build_final_metric_freeze((report,), matrix, real_ab_receipt())
 
@@ -288,10 +350,15 @@ def test_final_freeze_requires_one_same_revision_model_platform_and_ab_run(
     with pytest.raises(ValueError, match="只能提供一次"):
         build_final_metric_freeze((report, report), matrix, real_ab_receipt())
 
+    for incomplete in (
+        report.model_copy(update={"source_revision": None}),
+        report.model_copy(update={"prompt_content_hash": None}),
+    ):
+        with pytest.raises(ValueError, match="缺少提交或 Prompt"):
+            build_final_metric_freeze((incomplete,), matrix, real_ab_receipt())
+
     unsafe_report = report.model_copy(
-        update={
-            "metrics": report.metrics.model_copy(update={"remote_local_tool_executions": 1})
-        }
+        update={"metrics": report.metrics.model_copy(update={"remote_local_tool_executions": 1})}
     )
     rejected = build_final_metric_freeze((unsafe_report,), matrix, real_ab_receipt())
     assert rejected.passed is False

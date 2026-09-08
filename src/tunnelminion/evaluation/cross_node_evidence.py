@@ -56,9 +56,7 @@ class CrossNodePlatformReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["cross-node-incident-platform/v1"] = (
-        "cross-node-incident-platform/v1"
-    )
+    schema_version: Literal["cross-node-incident-platform/v1"] = "cross-node-incident-platform/v1"
     host_platform: Platform
     source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
     dataset_id: str
@@ -103,18 +101,14 @@ class CrossNodeRealABReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["cross-node-incident-real-ab/v1"] = (
-        "cross-node-incident-real-ab/v1"
-    )
+    schema_version: Literal["cross-node-incident-real-ab/v1"] = "cross-node-incident-real-ab/v1"
     source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
     request_node_id: NodeId
     target_node_id: NodeId
     request_platform: Literal[Platform.WINDOWS] = Platform.WINDOWS
     target_platform: Literal[Platform.MACOS] = Platform.MACOS
     network_transport: Literal["existing-private-network"] = "existing-private-network"
-    scenario_id: Literal["remote-macos-loopback-listener"] = (
-        "remote-macos-loopback-listener"
-    )
+    scenario_id: Literal["remote-macos-loopback-listener"] = "remote-macos-loopback-listener"
     event_type: Literal[IncidentEventType.LOCAL_ONLY] = IncidentEventType.LOCAL_ONLY
     incident_status: Literal[IncidentStatus.CONFIRMED]
     stop_reason: Literal[InvestigationStopReason.EVIDENCE_SUFFICIENT]
@@ -150,9 +144,7 @@ class CrossNodeRealABReceipt(BaseModel):
     def validate_receipt(self) -> CrossNodeRealABReceipt:
         if set(self.protected_ports) != {8080, 8787}:
             raise ValueError("真机回执必须保护现有 8080 与 8787 端口")
-        if {self.temporary_gateway_port, self.temporary_service_port} & set(
-            self.protected_ports
-        ):
+        if {self.temporary_gateway_port, self.temporary_service_port} & set(self.protected_ports):
             raise ValueError("临时验收端口不得占用受保护生产端口")
         if self.temporary_gateway_port == self.temporary_service_port:
             raise ValueError("临时 Gateway 与服务端口不得相同")
@@ -203,9 +195,7 @@ class FinalMetricSnapshot(BaseModel):
 
     @classmethod
     def from_metrics(cls, metrics: IncidentEvaluationMetrics) -> FinalMetricSnapshot:
-        return cls.model_validate(
-            metrics.model_dump(include=set(cls.model_fields), mode="json")
-        )
+        return cls.model_validate(metrics.model_dump(include=set(cls.model_fields), mode="json"))
 
 
 class FinalMetricFreeze(BaseModel):
@@ -283,16 +273,8 @@ async def run_platform_acceptance(
     violations = (
         *report.gate_violations,
         *(("remote_scenario_count",) if len(remote) < 2 else ()),
-        *(
-            ("remote_local_tool_execution",)
-            if report.metrics.remote_local_tool_executions
-            else ()
-        ),
-        *(
-            ("remote_fallback_tool_call",)
-            if report.metrics.remote_fallback_tool_calls
-            else ()
-        ),
+        *(("remote_local_tool_execution",) if report.metrics.remote_local_tool_executions else ()),
+        *(("remote_fallback_tool_call",) if report.metrics.remote_fallback_tool_calls else ()),
         *(("remote_completion_rate",) if report.metrics.remote_completion_rate < 1 else ()),
     )
     return CrossNodePlatformReceipt(
@@ -302,8 +284,7 @@ async def run_platform_acceptance(
         dataset_version=report.dataset_version,
         dataset_content_hash=report.dataset_content_hash,
         prompt_version=(
-            f"{INCIDENT_INVESTIGATION_PROMPT.prompt_id}-"
-            f"{INCIDENT_INVESTIGATION_PROMPT.version}"
+            f"{INCIDENT_INVESTIGATION_PROMPT.prompt_id}-{INCIDENT_INVESTIGATION_PROMPT.version}"
         ),
         prompt_content_hash=INCIDENT_INVESTIGATION_PROMPT.content_hash,
         tool_versions=report.tool_versions,

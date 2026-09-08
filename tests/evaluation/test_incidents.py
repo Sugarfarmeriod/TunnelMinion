@@ -12,12 +12,15 @@ from scripts.run_incident_evaluation import main
 
 from tunnelminion.coordinator.contracts import ServiceAccessibility
 from tunnelminion.domain.identifiers import SnapshotId
+from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation import incidents as incidents_module
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
     run_incident_dataset,
     run_incident_scenario,
 )
+from tunnelminion.gateway.configuration import GatewayConfiguration
+from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.incident.contracts import (
     EvidenceReference,
     HypothesisStatus,
@@ -26,9 +29,11 @@ from tunnelminion.incident.contracts import (
     IncidentReport,
     IncidentStatus,
     InvestigationStopReason,
+    SnapshotSource,
 )
 from tunnelminion.incident.investigation import READ_ONLY_INVESTIGATION_TOOLS
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.contracts import ToolCancellationToken
 
 DATASET = Path("evaluations/datasets/autonomous-incidents-v5.json")
@@ -160,6 +165,13 @@ def test_cli_writes_versioned_report_and_enforces_gate(tmp_path: Path) -> None:
 def test_dataset_rejects_incoherent_expectations_and_versions() -> None:
     dataset = load_dataset()
     scenario = dataset.scenarios[1]
+    with pytest.raises(ValidationError, match="本机场景必须"):
+        scenario.model_validate(scenario.model_dump() | {"target_platform": Platform.MACOS})
+    remote = next(item for item in dataset.scenarios if item.execution_scope == "remote")
+    with pytest.raises(ValidationError, match="远端场景必须"):
+        remote.model_validate(
+            remote.model_dump() | {"snapshot_source": SnapshotSource.LOCAL_OBSERVATION}
+        )
     missing_tool = next(
         name for name in READ_ONLY_INVESTIGATION_TOOLS if name not in scenario.tool_sequence
     )
@@ -194,10 +206,37 @@ def test_dataset_rejects_incoherent_expectations_and_versions() -> None:
                 )
             }
         )
+    with pytest.raises(ValidationError, match="Windows 请求 macOS"):
+        IncidentEvaluationDataset.model_validate(
+            dataset.model_dump()
+            | {
+                "scenarios": tuple(
+                    item.model_copy(update={"request_platform": Platform.MACOS})
+                    if item.execution_scope == "remote"
+                    else item
+                    for item in dataset.scenarios
+                )
+            }
+        )
 
 
 def test_fixture_cancellation_capabilities_and_missing_event_guard(tmp_path: Path) -> None:
     dataset = load_dataset()
+    configuration = GatewayConfiguration(bind=GatewayBindConfig(host="10.77.0.2"))
+    repository = incidents_module._FixtureGatewayRepository(  # pyright: ignore[reportPrivateUsage]
+        configuration
+    )
+    assert repository.load() is configuration
+    repository.save(configuration)
+    repository.delete()
+    assert repository.load() is None
+    secrets = incidents_module._FixtureSecrets({})  # pyright: ignore[reportPrivateUsage]
+    assert secrets.get("token") is None
+    secrets.set("token", "fixture")
+    assert secrets.get("token") == "fixture"
+    secrets.delete("token")
+    assert secrets.get("token") is None
+
     token = ToolCancellationToken()
     token.cancel()
     adapter = incidents_module._FixtureAdapter(  # pyright: ignore[reportPrivateUsage]
@@ -254,6 +293,44 @@ def test_fixture_cancellation_capabilities_and_missing_event_guard(tmp_path: Pat
                 SQLiteIncidentStore(tmp_path / "missing-event.sqlite3"),
             )
         )
+
+
+def test_external_remote_preparer_requires_audit_pair_and_reuses_gateway(
+    tmp_path: Path,
+) -> None:
+    scenario = next(
+        item
+        for item in load_dataset().scenarios
+        if item.scenario_id == "remote-macos-loopback-listener"
+    )
+    with pytest.raises(ValueError, match="必须同时提供"):
+        asyncio.run(
+            run_incident_scenario(
+                scenario,
+                SQLiteIncidentStore(tmp_path / "missing-remote-preparer.sqlite3"),
+                remote_request_audit=InMemoryAuditSink(),
+            )
+        )
+
+    prepared, request_audit, _ = incidents_module._remote_preparer(  # pyright: ignore[reportPrivateUsage]
+        scenario,
+        None,  # type: ignore[arg-type]
+    )
+    result = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "external-remote-preparer.sqlite3"),
+            remote_preparer=prepared._preparer,  # pyright: ignore[reportPrivateUsage]
+            remote_request_audit=request_audit,
+        )
+    )
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert result.local_tool_attempts == ()
+    assert tuple(item.tool_name for item in request_audit.records) == (
+        "get_node_summary",
+        "list_network_listeners",
+    )
 
 
 def test_exact_root_cause_match_is_supported_without_term_overrides(tmp_path: Path) -> None:

@@ -96,7 +96,7 @@ _NODE = NodeId("node_0123456789abcdef0123456789abcdef")
 _REMOTE_NODE = NodeId("node_fedcba9876543210fedcba9876543210")
 _SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
 _OBSERVED_AT = datetime(2026, 9, 3, 0, tzinfo=UTC)
-_GATEWAY_TOKEN = "tmn_incident-evaluation-token-0000000000000000"
+_GATEWAY_TOKEN = "tmn_test-incident-evaluation-token-0000000000000000"
 _REQUIRED_CATEGORIES = frozenset(
     {
         "normal",

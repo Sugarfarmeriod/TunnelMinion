@@ -299,9 +299,7 @@ class IncidentInvestigator:
         local_node_id = self._local_node_id
         target_node_id = incident.event.target_node_id
         target_is_local = local_node_id is None or target_node_id == local_node_id
-        local = (
-            target_is_local and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
-        )
+        local = target_is_local and incident.event.source is SnapshotSource.LOCAL_OBSERVATION
         remote = (
             local_node_id is not None
             and target_node_id != local_node_id
@@ -388,9 +386,7 @@ class IncidentInvestigator:
                 observed_at=self._now(),
                 summary="远端节点摘要预检成功",
             )
-            messages.append(
-                ModelMessage(role="assistant", content="", tool_calls=(summary_call,))
-            )
+            messages.append(ModelMessage(role="assistant", content="", tool_calls=(summary_call,)))
             tool_results.append(
                 ToolResultContext(
                     tool_run_id=prepared.summary_tool_run_id,
@@ -416,9 +412,11 @@ class IncidentInvestigator:
                 ),
             )
             self._store.put_incident(current)
-        available_tools = {
-            item.name: item for item in self._model_tools(active_registry)
-        } if evidence_path else {}
+        available_tools = (
+            {item.name: item for item in self._model_tools(active_registry)}
+            if evidence_path
+            else {}
+        )
         tool_contract_repaired = False
         report_repaired = False
         invalid_response_retried = False
@@ -1198,8 +1196,7 @@ class IncidentInvestigator:
         registry: ToolRegistry | None = None,
     ) -> tuple[ModelToolDefinition, ...]:
         available = {
-            item.name: item
-            for item in (registry or self._registry).model_tools(self._platform)
+            item.name: item for item in (registry or self._registry).model_tools(self._platform)
         }
         return tuple(
             ModelToolDefinition(

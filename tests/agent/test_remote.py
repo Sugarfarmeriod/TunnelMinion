@@ -31,6 +31,7 @@ from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
     GatewayPeerConfig,
     GatewayPeerInput,
+    gateway_token_name,
 )
 from tunnelminion.gateway.security import (
     GatewayBindConfig,
@@ -297,9 +298,10 @@ def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
             InMemoryGatewaySecurityAuditSink(),
         )
     )
+    secrets = MemorySecrets()
     configuration = GatewayConfigurationService(
         FileGatewayConfigurationRepository(tmp_path / "gateway.json"),
-        MemorySecrets(),
+        secrets,
     )
     configuration.configure_local(GatewayBindConfig(host="10.77.0.2"))
     configuration.provision_peer(
@@ -307,9 +309,7 @@ def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
             peer=GatewayPeerConfig(
                 node_id=remote,
                 host="10.77.0.1",
-                allowed_tools=frozenset(
-                    {"get_node_summary", "list_network_listeners"}
-                ),
+                allowed_tools=frozenset({"get_node_summary", "list_network_listeners"}),
             ),
             token=TOKEN,
         )
@@ -357,6 +357,14 @@ def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
                 ("get_node_summary",),
             )
         )
+    with pytest.raises(ValueError, match="execution"):
+        run(
+            preparer.prepare(
+                remote,
+                context.model_copy(update={"execution_node_id": NodeId.new()}),
+                ("get_node_summary",),
+            )
+        )
     missing_target = NodeId.new()
     with pytest.raises(RemotePreparationError) as missing:
         run(
@@ -367,6 +375,20 @@ def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
             )
         )
     assert missing.value.code is ErrorCode.FORBIDDEN
+
+    peer = configuration.resolve_tool_peer(remote, ("get_node_summary",))
+    assert isinstance(
+        ConfiguredRemoteToolPreparer._default_client(  # pyright: ignore[reportPrivateUsage]
+            peer,
+            local,
+            local_audit,
+        ),
+        FixedGatewayClient,
+    )
+    secrets.delete(gateway_token_name(remote))
+    with pytest.raises(RemotePreparationError) as missing_credential:
+        run(preparer.prepare(remote, context, ("get_node_summary",)))
+    assert missing_credential.value.code is ErrorCode.UNAUTHENTICATED
 
 
 def test_prepared_remote_tools_run_through_langchain_agent() -> None:

@@ -296,7 +296,7 @@ def _remote_port_available(
         return (
             _ssh(
                 target,
-                f"cd {root} && {python} -c \"{code}\"",
+                f'cd {root} && {python} -c "{code}"',
                 cwd=repo,
             )
             == "available"
@@ -307,9 +307,7 @@ def _remote_port_available(
 
 def _real_scenario(repo: Path, service_port: int) -> IncidentEvaluationScenario:
     dataset = IncidentEvaluationDataset.model_validate_json(
-        (repo / "evaluations/datasets/autonomous-incidents-v5.json").read_text(
-            encoding="utf-8"
-        )
+        (repo / "evaluations/datasets/autonomous-incidents-v5.json").read_text(encoding="utf-8")
     )
     scenario = next(
         item for item in dataset.scenarios if item.scenario_id == "remote-macos-loopback-listener"
@@ -318,9 +316,7 @@ def _real_scenario(repo: Path, service_port: int) -> IncidentEvaluationScenario:
         update={
             "baseline": scenario.baseline.model_copy(update={"port": service_port}),
             "current": scenario.current.model_copy(update={"port": service_port}),
-            "expected_root_cause": (
-                f"macOS 目标服务只监听 127.0.0.1:{service_port}"
-            ),
+            "expected_root_cause": (f"macOS 目标服务只监听 127.0.0.1:{service_port}"),
             "root_cause_terms": ("macOS", "127.0.0.1", str(service_port)),
         }
     )
@@ -416,11 +412,14 @@ def _remove_remote(target: str, remote_root: str, repo: Path) -> bool:
     root = _safe_remote_path(remote_root)
     if not root.startswith(_REMOTE_PREFIX):
         raise RuntimeError("拒绝清理非验收远端目录")
-    return _ssh(
-        target,
-        f"rm -rf -- {root} && test ! -e {root} && echo removed",
-        cwd=repo,
-    ) == "removed"
+    return (
+        _ssh(
+            target,
+            f"rm -rf -- {root} && test ! -e {root} && echo removed",
+            cwd=repo,
+        )
+        == "removed"
+    )
 
 
 async def run_acceptance(args: argparse.Namespace) -> CrossNodeRealABReceipt:
@@ -616,7 +615,7 @@ async def run_acceptance(args: argparse.Namespace) -> CrossNodeRealABReceipt:
         lowered = serialized.lower()
         if any(
             marker in lowered
-            for marker in ('tmn_', '"authorization":', '"password":', '"private_key":')
+            for marker in ("tmn_", '"authorization":', '"password":', '"private_key":')
         ):
             raise RuntimeError("真实 A/B 回执包含禁止的秘密材料")
         output.parent.mkdir(parents=True, exist_ok=True)

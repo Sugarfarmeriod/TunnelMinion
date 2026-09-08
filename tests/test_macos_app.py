@@ -284,7 +284,8 @@ def test_macos_local_resources_degrade_without_model(
 
     def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
         observer = IncidentObservationService(
-            *args, **kwargs  # pyright: ignore[reportArgumentType]
+            *args,  # pyright: ignore[reportArgumentType]
+            **kwargs,  # pyright: ignore[reportArgumentType]
         )
         observers.append(observer)
         return observer

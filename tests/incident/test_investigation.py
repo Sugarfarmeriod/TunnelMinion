@@ -905,6 +905,56 @@ def test_remote_incident_never_uses_local_read_only_fallback(
     assert provider.requests[0].response_schema is not None
 
 
+def test_remote_investigation_requires_local_identity_and_explicit_preparer(
+    tmp_path: Path,
+) -> None:
+    remote, store, local_adapter, _, provider, preparer, _ = _remote_runtime(
+        tmp_path,
+        "remote-construction-guards",
+    )
+    model = remote._model  # pyright: ignore[reportPrivateUsage]
+    registry = remote._registry  # pyright: ignore[reportPrivateUsage]
+    tools = remote._tools  # pyright: ignore[reportPrivateUsage]
+
+    with pytest.raises(ValueError, match="必须声明当前节点"):
+        IncidentInvestigator(
+            model,
+            registry,
+            tools,
+            store,
+            Platform.WINDOWS,
+            remote_tools=preparer,
+        )
+    with pytest.raises(ValueError, match="必须声明当前节点"):
+        ConfiguredIncidentRunner(
+            lambda: provider,
+            registry,
+            tools,
+            store,
+            Platform.WINDOWS,
+            remote_tools=preparer,
+        )
+
+    without_preparer = IncidentInvestigator(
+        model,
+        registry,
+        tools,
+        store,
+        Platform.WINDOWS,
+        local_node_id=REQUEST_NODE,
+        clock=lambda: NOW,
+    )
+    result = asyncio.run(
+        without_preparer.run(_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
+
+    assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+    assert result.report is not None
+    assert result.report.stop_reason is InvestigationStopReason.INSUFFICIENT_EVIDENCE
+    assert local_adapter.calls == []
+    assert provider.requests == []
+
+
 def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
     tmp_path: Path,
 ) -> None:
@@ -934,9 +984,7 @@ def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
     assert context.execution_node_id == NODE
     assert context.run_id == result.run_id
     assert requested == ("get_node_summary", "list_network_listeners")
-    assert [item.name for item in provider.requests[0].tools] == [
-        "list_network_listeners"
-    ]
+    assert [item.name for item in provider.requests[0].tools] == ["list_network_listeners"]
     preflight = [
         message
         for message in provider.requests[0].messages
@@ -958,9 +1006,7 @@ def test_remote_incident_never_falls_back_after_tool_contract_correction(
         "always_no_tool",
     )
 
-    result = asyncio.run(
-        investigator.run(_incident(store, source=SnapshotSource.AGGREGATED))
-    )
+    result = asyncio.run(investigator.run(_incident(store, source=SnapshotSource.AGGREGATED)))
 
     assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
     assert local_adapter.calls == []
@@ -973,15 +1019,13 @@ def test_remote_incident_never_falls_back_after_tool_contract_correction(
 def test_remote_preparation_failure_stops_without_model_or_local_tools(
     tmp_path: Path,
 ) -> None:
-    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = (
-        _remote_runtime(
-            tmp_path,
-            "remote-preparation-failed",
-            preparation_error=RemotePreparationError(
-                ErrorCode.UNAUTHENTICATED,
-                "fixture credential unavailable",
-            ),
-        )
+    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = _remote_runtime(
+        tmp_path,
+        "remote-preparation-failed",
+        preparation_error=RemotePreparationError(
+            ErrorCode.UNAUTHENTICATED,
+            "fixture credential unavailable",
+        ),
     )
 
     result = asyncio.run(
@@ -1004,8 +1048,8 @@ def test_remote_offline_or_stale_incident_does_not_prepare_or_call_model(
     tmp_path: Path,
     event_type: IncidentEventType,
 ) -> None:
-    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = (
-        _remote_runtime(tmp_path, f"remote-{event_type.value}")
+    investigator, store, local_adapter, remote_adapter, provider, preparer, _ = _remote_runtime(
+        tmp_path, f"remote-{event_type.value}"
     )
     incident = (
         _local_node_incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY)
