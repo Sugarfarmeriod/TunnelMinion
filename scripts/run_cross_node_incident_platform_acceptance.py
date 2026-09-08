@@ -15,11 +15,17 @@ from pydantic import BaseModel
 
 from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation.cross_node_evidence import (
+    CrossNodePlatformMatrix,
     CrossNodePlatformReceipt,
+    CrossNodeRealABReceipt,
+    build_final_metric_freeze,
     run_platform_acceptance,
     validate_platform_matrix,
 )
-from tunnelminion.evaluation.incidents import IncidentEvaluationDataset
+from tunnelminion.evaluation.incidents import (
+    IncidentEvaluationDataset,
+    IncidentEvaluationReport,
+)
 
 
 def _host_platform() -> Platform:
@@ -85,6 +91,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     validate.add_argument("--output", type=Path, required=True)
     validate.add_argument("--check", action="store_true")
 
+    freeze = commands.add_parser("freeze")
+    freeze.add_argument("--model-report", type=Path, action="append", required=True)
+    freeze.add_argument("--platform-matrix", type=Path, required=True)
+    freeze.add_argument("--real-ab", type=Path, required=True)
+    freeze.add_argument("--output", type=Path, required=True)
+    freeze.add_argument("--check", action="store_true")
+
     args = parser.parse_args(argv)
     if args.command == "run":
         if args.platform is not _host_platform():
@@ -102,15 +115,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write(args.output, receipt)
         return int(args.check and not receipt.passed)
 
-    windows = CrossNodePlatformReceipt.model_validate_json(
-        args.windows.read_text(encoding="utf-8")
+    if args.command == "validate":
+        windows = CrossNodePlatformReceipt.model_validate_json(
+            args.windows.read_text(encoding="utf-8")
+        )
+        macos = CrossNodePlatformReceipt.model_validate_json(
+            args.macos.read_text(encoding="utf-8")
+        )
+        matrix = validate_platform_matrix((windows, macos))
+        _write(args.output, matrix)
+        return int(args.check and not matrix.passed)
+
+    reports = tuple(
+        IncidentEvaluationReport.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in args.model_report
     )
-    macos = CrossNodePlatformReceipt.model_validate_json(
-        args.macos.read_text(encoding="utf-8")
+    matrix = CrossNodePlatformMatrix.model_validate_json(
+        args.platform_matrix.read_text(encoding="utf-8")
     )
-    matrix = validate_platform_matrix((windows, macos))
-    _write(args.output, matrix)
-    return int(args.check and not matrix.passed)
+    real_ab = CrossNodeRealABReceipt.model_validate_json(
+        args.real_ab.read_text(encoding="utf-8")
+    )
+    frozen = build_final_metric_freeze(reports, matrix, real_ab)
+    _write(args.output, frozen)
+    return int(args.check and not frozen.passed)
 
 
 if __name__ == "__main__":

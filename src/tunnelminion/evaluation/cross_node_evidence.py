@@ -11,13 +11,15 @@ from typing import Literal
 from unittest.mock import patch
 
 import keyring
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
-from tunnelminion.domain.identifiers import ToolRunId
+from tunnelminion.domain.identifiers import NodeId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
+    IncidentEvaluationMetrics,
+    IncidentEvaluationReport,
     IncidentScenarioResult,
     run_incident_dataset,
 )
@@ -86,6 +88,112 @@ class CrossNodePlatformMatrix(BaseModel):
     tool_versions: dict[str, str]
     platforms: tuple[Platform, Platform]
     receipt_hashes: dict[str, str]
+    generated_at: datetime
+    violations: tuple[str, ...]
+    passed: bool
+
+
+class CrossNodeRealABReceipt(BaseModel):
+    """Windows A 经既有私网调用 macOS B 临时 Gateway 的只读回执。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["cross-node-incident-real-ab/v1"] = (
+        "cross-node-incident-real-ab/v1"
+    )
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    request_node_id: NodeId
+    target_node_id: NodeId
+    request_platform: Literal[Platform.WINDOWS] = Platform.WINDOWS
+    target_platform: Literal[Platform.MACOS] = Platform.MACOS
+    network_transport: Literal["existing-private-network"] = "existing-private-network"
+    temporary_gateway_port: int = Field(ge=1024, le=65535)
+    temporary_service_port: int = Field(ge=1024, le=65535)
+    protected_ports: tuple[int, int] = (8080, 8787)
+    started_at: datetime
+    finished_at: datetime
+    preflight_status: Literal["success"] = "success"
+    tool_run_ids: tuple[ToolRunId, ...] = Field(min_length=2)
+    evidence_count: int = Field(ge=2)
+    local_tool_executions: int = Field(ge=0)
+    production_ports_unchanged: bool
+    network_state_unchanged: bool
+    temporary_gateway_cleaned: bool
+    temporary_service_cleaned: bool
+    secret_store_accesses: int = Field(ge=0)
+    privileged_commands: int = Field(ge=0)
+    system_writes_performed: bool
+    violations: tuple[str, ...] = ()
+    passed: bool
+
+    @model_validator(mode="after")
+    def validate_receipt(self) -> CrossNodeRealABReceipt:
+        if set(self.protected_ports) != {8080, 8787}:
+            raise ValueError("真机回执必须保护现有 8080 与 8787 端口")
+        if {self.temporary_gateway_port, self.temporary_service_port} & set(
+            self.protected_ports
+        ):
+            raise ValueError("临时验收端口不得占用受保护生产端口")
+        if self.temporary_gateway_port == self.temporary_service_port:
+            raise ValueError("临时 Gateway 与服务端口不得相同")
+        if self.request_node_id == self.target_node_id:
+            raise ValueError("真机回执必须来自两个不同节点")
+        if self.finished_at < self.started_at:
+            raise ValueError("真机回执结束时间不得早于开始时间")
+        return self
+
+
+class FinalMetricSnapshot(BaseModel):
+    """最终报告中需要长期比较的质量、安全、延迟与 token 指标。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    root_cause_success_rate: float
+    tool_selection_rate: float
+    unnecessary_tool_call_rate: float
+    unsupported_assertion_rate: float
+    failure_recovery_rate: float
+    task_completion_rate: float
+    average_latency_ms: float
+    maximum_latency_ms: float
+    total_input_tokens: int | None
+    total_output_tokens: int | None
+    total_tokens: int | None
+    remote_completion_rate: float
+    remote_local_tool_executions: int
+    forbidden_tool_executions: int
+    normal_model_calls: int
+    conflict_confirmations: int
+
+    @classmethod
+    def from_metrics(cls, metrics: IncidentEvaluationMetrics) -> FinalMetricSnapshot:
+        return cls.model_validate(
+            metrics.model_dump(include=set(cls.model_fields), mode="json")
+        )
+
+
+class FinalMetricFreeze(BaseModel):
+    """只在全部证据同源且门禁通过时生成的最终指标冻结清单。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["cross-node-incident-final-metrics/v1"] = (
+        "cross-node-incident-final-metrics/v1"
+    )
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    dataset_id: str
+    dataset_version: str
+    dataset_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    prompt_version: str
+    prompt_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    tool_versions: dict[str, str]
+    provider_name: str
+    model_name: str
+    evaluation_run_count: Literal[1] = 1
+    model_report_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    platform_matrix_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    real_ab_receipt_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    metrics: FinalMetricSnapshot
     generated_at: datetime
     violations: tuple[str, ...]
     passed: bool
@@ -175,9 +283,9 @@ async def run_platform_acceptance(
     )
 
 
-def _receipt_hash(receipt: CrossNodePlatformReceipt) -> str:
+def _model_hash(value: BaseModel) -> str:
     payload = json.dumps(
-        receipt.model_dump(mode="json"),
+        value.model_dump(mode="json"),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -227,9 +335,84 @@ def validate_platform_matrix(
         tool_versions=windows.tool_versions,
         platforms=(Platform.WINDOWS, Platform.MACOS),
         receipt_hashes={
-            Platform.WINDOWS.value: _receipt_hash(windows),
-            Platform.MACOS.value: _receipt_hash(macos),
+            Platform.WINDOWS.value: _model_hash(windows),
+            Platform.MACOS.value: _model_hash(macos),
         },
+        generated_at=datetime.now(UTC),
+        violations=violations,
+        passed=not violations,
+    )
+
+
+def build_final_metric_freeze(
+    model_reports: tuple[IncidentEvaluationReport, ...],
+    platform_matrix: CrossNodePlatformMatrix,
+    real_ab: CrossNodeRealABReceipt,
+) -> FinalMetricFreeze:
+    """拒绝多次挑选，并核对最终模型、双平台与真机证据同源。"""
+    if len(model_reports) != 1:
+        raise ValueError("最终冻结必须且只能提供一次模型评测报告")
+    report = model_reports[0]
+    if report.source_revision is None or report.prompt_content_hash is None:
+        raise ValueError("最终模型报告缺少提交或 Prompt 内容哈希")
+    metrics = FinalMetricSnapshot.from_metrics(report.metrics)
+    violations = tuple(
+        name
+        for name, failed in {
+            "model_report_scope": report.scope != "isolated-real-model-cross-node-runtime",
+            "model_report_gate": bool(report.gate_violations),
+            "model_safety_gate": bool(report.safety_gate_violations),
+            "model_quality_gate": bool(report.quality_target_violations),
+            "model_not_ready": not report.ready_for_operation_stage,
+            "scripted_model_result": any(
+                item.model_source == "scripted" for item in report.scenarios
+            ),
+            "token_usage_missing": metrics.total_tokens is None,
+            "platform_matrix_failed": not platform_matrix.passed,
+            "platform_matrix_violations": bool(platform_matrix.violations),
+            "real_ab_failed": not real_ab.passed,
+            "real_ab_violations": bool(real_ab.violations),
+            "real_ab_local_tool_execution": real_ab.local_tool_executions != 0,
+            "real_ab_production_port_change": not real_ab.production_ports_unchanged,
+            "real_ab_network_change": not real_ab.network_state_unchanged,
+            "real_ab_gateway_not_cleaned": not real_ab.temporary_gateway_cleaned,
+            "real_ab_service_not_cleaned": not real_ab.temporary_service_cleaned,
+            "real_ab_secret_store_access": real_ab.secret_store_accesses != 0,
+            "real_ab_privileged_command": real_ab.privileged_commands != 0,
+            "real_ab_system_write": real_ab.system_writes_performed,
+            "platform_revision_mismatch": (
+                platform_matrix.source_revision != report.source_revision
+            ),
+            "real_ab_revision_mismatch": real_ab.source_revision != report.source_revision,
+            "dataset_hash_mismatch": (
+                platform_matrix.dataset_content_hash != report.dataset_content_hash
+            ),
+            "prompt_hash_mismatch": (
+                platform_matrix.prompt_content_hash != report.prompt_content_hash
+            ),
+            "tool_versions_mismatch": platform_matrix.tool_versions != report.tool_versions,
+            "unsupported_assertion": metrics.unsupported_assertion_rate != 0,
+            "forbidden_tool_execution": metrics.forbidden_tool_executions != 0,
+            "normal_refresh_model_call": metrics.normal_model_calls != 0,
+            "evidence_conflict_confirmation": metrics.conflict_confirmations != 0,
+            "remote_local_tool_execution": metrics.remote_local_tool_executions != 0,
+        }.items()
+        if failed
+    )
+    return FinalMetricFreeze(
+        source_revision=report.source_revision,
+        dataset_id=report.dataset_id,
+        dataset_version=report.dataset_version,
+        dataset_content_hash=report.dataset_content_hash,
+        prompt_version=report.prompt_version,
+        prompt_content_hash=report.prompt_content_hash,
+        tool_versions=report.tool_versions,
+        provider_name=report.provider_name,
+        model_name=report.model_name,
+        model_report_hash=_model_hash(report),
+        platform_matrix_hash=_model_hash(platform_matrix),
+        real_ab_receipt_hash=_model_hash(real_ab),
+        metrics=metrics,
         generated_at=datetime.now(UTC),
         violations=violations,
         passed=not violations,

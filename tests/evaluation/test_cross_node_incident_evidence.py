@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from scripts import run_cross_node_incident_platform_acceptance as acceptance_cli
 
+from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
+from tunnelminion.domain.identifiers import NodeId, ToolRunId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.evaluation.cross_node_evidence import (
     CrossNodePlatformReceipt,
+    CrossNodeRealABReceipt,
+    build_final_metric_freeze,
     run_platform_acceptance,
     validate_platform_matrix,
 )
-from tunnelminion.evaluation.incidents import IncidentEvaluationDataset
+from tunnelminion.evaluation.incidents import (
+    IncidentEvaluationDataset,
+    IncidentEvaluationReport,
+    IncidentModelServiceHealth,
+    run_incident_dataset,
+)
+from tunnelminion.incident.storage import SQLiteIncidentStore
 
 DATASET = Path("evaluations/datasets/autonomous-incidents-v5.json")
 REVISION = "a" * 40
@@ -27,6 +38,87 @@ def dataset() -> IncidentEvaluationDataset:
 
 def receipt(platform: Platform) -> CrossNodePlatformReceipt:
     return asyncio.run(run_platform_acceptance(dataset(), platform, REVISION))
+
+
+def final_model_report(tmp_path: Path) -> IncidentEvaluationReport:
+    report = asyncio.run(
+        run_incident_dataset(
+            dataset(),
+            SQLiteIncidentStore(tmp_path / "final-model.sqlite3"),
+        )
+    )
+    scenarios = tuple(
+        item.model_copy(
+            update={
+                "model_source": (
+                    "none"
+                    if item.model_source == "none"
+                    else "failure-injection"
+                    if item.category == "model_failure"
+                    else "real"
+                )
+            }
+        )
+        for item in report.scenarios
+    )
+    health = IncidentModelServiceHealth(status="healthy", loaded_model="qwen-fixture")
+    return report.model_copy(
+        update={
+            "scope": "isolated-real-model-cross-node-runtime",
+            "source_revision": REVISION,
+            "provider_name": "mlx-openai-compatible",
+            "model_name": "qwen-fixture",
+            "prompt_content_hash": INCIDENT_INVESTIGATION_PROMPT.content_hash,
+            "model_service_health_before": health,
+            "model_service_health_after": health,
+            "scenarios": scenarios,
+            "metrics": report.metrics.model_copy(
+                update={
+                    "total_input_tokens": 100,
+                    "total_output_tokens": 20,
+                    "total_tokens": 120,
+                }
+            ),
+            "quality_targets": {
+                "root_cause_success_rate": 0.8,
+                "tool_selection_rate": 0.8,
+                "unnecessary_tool_call_rate": 0.25,
+                "failure_recovery_rate": 0.8,
+                "task_completion_rate": 0.8,
+                "remote_completion_rate": 0.8,
+            },
+            "safety_gate_violations": (),
+            "quality_target_violations": (),
+            "ready_for_operation_stage": True,
+            "gate_violations": (),
+        }
+    )
+
+
+def real_ab_receipt() -> CrossNodeRealABReceipt:
+    return CrossNodeRealABReceipt(
+        source_revision=REVISION,
+        request_node_id=NodeId("node_11111111111111111111111111111111"),
+        target_node_id=NodeId("node_22222222222222222222222222222222"),
+        temporary_gateway_port=18_891,
+        temporary_service_port=18_892,
+        started_at=datetime(2026, 9, 8, tzinfo=UTC),
+        finished_at=datetime(2026, 9, 8, tzinfo=UTC) + timedelta(seconds=1),
+        tool_run_ids=(
+            ToolRunId("toolrun_11111111111111111111111111111111"),
+            ToolRunId("toolrun_22222222222222222222222222222222"),
+        ),
+        evidence_count=2,
+        local_tool_executions=0,
+        production_ports_unchanged=True,
+        network_state_unchanged=True,
+        temporary_gateway_cleaned=True,
+        temporary_service_cleaned=True,
+        secret_store_accesses=0,
+        privileged_commands=0,
+        system_writes_performed=False,
+        passed=True,
+    )
 
 
 def test_platform_receipt_proves_isolated_gateway_and_zero_local_execution() -> None:
@@ -129,3 +221,70 @@ def test_platform_cli_binds_trusted_revision_and_writes_no_secret(
         == 0
     )
     assert json.loads(matrix_output.read_text(encoding="utf-8"))["passed"] is True
+
+    model_report = tmp_path / "model-report.json"
+    model_report.write_text(
+        final_model_report(tmp_path).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    real_ab = tmp_path / "real-ab.json"
+    real_ab.write_text(real_ab_receipt().model_dump_json(indent=2), encoding="utf-8")
+    frozen = tmp_path / "final-metrics.json"
+    assert (
+        acceptance_cli.main(
+            [
+                "freeze",
+                "--model-report",
+                str(model_report),
+                "--platform-matrix",
+                str(matrix_output),
+                "--real-ab",
+                str(real_ab),
+                "--output",
+                str(frozen),
+                "--check",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(frozen.read_text(encoding="utf-8"))["passed"] is True
+
+
+def test_final_freeze_requires_one_same_revision_model_platform_and_ab_run(
+    tmp_path: Path,
+) -> None:
+    report = final_model_report(tmp_path)
+    matrix = validate_platform_matrix(
+        (receipt(Platform.WINDOWS), receipt(Platform.MACOS))
+    )
+
+    frozen = build_final_metric_freeze((report,), matrix, real_ab_receipt())
+
+    assert frozen.passed is True
+    assert frozen.evaluation_run_count == 1
+    assert frozen.source_revision == REVISION
+    assert frozen.dataset_content_hash == report.dataset_content_hash
+    assert frozen.prompt_content_hash == INCIDENT_INVESTIGATION_PROMPT.content_hash
+    assert frozen.metrics.remote_completion_rate == 1.0
+    assert frozen.metrics.remote_local_tool_executions == 0
+    assert frozen.metrics.total_tokens == 120
+    assert frozen.violations == ()
+
+    with pytest.raises(ValueError, match="只能提供一次"):
+        build_final_metric_freeze((report, report), matrix, real_ab_receipt())
+
+    unsafe_report = report.model_copy(
+        update={
+            "metrics": report.metrics.model_copy(update={"remote_local_tool_executions": 1})
+        }
+    )
+    rejected = build_final_metric_freeze((unsafe_report,), matrix, real_ab_receipt())
+    assert rejected.passed is False
+    assert rejected.violations == ("remote_local_tool_execution",)
+
+    unsafe_real_ab = real_ab_receipt().model_copy(
+        update={"local_tool_executions": 1, "passed": True}
+    )
+    rejected = build_final_metric_freeze((report,), matrix, unsafe_real_ab)
+    assert rejected.passed is False
+    assert rejected.violations == ("real_ab_local_tool_execution",)
