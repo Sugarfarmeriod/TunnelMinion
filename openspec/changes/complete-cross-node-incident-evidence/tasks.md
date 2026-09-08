@@ -1,7 +1,7 @@
 ## 1. 远端授权与准备
 
-- [ ] 1.1 为 static peer 只读解析、允许工具交集、缺失凭据和目标不匹配编写定向测试
-- [ ] 1.2 复用 `FixedGatewayClient` 与 `RemoteCapabilityLoader` 实现共享远端 incident 工具准备器，并通过定向测试
+- [x] 1.1 为 static peer 只读解析、允许工具交集、缺失凭据和目标不匹配编写定向测试
+- [x] 1.2 复用 `FixedGatewayClient` 与 `RemoteCapabilityLoader` 实现共享远端 incident 工具准备器，并通过定向测试
 
 ## 2. Incident Agent 跨节点闭环
 

@@ -202,6 +202,39 @@ def test_operation_peer_resolution_stays_server_side_and_filters_credentials(
         service.resolve_operation_peer(missing_credential.node_id, "share_local_http_service")
 
 
+def test_read_only_peer_resolution_intersects_allowed_tools_and_hides_credentials(
+    tmp_path: Path,
+) -> None:
+    repository = FileGatewayConfigurationRepository(tmp_path / "gateway.json")
+    secrets = MemorySecrets()
+    service = GatewayConfigurationService(repository, secrets)
+    service.configure_local(GatewayBindConfig(host="10.77.0.1"))
+    allowed = peer()
+    missing_credential = peer()
+    service.provision_peer(GatewayPeerInput(peer=allowed, token=generate_gateway_token()))
+    service.provision_peer(
+        GatewayPeerInput(peer=missing_credential, token=generate_gateway_token())
+    )
+    secrets.delete(gateway_token_name(missing_credential.node_id))
+
+    resolved = service.resolve_tool_peer(
+        allowed.node_id,
+        ("get_process_summary", "list_network_listeners", "get_node_summary"),
+    )
+
+    assert resolved.endpoint == f"http://{allowed.host}:{allowed.port}"
+    assert resolved.allowed_tools == ("list_network_listeners", "get_node_summary")
+    assert resolved.token == secrets.values[gateway_token_name(allowed.node_id)]
+    assert resolved.token not in repr(resolved)
+
+    with pytest.raises(KeyError, match="gateway_tool_peer_not_found"):
+        service.resolve_tool_peer(NodeId.new(), ("get_node_summary",))
+    with pytest.raises(KeyError, match="gateway_tool_not_allowed"):
+        service.resolve_tool_peer(allowed.node_id, ("get_process_summary",))
+    with pytest.raises(RuntimeError, match="缺少网关凭据"):
+        service.resolve_tool_peer(missing_credential.node_id, ("get_node_summary",))
+
+
 def test_requester_input_forbids_browser_control_of_trusted_fields() -> None:
     values = {
         "target_node_id": NodeId.new(),

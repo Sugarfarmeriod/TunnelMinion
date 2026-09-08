@@ -136,6 +136,16 @@ class GatewayOperationPeer:
     token: str = field(repr=False)
 
 
+@dataclass(frozen=True)
+class GatewayToolPeer:
+    """只在服务端使用的固定只读工具对端和凭据。"""
+
+    node_id: NodeId
+    endpoint: str
+    allowed_tools: tuple[str, ...]
+    token: str = field(repr=False)
+
+
 class GatewayConfigurationRepository(Protocol):
     """只保存非秘密网关配置。"""
 
@@ -270,6 +280,29 @@ class GatewayConfigurationService:
             peer
             for peer in self.view().peers
             if operation_name in peer.allowed_operations and peer.credential_configured
+        )
+
+    def resolve_tool_peer(
+        self,
+        node_id: NodeId,
+        requested_tools: tuple[str, ...],
+    ) -> GatewayToolPeer:
+        """按目标和本机允许列表解析只读 Gateway 对端。"""
+        config = self._require_config()
+        peer = next((item for item in config.peers if item.node_id == node_id), None)
+        if peer is None:
+            raise KeyError("gateway_tool_peer_not_found")
+        allowed = tuple(name for name in requested_tools if name in peer.allowed_tools)
+        if not allowed:
+            raise KeyError("gateway_tool_not_allowed")
+        token = self._secrets.get(gateway_token_name(node_id))
+        if token is None:
+            raise RuntimeError(f"peer {node_id} 缺少网关凭据")
+        return GatewayToolPeer(
+            node_id=node_id,
+            endpoint=peer.endpoint(),
+            allowed_tools=allowed,
+            token=token,
         )
 
     def resolve_operation_peer(
