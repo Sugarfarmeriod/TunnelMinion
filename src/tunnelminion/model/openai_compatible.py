@@ -138,9 +138,19 @@ class OpenAICompatibleProvider:
         return self._parse_response(response, request)
 
     def _build_payload(self, request: ModelRequest) -> dict[str, object]:
+        messages = [self._serialize_message(message) for message in request.messages]
+        if request.response_schema is not None:
+            schema = json.dumps(request.response_schema, ensure_ascii=False, separators=(",", ":"))
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": f"只返回严格符合以下 JSON Schema 的 JSON 对象：{schema}",
+                },
+            )
         payload: dict[str, object] = {
             "model": self._config.model,
-            "messages": [self._serialize_message(message) for message in request.messages],
+            "messages": messages,
         }
         if request.tools:
             payload["tools"] = [
@@ -157,14 +167,7 @@ class OpenAICompatibleProvider:
             if request.require_tool_call:
                 payload["tool_choice"] = "required"
         if request.response_schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "tunnelminion_response",
-                    "strict": True,
-                    "schema": request.response_schema,
-                },
-            }
+            payload["response_format"] = {"type": "json_object"}
         return payload
 
     @staticmethod
@@ -183,6 +186,8 @@ class OpenAICompatibleProvider:
                 }
                 for call in message.tool_calls
             ]
+        if message.reasoning_content is not None:
+            serialized["reasoning_content"] = message.reasoning_content
         if message.tool_call_id is not None:
             serialized["tool_call_id"] = message.tool_call_id
         if message.name is not None:
@@ -217,6 +222,7 @@ class OpenAICompatibleProvider:
                 for item in raw_calls
             )
             content = message.get("content")
+            reasoning_content = message.get("reasoning_content")
             structured: JsonValue | None = None
             if request.response_schema is not None and not tool_calls:
                 structured = cast(JsonValue, json.loads(str(content)))
@@ -228,6 +234,7 @@ class OpenAICompatibleProvider:
             )
             return ModelResponse(
                 content=cast(str | None, content),
+                reasoning_content=cast(str | None, reasoning_content),
                 tool_calls=tool_calls,
                 structured_output=structured,
                 usage=usage,

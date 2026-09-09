@@ -441,6 +441,7 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
         [
             AIMessage(
                 content="",
+                additional_kwargs={"reasoning_content": "上一轮推理"},
                 tool_calls=[
                     {
                         "id": "artifact-call",
@@ -468,6 +469,16 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
         ]
     )
     assert provider.requests[-1].messages[-1].role == "tool"
+    assert provider.requests[-1].messages[-2].reasoning_content == "上一轮推理"
+
+    converted = (
+        model._convert_response(  # pyright: ignore[reportPrivateUsage]
+            ModelResponse(reasoning_content="下一轮推理")
+        )
+        .generations[0]
+        .message
+    )
+    assert converted.additional_kwargs["reasoning_content"] == "下一轮推理"
 
     class FailingProvider(ScriptedProvider):
         async def complete(
@@ -540,6 +551,7 @@ def test_agent_result_helpers_handle_content_variants() -> None:
         ModelMessage(
             role="assistant",
             content="",
+            reasoning_content="内部推理",
             tool_calls=(ToolCall(call_id="c", name="t", arguments={}),),
         ),
         ModelMessage(role="tool", content="结果", tool_call_id="c", name="t"),
@@ -564,6 +576,7 @@ _INVALID_MESSAGE_PAYLOADS: list[dict[str, object]] = [
     },
     {"role": "tool", "content": "x"},
     {"role": "assistant", "content": "x", "tool_call_id": "c"},
+    {"role": "user", "content": "x", "reasoning_content": "不可透传"},
 ]
 
 

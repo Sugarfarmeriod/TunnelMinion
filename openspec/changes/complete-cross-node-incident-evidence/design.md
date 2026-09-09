@@ -67,6 +67,12 @@ Coordinator 或聚合快照中的 node ID 本身不产生权限；目标必须�
 
 API key 的秘密名称由规范化 endpoint 的哈希派生，同一 endpoint 的不同模型可复用该 endpoint 的凭据，不同 endpoint 绝不互用。旧版通用密钥无法可靠判断属于已被覆盖的哪一个 endpoint，因此不自动绑定或发送；用户重新提交一次后进入新槽。显式“清除模型配置与密钥”删除所有保存配置、所有可推导的 endpoint 密钥和旧通用槽。
 
+### 8. 用 Chat Completions 的共同能力接入最终 DeepSeek
+
+现有 Provider 不新增 DeepSeek 专用分支：终态使用 Chat Completions 普遍支持的 `json_object`，同时把本地 JSON Schema 作为系统约束发送，Runtime 仍以 Pydantic 做最终校验。多轮工具响应中的可选 `reasoning_content` 只在当前内存调用链透传，并从 Pydantic 序列化排除，避免进入快照和报告。
+
+最终评测不接收命令行明文密钥；显式启用后只从 endpoint 对应的操作系统密钥槽读取。MLX 仍可使用原有专用健康接口；标准云端则在前后读取 `/models` 并确认目标 model ID 存在，报告只保存 `healthy` 和 model ID。
+
 ## Risks / Trade-offs
 
 - [static peer 仍需人工预配] → 复用当前 A/B 已部署且可撤销的最窄授权；managed Gateway 授权投影有独立需求时另建阶段。

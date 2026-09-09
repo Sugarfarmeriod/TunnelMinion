@@ -637,6 +637,7 @@ class IncidentInvestigator:
                     ModelMessage(
                         role="assistant",
                         content=response.content or "",
+                        reasoning_content=response.reasoning_content,
                         tool_calls=response.tool_calls,
                     )
                 )

@@ -676,24 +676,36 @@ def test_real_cli_writes_report_without_endpoint(
 ) -> None:
     provider = _CapturingProvider(None)
 
-    def provider_factory(_config: OpenAICompatibleConfig) -> _CapturingProvider:
+    provider_keys: list[str | None] = []
+
+    def provider_factory(
+        _config: OpenAICompatibleConfig, api_key: str | None = None
+    ) -> _CapturingProvider:
+        provider_keys.append(api_key)
         return provider
 
     def repository_revision() -> str:
         return REVISION
 
-    health_calls: list[tuple[str, str]] = []
+    health_calls: list[tuple[str, str, str | None]] = []
     attempt_ledger = tmp_path / "attempt-ledger.json"
 
-    def model_health(endpoint: str, expected_model: str) -> real_cli.IncidentModelServiceHealth:
+    def model_catalog_health(
+        endpoint: str, expected_model: str, api_key: str | None
+    ) -> real_cli.IncidentModelServiceHealth:
         registered = json.loads(attempt_ledger.read_text(encoding="utf-8"))
         assert registered["attempts"][0]["status"] == "running"
-        health_calls.append((endpoint, expected_model))
+        health_calls.append((endpoint, expected_model, api_key))
         return real_cli.IncidentModelServiceHealth(status="healthy", loaded_model=expected_model)
 
     monkeypatch.setattr(real_cli, "OpenAICompatibleProvider", provider_factory)
     monkeypatch.setattr(real_cli, "_repository_revision", repository_revision)
-    monkeypatch.setattr(real_cli, "_model_health", model_health)
+    monkeypatch.setattr(real_cli, "_model_catalog_health", model_catalog_health)
+
+    def configured_api_key(_endpoint: str) -> str:
+        return "secret-value"
+
+    monkeypatch.setattr(real_cli, "_configured_api_key", configured_api_key)
     output = tmp_path / "real-report.json"
 
     assert (
@@ -702,8 +714,7 @@ def test_real_cli_writes_report_without_endpoint(
                 str(V4_DATASET),
                 "--endpoint",
                 "http://127.0.0.1:9999/v1",
-                "--health-endpoint",
-                "http://127.0.0.1:9999/health",
+                "--configured-api-key",
                 "--model",
                 "test-model",
                 "--output",
@@ -731,9 +742,10 @@ def test_real_cli_writes_report_without_endpoint(
     assert attempts[0]["status"] == "completed"
     assert attempts[0]["model_report_hash"].startswith("sha256:")
     assert health_calls == [
-        ("http://127.0.0.1:9999/health", "test-model"),
-        ("http://127.0.0.1:9999/health", "test-model"),
+        ("http://127.0.0.1:9999/v1", "test-model", "secret-value"),
+        ("http://127.0.0.1:9999/v1", "test-model", "secret-value"),
     ]
+    assert provider_keys == ["secret-value"]
 
     with pytest.raises(RuntimeError, match="同配置最终评测只能登记一次"):
         real_cli.main(
@@ -776,6 +788,80 @@ def test_real_cli_health_rejects_a_different_loaded_model(
         real_cli._model_health(  # pyright: ignore[reportPrivateUsage]
             "http://127.0.0.1:9999/health", "different-model"
         )
+
+
+def test_real_cli_catalog_health_uses_key_without_exposing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen_headers: list[dict[str, str]] = []
+
+    def get_models(endpoint: str, *, headers: dict[str, str], timeout: float) -> httpx.Response:
+        assert endpoint == "https://api.deepseek.com/models"
+        seen_headers.append(headers)
+        assert timeout == 10.0
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "deepseek-v4-flash"}]},
+            request=httpx.Request("GET", endpoint),
+        )
+
+    monkeypatch.setattr(real_cli.httpx, "get", get_models)
+
+    health = real_cli._model_catalog_health(  # pyright: ignore[reportPrivateUsage]
+        "https://api.deepseek.com",
+        "deepseek-v4-flash",
+        "secret-value",
+    )
+
+    assert health.loaded_model == "deepseek-v4-flash"
+    assert "secret-value" not in health.model_dump_json()
+    assert (
+        real_cli._model_catalog_health(  # pyright: ignore[reportPrivateUsage]
+            "https://api.deepseek.com/",
+            "deepseek-v4-flash",
+            None,
+        ).status
+        == "healthy"
+    )
+    with pytest.raises(RuntimeError, match="不包含"):
+        real_cli._model_catalog_health(  # pyright: ignore[reportPrivateUsage]
+            "https://api.deepseek.com",
+            "deepseek-v4-pro",
+            "secret-value",
+        )
+    assert seen_headers == [
+        {"Authorization": "Bearer secret-value"},
+        {},
+        {"Authorization": "Bearer secret-value"},
+    ]
+
+
+def test_real_cli_loads_only_endpoint_scoped_configured_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names: list[str] = []
+
+    class Secrets:
+        def __init__(self, value: str | None) -> None:
+            self.value = value
+
+        def get(self, name: str) -> str | None:
+            names.append(name)
+            return self.value
+
+    monkeypatch.setattr(real_cli, "KeyringSecretStore", lambda: Secrets("secret-value"))
+    assert (
+        real_cli._configured_api_key(  # pyright: ignore[reportPrivateUsage]
+            "https://api.deepseek.com/"
+        )
+        == "secret-value"
+    )
+    monkeypatch.setattr(real_cli, "KeyringSecretStore", lambda: Secrets(None))
+    with pytest.raises(RuntimeError, match="尚未"):
+        real_cli._configured_api_key(  # pyright: ignore[reportPrivateUsage]
+            "https://api.deepseek.com"
+        )
+    assert len(set(names)) == 1
 
 
 def test_real_cli_marks_registered_attempt_failed_before_model_use(

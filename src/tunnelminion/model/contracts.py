@@ -98,6 +98,7 @@ class ModelMessage(BaseModel):
 
     role: str = Field(pattern="^(system|user|assistant|tool)$")
     content: str
+    reasoning_content: str | None = Field(default=None, exclude=True)
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str | None = None
     name: str | None = None
@@ -107,6 +108,8 @@ class ModelMessage(BaseModel):
         """限制工具协议字段只能出现在对应角色上。"""
         if self.tool_calls and self.role != "assistant":
             raise ValueError("tool_calls 只允许出现在 assistant 消息")
+        if self.reasoning_content is not None and self.role != "assistant":
+            raise ValueError("reasoning_content 只允许出现在 assistant 消息")
         if self.role == "tool" and self.tool_call_id is None:
             raise ValueError("tool 消息必须包含 tool_call_id")
         if self.role != "tool" and (self.tool_call_id is not None or self.name is not None):
@@ -130,6 +133,7 @@ class ModelResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     content: str | None = None
+    reasoning_content: str | None = Field(default=None, exclude=True)
     tool_calls: tuple[ToolCall, ...] = ()
     structured_output: JsonValue | None = None
     usage: ModelUsage = Field(default_factory=ModelUsage)

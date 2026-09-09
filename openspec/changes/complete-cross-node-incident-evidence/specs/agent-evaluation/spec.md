@@ -32,3 +32,8 @@
 
 - **WHEN** Windows/macOS A/B 验收需要 UAC、sudo、修改防火墙/WireGuard/路由/DNS 或占用现有 8080/8787 服务
 - **THEN** 验收停止并报告未完成，不执行变更，也不以同机或历史证据冒充当前真机通过
+
+#### Scenario: 最终模型使用带密钥的标准云端接口
+
+- **WHEN** 用户已在 TunnelMinion 中验证并保存最终 endpoint、model 与 API key，云端提供标准 `/models` 而不提供本机模型服务的专用健康接口
+- **THEN** 最终评测只按 endpoint 从操作系统密钥环读取凭据，在评测前后用 `/models` 确认目标模型可用，命令行、模型报告和冻结清单均不包含完整密钥或 endpoint

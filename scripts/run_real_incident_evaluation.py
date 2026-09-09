@@ -16,6 +16,7 @@ from typing import Literal
 from uuid import uuid4
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
 from tunnelminion.evaluation.cross_node_evidence import (
@@ -30,10 +31,28 @@ from tunnelminion.evaluation.incidents import (
     run_incident_dataset,
 )
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.model.configuration import model_api_key_name
 from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
 )
+from tunnelminion.model.secrets import KeyringSecretStore
+
+
+class _CatalogModel(BaseModel):
+    """模型目录中用于确认身份的最小字段。"""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: str = Field(min_length=1)
+
+
+class _ModelCatalog(BaseModel):
+    """OpenAI-compatible 模型目录最小响应。"""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    data: tuple[_CatalogModel, ...]
 
 
 def _repository_revision() -> str:
@@ -65,6 +84,29 @@ def _model_health(endpoint: str, expected_model: str) -> IncidentModelServiceHea
     if health.loaded_model != expected_model:
         raise RuntimeError("模型服务当前加载的模型与验收目标不一致")
     return health
+
+
+def _model_catalog_health(
+    endpoint: str,
+    expected_model: str,
+    api_key: str | None,
+) -> IncidentModelServiceHealth:
+    """通过标准模型目录确认云端模型在评测前后仍可用。"""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key is not None else {}
+    response = httpx.get(f"{endpoint.rstrip('/')}/models", headers=headers, timeout=10.0)
+    response.raise_for_status()
+    catalog = _ModelCatalog.model_validate(response.json())
+    if expected_model not in {item.id for item in catalog.data}:
+        raise RuntimeError("模型目录不包含验收目标")
+    return IncidentModelServiceHealth(status="healthy", loaded_model=expected_model)
+
+
+def _configured_api_key(endpoint: str) -> str:
+    """按 endpoint 从本机密钥环读取评测密钥，不接受命令行明文。"""
+    api_key = KeyringSecretStore().get(model_api_key_name(endpoint))
+    if api_key is None:
+        raise RuntimeError("该 endpoint 尚未在 TunnelMinion 中保存 API key")
+    return api_key
 
 
 @contextmanager
@@ -132,7 +174,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path)
     parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--health-endpoint", required=True)
+    parser.add_argument("--health-endpoint")
+    parser.add_argument("--configured-api-key", action="store_true")
     parser.add_argument("--model", required=True)
     parser.add_argument("--provider-name", default="openai-compatible")
     parser.add_argument("--output", type=Path, required=True)
@@ -146,6 +189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.output.exists():
         raise RuntimeError("最终模型评测报告已存在，不得覆盖")
+    api_key = _configured_api_key(args.endpoint) if args.configured_api_key else None
     source_revision = _repository_revision()
     attempt = FinalEvaluationAttempt(
         attempt_id=f"eval_{uuid4().hex}",
@@ -162,13 +206,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _register_attempt(args.attempt_ledger, attempt)
     try:
-        health_before = _model_health(args.health_endpoint, args.model)
+        health_before = (
+            _model_health(args.health_endpoint, args.model)
+            if args.health_endpoint is not None
+            else _model_catalog_health(args.endpoint, args.model, api_key)
+        )
         provider = OpenAICompatibleProvider(
             OpenAICompatibleConfig(
                 endpoint=args.endpoint,
                 model=args.model,
                 timeout_seconds=args.timeout_seconds,
-            )
+            ),
+            api_key,
         )
         with TemporaryDirectory(prefix="tunnelminion-real-incident-eval-") as temporary:
             report = asyncio.run(
@@ -181,7 +230,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     source_revision=source_revision,
                 )
             )
-        health_after = _model_health(args.health_endpoint, args.model)
+        health_after = (
+            _model_health(args.health_endpoint, args.model)
+            if args.health_endpoint is not None
+            else _model_catalog_health(args.endpoint, args.model, api_key)
+        )
         report = report.model_copy(
             update={
                 "model_service_health_before": health_before,

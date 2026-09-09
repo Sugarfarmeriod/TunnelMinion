@@ -69,7 +69,8 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
         assert http_request.headers["Authorization"] == "Bearer secret-value"
         assert payload["tool_choice"] == "required"
         assert payload["tools"][0]["function"]["name"] == "check"
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
+        assert '"type":"object"' in payload["messages"][0]["content"]
         return httpx.Response(
             200,
             json={
@@ -77,6 +78,7 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
                     {
                         "message": {
                             "content": None,
+                            "reasoning_content": "保留本轮推理",
                             "tool_calls": [
                                 {
                                     "id": "call-1",
@@ -100,6 +102,8 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
     response = run(provider.complete(request(structured=True), CancellationToken()))
     assert response.tool_calls[0].arguments == {"ok": True}
     assert response.structured_output is None
+    assert response.reasoning_content == "保留本轮推理"
+    assert "reasoning_content" not in response.model_dump_json()
     assert response.usage.total_tokens == 10
     assert provider.capabilities.tool_calls
 
@@ -108,7 +112,9 @@ def test_parses_structured_output_without_api_key() -> None:
     async def handler(http_request: httpx.Request) -> httpx.Response:
         payload = json.loads(http_request.content)
         assert "Authorization" not in http_request.headers
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
+        assert payload["messages"][0]["role"] == "system"
+        assert "JSON Schema" in payload["messages"][0]["content"]
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": '{"status":"ok"}'}}]},
@@ -150,6 +156,7 @@ def test_serializes_assistant_tool_calls_and_tool_results() -> None:
                     ModelMessage(
                         role="assistant",
                         content="",
+                        reasoning_content="上一轮推理",
                         tool_calls=(
                             ToolCall(
                                 call_id="call-1",
@@ -172,6 +179,7 @@ def test_serializes_assistant_tool_calls_and_tool_results() -> None:
     messages = cast(list[dict[str, object]], captured["messages"])
     calls = cast(list[dict[str, object]], messages[0]["tool_calls"])
     assert calls[0]["id"] == "call-1"
+    assert messages[0]["reasoning_content"] == "上一轮推理"
     assert messages[1]["tool_call_id"] == "call-1"
     assert messages[1]["name"] == "probe_service"
     assert response.content == "完成"

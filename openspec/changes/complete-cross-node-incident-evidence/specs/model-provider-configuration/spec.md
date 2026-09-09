@@ -23,3 +23,8 @@ Node Runtime MUST 在始终只激活一个模型 Provider 的前提下，保留�
 
 - **WHEN** 用户明确确认清除模型配置与密钥
 - **THEN** Runtime 删除全部已保存非秘密配置、每个可推导 endpoint 的本机密钥及旧版通用密钥槽，后续 AI run 保持不可用
+
+#### Scenario: OpenAI-compatible 云端模型进行多轮工具调查
+
+- **WHEN** 已验证模型使用 Chat Completions 的 JSON object 模式，并在思考模式工具响应中返回 `reasoning_content`
+- **THEN** Provider 把终态 JSON Schema 作为系统约束发送并由 Runtime 校验结果，只在当前内存工具循环中原样回传 `reasoning_content`，不得把该推理字段写入公开快照或报告
