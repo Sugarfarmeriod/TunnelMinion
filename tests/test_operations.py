@@ -44,6 +44,7 @@ from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.configuration import (
     MODEL_API_KEY_NAME,
     FileModelConfigurationRepository,
+    model_api_key_name,
 )
 from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
 from tunnelminion.operations import (
@@ -192,14 +193,25 @@ def test_uninstall_deletes_credentials_and_owned_files_but_preserves_unrelated(
             ),
         )
     )
-    for name in ("node-id", "model.json", "runtime.sqlite3-wal", "gateway-secret-store"):
+    for name in ("node-id", "runtime.sqlite3-wal", "gateway-secret-store"):
         (root / name).write_text("owned", encoding="utf-8")
+    model_repository = FileModelConfigurationRepository(root / "model.json")
+    deepseek = OpenAICompatibleConfig(endpoint="https://api.deepseek.com/v1", model="deepseek-chat")
+    qwen = OpenAICompatibleConfig(endpoint="http://127.0.0.1:8080/v1", model="qwen")
+    model_repository.save(deepseek)
+    model_repository.save(qwen)
     secret_dir = root / "gateway-secrets"
     secret_dir.mkdir()
     (secret_dir / "orphan.secret").write_text("secret", encoding="utf-8")
     unrelated = root / "my-notes.txt"
     unrelated.write_text("keep", encoding="utf-8")
-    model = MemorySecretStore({MODEL_API_KEY_NAME: "secret"})
+    model = MemorySecretStore(
+        {
+            MODEL_API_KEY_NAME: "legacy-secret",
+            model_api_key_name(deepseek.endpoint): "deepseek-secret",
+            model_api_key_name(qwen.endpoint): "qwen-secret",
+        }
+    )
     gateway = MemorySecretStore({gateway_token_name(peer): "tmn_secret"})
     managed = managed_config(peer)
     FileManagedNodeConfigRepository(root / "managed-node.json").save(managed)

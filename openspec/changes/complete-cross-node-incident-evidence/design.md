@@ -4,6 +4,8 @@
 
 当前正式 A/B 是 Windows A 请求、macOS B 提供独立私网 Gateway。生产 macOS Gateway 的 Coordinator-managed 授权投影尚未接入常规生命周期，因此本阶段以用户已经明确配置的 static peer 作为实际授权边界；Coordinator/聚合快照只负责产生远端目标，不因此授予调用权限。
 
+最终模型切换还暴露了一个现有配置缺口：每个节点只有一份可见配置和一个通用 API key 槽，保存 Qwen 会覆盖 DeepSeek 的非秘密参数，未填写新密钥时还可能把旧 endpoint 的凭据带给新 endpoint。用户已明确选择 DeepSeek 作为本阶段最终模型，并会自行重新填写 API key。
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -11,12 +13,14 @@
 - 让远端 service incident 使用目标 Gateway 的实时只读证据完成同一个假设—工具—证据—停止循环。
 - 保持 caller 为当前产品节点、execution 为 incident 目标节点，并使公开轨迹和两端审计可由 `run_id`/`tool_run_id` 对应。
 - 在模型看到工具前完成 static peer 授权、Gateway 认证、目标节点摘要和实时能力复核。
-- 用固定远端场景、Windows/macOS 平台回执和一次最终 Qwen 运行冻结可比较指标。
+- 保留可切回的模型连接配置并按 endpoint 隔离密钥，同时始终只激活一个 Provider。
+- 用固定远端场景、Windows/macOS 平台回执和一次最终 DeepSeek 运行冻结可比较指标。
 - 所有验证只使用固定数据、临时目录和自有临时进程；真实 A/B 验收只读使用既有网络，不改变网络或生产服务。
 
 **Non-Goals:**
 
 - 不新增 Windows Gateway 产品入口、Linux、Provider、relay、自动组网或 managed Gateway 授权投影。
+- 不新增供应商专用适配器、并发多 Provider 调度或云端密钥管理。
 - 不改变 WireGuard、防火墙、路由、DNS、现有 8080/8787 进程或任何业务服务。
 - 不让模型选择 endpoint、认证材料、任意参数、Shell/Python 或写工具。
 - 不改变 Incident → Operation 的人工确认、目标授权、验证与回滚语义。
@@ -55,7 +59,13 @@ Coordinator 或聚合快照中的 node ID 本身不产生权限；目标必须�
 
 ### 6. 冻结一份可复核而非挑选的最终基线
 
-冻结清单绑定被评测实现提交、数据集内容哈希、Prompt 内容哈希、六个工具版本、模型/Provider、Windows/macOS 回执、真实 A/B 回执和质量/安全门槛。Qwen 只在确定性、平台和 A/B 门禁通过后运行一次；若重复出现已确认的内存失败，才按用户授权使用 DeepSeek V4 Flash，并在报告中保留实际模型身份，不能把两者结果混为同一基线。
+冻结清单绑定被评测实现提交、数据集内容哈希、Prompt 内容哈希、六个工具版本、模型/Provider、Windows/macOS 回执、真实 A/B 回执和质量/安全门槛。用户已明确把最终配置改为 DeepSeek；只在确定性、平台和 A/B 门禁通过后按实际 endpoint 与模型身份运行一次正式评测。先前 Qwen 的失败或中断尝试继续保留在尝试账本中，但不与 DeepSeek 指标混为同一基线。
+
+### 7. 只保留配置档案，不引入多 Provider Runtime
+
+文件仓库保存一个 active 配置和去重的非秘密配置档案；旧版单配置 JSON 只读兼容并在下一次成功保存时升级。Web API 只返回 endpoint、model、timeout 和对应密钥是否存在，页面用原生下拉框把已保存配置填回现有确认表单；切换仍经过一次能力验证，Runtime 始终只使用 active 配置。
+
+API key 的秘密名称由规范化 endpoint 的哈希派生，同一 endpoint 的不同模型可复用该 endpoint 的凭据，不同 endpoint 绝不互用。旧版通用密钥无法可靠判断属于已被覆盖的哪一个 endpoint，因此不自动绑定或发送；用户重新提交一次后进入新槽。显式“清除模型配置与密钥”删除所有保存配置、所有可推导的 endpoint 密钥和旧通用槽。
 
 ## Risks / Trade-offs
 
@@ -64,14 +74,16 @@ Coordinator 或聚合快照中的 node ID 本身不产生权限；目标必须�
 - [远端摘要预检增加一次调用] → 它是身份与平台核验，不计为模型误选工具，但计入总调用和延迟。
 - [真实 A/B 环境可能临时不可用] → 保留隔离回归为可重复门禁；真机项不满足时阶段不宣称完成，也不触碰生产配置求通过。
 - [数据集升级会改变聚合指标分母] → 冻结报告同时保存逐场景结果、数据集哈希和旧六项定义，禁止跨数据集只比较单个百分比。
+- [旧版通用密钥归属不明] → 升级后不自动转发，设置页如实显示未保存；用户为目标 endpoint 重新填写一次，避免把 DeepSeek 凭据发送给 Qwen。
 
 ## Migration Plan
 
 1. 先加入规格、远端准备与调查单元测试；默认无 peer 时保持安全停止。
-2. 接入 Windows/macOS 本地应用，运行完整 Python、前端与 OpenSpec 门禁。
-3. 生成双平台隔离回执和真实 A/B 只读回执，确认自有进程/目录已清理且生产状态不变。
-4. 在冻结候选提交上运行一次最终模型评测，生成指标清单后提交证据。
-5. 独立只读审计通过后合并；回滚只需撤销本阶段代码，既有 static peer、incident 数据和操作记录无需迁移。
+2. 修复模型配置档案与 endpoint 密钥隔离，接入 Windows/macOS 本地应用，运行完整 Python、前端与 OpenSpec 门禁。
+3. 用户在本机设置页重新提交 DeepSeek endpoint、model 和 API key；系统不读取、导出或同步该值。
+4. 生成双平台隔离回执和真实 A/B 只读回执，确认自有进程/目录已清理且生产状态不变。
+5. 在冻结候选提交上运行一次最终 DeepSeek 评测，生成指标清单后提交证据。
+6. 独立只读审计通过后合并；回滚只需撤销本阶段代码，既有 static peer、incident 数据和操作记录无需迁移。
 
 ## Open Questions
 

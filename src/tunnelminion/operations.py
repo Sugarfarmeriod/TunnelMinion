@@ -25,6 +25,7 @@ from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.configuration import (
     MODEL_API_KEY_NAME,
     FileModelConfigurationRepository,
+    model_api_key_name,
 )
 from tunnelminion.model.secrets import KeyringSecretStore, SecretStore
 
@@ -132,6 +133,9 @@ def uninstall_owned_data(
         raise ValueError("拒绝把文件系统根目录作为 TunnelMinion 数据目录")
 
     model_store = model_secrets or KeyringSecretStore()
+    model_repository = FileModelConfigurationRepository(root / "model.json")
+    for name in {model_api_key_name(item.endpoint) for item in model_repository.profiles()}:
+        model_store.delete(name)
     model_store.delete(MODEL_API_KEY_NAME)
     managed_repository = FileManagedNodeConfigRepository(root / MANAGED_NODE_CONFIG_FILE)
     managed_config = managed_repository.load()
