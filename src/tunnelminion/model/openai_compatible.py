@@ -139,6 +139,14 @@ class OpenAICompatibleProvider:
 
     def _build_payload(self, request: ModelRequest) -> dict[str, object]:
         messages = [self._serialize_message(message) for message in request.messages]
+        if request.require_tool_call:
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": "本轮必须调用一个可用工具，不要直接输出文本。",
+                },
+            )
         if request.response_schema is not None:
             schema = json.dumps(request.response_schema, ensure_ascii=False, separators=(",", ":"))
             messages.insert(
@@ -164,8 +172,6 @@ class OpenAICompatibleProvider:
                 }
                 for tool in request.tools
             ]
-            if request.require_tool_call:
-                payload["tool_choice"] = "required"
         if request.response_schema is not None:
             payload["response_format"] = {"type": "json_object"}
         return payload
@@ -190,7 +196,7 @@ class OpenAICompatibleProvider:
             serialized["reasoning_content"] = message.reasoning_content
         if message.tool_call_id is not None:
             serialized["tool_call_id"] = message.tool_call_id
-        if message.name is not None:
+        if message.name is not None and message.role != "tool":
             serialized["name"] = message.name
         return serialized
 

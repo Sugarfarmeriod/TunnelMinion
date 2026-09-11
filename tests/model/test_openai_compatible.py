@@ -67,10 +67,11 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
         payload = json.loads(http_request.content)
         assert http_request.url.path == "/v1/chat/completions"
         assert http_request.headers["Authorization"] == "Bearer secret-value"
-        assert payload["tool_choice"] == "required"
+        assert "tool_choice" not in payload
         assert payload["tools"][0]["function"]["name"] == "check"
         assert payload["response_format"] == {"type": "json_object"}
         assert '"type":"object"' in payload["messages"][0]["content"]
+        assert "必须调用" in payload["messages"][1]["content"]
         return httpx.Response(
             200,
             json={
@@ -181,7 +182,7 @@ def test_serializes_assistant_tool_calls_and_tool_results() -> None:
     assert calls[0]["id"] == "call-1"
     assert messages[0]["reasoning_content"] == "上一轮推理"
     assert messages[1]["tool_call_id"] == "call-1"
-    assert messages[1]["name"] == "probe_service"
+    assert "name" not in messages[1]
     assert response.content == "完成"
 
 

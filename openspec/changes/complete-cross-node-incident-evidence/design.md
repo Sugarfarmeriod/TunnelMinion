@@ -69,7 +69,7 @@ API key 的秘密名称由规范化 endpoint 的哈希派生，同一 endpoint �
 
 ### 8. 用 Chat Completions 的共同能力接入最终 DeepSeek
 
-现有 Provider 不新增 DeepSeek 专用分支：终态使用 Chat Completions 普遍支持的 `json_object`，同时把本地 JSON Schema 作为系统约束发送，Runtime 仍以 Pydantic 做最终校验。多轮工具响应中的可选 `reasoning_content` 只在当前内存调用链透传，并从 Pydantic 序列化排除，避免进入快照和报告。
+现有 Provider 不新增 DeepSeek 专用分支：终态使用 Chat Completions 普遍支持的 `json_object`，同时把本地 JSON Schema 作为系统约束发送，Runtime 仍以 Pydantic 做最终校验。强制工具调用也改为系统约束并校验实际返回，不发送 DeepSeek V4 思考模式会拒绝的 `tool_choice`；工具结果只回传协议要求的 call ID 和内容。多轮工具响应中的可选 `reasoning_content` 只在当前内存调用链透传，并从 Pydantic 序列化排除，避免进入快照和报告。
 
 最终评测不接收命令行明文密钥；显式启用后只从 endpoint 对应的操作系统密钥槽读取。MLX 仍可使用原有专用健康接口；标准云端则在前后读取 `/models` 并确认目标 model ID 存在，报告只保存 `healthy` 和 model ID。
 
