@@ -69,6 +69,29 @@
       "finished_at": "2026-09-12T16:57:17.054475Z",
       "status": "completed",
       "model_report_hash": "sha256:5ccfdd349e676664eaef88e0dc7ffd2296dd0689c028dc6c21596bd6daccf471"
+    },
+    {
+      "attempt_id": "eval_20220863233f4ea1961151bc2e68c449",
+      "source_revision": "101377a88b650393e10f76f5190320725f77c0c9",
+      "dataset_id": "autonomous-incidents",
+      "dataset_version": "v6",
+      "dataset_content_hash": "sha256:98f0078566bede5fc4767cdd9498994d96d0213e514676e5190cf8fc91bf38e5",
+      "prompt_version": "incident-investigation-v3",
+      "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+      "tool_versions": {
+        "get_node_summary": "1.0",
+        "get_wireguard_status": "1.0",
+        "list_network_listeners": "1.0",
+        "get_process_summary": "1.0",
+        "list_docker_services": "1.0",
+        "probe_service_reachability": "1.0"
+      },
+      "provider_name": "deepseek",
+      "model_name": "deepseek-flash",
+      "registered_at": "2026-09-12T17:17:39.686431Z",
+      "finished_at": "2026-09-12T17:18:39.532217Z",
+      "status": "completed",
+      "model_report_hash": "sha256:1948beee4f2a39d13814e8b23f169288b92e6bc7a0596d09a2b1850c7be6b767"
     }
   ]
 }
