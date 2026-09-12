@@ -1,0 +1,64 @@
+{
+  "schema_version": "cross-node-incident-platform/v1",
+  "host_platform": "macos",
+  "source_revision": "99da74889c70a20c5f880ea891047a04ea8106a5",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v6",
+  "dataset_content_hash": "sha256:98f0078566bede5fc4767cdd9498994d96d0213e514676e5190cf8fc91bf38e5",
+  "prompt_version": "incident-investigation-v3",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "tool_versions": {
+    "get_node_summary": "1.0",
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0"
+  },
+  "generated_at": "2026-09-12T16:41:39.406740Z",
+  "network_transport": "in-memory-asgi",
+  "secret_store_accesses": 0,
+  "system_writes_performed": false,
+  "remote_completion_rate": 1.0,
+  "remote_local_tool_executions": 0,
+  "remote_fallback_tool_calls": 0,
+  "remote_scenarios": [
+    {
+      "scenario_id": "remote-macos-loopback-listener",
+      "request_platform": "windows",
+      "target_platform": "macos",
+      "snapshot_source": "coordinator_directory",
+      "preflight_status": "success",
+      "preflight_tool_run_id": "toolrun_febddb04b18f4fa888868e2a7ba8b5a2",
+      "status": "confirmed",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [
+        "get_node_summary",
+        "list_network_listeners"
+      ],
+      "evidence_count": 2,
+      "task_completed": true
+    },
+    {
+      "scenario_id": "remote-macos-identity-mismatch",
+      "request_platform": "windows",
+      "target_platform": "macos",
+      "snapshot_source": "aggregated",
+      "preflight_status": "rejected",
+      "preflight_tool_run_id": "toolrun_d75c5486134a471ca5df9e66a8f93fe0",
+      "status": "insufficient_evidence",
+      "selected_tools": [],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [
+        "get_node_summary"
+      ],
+      "evidence_count": 2,
+      "task_completed": true
+    }
+  ],
+  "violations": [],
+  "passed": true
+}
