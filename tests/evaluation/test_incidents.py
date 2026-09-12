@@ -391,6 +391,30 @@ def test_root_cause_terms_only_credit_supported_public_findings() -> None:
     )
 
 
+def test_root_cause_forbidden_terms_do_not_reject_negated_facts() -> None:
+    scenario = next(
+        item
+        for item in load_dataset().scenarios
+        if item.scenario_id == "remote-macos-loopback-listener"
+    )
+    report = IncidentReport(
+        facts=("服务未同时监听 0.0.0.0",),
+        conclusion=scenario.expected_root_cause,
+        stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
+        evidence=(
+            EvidenceReference(
+                snapshot_id=SnapshotId("snapshot_00000000000000000000000000000001"),
+                observed_at=datetime(2026, 9, 7, tzinfo=UTC),
+                summary="固定评分证据",
+            ),
+        ),
+    )
+
+    assert incidents_module._root_cause_matches(  # pyright: ignore[reportPrivateUsage]
+        report, scenario
+    )
+
+
 @pytest.mark.parametrize(
     ("scenario_id", "opposite_conclusion"),
     [

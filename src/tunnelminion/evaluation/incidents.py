@@ -1162,7 +1162,8 @@ def _root_cause_matches(
         )
     ).casefold()
     return all(item.casefold() in normalized for item in scenario.root_cause_terms) and not any(
-        item.casefold() in normalized for item in scenario.root_cause_forbidden_terms
+        item.casefold() in report.conclusion.casefold()
+        for item in scenario.root_cause_forbidden_terms
     )
 
 

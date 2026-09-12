@@ -196,8 +196,6 @@ class OpenAICompatibleProvider:
             serialized["reasoning_content"] = message.reasoning_content
         if message.tool_call_id is not None:
             serialized["tool_call_id"] = message.tool_call_id
-        if message.name is not None and message.role != "tool":
-            serialized["name"] = message.name
         return serialized
 
     @staticmethod
