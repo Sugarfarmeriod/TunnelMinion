@@ -1,0 +1,55 @@
+{
+  "schema_version": "cross-node-incident-real-ab/v1",
+  "source_revision": "101377a88b650393e10f76f5190320725f77c0c9",
+  "request_node_id": "node_0123456789abcdef0123456789abcdef",
+  "target_node_id": "node_fedcba9876543210fedcba9876543210",
+  "request_platform": "windows",
+  "target_platform": "macos",
+  "network_transport": "existing-private-network",
+  "scenario_id": "remote-macos-loopback-listener",
+  "event_type": "local_only",
+  "incident_status": "confirmed",
+  "stop_reason": "evidence_sufficient",
+  "temporary_gateway_port": 18889,
+  "temporary_service_port": 18888,
+  "protected_ports": [
+    8080,
+    8787
+  ],
+  "started_at": "2026-09-12T17:16:27.573440Z",
+  "finished_at": "2026-09-12T17:16:43.466167Z",
+  "preflight_status": "success",
+  "run_id": "run_973136927a5047f881e3d92a6514755f",
+  "remote_tool_names": [
+    "get_node_summary",
+    "list_network_listeners"
+  ],
+  "tool_run_ids": [
+    "toolrun_5fe071b3f39d487f80ef16561a9276be",
+    "toolrun_8a51ff64f7cc48d0af0438644a4bfd8e"
+  ],
+  "target_audit_matches": true,
+  "evidence_count": 2,
+  "local_tool_executions": 0,
+  "protected_port_states_before": {
+    "8080": false,
+    "8787": false
+  },
+  "protected_port_states_after": {
+    "8080": false,
+    "8787": false
+  },
+  "network_state_before_hash": "sha256:1c6d31b099627ba2395ba024894aaed329fff6c78e7b5047f35cadfbd7f4dc43",
+  "network_state_after_hash": "sha256:1c6d31b099627ba2395ba024894aaed329fff6c78e7b5047f35cadfbd7f4dc43",
+  "production_ports_unchanged": true,
+  "network_state_unchanged": true,
+  "temporary_gateway_cleaned": true,
+  "temporary_service_cleaned": true,
+  "temporary_local_data_cleaned": true,
+  "temporary_remote_data_cleaned": true,
+  "secret_store_accesses": 0,
+  "privileged_commands": 0,
+  "system_writes_performed": false,
+  "violations": [],
+  "passed": true
+}
