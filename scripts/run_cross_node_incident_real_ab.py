@@ -658,7 +658,7 @@ async def _serve_target(args: argparse.Namespace) -> int:
     if sys.platform != "darwin":
         raise RuntimeError("临时目标 Gateway 只允许在 macOS 运行")
     validate_ports(args.gateway_port, args.service_port)
-    from tunnelminion.macos_app import _build_macos_node
+    from tunnelminion.macos_app import _build_macos_node  # pyright: ignore[reportPrivateUsage]
 
     data_dir = Path(args.data_dir).resolve()
     token_file = Path(args.token_file).resolve()
