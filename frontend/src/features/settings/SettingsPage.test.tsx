@@ -15,6 +15,7 @@ function makeConfiguration(
     model: "qwen-local",
     timeout_seconds: 30,
     api_key_configured: false,
+    profiles: [],
     status: "available",
     error_code: null,
     error_message: null,
@@ -244,6 +245,59 @@ describe("SettingsPage", () => {
       fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT"),
     ).toHaveLength(1);
     expect(document.body.textContent).not.toContain(secret);
+  });
+
+  it("选择已保存配置后切回对应 endpoint，且不从浏览器重传密钥", async () => {
+    const profiles = [
+      {
+        endpoint: "http://127.0.0.1:8080/v1",
+        model: "qwen-local",
+        timeout_seconds: 30,
+        api_key_configured: false,
+      },
+      {
+        endpoint: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
+        timeout_seconds: 60,
+        api_key_configured: true,
+      },
+    ];
+    let current = makeConfiguration({ profiles });
+    let capturedBody: Record<string, unknown> | undefined;
+    fetchMock.mockImplementation(async (_input, init) => {
+      if (init?.method === "PUT") {
+        capturedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        current = makeConfiguration({
+          endpoint: String(capturedBody.endpoint),
+          model: String(capturedBody.model),
+          timeout_seconds: Number(capturedBody.timeout_seconds),
+          api_key_configured: true,
+          profiles: [profiles[1], profiles[0]],
+        });
+      }
+      return jsonResponse(current);
+    });
+    const user = userEvent.setup();
+
+    renderSettings();
+    await screen.findByText("模型可用");
+    await user.selectOptions(screen.getByLabelText("已保存模型配置"), "1");
+
+    expect(screen.getByLabelText("OpenAI-compatible endpoint")).toHaveValue(
+      "https://api.deepseek.com/v1",
+    );
+    expect(screen.getByLabelText("模型名称")).toHaveValue("deepseek-chat");
+    expect(screen.getByLabelText("超时（秒）")).toHaveValue(60);
+    expect(screen.getByText(/该 endpoint 已保存密钥/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
+    await user.click(screen.getByRole("button", { name: "确认保存一次" }));
+
+    expect(capturedBody).toEqual({
+      endpoint: "https://api.deepseek.com/v1",
+      model: "deepseek-chat",
+      timeout_seconds: 60,
+    });
   });
 
   it("保存结果未知时只重新读取，不自动重放并立即清空秘密输入", async () => {

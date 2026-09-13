@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic import JsonValue, ValidationError
@@ -11,8 +12,10 @@ from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import NodeId, ToolRunId
 from tunnelminion.domain.tools import Platform, RiskLevel, ToolDefinition
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
+from tunnelminion.gateway.configuration import GatewayConfigurationService, GatewayToolPeer
 from tunnelminion.gateway.contracts import GatewayCapabilities, RemoteToolResult
 from tunnelminion.platforms.windows.models import NodeSummary
+from tunnelminion.tools.audit import AuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
     ToolCallContext,
@@ -112,10 +115,12 @@ class RemoteCapabilityLoader:
         client: FixedGatewayClient,
         local_platform: Platform,
         remote_node_id: NodeId,
+        remote_platform: Platform,
     ) -> None:
         self._client = client
         self._local_platform = local_platform
         self._remote_node_id = remote_node_id
+        self._remote_platform = remote_platform
 
     async def prepare(
         self,
@@ -135,6 +140,8 @@ class RemoteCapabilityLoader:
                 capabilities = await self._client.discover()
             except RemoteGatewayError as exc:
                 raise RemotePreparationError(exc.code, str(exc)) from exc
+        if capabilities.platform is not self._remote_platform:
+            raise RemotePreparationError(ErrorCode.FORBIDDEN, "远端能力平台与显式授权不匹配")
         summary_definition = next(
             (item for item in capabilities.tools if item.name == "get_node_summary"), None
         )
@@ -148,7 +155,7 @@ class RemoteCapabilityLoader:
             summary_definition.timeout_seconds,
             cancellation,
         )
-        summary = self._validate_summary(summary_result, capabilities.platform)
+        summary = self._validate_summary(summary_result)
         requested = frozenset(requested_tools)
         selected = tuple(
             item.model_copy(
@@ -173,7 +180,7 @@ class RemoteCapabilityLoader:
             tool_names=tuple(item.name for item in selected),
         )
 
-    def _validate_summary(self, result: RemoteToolResult, remote_platform: Platform) -> NodeSummary:
+    def _validate_summary(self, result: RemoteToolResult) -> NodeSummary:
         if result.status is not ToolExecutionStatus.SUCCESS:
             code = result.error.code if result.error is not None else ErrorCode.INTERNAL
             raise RemotePreparationError(code, "远端节点摘要执行失败")
@@ -183,10 +190,75 @@ class RemoteCapabilityLoader:
             raise RemotePreparationError(ErrorCode.INTERNAL, "远端节点摘要格式无效") from exc
         if (
             summary.node_id != str(self._remote_node_id)
-            or summary.platform != remote_platform.value
+            or summary.platform != self._remote_platform.value
         ):
             raise RemotePreparationError(ErrorCode.FORBIDDEN, "远端节点摘要身份不匹配")
         return summary
+
+
+GatewayClientFactory = Callable[[GatewayToolPeer, NodeId, AuditSink], FixedGatewayClient]
+
+
+class ConfiguredRemoteToolPreparer:
+    """从显式 static peer 组装一次远端 incident 的只读工具。"""
+
+    def __init__(
+        self,
+        configuration: GatewayConfigurationService,
+        local_node_id: NodeId,
+        local_platform: Platform,
+        audit_sink: AuditSink,
+        *,
+        client_factory: GatewayClientFactory | None = None,
+    ) -> None:
+        self._configuration = configuration
+        self._local_node_id = local_node_id
+        self._local_platform = local_platform
+        self._audit = audit_sink
+        self._client_factory = client_factory or self._default_client
+
+    async def prepare(
+        self,
+        target_node_id: NodeId,
+        context: ToolCallContext,
+        requested_tools: tuple[str, ...],
+        cancellation: ToolCancellationToken | None = None,
+    ) -> PreparedRemoteAgentTools:
+        """只解析本机显式授权，再复用远端摘要与能力预检。"""
+        if context.caller_node_id != self._local_node_id:
+            raise ValueError("调用上下文 caller 与本地节点不一致")
+        if context.execution_node_id != target_node_id:
+            raise ValueError("调用上下文 execution 与目标节点不一致")
+        try:
+            peer = self._configuration.resolve_tool_peer(target_node_id, requested_tools)
+        except KeyError as exc:
+            raise RemotePreparationError(ErrorCode.FORBIDDEN, "目标节点没有显式只读授权") from exc
+        except RuntimeError as exc:
+            raise RemotePreparationError(
+                ErrorCode.UNAUTHENTICATED,
+                "目标节点 Gateway 凭据不可用",
+            ) from exc
+        client = self._client_factory(peer, self._local_node_id, self._audit)
+        return await RemoteCapabilityLoader(
+            client,
+            self._local_platform,
+            target_node_id,
+            peer.platform,
+        ).prepare(context, peer.allowed_tools, cancellation)
+
+    @staticmethod
+    def _default_client(
+        peer: GatewayToolPeer,
+        local_node_id: NodeId,
+        audit_sink: AuditSink,
+    ) -> FixedGatewayClient:
+        return FixedGatewayClient(
+            peer.endpoint,
+            peer.token,
+            local_node_id,
+            peer.node_id,
+            audit_sink,
+        )
 
 
 def _execution_result(result: RemoteToolResult) -> ToolExecutionResult:

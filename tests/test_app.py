@@ -25,6 +25,7 @@ from tunnelminion.agent.diagnostics import CrossNodeDiagnosticAgent
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.managed_coordinator import ManagedCoordinatorLoops, ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ManagedNodeConfig, ManagedNodeState, ManagedNodeStatus
+from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer
 from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.app import (
     WindowsApplication,
@@ -256,6 +257,17 @@ def execute_node_summary(bundle: WindowsApplication) -> dict[str, JsonValue]:
 def test_node_id_is_created_once_and_application_is_composed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    observers: list[IncidentObservationService] = []
+
+    def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        observer = IncidentObservationService(
+            *args,  # pyright: ignore[reportArgumentType]
+            **kwargs,  # pyright: ignore[reportArgumentType]
+        )
+        observers.append(observer)
+        return observer
+
+    monkeypatch.setattr("tunnelminion.app.IncidentObservationService", capture_observer)
     path = tmp_path / "nested" / "node-id"
     first = load_or_create_node_id(path)
     second = load_or_create_node_id(path)
@@ -319,6 +331,12 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.requester_operation_service.list_operations() == ()
     assert bundle.managed_node.enrollment.state.value == "unconfigured"
     assert execute_node_summary(bundle)["model_status"] == "unconfigured"
+    incident_runner = cast(
+        Any,
+        observers[0]._investigator,  # pyright: ignore[reportPrivateUsage]
+    )
+    assert incident_runner._local_node_id == bundle.node_id
+    assert isinstance(incident_runner._remote_tools, ConfiguredRemoteToolPreparer)
 
     local_client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
     overview = local_client.get("/api/resources/overview")
@@ -349,6 +367,7 @@ def test_node_id_is_created_once_and_application_is_composed(
     assert bundle.create_read_only_agent()
     peer = GatewayOperationPeer(
         node_id=NodeId.new(),
+        platform=Platform.MACOS,
         endpoint="http://10.77.0.1:8787",
         target_host="10.77.0.1",
         requester_host="10.77.0.2",
@@ -891,6 +910,8 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
                 "10.77.0.1",
                 "--peer-node-id",
                 peer,
+                "--peer-platform",
+                "windows",
                 "--peer-host",
                 "10.77.0.2",
                 "--secret-store",
@@ -907,6 +928,7 @@ def test_gateway_configure_cli_reads_token_from_stdin_without_echoing_it(
     body = json.loads(output)
     assert body["gateway"]["configured"] is True
     assert body["gateway"]["peers"][0]["allowed_tools"] == ["get_node_summary"]
+    assert body["gateway"]["peers"][0]["platform"] == "windows"
     assert body["gateway"]["peers"][0]["allowed_operations"] == ["share_local_http_service"]
     assert token not in output
 

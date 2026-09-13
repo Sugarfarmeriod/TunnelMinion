@@ -38,15 +38,28 @@ class Repository:
 
     def __init__(self) -> None:
         self.value: OpenAICompatibleConfig | None = None
+        self.saved: tuple[OpenAICompatibleConfig, ...] = ()
 
     def load(self) -> OpenAICompatibleConfig | None:
         return self.value
 
     def save(self, config: OpenAICompatibleConfig) -> None:
         self.value = config
+        self.saved = (
+            config,
+            *(
+                item
+                for item in self.saved
+                if (item.endpoint, item.model) != (config.endpoint, config.model)
+            ),
+        )
+
+    def profiles(self) -> tuple[OpenAICompatibleConfig, ...]:
+        return self.saved
 
     def delete(self) -> None:
         self.value = None
+        self.saved = ()
 
 
 class Secrets:
@@ -118,6 +131,14 @@ def test_model_config_crud_validation_and_degradation() -> None:
     )
     assert saved.status_code == 200
     assert saved.json()["api_key_configured"] is True
+    assert saved.json()["profiles"] == [
+        {
+            "endpoint": "http://10.77.0.1:8082/v1",
+            "model": "/Volumes/DarkAI/model.gguf",
+            "timeout_seconds": 10.0,
+            "api_key_configured": True,
+        }
+    ]
     assert "secret-value" not in saved.text
     assert client.post("/api/model-config/validate").json()["status"] == "available"
     assert client.post("/api/ai/runs/availability").json() == {"available": True}

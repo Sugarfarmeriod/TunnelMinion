@@ -112,7 +112,7 @@ async def submit(
         )
     )
     workflow = CrossNodeDiagnosticWorkflow(
-        RemoteCapabilityLoader(client, Platform.WINDOWS, remote_node_id),
+        RemoteCapabilityLoader(client, Platform.WINDOWS, remote_node_id, Platform.MACOS),
         application.tool_runtime,
         local_node_id,
     )

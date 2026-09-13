@@ -1,0 +1,47 @@
+{
+  "schema_version": "cross-node-incident-final-metrics/v1",
+  "source_revision": "c9db0155bd16273cdeea5bcf7011e4642c8e9ef7",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v5",
+  "dataset_content_hash": "sha256:bcf54c1369fa28921bc792c38721635c947e06342fbcc6bd2cf30bc2000a6f38",
+  "prompt_version": "incident-investigation-v3",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "tool_versions": {
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0",
+    "get_node_summary": "1.0"
+  },
+  "provider_name": "mlx-vlm-0.5.0",
+  "model_name": "/Volumes/DarkAI/LLM/MLX/Qwen/Qwen3.6-35B-A3B-4bit",
+  "evaluation_run_count": 1,
+  "model_report_hash": "sha256:80b362124c25b7a394f2fa69141220d330dd60a8459985d4f4ba2d6bbcf80ffc",
+  "platform_matrix_hash": "sha256:687227a5f684a15acfd8c17bcfdbf6eb8d579d71aaedd5b2566b5c49c8b9e64e",
+  "real_ab_receipt_hash": "sha256:1477391df809361e6805e76b206d4b41e819ec4668a6ef187b7d1d43ca013a9b",
+  "metrics": {
+    "root_cause_success_rate": 0.75,
+    "tool_selection_rate": 1.0,
+    "unnecessary_tool_call_rate": 0.09090909090909091,
+    "unsupported_assertion_rate": 0.0,
+    "failure_recovery_rate": 1.0,
+    "task_completion_rate": 0.9333333333333333,
+    "average_latency_ms": 19902.47328619783,
+    "maximum_latency_ms": 45493.817042093724,
+    "total_input_tokens": 41519,
+    "total_output_tokens": 4857,
+    "total_tokens": 46376,
+    "remote_completion_rate": 0.5,
+    "remote_local_tool_executions": 0,
+    "forbidden_tool_executions": 0,
+    "normal_model_calls": 0,
+    "conflict_confirmations": 0
+  },
+  "generated_at": "2026-09-08T11:33:02.559824Z",
+  "violations": [
+    "model_quality_gate",
+    "model_not_ready"
+  ],
+  "passed": false
+}

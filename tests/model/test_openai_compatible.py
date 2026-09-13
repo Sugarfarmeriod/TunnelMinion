@@ -67,9 +67,11 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
         payload = json.loads(http_request.content)
         assert http_request.url.path == "/v1/chat/completions"
         assert http_request.headers["Authorization"] == "Bearer secret-value"
-        assert payload["tool_choice"] == "required"
+        assert "tool_choice" not in payload
         assert payload["tools"][0]["function"]["name"] == "check"
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
+        assert '"type":"object"' in payload["messages"][0]["content"]
+        assert "必须调用" in payload["messages"][1]["content"]
         return httpx.Response(
             200,
             json={
@@ -77,6 +79,7 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
                     {
                         "message": {
                             "content": None,
+                            "reasoning_content": "保留本轮推理",
                             "tool_calls": [
                                 {
                                     "id": "call-1",
@@ -100,6 +103,8 @@ def test_parses_tool_calls_before_structured_null_content() -> None:
     response = run(provider.complete(request(structured=True), CancellationToken()))
     assert response.tool_calls[0].arguments == {"ok": True}
     assert response.structured_output is None
+    assert response.reasoning_content == "保留本轮推理"
+    assert "reasoning_content" not in response.model_dump_json()
     assert response.usage.total_tokens == 10
     assert provider.capabilities.tool_calls
 
@@ -108,7 +113,9 @@ def test_parses_structured_output_without_api_key() -> None:
     async def handler(http_request: httpx.Request) -> httpx.Response:
         payload = json.loads(http_request.content)
         assert "Authorization" not in http_request.headers
-        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["response_format"] == {"type": "json_object"}
+        assert payload["messages"][0]["role"] == "system"
+        assert "JSON Schema" in payload["messages"][0]["content"]
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": '{"status":"ok"}'}}]},
@@ -150,6 +157,7 @@ def test_serializes_assistant_tool_calls_and_tool_results() -> None:
                     ModelMessage(
                         role="assistant",
                         content="",
+                        reasoning_content="上一轮推理",
                         tool_calls=(
                             ToolCall(
                                 call_id="call-1",
@@ -172,8 +180,9 @@ def test_serializes_assistant_tool_calls_and_tool_results() -> None:
     messages = cast(list[dict[str, object]], captured["messages"])
     calls = cast(list[dict[str, object]], messages[0]["tool_calls"])
     assert calls[0]["id"] == "call-1"
+    assert messages[0]["reasoning_content"] == "上一轮推理"
     assert messages[1]["tool_call_id"] == "call-1"
-    assert messages[1]["name"] == "probe_service"
+    assert "name" not in messages[1]
     assert response.content == "完成"
 
 
@@ -206,15 +215,22 @@ def timeout_error(request_value: httpx.Request) -> Exception:
     return httpx.ReadTimeout("secret-value", request=request_value)
 
 
+def protocol_error(request_value: httpx.Request) -> Exception:
+    return httpx.RemoteProtocolError("secret-value", request=request_value)
+
+
 @pytest.mark.parametrize(
-    ("exception_factory", "expected"),
+    ("exception_factory", "expected", "retryable"),
     [
-        (connect_error, ProviderErrorCode.NETWORK_UNREACHABLE),
-        (timeout_error, ProviderErrorCode.TIMEOUT),
+        (connect_error, ProviderErrorCode.NETWORK_UNREACHABLE, True),
+        (timeout_error, ProviderErrorCode.TIMEOUT, True),
+        (protocol_error, ProviderErrorCode.INVALID_RESPONSE, True),
     ],
 )
 def test_classifies_transport_errors(
-    exception_factory: Callable[[httpx.Request], Exception], expected: ProviderErrorCode
+    exception_factory: Callable[[httpx.Request], Exception],
+    expected: ProviderErrorCode,
+    retryable: bool,
 ) -> None:
     def handler(http_request: httpx.Request) -> httpx.Response:
         raise exception_factory(http_request)
@@ -223,6 +239,7 @@ def test_classifies_transport_errors(
     with pytest.raises(ProviderError) as caught:
         run(provider.complete(request()))
     assert caught.value.code == expected
+    assert caught.value.retryable is retryable
     assert "secret-value" not in str(caught.value)
 
 

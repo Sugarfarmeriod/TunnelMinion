@@ -2,12 +2,22 @@ import { z } from "zod";
 
 import { requestJson, requestNoContent } from "../../api/client";
 
+const modelConfigurationProfileSchema = z
+  .object({
+    endpoint: z.string(),
+    model: z.string(),
+    timeout_seconds: z.number().min(0.1).max(600),
+    api_key_configured: z.boolean(),
+  })
+  .strict();
+
 export const modelConfigurationSchema = z
   .object({
     endpoint: z.string().nullable(),
     model: z.string().nullable(),
     timeout_seconds: z.number().min(0.1).max(600).nullable(),
     api_key_configured: z.boolean(),
+    profiles: z.array(modelConfigurationProfileSchema),
     status: z.enum(["unconfigured", "available", "unavailable"]),
     error_code: z.string().nullable(),
     error_message: z.string().nullable(),

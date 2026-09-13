@@ -497,6 +497,8 @@ def run_product_lifecycle(
             str(gateway_port),
             "--peer-node-id",
             "node_" + uuid4().hex,
+            "--peer-platform",
+            "windows",
             "--peer-host",
             gateway_host,
             "--peer-port",

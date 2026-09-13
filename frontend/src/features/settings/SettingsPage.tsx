@@ -174,7 +174,7 @@ export function SettingsPage() {
       model: normalizedModel,
       timeout_seconds: timeout,
     };
-    let secretAction = "保留当前已保存的密钥";
+    let secretAction = "保留该 endpoint 已保存的密钥";
     if (clearApiKey) {
       input.api_key = "";
       secretAction = "清除当前已保存的密钥";
@@ -302,6 +302,14 @@ export function SettingsPage() {
   }
 
   const data = query.data;
+  const selectedProfile = data?.profiles.find(
+    (item) => item.endpoint === endpoint.trim() && item.model === model.trim(),
+  );
+  const selectedApiKeyConfigured =
+    selectedProfile?.api_key_configured ??
+    (data?.endpoint === endpoint.trim() && data.model === model.trim()
+      ? data.api_key_configured
+      : false);
 
   return (
     <section aria-labelledby="settings-title" className="settings-page surface">
@@ -415,6 +423,45 @@ export function SettingsPage() {
           <form className="settings-form" onSubmit={reviewSave}>
             <fieldset disabled={writing || deleteUncertain}>
               <legend>受限模型配置入口</legend>
+              {data.profiles.length > 1 ? (
+                <>
+                  <label>
+                    已保存模型配置
+                    <select
+                      onChange={(event) => {
+                        const profile =
+                          data.profiles[Number(event.currentTarget.value)];
+                        if (profile === undefined) {
+                          return;
+                        }
+                        setEndpoint(profile.endpoint);
+                        setModel(profile.model);
+                        setTimeoutSeconds(String(profile.timeout_seconds));
+                        setApiKey("");
+                        setClearApiKey(false);
+                        setFormError(null);
+                      }}
+                      value=""
+                    >
+                      <option value="">选择后填入下方表单</option>
+                      {data.profiles.map((profile, index) => (
+                        <option
+                          key={`${profile.endpoint}\n${profile.model}`}
+                          value={index}
+                        >
+                          {profile.model} — {profile.endpoint}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="settings-secret-note">
+                    选择只会填表，确认保存后才切换；
+                    {selectedApiKeyConfigured
+                      ? "该 endpoint 已保存密钥，留空会复用。"
+                      : "该 endpoint 未保存密钥。"}
+                  </p>
+                </>
+              ) : null}
               <label>
                 OpenAI-compatible endpoint
                 <input
@@ -457,15 +504,15 @@ export function SettingsPage() {
                   maxLength={4096}
                   onChange={(event) => setApiKey(event.currentTarget.value)}
                   placeholder={
-                    data.api_key_configured
-                      ? "留空会保留已保存密钥"
+                    selectedApiKeyConfigured
+                      ? "留空会保留该 endpoint 的已保存密钥"
                       : "无密钥 Provider 可留空"
                   }
                   type="password"
                   value={apiKey}
                 />
               </label>
-              {data.api_key_configured ? (
+              {selectedApiKeyConfigured ? (
                 <label className="settings-checkbox">
                   <input
                     checked={clearApiKey}

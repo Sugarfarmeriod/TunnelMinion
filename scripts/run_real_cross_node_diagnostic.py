@@ -65,7 +65,7 @@ async def run_diagnostic(
         gateway_audit,
     )
     workflow = CrossNodeDiagnosticWorkflow(
-        RemoteCapabilityLoader(client, Platform.WINDOWS, remote_node_id),
+        RemoteCapabilityLoader(client, Platform.WINDOWS, remote_node_id, Platform.MACOS),
         application.tool_runtime,
         application.node_id,
     )

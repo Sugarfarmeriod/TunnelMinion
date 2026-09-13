@@ -1,0 +1,25 @@
+{
+  "schema_version": "cross-node-incident-platform-matrix/v1",
+  "source_revision": "101377a88b650393e10f76f5190320725f77c0c9",
+  "dataset_content_hash": "sha256:98f0078566bede5fc4767cdd9498994d96d0213e514676e5190cf8fc91bf38e5",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "tool_versions": {
+    "get_node_summary": "1.0",
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0"
+  },
+  "platforms": [
+    "windows",
+    "macos"
+  ],
+  "receipt_hashes": {
+    "windows": "sha256:2467b92b6b3773cafc0506607d9c4d33d951055994c39017c81c2be526578427",
+    "macos": "sha256:5bd1dc06901f5b68c15a981cef3ca1ca1db8b4e4d7b628f01973d142b4d591e5"
+  },
+  "generated_at": "2026-09-12T17:15:57.647649Z",
+  "violations": [],
+  "passed": true
+}

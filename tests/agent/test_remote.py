@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import httpx
@@ -14,6 +15,7 @@ from tests.tools.test_registry import definition
 
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.remote import (
+    ConfiguredRemoteToolPreparer,
     RemoteCapabilityLoader,
     RemotePreparationError,
 )
@@ -24,7 +26,18 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway import create_gateway_router
 from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
 from tunnelminion.gateway.client import FixedGatewayClient
-from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
+from tunnelminion.gateway.configuration import (
+    FileGatewayConfigurationRepository,
+    GatewayConfigurationService,
+    GatewayPeerConfig,
+    GatewayPeerInput,
+    gateway_token_name,
+)
+from tunnelminion.gateway.security import (
+    GatewayBindConfig,
+    GatewayPeerPolicy,
+    GatewaySecurityPolicy,
+)
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelCapabilities,
@@ -68,6 +81,22 @@ class StaticAdapter:
         if self.fail:
             raise ToolAdapterError(ToolError(code=ErrorCode.INTERNAL, message="摘要失败"))
         return self.value
+
+
+class MemorySecrets:
+    """测试用凭据存储。"""
+
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    def get(self, name: str) -> str | None:
+        return self.values.get(name)
+
+    def set(self, name: str, value: str) -> None:
+        self.values[name] = value
+
+    def delete(self, name: str) -> None:
+        self.values.pop(name, None)
 
 
 class RemoteQuestionProvider:
@@ -122,7 +151,8 @@ def build_loader(
     include_summary: bool = True,
     summary_value: JsonValue | None = None,
     summary_failure: bool = False,
-    summary_platform: str = "macos",
+    remote_platform: Platform = Platform.MACOS,
+    expected_remote_platform: Platform = Platform.MACOS,
 ) -> tuple[RemoteCapabilityLoader, ToolCallContext, InMemoryAuditSink, InMemoryAuditSink]:
     remote = NodeId.new()
     local = NodeId.new()
@@ -130,9 +160,9 @@ def build_loader(
     allowed = ["list_network_listeners"]
     if include_summary:
         registry.register(
-            definition("get_node_summary", platforms=frozenset({Platform.MACOS})),
+            definition("get_node_summary", platforms=frozenset({remote_platform})),
             StaticAdapter(
-                summary(remote, platform=summary_platform)
+                summary(remote, platform=remote_platform.value)
                 if summary_value is None
                 else summary_value,
                 fail=summary_failure,
@@ -140,17 +170,17 @@ def build_loader(
         )
         allowed.insert(0, "get_node_summary")
     registry.register(
-        definition("list_network_listeners", platforms=frozenset({Platform.MACOS})),
+        definition("list_network_listeners", platforms=frozenset({remote_platform})),
         StaticAdapter({"availability": "available", "items": []}),
     )
     remote_audit = InMemoryAuditSink()
-    runtime = ToolRuntime(registry, Platform.MACOS, remote_audit)
+    runtime = ToolRuntime(registry, remote_platform, remote_audit)
     policy = GatewaySecurityPolicy([GatewayPeerPolicy.from_token(local, TOKEN, allowed)])
     app = FastAPI()
     app.include_router(
         create_gateway_router(
             remote,
-            Platform.MACOS,
+            remote_platform,
             registry,
             runtime,
             policy,
@@ -173,7 +203,7 @@ def build_loader(
         execution_node_id=remote,
     )
     return (
-        RemoteCapabilityLoader(client, Platform.WINDOWS, remote),
+        RemoteCapabilityLoader(client, Platform.WINDOWS, remote, expected_remote_platform),
         context,
         local_audit,
         remote_audit,
@@ -234,6 +264,135 @@ def test_summary_preflight_filters_capabilities_and_routes_remote_call() -> None
         run(entry.adapter.execute({}, ToolCancellationToken()))
 
 
+def test_configured_preparer_resolves_static_peer_then_reuses_remote_loader(
+    tmp_path: Path,
+) -> None:
+    remote = NodeId.new()
+    local = NodeId.new()
+    registry = ToolRegistry()
+    registry.register(
+        definition("get_node_summary", platforms=frozenset({Platform.MACOS})),
+        StaticAdapter(summary(remote)),
+    )
+    registry.register(
+        definition("list_network_listeners", platforms=frozenset({Platform.MACOS})),
+        StaticAdapter({"availability": "available", "items": []}),
+    )
+    remote_audit = InMemoryAuditSink()
+    runtime = ToolRuntime(registry, Platform.MACOS, remote_audit)
+    app = FastAPI()
+    app.include_router(
+        create_gateway_router(
+            remote,
+            Platform.MACOS,
+            registry,
+            runtime,
+            GatewaySecurityPolicy(
+                [
+                    GatewayPeerPolicy.from_token(
+                        local,
+                        TOKEN,
+                        ("get_node_summary", "list_network_listeners"),
+                    )
+                ]
+            ),
+            InMemoryGatewaySecurityAuditSink(),
+        )
+    )
+    secrets = MemorySecrets()
+    configuration = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(tmp_path / "gateway.json"),
+        secrets,
+    )
+    configuration.configure_local(GatewayBindConfig(host="10.77.0.2"))
+    configuration.provision_peer(
+        GatewayPeerInput(
+            peer=GatewayPeerConfig(
+                node_id=remote,
+                platform=Platform.MACOS,
+                host="10.77.0.1",
+                allowed_tools=frozenset({"get_node_summary", "list_network_listeners"}),
+            ),
+            token=TOKEN,
+        )
+    )
+    local_audit = InMemoryAuditSink()
+    preparer = ConfiguredRemoteToolPreparer(
+        configuration,
+        local,
+        Platform.WINDOWS,
+        local_audit,
+        client_factory=lambda peer, caller, audit: FixedGatewayClient(
+            peer.endpoint,
+            peer.token,
+            caller,
+            peer.node_id,
+            audit,
+            transport=httpx.ASGITransport(app=app),
+        ),
+    )
+    context = ToolCallContext(
+        thread_id=ThreadId.new(),
+        run_id=RunId.new(),
+        caller_node_id=local,
+        execution_node_id=remote,
+    )
+
+    prepared = run(
+        preparer.prepare(
+            remote,
+            context,
+            ("get_node_summary", "get_process_summary", "list_network_listeners"),
+        )
+    )
+
+    assert prepared.node_summary.node_id == str(remote)
+    assert prepared.tool_names == ("get_node_summary", "list_network_listeners")
+    assert local_audit.records[0].caller_node_id == local
+    assert remote_audit.records[0].execution_node_id == remote
+
+    with pytest.raises(ValueError, match="caller"):
+        run(
+            preparer.prepare(
+                remote,
+                context.model_copy(update={"caller_node_id": NodeId.new()}),
+                ("get_node_summary",),
+            )
+        )
+    with pytest.raises(ValueError, match="execution"):
+        run(
+            preparer.prepare(
+                remote,
+                context.model_copy(update={"execution_node_id": NodeId.new()}),
+                ("get_node_summary",),
+            )
+        )
+    missing_target = NodeId.new()
+    with pytest.raises(RemotePreparationError) as missing:
+        run(
+            preparer.prepare(
+                missing_target,
+                context.model_copy(update={"execution_node_id": missing_target}),
+                ("get_node_summary",),
+            )
+        )
+    assert missing.value.code is ErrorCode.FORBIDDEN
+
+    peer = configuration.resolve_tool_peer(remote, ("get_node_summary",))
+    assert isinstance(
+        ConfiguredRemoteToolPreparer._default_client(  # pyright: ignore[reportPrivateUsage]
+            peer,
+            local,
+            local_audit,
+        ),
+        FixedGatewayClient,
+    )
+    secrets.delete(gateway_token_name(remote))
+    with pytest.raises(RemotePreparationError) as missing_credential:
+        run(preparer.prepare(remote, context, ("get_node_summary",)))
+    assert missing_credential.value.code is ErrorCode.UNAUTHENTICATED
+
+
 def test_prepared_remote_tools_run_through_langchain_agent() -> None:
     loader, context, _local_audit, _remote_audit = build_loader()
     prepared = run(loader.prepare(context, ("list_network_listeners", "list_docker_services")))
@@ -288,7 +447,7 @@ def test_remote_preparation_rejects_missing_failed_malformed_and_wrong_summary()
         run(wrong.prepare(context, ("list_network_listeners",)))
     assert identity.value.code is ErrorCode.FORBIDDEN
 
-    wrong_platform, context, _, _ = build_loader(summary_platform="windows")
+    wrong_platform, context, _, _ = build_loader(remote_platform=Platform.WINDOWS)
     with pytest.raises(RemotePreparationError) as platform:
         run(wrong_platform.prepare(context, ("list_network_listeners",)))
     assert platform.value.code is ErrorCode.FORBIDDEN
@@ -314,7 +473,7 @@ def test_remote_preparation_exposes_nothing_when_offline_or_no_task_capability()
         InMemoryAuditSink(),
         transport=httpx.MockTransport(offline),
     )
-    offline_loader = RemoteCapabilityLoader(client, Platform.WINDOWS, remote)
+    offline_loader = RemoteCapabilityLoader(client, Platform.WINDOWS, remote, Platform.MACOS)
     with pytest.raises(RemotePreparationError) as unreachable:
         run(offline_loader.prepare(context, ("list_network_listeners",)))
     assert unreachable.value.code is ErrorCode.NODE_UNREACHABLE

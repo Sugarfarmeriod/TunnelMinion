@@ -254,7 +254,14 @@ class TunnelMinionChatModel(BaseChatModel):
                 )
                 for call in message.tool_calls
             )
-            return ModelMessage(role="assistant", content=content, tool_calls=calls)
+            return ModelMessage(
+                role="assistant",
+                content=content,
+                reasoning_content=cast(
+                    str | None, message.additional_kwargs.get("reasoning_content")
+                ),
+                tool_calls=calls,
+            )
         raise TypeError(f"不支持的 LangChain 消息类型：{type(message).__name__}")
 
     @staticmethod
@@ -294,6 +301,11 @@ class TunnelMinionChatModel(BaseChatModel):
         message = AIMessage(
             content=response.content or "",
             tool_calls=cast(Any, tool_calls),
+            additional_kwargs=(
+                {"reasoning_content": response.reasoning_content}
+                if response.reasoning_content is not None
+                else {}
+            ),
             response_metadata={"usage": usage},
         )
         return ChatResult(

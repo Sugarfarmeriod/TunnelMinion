@@ -24,6 +24,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.app import (
@@ -374,6 +375,16 @@ def build_macos_local_application(
             node.tool_runtime,
             incident_store,
             Platform.MACOS,
+            local_node_id=node.node_id,
+            remote_tools=ConfiguredRemoteToolPreparer(
+                GatewayConfigurationService(
+                    FileGatewayConfigurationRepository(node.root / "gateway.json"),
+                    gateway_secret_store(node.root),
+                ),
+                node.node_id,
+                Platform.MACOS,
+                node.audit_sink,
+            ),
         ),
         before_snapshot=before_snapshot,
     )

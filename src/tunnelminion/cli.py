@@ -467,6 +467,7 @@ def _configure_gateway(values: list[str]) -> int:
     parser.add_argument("--bind-host", required=True)
     parser.add_argument("--bind-port", type=int, default=8787)
     parser.add_argument("--peer-node-id", required=True)
+    parser.add_argument("--peer-platform", choices=("windows", "macos"), required=True)
     parser.add_argument("--peer-host", required=True)
     parser.add_argument("--peer-port", type=int, default=8787)
     parser.add_argument("--allowed-tool", action="append", choices=_MACOS_READ_ONLY_TOOLS)
@@ -484,6 +485,7 @@ def _configure_gateway(values: list[str]) -> int:
 
     from tunnelminion.app import default_data_dir, load_or_create_node_id
     from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.domain.tools import Platform
     from tunnelminion.gateway.configuration import (
         FileGatewayConfigurationRepository,
         GatewayConfigurationService,
@@ -506,6 +508,7 @@ def _configure_gateway(values: list[str]) -> int:
         GatewayPeerInput(
             peer=GatewayPeerConfig(
                 node_id=NodeId(args.peer_node_id),
+                platform=Platform(args.peer_platform),
                 host=args.peer_host,
                 port=args.peer_port,
                 allowed_tools=frozenset(args.allowed_tool or _MACOS_READ_ONLY_TOOLS),

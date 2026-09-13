@@ -1,0 +1,49 @@
+{
+  "schema_version": "cross-node-incident-final-metrics/v2",
+  "source_revision": "99da74889c70a20c5f880ea891047a04ea8106a5",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v6",
+  "dataset_content_hash": "sha256:98f0078566bede5fc4767cdd9498994d96d0213e514676e5190cf8fc91bf38e5",
+  "prompt_version": "incident-investigation-v3",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "tool_versions": {
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0",
+    "get_node_summary": "1.0"
+  },
+  "provider_name": "deepseek",
+  "model_name": "deepseek-flash",
+  "evaluation_run_count": 1,
+  "evaluation_attempt_id": "eval_eaa773d82e534ee4b27e2e8ac6210e24",
+  "attempt_ledger_hash": "sha256:3115158410385c10e0cf92510906ad591302dc4e9b9d34172f4d3822459bd2db",
+  "model_report_hash": "sha256:5ccfdd349e676664eaef88e0dc7ffd2296dd0689c028dc6c21596bd6daccf471",
+  "platform_matrix_hash": "sha256:f760ccd554d5cd43b24f938325436e8a8c924135b03698a18d0f74f87298b6e4",
+  "real_ab_receipt_hash": "sha256:6296895d192d6bbfe5baf01678794914cbdb79a79dfd198e8594243189ca28bf",
+  "metrics": {
+    "root_cause_success_rate": 0.75,
+    "tool_selection_rate": 1.0,
+    "unnecessary_tool_call_rate": 0.09090909090909091,
+    "unsupported_assertion_rate": 0.0,
+    "failure_recovery_rate": 1.0,
+    "task_completion_rate": 0.9333333333333333,
+    "average_latency_ms": 3971.8432466693534,
+    "maximum_latency_ms": 9765.0319999957,
+    "total_input_tokens": 42460,
+    "total_output_tokens": 10154,
+    "total_tokens": 52614,
+    "remote_completion_rate": 0.5,
+    "remote_local_tool_executions": 0,
+    "forbidden_tool_executions": 0,
+    "normal_model_calls": 0,
+    "conflict_confirmations": 0
+  },
+  "generated_at": "2026-09-12T16:58:06.640382Z",
+  "violations": [
+    "model_quality_gate",
+    "model_not_ready"
+  ],
+  "passed": false
+}
