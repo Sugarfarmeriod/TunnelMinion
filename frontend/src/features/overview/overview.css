@@ -205,6 +205,30 @@
   color: var(--color-muted);
 }
 
+.overview-service-search {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.overview-service-search input {
+  box-sizing: border-box;
+  font: inherit;
+  min-height: 2.75rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.overview-service-pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.overview-service-pagination button:disabled {
+  cursor: default;
+}
+
 .incident-detail {
   border-top: 1px solid var(--color-border);
   display: grid;

@@ -1,4 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  useIsFetching,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryFilters,
+} from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -20,6 +26,16 @@ import {
 } from "./overviewActions";
 
 import "./overview.css";
+
+const overviewRefreshOptions = {
+  refetchInterval: 30_000,
+  refetchIntervalInBackground: false,
+  meta: { overview: true },
+};
+const overviewQueries: QueryFilters = {
+  type: "active",
+  predicate: (query) => query.meta?.overview === true,
+};
 
 type Tone = "positive" | "warning" | "danger" | "neutral";
 type SectionMeta = Pick<
@@ -538,6 +554,25 @@ function NodeList({ data }: { data: ResourceOverview["nodes"] }) {
 }
 
 function ServiceList({ data }: { data: ResourceOverview["services"] }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const term = search.trim().toLowerCase();
+  const filtered = data.items.filter((service) =>
+    [
+      service.display_name ?? "未命名服务",
+      service.port,
+      service.access_address,
+      service.node_id,
+    ].some(
+      (value) => value != null && String(value).toLowerCase().includes(term),
+    ),
+  );
+  const lastPage = Math.max(0, Math.ceil(filtered.length / 6) - 1);
+  const currentPage = Math.min(page, lastPage);
+  if (page !== currentPage) setPage(currentPage);
+  const start = currentPage * 6;
+  const visible = filtered.slice(start, start + 6);
+
   return (
     <SectionCard
       id="overview-services"
@@ -556,9 +591,29 @@ function ServiceList({ data }: { data: ResourceOverview["services"] }) {
     >
       {data.items.length === 0 ? (
         <p className="overview-empty">当前没有服务端确认的服务记录。</p>
-      ) : (
+      ) : null}
+      <label className="overview-service-search">
+        搜索服务
+        <input
+          type="search"
+          placeholder="名称、端口、地址或节点标识"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(0);
+          }}
+        />
+      </label>
+      <p aria-live="polite" role="status">
+        共 {data.items.length} 项 · 匹配 {filtered.length} 项 · 显示{" "}
+        {filtered.length === 0 ? 0 : start + 1}–{start + visible.length} 项
+      </p>
+      {data.items.length > 0 && filtered.length === 0 ? (
+        <p className="overview-empty">没有匹配的服务，请调整搜索条件。</p>
+      ) : null}
+      {visible.length > 0 ? (
         <ul className="overview-resource-list">
-          {data.items.map((service) => (
+          {visible.map((service) => (
             <li key={service.service_id}>
               <div className="overview-resource-list__heading">
                 <strong>{service.display_name ?? "未命名服务"}</strong>
@@ -589,13 +644,33 @@ function ServiceList({ data }: { data: ResourceOverview["services"] }) {
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
+      <nav aria-label="服务分页" className="overview-service-pagination">
+        <button
+          disabled={currentPage === 0}
+          type="button"
+          onClick={() => setPage(currentPage - 1)}
+        >
+          上一页
+        </button>
+        <span>
+          第 {currentPage + 1} / {lastPage + 1} 页
+        </span>
+        <button
+          disabled={currentPage === lastPage}
+          type="button"
+          onClick={() => setPage(currentPage + 1)}
+        >
+          下一页
+        </button>
+      </nav>
     </SectionCard>
   );
 }
 
 function OperationAttentionCard() {
   const query = useQuery({
+    ...overviewRefreshOptions,
     queryKey: operationQueryKeys.list,
     queryFn: listOperations,
   });
@@ -696,6 +771,7 @@ function IncidentList({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const detail = useQuery({
+    ...overviewRefreshOptions,
     queryKey: ["incident", selectedId],
     queryFn: () =>
       requestJson(
@@ -732,7 +808,7 @@ function IncidentList({
   }
 
   const handoff =
-    detail.data === undefined
+    detail.data === undefined || detail.isError
       ? null
       : incidentOperationHandoff(
           {
@@ -810,7 +886,13 @@ function IncidentList({
       {selectedId !== null ? (
         <section aria-live="polite" className="incident-detail">
           {detail.isPending ? <p>正在读取调查详情……</p> : null}
-          {detail.isError ? <p role="alert">调查详情暂时无法读取。</p> : null}
+          {detail.isError ? (
+            <p role="alert">
+              {detail.data === undefined
+                ? "调查详情暂时无法读取。"
+                : "调查详情刷新失败，以下是上次读取的旧详情，不能视为最新。"}
+            </p>
+          ) : null}
           {detail.data !== undefined ? (
             <>
               <h4>调查详情</h4>
@@ -911,7 +993,11 @@ function readableRequestError(error: Error): string {
 }
 
 export function OverviewPage() {
+  const queryClient = useQueryClient();
+  const isRefreshing = useIsFetching(overviewQueries) > 0;
+  const refresh = () => queryClient.refetchQueries(overviewQueries);
   const query = useQuery({
+    ...overviewRefreshOptions,
     queryKey: ["resource-overview"],
     queryFn: () =>
       requestJson("/api/resources/overview", resourceOverviewSchema),
@@ -960,11 +1046,11 @@ export function OverviewPage() {
           <p>本机运行、模型、Coordinator 和跨节点网络分别显示，互不冒充。</p>
         </div>
         <button
-          disabled={query.isFetching}
+          disabled={isRefreshing}
           type="button"
-          onClick={() => void query.refetch()}
+          onClick={() => void refresh()}
         >
-          {query.isFetching ? "正在刷新……" : "刷新证据"}
+          {isRefreshing ? "正在刷新……" : "刷新证据"}
         </button>
       </header>
 

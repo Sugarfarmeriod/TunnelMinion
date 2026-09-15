@@ -1,5 +1,16 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -133,7 +144,113 @@ describe("OverviewPage", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+    focusManager.setFocused(undefined);
     vi.unstubAllGlobals();
+  });
+
+  it("13 项服务分页并按完整字段搜索，刷新减少服务后收敛页码且保留搜索", async () => {
+    const payload = makeOverview();
+    payload.services.items = Array.from({ length: 13 }, (_, index) => ({
+      service_id: `service_${index.toString(16).padStart(32, "0")}`,
+      node_id: index === 12 ? nodeB : nodeA,
+      display_name: `面板 ${index + 1}`,
+      protocol: "https",
+      port: 9000 + index,
+      access_address: `https://panel-${index + 1}.example:${9000 + index}`,
+      accessibility: "network",
+      lifecycle: "active",
+      state: "available",
+      source: "coordinator_directory",
+      evidence_at: evidenceAt,
+      freshness: "stale",
+    }));
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/operations" ? [] : payload),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+    const card = within(
+      await screen.findByRole("article", { name: "已知服务" }),
+    );
+    expect(card.getAllByRole("listitem")).toHaveLength(6);
+    expect(card.getByRole("status")).toHaveTextContent(
+      "共 13 项 · 匹配 13 项 · 显示 1–6 项",
+    );
+    expect(card.getAllByText("有可用证据（证据陈旧）")).toHaveLength(6);
+    expect(card.getByRole("button", { name: "上一页" })).toBeDisabled();
+    await user.click(card.getByRole("button", { name: "下一页" }));
+    expect(card.getByRole("status")).toHaveTextContent("显示 7–12 项");
+    await user.click(card.getByRole("button", { name: "下一页" }));
+    expect(card.getAllByRole("listitem")).toHaveLength(1);
+    expect(card.getByRole("status")).toHaveTextContent("显示 13–13 项");
+    expect(card.getByRole("button", { name: "下一页" })).toBeDisabled();
+    const search = card.getByRole("searchbox", { name: "搜索服务" });
+    for (const term of ["面板 13", "9012", "PANEL-13.EXAMPLE", nodeB]) {
+      await user.clear(search);
+      await user.type(search, term);
+      expect(card.getAllByRole("listitem")).toHaveLength(1);
+      expect(card.getByText("面板 13")).toBeVisible();
+      expect(card.getByText(/https:\/\/panel-13.example:9012/)).toBeVisible();
+      expect(card.getByRole("status")).toHaveTextContent("显示 1–1 项");
+    }
+    await user.clear(search);
+    await user.type(search, "不存在");
+    expect(card.getByText("没有匹配的服务，请调整搜索条件。")).toBeVisible();
+    expect(card.getByRole("status")).toHaveTextContent("显示 0–0 项");
+    await user.clear(search);
+    await user.type(search, "面板");
+    await user.click(card.getByRole("button", { name: "下一页" }));
+    await user.click(card.getByRole("button", { name: "下一页" }));
+    payload.services.items = payload.services.items.slice(0, 7);
+    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    await waitFor(() =>
+      expect(card.getByRole("status")).toHaveTextContent(
+        "共 7 项 · 匹配 7 项 · 显示 7–7 项",
+      ),
+    );
+    expect(search).toHaveValue("面板");
+    payload.services.items = [];
+    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    await waitFor(() =>
+      expect(card.getByRole("status")).toHaveTextContent(
+        "共 0 项 · 匹配 0 项 · 显示 0–0 项",
+      ),
+    );
+    expect(search).toHaveValue("面板");
+    expect(card.getByText("当前没有服务端确认的服务记录。")).toBeVisible();
+  });
+
+  it("可见页面每 30 秒只读更新，隐藏和卸载后不轮询", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const payload = makeOverview();
+    let operations: ReturnType<typeof makeOperationListItem>[] = [];
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/operations" ? operations : payload),
+    );
+    const { unmount } = renderOverview();
+    await screen.findByText("当前没有待办");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    payload.local.version = "0.2.0";
+    operations = [makeOperationListItem()];
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(await screen.findByText("0.2.0")).toBeVisible();
+    expect(await screen.findByText("待本机批准")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    focusManager.setFocused(false);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    focusManager.setFocused(true);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => (init?.method ?? "GET") === "GET",
+      ),
+    ).toBe(true);
   });
 
   it("先显示 loading，再按独立领域展示服务端强类型状态", async () => {
@@ -356,6 +473,7 @@ describe("OverviewPage", () => {
       suggested_questions: ["哪个进程持有这个监听端口？"],
       thread_id: null,
     };
+    let detailUnavailable = false;
     fetchMock.mockImplementation((input, init) => {
       if (input === "/api/resources/overview") {
         return jsonResponse(payload);
@@ -364,7 +482,9 @@ describe("OverviewPage", () => {
         return jsonResponse([]);
       }
       if (input === `/api/incidents/${incidentId}`) {
-        return jsonResponse(detail);
+        return detailUnavailable
+          ? Promise.reject(new TypeError("offline"))
+          : jsonResponse(detail);
       }
       if (
         input === `/api/incidents/${incidentId}/follow-up` &&
@@ -409,6 +529,34 @@ describe("OverviewPage", () => {
     expect(suggestion).toHaveFocus();
     await user.click(suggestion);
     expect(composer).toHaveValue("哪个进程持有这个监听端口？");
+    detailUnavailable = true;
+    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    expect(
+      await screen.findByText(
+        "调查详情刷新失败，以下是上次读取的旧详情，不能视为最新。",
+      ),
+    ).toBeVisible();
+    expect(composer).toHaveValue("哪个进程持有这个监听端口？");
+    detailUnavailable = false;
+    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    await waitFor(() =>
+      expect(screen.queryByText(/调查详情刷新失败/)).not.toBeInTheDocument(),
+    );
+    expect(composer).toHaveValue("哪个进程持有这个监听端口？");
+    for (const path of [
+      "/api/resources/overview",
+      "/api/operations",
+      `/api/incidents/${incidentId}`,
+    ]) {
+      expect(
+        fetchMock.mock.calls.filter(([input]) => input === path),
+      ).toHaveLength(3);
+    }
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => (init?.method ?? "GET") === "GET",
+      ),
+    ).toBe(true);
     await user.click(screen.getByRole("button", { name: "开始只读追问" }));
     expect(
       await screen.findByRole("link", { name: "打开对应聊天线程" }),
