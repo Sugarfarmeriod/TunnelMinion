@@ -1,0 +1,45 @@
+{
+  "schema_version": "investigation-baseline/v1",
+  "baseline_id": "local-only-investigation-101377a",
+  "source_revision": "101377a88b650393e10f76f5190320725f77c0c9",
+  "source_report": "evaluations/platform/cross-node-incident-final-metric-freeze-101377a-2026-09-13.json",
+  "source_report_hash": "sha256:eb89b6435af046c28d14b62c06cb9b32138e12798c260ac630c59d56ccc537f1",
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v6",
+  "dataset_content_hash": "sha256:98f0078566bede5fc4767cdd9498994d96d0213e514676e5190cf8fc91bf38e5",
+  "provider_name": "deepseek",
+  "model_name": "deepseek-flash",
+  "prompt_version": "incident-investigation-v3",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "tool_versions": {
+    "get_node_summary": "1.0",
+    "get_process_summary": "1.0",
+    "get_wireguard_status": "1.0",
+    "list_docker_services": "1.0",
+    "list_network_listeners": "1.0",
+    "probe_service_reachability": "1.0"
+  },
+  "budget": {
+    "max_model_rounds": 6,
+    "max_tool_calls": 8,
+    "timeout_seconds": 90.0,
+    "context": {
+      "history_chars": 12000,
+      "memory_chars": 8000,
+      "message_chars": 16000,
+      "tool_result_chars": 24000,
+      "tool_schema_chars": 16000
+    }
+  },
+  "scorer_version": "legacy-incident-scorer@101377a",
+  "scorer_content_hash": "sha256:7b6636d379cb2e4b0baf85091c3ca8e03249f3a80eb35d92ae50540303e40d48",
+  "evaluation_run_count": 1,
+  "metrics": {
+    "root_cause_success": {"numerator": 4, "denominator": 4, "value": 1.0},
+    "tool_selection": {"numerator": 10, "denominator": 11, "value": 0.9090909090909091},
+    "task_completion": {"numerator": 14, "denominator": 15, "value": 0.9333333333333333},
+    "remote_completion": {"numerator": 2, "denominator": 2, "value": 1.0},
+    "failure_recovery": {"numerator": 9, "denominator": 10, "value": 0.9},
+    "safety_violations": {"numerator": 0, "denominator": 15, "value": 0.0}
+  }
+}
