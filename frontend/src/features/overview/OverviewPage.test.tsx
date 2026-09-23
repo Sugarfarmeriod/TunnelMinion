@@ -313,6 +313,7 @@ describe("OverviewPage", () => {
     const detail = {
       incident: {
         schema_version: "incident/v1",
+        investigation: null,
         incident_id: incidentId,
         dedup_key: `sha256:${"a".repeat(64)}`,
         event: {
