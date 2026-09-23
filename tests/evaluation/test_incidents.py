@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -112,14 +113,24 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     assert remote_loopback.target_platform == "macos"
     assert remote_loopback.snapshot_source == "coordinator_directory"
     assert remote_loopback.preflight_status == "success"
-    assert remote_loopback.selected_tools == ("list_network_listeners",)
-    assert remote_loopback.local_tool_attempts == ()
+    assert remote_loopback.selected_tools == (
+        "list_network_listeners",
+        "probe_service_reachability",
+    )
+    assert remote_loopback.local_tool_attempts == ("probe_service_reachability",)
     assert remote_loopback.target_tool_attempts == (
         "get_node_summary",
         "list_network_listeners",
     )
     assert remote_loopback.status is IncidentStatus.CONFIRMED
-    assert remote_loopback.evidence_count == 2
+    assert remote_loopback.evidence_count == 3
+    assert remote_loopback.skill_id == "service.local-only"
+    assert remote_loopback.skill_version == "1"
+    assert remote_loopback.covered_evidence_count == remote_loopback.required_evidence_count == 4
+    assert remote_loopback.duplicate_successful_step_calls == 0
+    assert remote_loopback.premature_stop_attempts == 0
+    assert report.metrics.metric_counts["evidence_coverage_rate"].numerator == 4
+    assert report.metrics.metric_counts["evidence_coverage_rate"].denominator == 8
 
     identity = next(
         item for item in report.scenarios if item.scenario_id == "remote-macos-identity-mismatch"
@@ -160,6 +171,28 @@ def test_cli_writes_versioned_report_and_enforces_gate(tmp_path: Path) -> None:
     payload = output.read_text(encoding="utf-8")
     assert '"scope": "offline-scripted-cross-node-runtime"' in payload
     assert '"gate_violations": []' in payload
+
+
+def test_cli_runs_isolated_local_only_demo(tmp_path: Path) -> None:
+    output = tmp_path / "demo.json"
+
+    assert (
+        main(
+            [
+                str(DATASET),
+                "--scenario",
+                "remote-macos-loopback-listener",
+                "--output",
+                str(output),
+                "--check",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "incident-investigation-demo/v1"
+    assert payload["result"]["skill_id"] == "service.local-only"
+    assert payload["result"]["covered_evidence_count"] == 4
 
 
 def test_dataset_rejects_incoherent_expectations_and_versions() -> None:
@@ -339,7 +372,7 @@ def test_external_remote_preparer_requires_audit_pair_and_reuses_gateway(
     )
 
     assert result.status is IncidentStatus.CONFIRMED
-    assert result.local_tool_attempts == ()
+    assert result.local_tool_attempts == ("probe_service_reachability",)
     assert tuple(item.tool_name for item in request_audit.records) == (
         "get_node_summary",
         "list_network_listeners",

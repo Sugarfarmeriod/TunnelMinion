@@ -52,6 +52,7 @@ from tunnelminion.incident.contracts import (
     IncidentHypothesis,
     IncidentReport,
     IncidentStatus,
+    InvestigationStepStatus,
     InvestigationStopReason,
     NormalizedSnapshot,
     PublicTraceEntry,
@@ -260,7 +261,10 @@ class IncidentEvaluationDataset(BaseModel):
                         else set()
                     )
                     if (
-                        "get_node_summary" not in scenario.required_tools
+                        (
+                            scenario.execution_scope == "local"
+                            and "get_node_summary" not in scenario.required_tools
+                        )
                         or not isinstance(probe_host, str)
                         or probe_host not in visible_hosts
                     ):
@@ -356,6 +360,14 @@ class IncidentScenarioResult(BaseModel):
     trace: tuple[PublicTraceEntry, ...] = ()
     evidence: tuple[EvidenceReference, ...] = ()
     evidence_count: int = Field(ge=0)
+    skill_id: str | None = None
+    skill_version: str | None = None
+    required_evidence_count: int = Field(default=0, ge=0)
+    covered_evidence_count: int = Field(default=0, ge=0)
+    successful_step_count: int = Field(default=0, ge=0)
+    duplicate_successful_step_calls: int = Field(default=0, ge=0)
+    premature_stop_attempts: int = Field(default=0, ge=0)
+    unknowns: tuple[str, ...] = ()
     root_cause_success: bool | None
     tool_selection_success: bool
     unnecessary_tool_calls: int = Field(ge=0)
@@ -364,6 +376,16 @@ class IncidentScenarioResult(BaseModel):
     task_completed: bool
     failure_class: str | None
     latency_ms: float = Field(ge=0)
+
+
+class IncidentMetricCount(BaseModel):
+    """比率的可复核分子、分母和值。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    numerator: int = Field(ge=0)
+    denominator: int = Field(ge=0)
+    value: float = Field(ge=0)
 
 
 class IncidentEvaluationMetrics(BaseModel):
@@ -393,6 +415,10 @@ class IncidentEvaluationMetrics(BaseModel):
     remote_local_tool_executions: int
     remote_fallback_tool_calls: int
     remote_preflight_bypass_confirmations: int
+    evidence_coverage_rate: float = 0.0
+    duplicate_successful_step_call_rate: float = 0.0
+    premature_stop_rate: float = 0.0
+    metric_counts: dict[str, IncidentMetricCount] = Field(default_factory=dict)
     total_input_tokens: int | None = Field(default=None, ge=0)
     total_output_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
@@ -413,6 +439,8 @@ class IncidentEvaluationReport(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["incident-evaluation-report/v4"] = "incident-evaluation-report/v4"
+    scorer_version: str = "incident-scorer/v2"
+    run_count: int = Field(default=1, ge=1)
     dataset_id: str
     dataset_version: str
     model_name: str
@@ -958,14 +986,13 @@ async def run_incident_scenario(
         clock=lambda: _OBSERVED_AT + timedelta(days=1),
     )
     final = await investigator.run(incident)
-    active_tools = (
-        remote_tools.tools
+    recorded_attempts = (
+        list(remote_tools.tools.attempts) + list(local_tools.attempts)
         if remote_tools is not None and remote_tools.tools is not None
-        else local_tools
+        else list(local_tools.attempts)
         if scenario.execution_scope == "local"
-        else None
+        else []
     )
-    recorded_attempts = active_tools.attempts if active_tools is not None else []
     selected = tuple(name for item in recording.rounds for name in item.requested_tools)
     attempts = tuple(item.request.tool_name for item in recorded_attempts)
     executed = tuple(
@@ -988,8 +1015,10 @@ async def run_incident_scenario(
         if item.selected_by_model
         and item.result.status in {ToolExecutionStatus.SUCCESS, ToolExecutionStatus.PARTIAL}
     }
-    execution_audit = request_audit if request_audit is not None else local_audit
-    audit_by_run = {str(item.tool_run_id): item for item in execution_audit.records}
+    execution_audits = (request_audit, local_audit) if request_audit is not None else (local_audit,)
+    audit_by_run = {
+        str(item.tool_run_id): item for audit in execution_audits for item in audit.records
+    }
     tool_runs = tuple(
         IncidentToolRun(
             tool_run_id=item.result.tool_run_id,
@@ -1080,6 +1109,22 @@ async def run_incident_scenario(
             or scenario.required_tools.issubset(successful_model_tools)
         )
     )
+    investigation = final.investigation
+    required_evidence: set[str] = (
+        {requirement for step in investigation.steps for requirement in step.requirement_ids}
+        if investigation is not None
+        else set()
+    )
+    covered_evidence: set[str] = (
+        {
+            requirement
+            for step in investigation.steps
+            if step.status is InvestigationStepStatus.SUCCEEDED
+            for requirement in step.requirement_ids
+        }
+        if investigation is not None
+        else set()
+    )
     return IncidentScenarioResult(
         scenario_id=scenario.scenario_id,
         category=scenario.category,
@@ -1124,6 +1169,29 @@ async def run_incident_scenario(
         trace=final.trace,
         evidence=report.evidence if report is not None else (),
         evidence_count=evidence_count,
+        skill_id=investigation.skill_id if investigation is not None else None,
+        skill_version=investigation.skill_version if investigation is not None else None,
+        required_evidence_count=len(required_evidence),
+        covered_evidence_count=len(covered_evidence),
+        successful_step_count=(
+            sum(step.status is InvestigationStepStatus.SUCCEEDED for step in investigation.steps)
+            if investigation is not None
+            else 0
+        ),
+        duplicate_successful_step_calls=(
+            sum(
+                max(0, step.attempts - 1)
+                for step in investigation.steps
+                if step.status is InvestigationStepStatus.SUCCEEDED
+            )
+            if investigation is not None
+            else 0
+        ),
+        premature_stop_attempts=sum(
+            item.kind == "status" and "模型未按当前信息缺口选择工具" in item.summary
+            for item in final.trace
+        ),
+        unknowns=report.unknowns if report is not None else (),
         root_cause_success=root_success,
         tool_selection_success=tool_success,
         unnecessary_tool_calls=sum(name not in scenario.required_tools for name in selected),
@@ -1260,6 +1328,22 @@ async def run_incident_dataset(
         item.category == "evidence_conflict" and item.status is IncidentStatus.CONFIRMED
         for item in results
     )
+    skill_results = [item for item in results if item.skill_id is not None]
+    required_evidence_count = sum(item.required_evidence_count for item in skill_results)
+    covered_evidence_count = sum(item.covered_evidence_count for item in skill_results)
+    successful_step_count = sum(item.successful_step_count for item in skill_results)
+    duplicate_successful_step_calls = sum(
+        item.duplicate_successful_step_calls for item in skill_results
+    )
+    premature_stop_attempts = sum(item.premature_stop_attempts for item in skill_results)
+    root_success_count = sum(bool(item) for item in roots)
+    tool_success_count = sum(item.tool_selection_success for item in tool_cases)
+    recovery_success_count = sum(bool(item) for item in recoveries)
+    completed_count = sum(item.task_completed for item in results)
+    invalid_argument_count = sum(item.invalid_tool_arguments for item in results)
+    unsupported_count = sum(item.unsupported_assertion for item in results)
+    remote_completed_count = sum(item.task_completed for item in remote)
+    unnecessary_call_count = sum(item.unnecessary_tool_calls for item in results)
     metrics = IncidentEvaluationMetrics(
         scenario_count=len(results),
         root_cause_success_rate=_ratio(roots),
@@ -1293,12 +1377,101 @@ async def run_incident_dataset(
         fallback_tool_calls=sum(len(item.fallback_tools) for item in results),
         remote_scenario_count=len(remote),
         remote_completion_rate=_ratio([item.task_completed for item in remote]),
-        remote_local_tool_executions=sum(len(item.local_tool_attempts) for item in remote),
+        remote_local_tool_executions=sum(
+            name != "probe_service_reachability"
+            for item in remote
+            for name in item.local_tool_attempts
+        ),
         remote_fallback_tool_calls=sum(len(item.fallback_tools) for item in remote),
         remote_preflight_bypass_confirmations=sum(
             item.preflight_status != "success" and item.status is IncidentStatus.CONFIRMED
             for item in remote
         ),
+        evidence_coverage_rate=(
+            covered_evidence_count / required_evidence_count if required_evidence_count else 0.0
+        ),
+        duplicate_successful_step_call_rate=(
+            duplicate_successful_step_calls / successful_step_count
+            if successful_step_count
+            else 0.0
+        ),
+        premature_stop_rate=(
+            premature_stop_attempts / len(skill_results) if skill_results else 0.0
+        ),
+        metric_counts={
+            "root_cause_success_rate": IncidentMetricCount(
+                numerator=root_success_count,
+                denominator=len(roots),
+                value=_ratio(roots),
+            ),
+            "tool_selection_rate": IncidentMetricCount(
+                numerator=tool_success_count,
+                denominator=len(tool_cases),
+                value=_ratio([item.tool_selection_success for item in tool_cases]),
+            ),
+            "unnecessary_tool_call_rate": IncidentMetricCount(
+                numerator=unnecessary_call_count,
+                denominator=selected_count,
+                value=unnecessary_call_count / selected_count if selected_count else 0.0,
+            ),
+            "unsupported_assertion_rate": IncidentMetricCount(
+                numerator=unsupported_count,
+                denominator=len(results),
+                value=unsupported_count / len(results),
+            ),
+            "failure_recovery_rate": IncidentMetricCount(
+                numerator=recovery_success_count,
+                denominator=len(recoveries),
+                value=_ratio(recoveries),
+            ),
+            "task_completion_rate": IncidentMetricCount(
+                numerator=completed_count,
+                denominator=len(results),
+                value=_ratio([item.task_completed for item in results]),
+            ),
+            "invalid_tool_argument_rate": IncidentMetricCount(
+                numerator=invalid_argument_count,
+                denominator=attempted_count,
+                value=invalid_argument_count / attempted_count if attempted_count else 0.0,
+            ),
+            "safety_interception_rate": IncidentMetricCount(
+                numerator=forbidden_requests - forbidden_executions,
+                denominator=forbidden_requests,
+                value=(
+                    (forbidden_requests - forbidden_executions) / forbidden_requests
+                    if forbidden_requests
+                    else 1.0
+                ),
+            ),
+            "remote_completion_rate": IncidentMetricCount(
+                numerator=remote_completed_count,
+                denominator=len(remote),
+                value=_ratio([item.task_completed for item in remote]),
+            ),
+            "evidence_coverage_rate": IncidentMetricCount(
+                numerator=covered_evidence_count,
+                denominator=required_evidence_count,
+                value=(
+                    covered_evidence_count / required_evidence_count
+                    if required_evidence_count
+                    else 0.0
+                ),
+            ),
+            "duplicate_successful_step_call_rate": IncidentMetricCount(
+                numerator=duplicate_successful_step_calls,
+                denominator=successful_step_count,
+                value=(
+                    duplicate_successful_step_calls / successful_step_count
+                    if successful_step_count
+                    else 0.0
+                ),
+            ),
+            "premature_stop_rate": IncidentMetricCount(
+                numerator=premature_stop_attempts,
+                denominator=len(skill_results),
+                value=premature_stop_attempts / len(skill_results) if skill_results else 0.0,
+            ),
+        },
         total_input_tokens=_sum_optional(
             item.model_input_tokens for item in results if item.model_source == "real"
         ),

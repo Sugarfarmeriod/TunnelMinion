@@ -245,6 +245,36 @@ const evidenceReference = z
   })
   .strict();
 
+const investigationState = z
+  .object({
+    schema_version: z.literal("investigation-state/v1"),
+    skill_id: z.string(),
+    skill_version: z.string(),
+    phase: z.enum(["collecting", "reporting", "finished"]),
+    model_rounds: z.number().int().nonnegative(),
+    tool_calls: z.number().int().nonnegative(),
+    steps: z.array(
+      z
+        .object({
+          step_id: z.string(),
+          requirement_ids: z.array(z.string()),
+          tool_name: z.string(),
+          execution: z.enum(["requester", "target"]),
+          status: z.enum(["pending", "attempted", "succeeded", "failed"]),
+          attempts: z.number().int().nonnegative(),
+          evidence: evidenceReference.nullable(),
+          observations: z.record(z.string(), z.unknown()),
+          failure_code: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    facts: z.array(z.string()),
+    unknowns: z.array(z.string()),
+    stop_reason: stopReason.nullable(),
+    updated_at: timestamp,
+  })
+  .strict();
+
 export const incidentDetailSchema = z
   .object({
     incident: z
@@ -276,6 +306,7 @@ export const incidentDetailSchema = z
           .string()
           .regex(/^run_[0-9a-f]{32}$/)
           .nullable(),
+        investigation: investigationState.nullable().optional(),
         hypotheses: z.array(
           z
             .object({

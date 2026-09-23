@@ -1,7 +1,7 @@
 {
   "schema_version": "local-product-interface-baseline/v1",
-  "accepted_at": "2026-09-09T23:39:16+08:00",
-  "product_source_revision": "1444c5cedec2a127c8b797a2799da6cd479f3e71",
+  "accepted_at": "2026-09-22T00:00:00+08:00",
+  "product_source_revision": "d4594a1011e443f10d69b433e395eeb0a6b0b5d3",
   "fixture_policy": {
     "isolated_temporary_data": true,
     "secret_store_reads_allowed": false,
@@ -42,8 +42,8 @@
     }
   ],
   "openapi": {
-    "canonical_json_bytes": 99038,
-    "sha256": "8619bd11b0df0584e9d4fcbdd10ce74604a83a51554359601ea3a1ca8bf18c78",
+    "canonical_json_bytes": 102382,
+    "sha256": "d858cb50afa66bb47748a0a1daaf23360bcb1797b070656c2a64b675c0f0ae88",
     "critical_paths": [
       "/api/resources/overview",
       "/api/incidents/{value}",

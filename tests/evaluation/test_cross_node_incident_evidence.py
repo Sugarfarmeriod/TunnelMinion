@@ -229,7 +229,7 @@ def test_platform_receipt_proves_isolated_gateway_and_zero_local_execution() -> 
         "get_node_summary",
         "list_network_listeners",
     )
-    assert success.local_tool_attempts == ()
+    assert success.local_tool_attempts == ("probe_service_reachability",)
 
 
 def test_platform_matrix_requires_two_matching_real_hosts() -> None:

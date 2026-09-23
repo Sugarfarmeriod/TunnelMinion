@@ -28,6 +28,7 @@ from tunnelminion.agent.remote import PreparedRemoteAgentTools, RemotePreparatio
 from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
+    EvidenceExecution,
     EvidenceReference,
     HypothesisStatus,
     Incident,
@@ -35,11 +36,16 @@ from tunnelminion.incident.contracts import (
     IncidentHypothesis,
     IncidentReport,
     IncidentStatus,
+    InvestigationPhase,
+    InvestigationState,
+    InvestigationStepState,
+    InvestigationStepStatus,
     InvestigationStopReason,
     PublicTraceEntry,
     SnapshotObjectKind,
     SnapshotSource,
 )
+from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY, InvestigationSkill
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
 from tunnelminion.model.contracts import (
@@ -305,13 +311,28 @@ class IncidentInvestigator:
             and target_node_id != local_node_id
             and incident.event.source is not SnapshotSource.LOCAL_OBSERVATION
         )
+        skill = (
+            SERVICE_LOCAL_ONLY
+            if incident.event.event_type is IncidentEventType.LOCAL_ONLY and remote
+            else None
+        )
+        current = self._ensure_skill_state(incident, skill)
+        if current is not incident:
+            self._store.put_incident(current)
+        if cancellation.cancelled:
+            return self._finish(
+                current,
+                IncidentStatus.CANCELLED,
+                InvestigationStopReason.CANCELLED,
+                "调查已取消",
+            )
         if (local and incident.event.event_type is IncidentEventType.STATE_STALE) or (
             remote
             and incident.event.event_type
             in {IncidentEventType.NODE_OFFLINE, IncidentEventType.STATE_STALE}
         ):
             return self._finish(
-                incident,
+                current,
                 IncidentStatus.INSUFFICIENT_EVIDENCE,
                 InvestigationStopReason.INSUFFICIENT_EVIDENCE,
                 "当前状态已经陈旧，无法用它确认实时根因",
@@ -319,19 +340,28 @@ class IncidentInvestigator:
             )
         messages = [
             ModelMessage(role="system", content=INCIDENT_INVESTIGATION_PROMPT.template),
-            ModelMessage(role="user", content=self._incident_context(incident)),
+            ModelMessage(role="user", content=self._incident_context(current)),
         ]
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
-        current = incident
-        tool_calls = 0
+        tool_calls = current.investigation.tool_calls if current.investigation is not None else 0
         attempted_tools: set[str] = set()
         successful_tools: dict[str, EvidenceReference] = {}
         tool_outputs: dict[str, JsonValue] = {}
+        if current.investigation is not None:
+            for step in current.investigation.steps:
+                if step.status is not InvestigationStepStatus.SUCCEEDED or step.evidence is None:
+                    continue
+                attempted_tools.add(step.tool_name)
+                successful_tools[step.tool_name] = step.evidence
+                tool_outputs[step.tool_name] = step.observations
+                evidence[str(step.evidence.tool_run_id)] = step.evidence
         active_registry = self._registry
         active_executor = self._tools
-        evidence_path = (
-            _LOCAL_EVIDENCE_PATHS[incident.event.event_type]
+        evidence_path: tuple[str, ...] = (
+            tuple(step.tool_name for step in skill.steps)
+            if skill is not None
+            else _LOCAL_EVIDENCE_PATHS[incident.event.event_type]
             if local
             else _REMOTE_EVIDENCE_PATHS[incident.event.event_type]
             if remote
@@ -354,10 +384,19 @@ class IncidentInvestigator:
                 execution_node_id=target_node_id,
             )
             try:
+                requested_remote_tools = (
+                    tuple(
+                        step.tool_name
+                        for step in skill.steps
+                        if step.execution is EvidenceExecution.TARGET
+                    )
+                    if skill is not None
+                    else evidence_path
+                )
                 prepared = await self._remote_tools.prepare(
                     target_node_id,
                     context,
-                    evidence_path,
+                    requested_remote_tools,
                     cancellation.tool,
                 )
             except RemotePreparationError:
@@ -397,10 +436,18 @@ class IncidentInvestigator:
                 )
             )
             evidence[str(prepared.summary_tool_run_id)] = summary_reference
+            summary_output = prepared.node_summary.model_dump(mode="json")
             attempted_tools.add("get_node_summary")
             successful_tools["get_node_summary"] = summary_reference
-            tool_outputs["get_node_summary"] = prepared.node_summary.model_dump(mode="json")
-            tool_calls = 1
+            tool_outputs["get_node_summary"] = summary_output
+            tool_calls += 1
+            current = self._record_skill_step(
+                current,
+                "get_node_summary",
+                summary_reference,
+                summary_output,
+                tool_calls=tool_calls,
+            )
             current = self._append_trace(
                 current,
                 PublicTraceEntry(
@@ -417,12 +464,23 @@ class IncidentInvestigator:
             if evidence_path
             else {}
         )
+        if skill is not None and remote:
+            available_tools.update(
+                {
+                    item.name: item
+                    for item in self._model_tools(self._registry)
+                    if item.name == "probe_service_reachability"
+                }
+            )
         tool_contract_repaired = False
         report_repaired = False
         invalid_response_retried = False
         evidence_conflict = False
         last_gap_signature: tuple[str, ...] | None = None
-        for _ in range(self._limits.max_model_rounds):
+        completed_rounds = (
+            current.investigation.model_rounds if current.investigation is not None else 0
+        )
+        for _ in range(max(0, self._limits.max_model_rounds - completed_rounds)):
             if cancellation.cancelled:
                 return self._finish(
                     current,
@@ -523,6 +581,8 @@ class IncidentInvestigator:
                     evidence_conflict=evidence_conflict,
                 )
                 round_messages = (*messages, constraint)
+            current = self._increment_model_round(current)
+            self._store.put_incident(current)
             try:
                 invocation = await self._model.invoke(
                     ContextRequest(
@@ -641,13 +701,23 @@ class IncidentInvestigator:
                         tool_calls=response.tool_calls,
                     )
                 )
-                result = await active_executor.execute(
+                executor = active_executor
+                execution_node_id: NodeId = target_node_id
+                if skill is not None:
+                    step = next(item for item in skill.steps if item.tool_name == call.name)
+                    if step.execution is EvidenceExecution.REQUESTER and local_node_id is not None:
+                        executor = self._tools
+                        execution_node_id = local_node_id
+                caller_node_id: NodeId = (
+                    local_node_id if local_node_id is not None else target_node_id
+                )
+                result = await executor.execute(
                     ToolExecutionRequest(
                         context=ToolCallContext(
                             thread_id=thread_id,
                             run_id=run_id,
-                            caller_node_id=local_node_id or target_node_id,
-                            execution_node_id=target_node_id,
+                            caller_node_id=caller_node_id,
+                            execution_node_id=execution_node_id,
                         ),
                         tool_name=call.name,
                         arguments=call.arguments,
@@ -688,6 +758,20 @@ class IncidentInvestigator:
                         tool_name=call.name,
                         evidence=(reference,),
                     ),
+                )
+                current = self._record_skill_step(
+                    current,
+                    call.name,
+                    reference
+                    if result.status
+                    in {
+                        ToolExecutionStatus.SUCCESS,
+                        ToolExecutionStatus.PARTIAL,
+                    }
+                    else None,
+                    result.output,
+                    tool_calls=tool_calls,
+                    failure_code=(result.error.code.value if result.error is not None else None),
                 )
                 self._store.put_incident(current)
                 if result.status not in {
@@ -753,6 +837,7 @@ class IncidentInvestigator:
                 )
                 self._store.put_incident(current)
                 continue
+            evidence_conflict = evidence_conflict or not self._skill_can_confirm(current)
             return self._apply_decision(
                 current,
                 decision,
@@ -847,6 +932,11 @@ class IncidentInvestigator:
                 "report": report,
             }
         )
+        current = self._finish_skill_state(
+            current,
+            report.stop_reason,
+            report.unknowns,
+        )
         current = self._append_trace(
             current,
             PublicTraceEntry(
@@ -874,7 +964,8 @@ class IncidentInvestigator:
         evidence: tuple[EvidenceReference, ...] = (),
     ) -> Incident:
         report = IncidentReport(unknowns=(unknown,), stop_reason=reason, evidence=evidence)
-        current = incident.transition(status, at=self._now(), report=report)
+        current = self._finish_skill_state(incident, reason, (unknown,))
+        current = current.transition(status, at=self._now(), report=report)
         current = self._append_trace(
             current,
             PublicTraceEntry(
@@ -1009,11 +1100,16 @@ class IncidentInvestigator:
     ) -> dict[str, JsonValue] | None:
         if not isinstance(node_summary, dict):
             return None
-        wireguard = node_summary.get("wireguard")
-        addresses = wireguard.get("addresses") if isinstance(wireguard, dict) else None
         affected = self._affected_object_context(incident)
         port = affected.get("port") if affected is not None else None
-        if not isinstance(addresses, list) or not isinstance(port, int):
+        if not isinstance(port, int):
+            return None
+        restored_address = node_summary.get("private_address")
+        if isinstance(restored_address, str):
+            return {"host": restored_address, "port": port}
+        wireguard = node_summary.get("wireguard")
+        addresses = wireguard.get("addresses") if isinstance(wireguard, dict) else None
+        if not isinstance(addresses, list):
             return None
         for value in addresses:
             if not isinstance(value, str):
@@ -1031,6 +1127,227 @@ class IncidentInvestigator:
             ):
                 return {"host": str(address), "port": port}
         return None
+
+    def _ensure_skill_state(
+        self,
+        incident: Incident,
+        skill: InvestigationSkill | None,
+    ) -> Incident:
+        if skill is None or incident.investigation is not None:
+            return incident
+        state = InvestigationState(
+            skill_id=skill.skill_id,
+            skill_version=skill.version,
+            steps=tuple(
+                InvestigationStepState(
+                    step_id=step.step_id,
+                    requirement_ids=step.requirement_ids,
+                    tool_name=step.tool_name,
+                    execution=step.execution,
+                )
+                for step in skill.steps
+            ),
+            unknowns=tuple(item.description for item in skill.requirements),
+            updated_at=self._now(),
+        )
+        return Incident.model_validate(incident.model_dump() | {"investigation": state})
+
+    def _increment_model_round(self, incident: Incident) -> Incident:
+        state = incident.investigation
+        if state is None:
+            return incident
+        updated = state.model_copy(
+            update={"model_rounds": state.model_rounds + 1, "updated_at": self._now()}
+        )
+        return Incident.model_validate(incident.model_dump() | {"investigation": updated})
+
+    def _record_skill_step(
+        self,
+        incident: Incident,
+        tool_name: str,
+        evidence: EvidenceReference | None,
+        output: JsonValue | None,
+        *,
+        tool_calls: int,
+        failure_code: str | None = None,
+    ) -> Incident:
+        state = incident.investigation
+        if state is None:
+            return incident
+        selected = next((item for item in state.steps if item.tool_name == tool_name), None)
+        if selected is None:
+            return incident
+        if selected.status is InvestigationStepStatus.SUCCEEDED:
+            updated = state.model_copy(update={"tool_calls": tool_calls, "updated_at": self._now()})
+            return Incident.model_validate(incident.model_dump() | {"investigation": updated})
+
+        observations, facts = self._skill_observations(incident, tool_name, output)
+        succeeded = evidence is not None and observations is not None
+        next_step = selected.model_copy(
+            update={
+                "status": (
+                    InvestigationStepStatus.SUCCEEDED
+                    if succeeded
+                    else InvestigationStepStatus.FAILED
+                ),
+                "attempts": selected.attempts + 1,
+                "evidence": evidence if succeeded else None,
+                "observations": observations or {},
+                "failure_code": None if succeeded else failure_code or "invalid_output",
+            }
+        )
+        steps = tuple(
+            next_step if item.step_id == selected.step_id else item for item in state.steps
+        )
+        covered = {
+            requirement
+            for item in steps
+            if item.status is InvestigationStepStatus.SUCCEEDED
+            for requirement in item.requirement_ids
+        }
+        requirement_labels = {
+            item.requirement_id: item.description for item in SERVICE_LOCAL_ONLY.requirements
+        }
+        updated = state.model_copy(
+            update={
+                "steps": steps,
+                "facts": tuple(dict.fromkeys((*state.facts, *facts))),
+                "unknowns": tuple(
+                    label
+                    for requirement, label in requirement_labels.items()
+                    if requirement not in covered
+                ),
+                "tool_calls": tool_calls,
+                "updated_at": self._now(),
+            }
+        )
+        return Incident.model_validate(incident.model_dump() | {"investigation": updated})
+
+    def _skill_observations(
+        self,
+        incident: Incident,
+        tool_name: str,
+        output: JsonValue | None,
+    ) -> tuple[dict[str, JsonValue] | None, tuple[str, ...]]:
+        if not isinstance(output, dict):
+            return None, ()
+        if tool_name == "get_node_summary":
+            wireguard = output.get("wireguard")
+            if not isinstance(wireguard, dict):
+                return None, ()
+            addresses = wireguard.get("addresses")
+            address = (
+                next((item for item in addresses if isinstance(item, str)), None)
+                if isinstance(addresses, list)
+                else None
+            )
+            ready = bool(
+                wireguard.get("availability") == "available"
+                and wireguard.get("interface_up") is True
+                and address is not None
+            )
+            observations: dict[str, JsonValue] = {
+                "private_network_ready": ready,
+                "interface_up": wireguard.get("interface_up") is True,
+            }
+            if address is not None:
+                observations["private_address"] = address
+            return observations, (
+                f"目标私网状态：{'可用' if ready else '不可用'}"
+                + (f"，地址 {address}" if address is not None else ""),
+            )
+        if tool_name == "list_network_listeners":
+            affected = self._affected_object_context(incident)
+            port = affected.get("port") if affected is not None else None
+            listeners = self._collection_items(output, "listeners")
+            if not isinstance(port, int) or listeners is None:
+                return None, ()
+            matching = tuple(item for item in listeners if item.get("port") == port)
+            addresses = tuple(
+                str(item["address"]) for item in matching if isinstance(item.get("address"), str)
+            )
+            process = next(
+                (
+                    item
+                    for item in matching
+                    if isinstance(item.get("pid"), int) or isinstance(item.get("process_name"), str)
+                ),
+                None,
+            )
+            process_name = (
+                str(process.get("process_name") or f"pid {process.get('pid')}")
+                if process is not None
+                else "unknown"
+            )
+            loopback_only = bool(addresses) and all(
+                self._is_loopback_address(value) for value in addresses
+            )
+            observations = {
+                "listener_found": bool(matching),
+                "loopback_only": loopback_only,
+                "process_present": process is not None,
+                "port": port,
+                "addresses": ",".join(addresses)[:128],
+                "process_name": process_name[:128],
+            }
+            return observations, (
+                f"目标端口 {port} 监听地址：{','.join(addresses) or '未发现'}",
+                f"目标进程：{process_name}",
+            )
+        if tool_name == "probe_service_reachability":
+            reachable = output.get("reachable")
+            host = output.get("host")
+            port = output.get("port")
+            if (
+                not isinstance(reachable, bool)
+                or not isinstance(host, str)
+                or not isinstance(port, int)
+            ):
+                return None, ()
+            return {
+                "host": host,
+                "port": port,
+                "reachable": reachable,
+            }, (f"请求端探测 {host}:{port}：{'可达' if reachable else '不可达'}",)
+        return None, ()
+
+    @staticmethod
+    def _skill_can_confirm(incident: Incident) -> bool:
+        state = incident.investigation
+        if state is None or state.skill_id != SERVICE_LOCAL_ONLY.skill_id:
+            return True
+        by_step = {item.step_id: item for item in state.steps}
+        node = by_step["target-node"]
+        listener = by_step["target-listener"]
+        probe = by_step["requester-probe"]
+        return bool(
+            all(
+                item.status is InvestigationStepStatus.SUCCEEDED for item in (node, listener, probe)
+            )
+            and node.observations.get("private_network_ready") is True
+            and listener.observations.get("process_present") is True
+            and listener.observations.get("loopback_only") is True
+            and probe.observations.get("reachable") is False
+        )
+
+    def _finish_skill_state(
+        self,
+        incident: Incident,
+        reason: InvestigationStopReason,
+        unknowns: tuple[str, ...],
+    ) -> Incident:
+        state = incident.investigation
+        if state is None:
+            return incident
+        updated = state.model_copy(
+            update={
+                "phase": InvestigationPhase.FINISHED,
+                "unknowns": tuple(dict.fromkeys((*state.unknowns, *unknowns))),
+                "stop_reason": reason,
+                "updated_at": self._now(),
+            }
+        )
+        return Incident.model_validate(incident.model_dump() | {"investigation": updated})
 
     def _latest_with_evidence(
         self,
@@ -1258,6 +1575,11 @@ class IncidentInvestigator:
         payload = {
             "event": incident.event.model_dump(mode="json"),
             "affected_object": self._affected_object_context(incident),
+            "investigation_state": (
+                incident.investigation.model_dump(mode="json")
+                if incident.investigation is not None
+                else None
+            ),
         }
         return "以下是已脱敏的确定性 incident：" + json.dumps(
             payload,

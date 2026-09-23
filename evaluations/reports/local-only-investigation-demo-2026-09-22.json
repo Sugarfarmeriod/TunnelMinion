@@ -1,0 +1,409 @@
+{
+  "schema_version": "incident-investigation-demo/v1",
+  "input": {
+    "scenario_id": "remote-macos-loopback-listener",
+    "category": "remote_local_only",
+    "execution_scope": "remote",
+    "request_platform": "windows",
+    "target_platform": "macos",
+    "snapshot_source": "coordinator_directory",
+    "expected_preflight": "success",
+    "baseline": {
+      "node_state": "online",
+      "node_freshness": "fresh",
+      "service_present": true,
+      "service_state": "available",
+      "service_freshness": "fresh",
+      "accessibility": "network",
+      "protocol": "tcp",
+      "port": 43123
+    },
+    "current": {
+      "node_state": "online",
+      "node_freshness": "fresh",
+      "service_present": true,
+      "service_state": "available",
+      "service_freshness": "fresh",
+      "accessibility": "loopback",
+      "protocol": "tcp",
+      "port": 43123
+    },
+    "expected_event": "local_only",
+    "expected_root_cause": "macOS 目标服务只监听 127.0.0.1:43123",
+    "root_cause_terms": [
+      "127.0.0.1",
+      "43123"
+    ],
+    "root_cause_forbidden_terms": [
+      "0.0.0.0",
+      "同时监听",
+      "远端可访问"
+    ],
+    "tool_sequence": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "tool_results": {
+      "get_node_summary": {
+        "node_id": "node_fedcba9876543210fedcba9876543210",
+        "platform": "macos",
+        "agent_status": "ready",
+        "model_status": "unconfigured",
+        "wireguard": {
+          "availability": "available",
+          "interface": "utun4",
+          "interface_up": true,
+          "addresses": [
+            "10.77.0.1"
+          ],
+          "peers": []
+        },
+        "available_tools": [
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability",
+          "get_node_summary"
+        ]
+      },
+      "list_network_listeners": {
+        "availability": "available",
+        "items": [
+          {
+            "protocol": "tcp",
+            "address": "127.0.0.1",
+            "port": 43123,
+            "pid": 4242,
+            "process_name": "tunnelminion-demo"
+          }
+        ]
+      },
+      "probe_service_reachability": {
+        "host": "10.77.0.1",
+        "port": 43123,
+        "reachable": false,
+        "latency_ms": null,
+        "error_code": "unreachable"
+      }
+    },
+    "tool_arguments": {
+      "probe_service_reachability": {
+        "host": "10.77.0.1",
+        "port": 43123
+      }
+    },
+    "failing_tools": [],
+    "required_tools": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "forbidden_tools": [
+      "shell",
+      "python",
+      "restart_service"
+    ],
+    "minimum_evidence": 3,
+    "expected_status": "confirmed",
+    "expected_stop_reason": "evidence_sufficient",
+    "outcome": "confirmed",
+    "failure_class": null
+  },
+  "budget": {
+    "max_model_rounds": 6,
+    "max_tool_calls": 8,
+    "timeout_seconds": 90.0,
+    "context": {
+      "message_chars": 16000,
+      "history_chars": 12000,
+      "tool_schema_chars": 16000,
+      "tool_result_chars": 24000,
+      "memory_chars": 8000
+    }
+  },
+  "result": {
+    "scenario_id": "remote-macos-loopback-listener",
+    "category": "remote_local_only",
+    "execution_scope": "remote",
+    "request_platform": "windows",
+    "target_platform": "macos",
+    "snapshot_source": "coordinator_directory",
+    "preflight_status": "success",
+    "preflight_tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+    "incident_count": 1,
+    "model_calls": 3,
+    "model_source": "scripted",
+    "model_rounds": [
+      {
+        "round_index": 1,
+        "response_kind": "tool_call",
+        "requested_tools": [
+          "list_network_listeners"
+        ],
+        "error_code": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null,
+        "latency_ms": 1.3005000073462725
+      },
+      {
+        "round_index": 2,
+        "response_kind": "tool_call",
+        "requested_tools": [
+          "probe_service_reachability"
+        ],
+        "error_code": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null,
+        "latency_ms": 0.3747999435290694
+      },
+      {
+        "round_index": 3,
+        "response_kind": "structured_report",
+        "requested_tools": [],
+        "error_code": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null,
+        "latency_ms": 0.32840005587786436
+      }
+    ],
+    "observed_event": "local_only",
+    "status": "confirmed",
+    "stop_reason": "evidence_sufficient",
+    "conclusion": "macOS 目标服务只监听 127.0.0.1:43123",
+    "selected_tools": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "runtime_tool_attempts": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "local_tool_attempts": [
+      "probe_service_reachability"
+    ],
+    "target_tool_attempts": [
+      "get_node_summary",
+      "list_network_listeners"
+    ],
+    "executed_tools": [
+      "list_network_listeners",
+      "probe_service_reachability"
+    ],
+    "fallback_tools": [],
+    "tool_runs": [
+      {
+        "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+        "tool_name": "list_network_listeners",
+        "arguments": {},
+        "status": "success",
+        "error_code": null,
+        "output": {
+          "availability": "available",
+          "items": [
+            {
+              "protocol": "tcp",
+              "address": "127.0.0.1",
+              "port": 43123,
+              "pid": 4242,
+              "process_name": "tunnelminion-demo"
+            }
+          ]
+        },
+        "latency_ms": 1.613799948245287
+      },
+      {
+        "tool_run_id": "toolrun_e24f5e1911ae46dc8927316411b2efb0",
+        "tool_name": "probe_service_reachability",
+        "arguments": {
+          "host": "10.77.0.1",
+          "port": 43123
+        },
+        "status": "success",
+        "error_code": null,
+        "output": {
+          "host": "10.77.0.1",
+          "port": 43123,
+          "reachable": false,
+          "latency_ms": null,
+          "error_code": "unreachable"
+        },
+        "latency_ms": 0.33179996535182
+      }
+    ],
+    "invalid_tool_arguments": 0,
+    "forbidden_tool_requests": 0,
+    "model_input_tokens": null,
+    "model_output_tokens": null,
+    "model_total_tokens": null,
+    "trace": [
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "tool",
+        "summary": "远端节点摘要预检成功",
+        "tool_name": "get_node_summary",
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "远端节点摘要预检成功"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "status",
+        "summary": "剩余信息缺口：监听地址与端口、目标端口可达性",
+        "tool_name": null,
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "远端节点摘要预检成功"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "tool",
+        "summary": "只读工具 list_network_listeners 以 success 状态结束",
+        "tool_name": "list_network_listeners",
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "status",
+        "summary": "剩余信息缺口：目标端口可达性",
+        "tool_name": null,
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "远端节点摘要预检成功"
+          },
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "tool",
+        "summary": "只读工具 probe_service_reachability 以 success 状态结束",
+        "tool_name": "probe_service_reachability",
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_e24f5e1911ae46dc8927316411b2efb0",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "status",
+        "summary": "事件证据路径已完整，等待模型生成证据化报告",
+        "tool_name": null,
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "远端节点摘要预检成功"
+          },
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          },
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_e24f5e1911ae46dc8927316411b2efb0",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+          }
+        ]
+      },
+      {
+        "occurred_at": "2026-09-04T00:00:00Z",
+        "kind": "report",
+        "summary": "macOS 目标服务只监听 127.0.0.1:43123",
+        "tool_name": null,
+        "evidence": [
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "远端节点摘要预检成功"
+          },
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 list_network_listeners 以 success 状态结束"
+          },
+          {
+            "snapshot_id": null,
+            "tool_run_id": "toolrun_e24f5e1911ae46dc8927316411b2efb0",
+            "observed_at": "2026-09-04T00:00:00Z",
+            "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+          }
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "snapshot_id": null,
+        "tool_run_id": "toolrun_664328a262874ff99b4a0e65dc64bc05",
+        "observed_at": "2026-09-04T00:00:00Z",
+        "summary": "远端节点摘要预检成功"
+      },
+      {
+        "snapshot_id": null,
+        "tool_run_id": "toolrun_c4cf1e956c654351aeac059d6e24be00",
+        "observed_at": "2026-09-04T00:00:00Z",
+        "summary": "只读工具 list_network_listeners 以 success 状态结束"
+      },
+      {
+        "snapshot_id": null,
+        "tool_run_id": "toolrun_e24f5e1911ae46dc8927316411b2efb0",
+        "observed_at": "2026-09-04T00:00:00Z",
+        "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+      }
+    ],
+    "evidence_count": 3,
+    "skill_id": "service.local-only",
+    "skill_version": "1",
+    "required_evidence_count": 4,
+    "covered_evidence_count": 4,
+    "successful_step_count": 3,
+    "duplicate_successful_step_calls": 0,
+    "premature_stop_attempts": 0,
+    "unknowns": [],
+    "root_cause_success": true,
+    "tool_selection_success": true,
+    "unnecessary_tool_calls": 0,
+    "unsupported_assertion": false,
+    "failure_recovered": null,
+    "task_completed": true,
+    "failure_class": null,
+    "latency_ms": 157.19800000078976
+  }
+}

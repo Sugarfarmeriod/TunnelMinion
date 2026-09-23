@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -41,9 +42,15 @@ from tunnelminion.domain.tools import (
 )
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.incident.contracts import (
+    EvidenceExecution,
+    EvidenceReference,
     Incident,
     IncidentEventType,
     IncidentStatus,
+    InvestigationPhase,
+    InvestigationState,
+    InvestigationStepState,
+    InvestigationStepStatus,
     InvestigationStopReason,
     NormalizedSnapshot,
     SnapshotDiffEvent,
@@ -66,6 +73,7 @@ from tunnelminion.incident.observer import (
     IncidentObservationService,
     incident_observation_lifespan,
 )
+from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY
 from tunnelminion.incident.snapshot import SnapshotDiffDetector
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.model.contracts import (
@@ -106,10 +114,17 @@ REQUEST_NODE = NodeId("node_99999999999999999999999999999999")
 class RecordingAdapter:
     """只记录真正通过 schema 和策略的调用。"""
 
-    def __init__(self, *, fail: bool = False, include_node_address: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        include_node_address: bool = True,
+        result: dict[str, JsonValue] | None = None,
+    ) -> None:
         self.calls: list[dict[str, JsonValue]] = []
         self.fail = fail
         self.include_node_address = include_node_address
+        self.result = result
 
     async def execute(
         self,
@@ -120,6 +135,8 @@ class RecordingAdapter:
         self.calls.append(arguments)
         if self.fail:
             raise RuntimeError("fixture tool failure")
+        if self.result is not None:
+            return self.result
         result: dict[str, JsonValue] = {"status": "network-listening"}
         if self.include_node_address:
             result["wireguard"] = {"addresses": ["10.77.0.2"]}
@@ -182,6 +199,18 @@ class ScriptedProvider:
             )
         if self.mode == "invalid_response":
             return ModelResponse()
+        if self.mode == "cancel_after_response":
+            assert cancellation is not None
+            cancellation.cancel()
+            return ModelResponse(
+                structured_output={
+                    "hypotheses": [],
+                    "facts": [],
+                    "unknowns": ["调查已取消"],
+                    "conclusion": None,
+                    "stop_reason": "insufficient_evidence",
+                }
+            )
         if self.mode == "missing_initial_tool" and len(self.requests) == 1:
             return ModelResponse(content="未调用工具就直接回答")
         if self.mode == "valid_missing_initial_tool" and len(self.requests) == 1:
@@ -243,8 +272,15 @@ class ScriptedProvider:
             if self.mode == "invalid_arguments":
                 arguments = {"unexpected": True}
             elif name == "probe_service_reachability":
+                remote_target = any("10.77.0.1" in message.content for message in request.messages)
                 arguments = {
-                    "host": "8.8.8.8" if self.mode == "wrong_probe_target" else "10.77.0.2",
+                    "host": (
+                        "8.8.8.8"
+                        if self.mode == "wrong_probe_target"
+                        else "10.77.0.1"
+                        if remote_target
+                        else "10.77.0.2"
+                    ),
                     "port": 43123,
                 }
             return ModelResponse(
@@ -303,11 +339,13 @@ class ScriptedProvider:
 
     @staticmethod
     def _tool_run_ids(request: ModelRequest) -> list[str]:
-        return [
-            str(json.loads(message.content)["result"]["tool_run_id"])
-            for message in request.messages
-            if message.role == "tool"
-        ]
+        return list(
+            dict.fromkeys(
+                match
+                for message in request.messages
+                for match in re.findall(r"toolrun_[0-9a-f]{32}", message.content)
+            )
+        )
 
 
 class RaisingRuntime:
@@ -377,13 +415,29 @@ def _remote_runtime(
     InMemoryAuditSink,
 ]:
     local_registry = ToolRegistry()
-    local_adapter = RecordingAdapter()
+    local_adapter = RecordingAdapter(
+        result={
+            "host": "10.77.0.1",
+            "port": 43123,
+            "reachable": False,
+            "latency_ms": None,
+            "error_code": "unreachable",
+        }
+    )
     local_registry.register(
         ToolDefinition(
-            name="list_network_listeners",
+            name="probe_service_reachability",
             version=ProtocolVersion(major=1, minor=0),
-            description="本机监听",
-            input_schema={"type": "object", "additionalProperties": False},
+            description="从请求节点探测目标服务",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string"},
+                    "port": {"type": "integer"},
+                },
+                "required": ["host", "port"],
+                "additionalProperties": False,
+            },
             output_schema={"type": "object"},
             risk_level=RiskLevel.READ_ONLY,
             platforms=frozenset({Platform.WINDOWS}),
@@ -394,7 +448,20 @@ def _remote_runtime(
         local_adapter,
     )
     remote_registry = ToolRegistry()
-    remote_adapter = RecordingAdapter()
+    remote_adapter = RecordingAdapter(
+        result={
+            "availability": "available",
+            "items": [
+                {
+                    "protocol": "tcp",
+                    "address": "127.0.0.1",
+                    "port": 43123,
+                    "pid": 4242,
+                    "process_name": "tunnelminion-demo",
+                }
+            ],
+        }
+    )
     for name in ("get_node_summary", "list_network_listeners"):
         remote_registry.register(
             ToolDefinition(
@@ -974,8 +1041,13 @@ def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
 
     assert result.status is IncidentStatus.CONFIRMED
     assert result.report is not None
-    assert len(result.report.evidence) == 2
-    assert local_adapter.calls == []
+    assert len(result.report.evidence) == 3
+    assert result.investigation is not None
+    assert result.investigation.phase is InvestigationPhase.FINISHED
+    assert result.investigation.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT
+    assert result.investigation.facts
+    assert result.investigation.unknowns == ()
+    assert local_adapter.calls == [{"host": "10.77.0.1", "port": 43123}]
     assert remote_adapter.calls == [{}]
     assert len(preparer.calls) == 1
     target, context, requested = preparer.calls[0]
@@ -984,7 +1056,11 @@ def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
     assert context.execution_node_id == NODE
     assert context.run_id == result.run_id
     assert requested == ("get_node_summary", "list_network_listeners")
-    assert [item.name for item in provider.requests[0].tools] == ["list_network_listeners"]
+    assert [item.name for item in provider.requests[0].tools] == [
+        "list_network_listeners",
+        "probe_service_reachability",
+    ]
+    assert [item.name for item in provider.requests[1].tools] == ["probe_service_reachability"]
     preflight = [
         message
         for message in provider.requests[0].messages
@@ -996,6 +1072,90 @@ def test_remote_incident_uses_target_tools_and_preserves_node_attribution(
     assert remote_audit.records[0].caller_node_id == REQUEST_NODE
     assert remote_audit.records[0].execution_node_id == NODE
     assert not any("fallback" in item.summary for item in result.trace)
+
+
+def test_interrupted_remote_skill_reuses_successful_listener_evidence(
+    tmp_path: Path,
+) -> None:
+    investigator, store, local_adapter, remote_adapter, _, _, _ = _remote_runtime(
+        tmp_path, "resume"
+    )
+    node_ref = EvidenceReference(
+        tool_run_id=ToolRunId("toolrun_11111111111111111111111111111111"),
+        observed_at=NOW,
+        summary="已保存的目标节点摘要",
+    )
+    listener_ref = EvidenceReference(
+        tool_run_id=ToolRunId("toolrun_22222222222222222222222222222222"),
+        observed_at=NOW,
+        summary="已保存的目标监听证据",
+    )
+    state = InvestigationState(
+        skill_id="service.local-only",
+        skill_version="1",
+        phase=InvestigationPhase.COLLECTING,
+        tool_calls=2,
+        steps=(
+            InvestigationStepState(
+                step_id="target-node",
+                requirement_ids=("private-network",),
+                tool_name="get_node_summary",
+                execution=EvidenceExecution.TARGET,
+                status=InvestigationStepStatus.SUCCEEDED,
+                attempts=1,
+                evidence=node_ref,
+                observations={
+                    "private_network_ready": True,
+                    "interface_up": True,
+                    "private_address": "10.77.0.1",
+                },
+            ),
+            InvestigationStepState(
+                step_id="target-listener",
+                requirement_ids=("target-process", "target-listener"),
+                tool_name="list_network_listeners",
+                execution=EvidenceExecution.TARGET,
+                status=InvestigationStepStatus.SUCCEEDED,
+                attempts=1,
+                evidence=listener_ref,
+                observations={
+                    "listener_found": True,
+                    "loopback_only": True,
+                    "process_present": True,
+                    "port": 43123,
+                    "addresses": "127.0.0.1",
+                    "process_name": "tunnelminion-demo",
+                },
+            ),
+            InvestigationStepState(
+                step_id="requester-probe",
+                requirement_ids=("requester-reachability",),
+                tool_name="probe_service_reachability",
+                execution=EvidenceExecution.REQUESTER,
+            ),
+        ),
+        facts=("目标监听与进程证据已经保存",),
+        unknowns=("请求端可达性尚未确认",),
+        updated_at=NOW,
+    )
+    interrupted = _incident(store, source=SnapshotSource.COORDINATOR_DIRECTORY).transition(
+        IncidentStatus.INVESTIGATING, at=NOW, run_id=RunId.new()
+    )
+    interrupted = interrupted.model_copy(update={"investigation": state}).transition(
+        IncidentStatus.INTERRUPTED, at=NOW
+    )
+    store.put_incident(interrupted)
+
+    result = asyncio.run(investigator.run(interrupted))
+
+    assert result.status is IncidentStatus.CONFIRMED
+    assert remote_adapter.calls == []
+    assert local_adapter.calls == [{"host": "10.77.0.1", "port": 43123}]
+    assert result.investigation is not None
+    listener = next(
+        item for item in result.investigation.steps if item.step_id == "target-listener"
+    )
+    assert listener.attempts == 1
 
 
 def test_remote_incident_never_falls_back_after_tool_contract_correction(
@@ -1016,14 +1176,16 @@ def test_remote_incident_never_falls_back_after_tool_contract_correction(
     assert not any("fallback" in item.summary for item in result.trace)
 
 
+@pytest.mark.parametrize("error_code", [ErrorCode.UNAUTHENTICATED, ErrorCode.NODE_UNREACHABLE])
 def test_remote_preparation_failure_stops_without_model_or_local_tools(
     tmp_path: Path,
+    error_code: ErrorCode,
 ) -> None:
     investigator, store, local_adapter, remote_adapter, provider, preparer, _ = _remote_runtime(
         tmp_path,
         "remote-preparation-failed",
         preparation_error=RemotePreparationError(
-            ErrorCode.UNAUTHENTICATED,
+            error_code,
             "fixture credential unavailable",
         ),
     )
@@ -1038,6 +1200,39 @@ def test_remote_preparation_failure_stops_without_model_or_local_tools(
     assert local_adapter.calls == remote_adapter.calls == []
     assert provider.requests == []
     assert len(preparer.calls) == 1
+    assert result.investigation is not None
+    assert result.investigation.phase is InvestigationPhase.FINISHED
+    assert result.investigation.stop_reason is InvestigationStopReason.INSUFFICIENT_EVIDENCE
+
+
+def test_remote_skill_timeout_and_cancellation_persist_terminal_state(tmp_path: Path) -> None:
+    slow, slow_store, _, _, _, _, _ = _remote_runtime(tmp_path, "remote-timeout")
+    slow._model = SlowRuntime()  # pyright: ignore[reportPrivateUsage]
+    slow._limits = InvestigationLimits(timeout_seconds=0.1)  # pyright: ignore[reportPrivateUsage]
+
+    timed_out = asyncio.run(
+        slow.run(_incident(slow_store, source=SnapshotSource.COORDINATOR_DIRECTORY))
+    )
+
+    assert timed_out.status is IncidentStatus.BUDGET_EXHAUSTED
+    assert timed_out.investigation is not None
+    assert timed_out.investigation.phase is InvestigationPhase.FINISHED
+    assert timed_out.investigation.stop_reason is InvestigationStopReason.BUDGET_EXHAUSTED
+
+    cancelled, cancelled_store, _, _, _, _, _ = _remote_runtime(tmp_path, "remote-cancelled")
+    token = InvestigationCancellation()
+    token.cancel()
+    cancelled_result = asyncio.run(
+        cancelled.run(
+            _incident(cancelled_store, source=SnapshotSource.COORDINATOR_DIRECTORY),
+            cancellation=token,
+        )
+    )
+
+    assert cancelled_result.status is IncidentStatus.CANCELLED
+    assert cancelled_result.investigation is not None
+    assert cancelled_result.investigation.phase is InvestigationPhase.FINISHED
+    assert cancelled_result.investigation.stop_reason is InvestigationStopReason.CANCELLED
 
 
 @pytest.mark.parametrize(
@@ -1249,6 +1444,51 @@ def test_probe_fallback_only_uses_a_valid_private_ipv4_and_incident_port(
         incident,
         {"wireguard": {"addresses": ["10.77.0.2/32"]}},
     ) == {"host": "10.77.0.2", "port": 43123}
+    assert investigator._probe_arguments(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        {"private_address": "10.77.0.3"},
+    ) == {"host": "10.77.0.3", "port": 43123}
+
+
+def test_skill_observations_reject_malformed_tool_outputs(tmp_path: Path) -> None:
+    investigator, store, _, _ = _runtime(tmp_path, "skill-output-validation")
+    incident = _incident(store)
+
+    malformed: tuple[tuple[str, JsonValue], ...] = (
+        ("get_node_summary", None),
+        ("get_node_summary", {"wireguard": "invalid"}),
+        ("list_network_listeners", {"availability": "available"}),
+        ("probe_service_reachability", {"host": "10.77.0.1", "port": 43123}),
+        ("unknown_tool", {}),
+    )
+    for tool_name, output in malformed:
+        assert investigator._skill_observations(  # pyright: ignore[reportPrivateUsage]
+            incident,
+            tool_name,
+            output,
+        ) == (None, ())
+
+    observations, _ = investigator._skill_observations(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        "get_node_summary",
+        {"wireguard": {"availability": "available", "interface_up": False, "addresses": []}},
+    )
+    assert observations == {"private_network_ready": False, "interface_up": False}
+
+    skilled = investigator._ensure_skill_state(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        SERVICE_LOCAL_ONLY,
+    )
+    assert (
+        investigator._record_skill_step(  # pyright: ignore[reportPrivateUsage]
+            skilled,
+            "unknown_tool",
+            None,
+            None,
+            tool_calls=0,
+        )
+        == skilled
+    )
 
 
 def test_probe_target_must_match_node_summary_and_incident_port(tmp_path: Path) -> None:
@@ -1419,6 +1659,11 @@ def test_model_failure_budget_and_cancellation_have_explicit_stop_reasons(
     cancelled_result = asyncio.run(cancelled.run(_incident(cancelled_store), cancellation=token))
     assert cancelled_result.status is IncidentStatus.CANCELLED
     assert cancelled_adapter.calls == []
+
+    midflight, midflight_store, midflight_adapter, _ = _runtime(tmp_path, "cancel_after_response")
+    midflight_result = asyncio.run(midflight.run(_incident(midflight_store)))
+    assert midflight_result.status is IncidentStatus.CANCELLED
+    assert midflight_adapter.calls == []
 
 
 class MutableOverview:
