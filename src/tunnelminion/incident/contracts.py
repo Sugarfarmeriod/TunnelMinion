@@ -7,7 +7,15 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
@@ -220,6 +228,30 @@ class InvestigationStopReason(StrEnum):
     MODEL_UNAVAILABLE = "model_unavailable"
 
 
+class InvestigationPhase(StrEnum):
+    """持久化调查的公开阶段。"""
+
+    COLLECTING = "collecting"
+    REPORTING = "reporting"
+    FINISHED = "finished"
+
+
+class EvidenceExecution(StrEnum):
+    """证据必须在哪个节点执行。"""
+
+    REQUESTER = "requester"
+    TARGET = "target"
+
+
+class InvestigationStepStatus(StrEnum):
+    """一个 Skill 证据步骤的持久化状态。"""
+
+    PENDING = "pending"
+    ATTEMPTED = "attempted"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class EvidenceReference(BaseModel):
     """只引用有界快照或公开 tool run。"""
 
@@ -239,6 +271,80 @@ class EvidenceReference(BaseModel):
     def validate_single_reference(self) -> Self:
         if (self.snapshot_id is None) == (self.tool_run_id is None):
             raise ValueError("证据必须且只能引用一个 snapshot 或 tool run")
+        return self
+
+
+class InvestigationStepState(BaseModel):
+    """可恢复的单个证据步骤，不保存未经界定的原始工具正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    step_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    requirement_ids: tuple[str, ...] = Field(min_length=1, max_length=8)
+    tool_name: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
+    execution: EvidenceExecution
+    status: InvestigationStepStatus = InvestigationStepStatus.PENDING
+    attempts: int = Field(default=0, ge=0, le=24)
+    evidence: EvidenceReference | None = None
+    observations: dict[str, JsonValue] = Field(default_factory=dict)
+    failure_code: str | None = Field(default=None, max_length=80)
+
+    @field_validator("requirement_ids")
+    @classmethod
+    def validate_requirement_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("证据步骤不得重复声明 requirement")
+        return values
+
+    @field_validator("observations")
+    @classmethod
+    def validate_observations(cls, values: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if len(values) > 12:
+            raise ValueError("公开 observation 数量超过上限")
+        for key, value in values.items():
+            if re.fullmatch(r"[a-z][a-z0-9_]{1,63}", key) is None:
+                raise ValueError("公开 observation 字段名无效")
+            if isinstance(value, str) and len(value) > 128:
+                raise ValueError("公开 observation 字符串超过上限")
+        return values
+
+    @model_validator(mode="after")
+    def validate_result(self) -> Self:
+        if self.status is InvestigationStepStatus.SUCCEEDED and self.evidence is None:
+            raise ValueError("成功证据步骤必须引用 tool run")
+        if self.status is not InvestigationStepStatus.SUCCEEDED and self.evidence is not None:
+            raise ValueError("未成功证据步骤不得保存成功引用")
+        return self
+
+
+class InvestigationState(BaseModel):
+    """随 incident 原子保存的有界 Harness 状态。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["investigation-state/v1"] = "investigation-state/v1"
+    skill_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,79}$")
+    skill_version: str = Field(pattern=r"^[1-9][0-9]*$")
+    phase: InvestigationPhase = InvestigationPhase.COLLECTING
+    model_rounds: int = Field(default=0, ge=0, le=32)
+    tool_calls: int = Field(default=0, ge=0, le=48)
+    steps: tuple[InvestigationStepState, ...] = Field(default=(), max_length=16)
+    facts: tuple[PublicText, ...] = Field(default=(), max_length=24)
+    unknowns: tuple[PublicText, ...] = Field(default=(), max_length=12)
+    stop_reason: InvestigationStopReason | None = None
+    updated_at: AwareDatetime
+
+    @field_validator("facts", "unknowns")
+    @classmethod
+    def redact_items(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(_redact_public_text(value) for value in values)
+
+    @model_validator(mode="after")
+    def validate_steps(self) -> Self:
+        if len({item.step_id for item in self.steps}) != len(self.steps):
+            raise ValueError("调查状态不得包含重复步骤")
+        if self.phase is InvestigationPhase.FINISHED and self.stop_reason is None:
+            raise ValueError("已结束调查状态必须记录停止原因")
         return self
 
 
@@ -320,6 +426,7 @@ class Incident(BaseModel):
     hypotheses: tuple[IncidentHypothesis, ...] = Field(default=(), max_length=12)
     trace: tuple[PublicTraceEntry, ...] = Field(default=(), max_length=96)
     report: IncidentReport | None = None
+    investigation: InvestigationState | None = None
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> Self:
