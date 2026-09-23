@@ -50,4 +50,3 @@ Harness SHALL 区分 `requester` 与 `target` 证据步骤。目标步骤 MUST �
 #### Scenario: 墙钟预算耗尽
 - **WHEN** 调查在取得部分证据后达到墙钟上限
 - **THEN** Harness SHALL 以 `budget_exhausted` 保存部分 facts 和剩余 unknowns，且恢复时不重复已成功步骤
-
