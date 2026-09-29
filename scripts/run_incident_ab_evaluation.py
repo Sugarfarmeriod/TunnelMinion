@@ -141,9 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.dataset.read_text(encoding="utf-8")
     )
     api_key = (
-        _configured_api_key(endpoint)
-        if args.configured_api_key and endpoint is not None
-        else None
+        _configured_api_key(endpoint) if args.configured_api_key and endpoint is not None else None
     )
 
     def health():
