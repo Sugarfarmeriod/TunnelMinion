@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from scripts.run_incident_ab_evaluation import _summarize  # pyright: ignore[reportPrivateUsage]
 from scripts.run_incident_evaluation import main
 
 from tunnelminion.coordinator.contracts import ServiceAccessibility
@@ -131,6 +132,12 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     assert remote_loopback.premature_stop_attempts == 0
     assert report.metrics.metric_counts["evidence_coverage_rate"].numerator == 4
     assert report.metrics.metric_counts["evidence_coverage_rate"].denominator == 8
+    summary = _summarize((report, report))
+    completion = summary["metrics"]["task_completion_rate"]
+    assert summary["runs"] == 2
+    assert completion["numerator"] == 30
+    assert completion["denominator"] == 30
+    assert completion["per_run"] == [1.0, 1.0]
 
     identity = next(
         item for item in report.scenarios if item.scenario_id == "remote-macos-identity-mismatch"
@@ -140,6 +147,36 @@ def test_fixed_matrix_runs_real_local_runtime_and_passes_six_value_metrics(
     assert identity.local_tool_attempts == ()
     assert identity.target_tool_attempts == ("get_node_summary",)
     assert identity.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+
+
+def test_local_only_ab_changes_only_harness_skill_mode(tmp_path: Path) -> None:
+    scenario = next(
+        item
+        for item in load_dataset().scenarios
+        if item.scenario_id == "remote-macos-loopback-listener"
+    )
+    baseline = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "baseline.sqlite3"),
+            skills_enabled=False,
+        )
+    )
+    candidate = asyncio.run(
+        run_incident_scenario(
+            scenario,
+            SQLiteIncidentStore(tmp_path / "candidate.sqlite3"),
+            skills_enabled=True,
+        )
+    )
+
+    assert baseline.selected_tools == candidate.selected_tools
+    assert baseline.skill_id is None
+    assert baseline.task_completed is False
+    assert candidate.skill_id == "service.local-only"
+    assert candidate.skill_version == "1"
+    assert candidate.task_completed is True
+    assert candidate.covered_evidence_count == candidate.required_evidence_count == 4
 
 
 def test_dataset_rejects_missing_category_unknown_tool_and_overlap() -> None:
