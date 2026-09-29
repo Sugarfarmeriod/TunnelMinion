@@ -6,23 +6,29 @@ TunnelMinion 面向个人多设备私有网络：确定性程序发现变化，�
 调查 Agent 跨节点收集只读证据，目标节点控制授权，用户需要处理时再进入受控操作链。
 
 ```mermaid
-flowchart LR
-    A["1. 确定性观察：快照与变化"] --> B["2. Incident：去重与触发"]
-    B --> C["3. 跨节点调查：Harness + Skill"]
-    C --> D["4. 固定口径评测：质量与成本"]
-    D --> E["5. 受控修复串联：计划到验证"]
-    E --> F["6. 按失败样本扩展少量 Skills"]
-    F -.真实外部接入需求.-> G["7. MCP 薄适配"]
+flowchart TB
+    A["✅ 1. 确定性观察"] --> B["✅ 2. Incident"]
+    B --> C["✅ 3. 跨节点调查：Harness + Skill"]
 
-    C -.独立产品支线.-> U["总览服务展示：压缩信息密度"]
+    C --> D1["✅ 固定实验契约"]
+    D1 --> D2["✅ scripted A/B 3×3"]
+    D2 --> D3["▶ 真实模型 A/B 3×3"]
 
-    classDef done fill:#d1fae5,stroke:#059669,color:#064e3b;
-    classDef current fill:#fef3c7,stroke:#d97706,color:#78350f;
-    classDef next fill:#e0e7ff,stroke:#6366f1,color:#312e81;
-    classDef later fill:#f3f4f6,stroke:#6b7280,color:#374151;
-    class A,B,C done;
-    class D current;
-    class E,F next;
+    D3 --> E["5. 受控修复串联"]
+    D3 --> F["6. 按失败样本扩展少量 Skills"]
+    E --> H["十分钟完整演示"]
+    F --> H
+    H -.真实外部接入需求.-> G["7. MCP 薄适配"]
+
+    C -.独立产品支线.-> U["总览服务展示"]
+
+    classDef done fill:#bbf7d0,stroke:#15803d,stroke-width:4px,color:#14532d;
+    classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
+    classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
+    classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
+    class A,B,C,D1,D2 done;
+    class D3 current;
+    class E,F,H next;
     class G,U later;
 ```
 

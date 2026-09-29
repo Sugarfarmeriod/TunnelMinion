@@ -1,8 +1,8 @@
 # 固定口径 Investigation Harness / Skill A/B 评测
 
-- 状态：`进行中（规划完成，待实施）`
-- 主写分支：`待阶段启动时创建`
-- 基线：`df6af704086241717ccf4a692ec90c4a8126c546`
+- 状态：`进行中（scripted 机制 A/B 已完成，真实模型待 endpoint 恢复）`
+- 主写分支：`feature/fixed-evaluation-ab`
+- 阶段起点：`e68a95bc9309b0100c1b63535a5daadcbf92722c`
 - 对应总流程：`4. 固定口径评测`
 
 ## 结果与用户影响
@@ -78,8 +78,19 @@ flowchart LR
 
 ## 实施记录
 
-尚未开始。实现时只记录实验契约、必要代码修改和偏离本计划的原因。
+- 新增同提交、同数据、同 Prompt、同预算、同 scorer 的 A/B runner；唯一机制差异为
+  `skills_enabled: false → true`。
+- 完成 scripted baseline/candidate 各 `3` 次。baseline 每次失败同一远端 `local_only` 场景，candidate
+  三次全部完成，安全违规均为 `0`。
+- 当前非秘密模型配置指向现有 `8082` endpoint；健康检查连接超时。按项目边界未启动服务、未修改网络，
+  真实模型运行保留为本阶段最后一步。
+- 机制报告：
+  [`incident-ab-scripted-2026-09-29`](../../../evaluations/reports/incident-ab-scripted-2026-09-29/summary.md)。
 
 ## 完成结果
 
-待填写。
+scripted 固定响应结果为：根因成功率 `9/12 → 12/12`、工具选择 `30/33 → 33/33`、任务完成
+`42/45 → 45/45`、远端完成 `3/6 → 6/6`、失败恢复两侧均 `30/30`、安全违规均为 `0`。
+
+该结果只证明机制因果关系，不写成真实模型提升。阶段继续保持进行中，直到真实模型在同一 manifest 下完成
+baseline/candidate 各 `3` 次并生成失败解释。

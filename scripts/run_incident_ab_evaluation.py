@@ -240,7 +240,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             (args.output_dir / f"{name}-{index}.json").write_text(
                 raw_report.model_dump_json(indent=2) + "\n", encoding="utf-8"
             )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "run_count_per_variant": args.runs,
+                "output_dir": str(args.output_dir),
+                "mean_delta_candidate_minus_baseline": report[
+                    "mean_delta_candidate_minus_baseline"
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
