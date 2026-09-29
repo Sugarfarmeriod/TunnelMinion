@@ -11,14 +11,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import fmean
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 
-from scripts.run_real_incident_evaluation import (
-    _configured_api_key,  # pyright: ignore[reportPrivateUsage]
-    _model_catalog_health,  # pyright: ignore[reportPrivateUsage]
-    _model_health,  # pyright: ignore[reportPrivateUsage]
-    _repository_revision,  # pyright: ignore[reportPrivateUsage]
-)
+if __package__:
+    from scripts.run_real_incident_evaluation import (
+        _configured_api_key,  # pyright: ignore[reportPrivateUsage]
+        _model_catalog_health,  # pyright: ignore[reportPrivateUsage]
+        _model_health,  # pyright: ignore[reportPrivateUsage]
+        _repository_revision,  # pyright: ignore[reportPrivateUsage]
+    )
+else:
+    from run_real_incident_evaluation import (  # pyright: ignore[reportMissingImports]
+        _configured_api_key,  # pyright: ignore[reportPrivateUsage]
+        _model_catalog_health,  # pyright: ignore[reportPrivateUsage]
+        _model_health,  # pyright: ignore[reportPrivateUsage]
+        _repository_revision,  # pyright: ignore[reportPrivateUsage]
+    )
 
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
 from tunnelminion.evaluation.incidents import (
@@ -29,6 +37,7 @@ from tunnelminion.evaluation.incidents import (
 )
 from tunnelminion.incident.investigation import InvestigationLimits
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.model.contracts import ModelProvider
 from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
@@ -80,7 +89,7 @@ def _summarize(reports: Sequence[IncidentEvaluationReport]) -> dict[str, Any]:
 
 async def _run_variant(
     dataset: IncidentEvaluationDataset,
-    provider: OpenAICompatibleProvider,
+    provider: ModelProvider | None,
     *,
     provider_name: str,
     model_name: str,
@@ -108,42 +117,58 @@ async def _run_variant(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path)
-    parser.add_argument("--endpoint", required=True)
+    parser.add_argument("--endpoint")
     parser.add_argument("--health-endpoint")
     parser.add_argument("--configured-api-key", action="store_true")
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model")
     parser.add_argument("--provider-name", default="openai-compatible")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--scripted", action="store_true")
     args = parser.parse_args(argv)
     if args.runs < 1:
         parser.error("--runs 必须大于零")
     if args.output_dir.exists():
         raise RuntimeError("A/B 输出目录已存在，不得覆盖")
+    endpoint = cast(str | None, args.endpoint)
+    selected_model = cast(str | None, args.model)
+    if not args.scripted and (endpoint is None or selected_model is None):
+        parser.error("真实 A/B 必须提供 --endpoint 和 --model")
 
     source_revision = _repository_revision()
     dataset = IncidentEvaluationDataset.model_validate_json(
         args.dataset.read_text(encoding="utf-8")
     )
-    api_key = _configured_api_key(args.endpoint) if args.configured_api_key else None
+    api_key = (
+        _configured_api_key(endpoint)
+        if args.configured_api_key and endpoint is not None
+        else None
+    )
 
     def health():
         return (
-            _model_health(args.health_endpoint, args.model)
+            _model_health(args.health_endpoint, cast(str, selected_model))
             if args.health_endpoint is not None
-            else _model_catalog_health(args.endpoint, args.model, api_key)
+            else _model_catalog_health(cast(str, endpoint), cast(str, selected_model), api_key)
         )
 
-    health_before = health()
-    provider = OpenAICompatibleProvider(
-        OpenAICompatibleConfig(
-            endpoint=args.endpoint,
-            model=args.model,
-            timeout_seconds=args.timeout_seconds,
-        ),
-        api_key,
+    health_before = None if args.scripted else health()
+    provider = (
+        None
+        if args.scripted
+        else OpenAICompatibleProvider(
+            OpenAICompatibleConfig(
+                endpoint=cast(str, endpoint),
+                model=cast(str, selected_model),
+                timeout_seconds=args.timeout_seconds,
+            ),
+            api_key,
+        )
     )
+    provider_name = "offline-script" if args.scripted else args.provider_name
+    model_name = "fixed-incident-model-v1" if args.scripted else selected_model
+    assert model_name is not None
     variants = (
         ("baseline", False),
         ("candidate", True),
@@ -154,14 +179,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run_variant(
                 dataset,
                 provider,
-                provider_name=args.provider_name,
-                model_name=args.model,
+                provider_name=provider_name,
+                model_name=model_name,
                 source_revision=source_revision,
                 run_count=args.runs,
                 skills_enabled=skills_enabled,
             )
         )
-    health_after = health()
+    health_after = None if args.scripted else health()
 
     root = Path.cwd()
     manifest = {
@@ -170,8 +195,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dataset_id": dataset.dataset_id,
         "dataset_version": dataset.dataset_version,
         "dataset_content_hash": incident_dataset_content_hash(dataset),
-        "provider_name": args.provider_name,
-        "model_name": args.model,
+        "provider_name": provider_name,
+        "model_name": model_name,
         "prompt_version": dataset.prompt_version,
         "prompt_content_hash": INCIDENT_INVESTIGATION_PROMPT.content_hash,
         "tool_versions": dataset.tool_versions,
@@ -180,8 +205,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "scorer_content_hash": _content_hash(root / "src/tunnelminion/evaluation/incidents.py"),
         "run_count_per_variant": args.runs,
         "variant_difference": "skills_enabled: false -> true",
-        "model_service_health_before": health_before.model_dump(mode="json"),
-        "model_service_health_after": health_after.model_dump(mode="json"),
+        "model_service_health_before": (
+            health_before.model_dump(mode="json") if health_before is not None else None
+        ),
+        "model_service_health_after": (
+            health_after.model_dump(mode="json") if health_after is not None else None
+        ),
     }
     summaries: dict[str, dict[str, Any]] = {
         name: _summarize(reports) for name, reports in completed.items()
