@@ -236,6 +236,7 @@ class IncidentInvestigator:
         remote_tools: InvestigationRemoteToolPreparer | None = None,
         limits: InvestigationLimits | None = None,
         clock: Callable[[], datetime] | None = None,
+        skills_enabled: bool = True,
     ) -> None:
         if remote_tools is not None and local_node_id is None:
             raise ValueError("远端调查必须声明当前节点")
@@ -248,6 +249,7 @@ class IncidentInvestigator:
         self._remote_tools = remote_tools
         self._limits = limits or InvestigationLimits()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._skills_enabled = skills_enabled
 
     async def run(
         self,
@@ -313,7 +315,9 @@ class IncidentInvestigator:
         )
         skill = (
             SERVICE_LOCAL_ONLY
-            if incident.event.event_type is IncidentEventType.LOCAL_ONLY and remote
+            if self._skills_enabled
+            and incident.event.event_type is IncidentEventType.LOCAL_ONLY
+            and remote
             else None
         )
         current = self._ensure_skill_state(incident, skill)

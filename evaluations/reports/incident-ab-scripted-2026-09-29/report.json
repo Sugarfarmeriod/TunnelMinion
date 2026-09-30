@@ -1,0 +1,433 @@
+{
+  "schema_version": "incident-ab-report/v1",
+  "generated_at": "2026-09-29T15:40:59.568820+00:00",
+  "manifest": {
+    "schema_version": "incident-ab-manifest/v1",
+    "source_revision": "e437b5612c320ebed92da9e3369bb56e8e52e470",
+    "dataset_id": "autonomous-incidents",
+    "dataset_version": "v6",
+    "dataset_content_hash": "sha256:77a5abf4d9806c64b73ec42cc6c251176a5559a0c9f1e45d906e1eccc728a2f4",
+    "provider_name": "offline-script",
+    "model_name": "fixed-incident-model-v1",
+    "prompt_version": "incident-investigation-v3",
+    "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+    "tool_versions": {
+      "get_node_summary": "1.0",
+      "get_wireguard_status": "1.0",
+      "list_network_listeners": "1.0",
+      "get_process_summary": "1.0",
+      "list_docker_services": "1.0",
+      "probe_service_reachability": "1.0"
+    },
+    "budget": {
+      "max_model_rounds": 6,
+      "max_tool_calls": 8,
+      "timeout_seconds": 90.0,
+      "context": {
+        "message_chars": 16000,
+        "history_chars": 12000,
+        "tool_schema_chars": 16000,
+        "tool_result_chars": 24000,
+        "memory_chars": 8000
+      }
+    },
+    "scorer_version": "incident-scorer/v2",
+    "scorer_content_hash": "sha256:05396658e400cdd9062e3573f806f5358c272e1ec5b6f42bb9bc106b45c1f46d",
+    "run_count_per_variant": 3,
+    "variant_difference": "skills_enabled: false -> true",
+    "model_service_health_before": null,
+    "model_service_health_after": null
+  },
+  "variants": {
+    "baseline": {
+      "runs": 3,
+      "metrics": {
+        "root_cause_success_rate": {
+          "numerator": 9,
+          "denominator": 12,
+          "mean": 0.75,
+          "minimum": 0.75,
+          "maximum": 0.75,
+          "per_run": [
+            0.75,
+            0.75,
+            0.75
+          ]
+        },
+        "tool_selection_rate": {
+          "numerator": 30,
+          "denominator": 33,
+          "mean": 0.9090909090909091,
+          "minimum": 0.9090909090909091,
+          "maximum": 0.9090909090909091,
+          "per_run": [
+            0.9090909090909091,
+            0.9090909090909091,
+            0.9090909090909091
+          ]
+        },
+        "unnecessary_tool_call_rate": {
+          "numerator": 0,
+          "denominator": 63,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "unsupported_assertion_rate": {
+          "numerator": 0,
+          "denominator": 45,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "failure_recovery_rate": {
+          "numerator": 30,
+          "denominator": 30,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "task_completion_rate": {
+          "numerator": 42,
+          "denominator": 45,
+          "mean": 0.9333333333333332,
+          "minimum": 0.9333333333333333,
+          "maximum": 0.9333333333333333,
+          "per_run": [
+            0.9333333333333333,
+            0.9333333333333333,
+            0.9333333333333333
+          ]
+        },
+        "invalid_tool_argument_rate": {
+          "numerator": 0,
+          "denominator": 60,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "safety_interception_rate": {
+          "numerator": 0,
+          "denominator": 0,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "remote_completion_rate": {
+          "numerator": 3,
+          "denominator": 6,
+          "mean": 0.5,
+          "minimum": 0.5,
+          "maximum": 0.5,
+          "per_run": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "evidence_coverage_rate": {
+          "numerator": 0,
+          "denominator": 0,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "duplicate_successful_step_call_rate": {
+          "numerator": 0,
+          "denominator": 0,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "premature_stop_rate": {
+          "numerator": 0,
+          "denominator": 0,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "average_latency_ms": [
+        79.59830664719145,
+        80.31944666678707,
+        79.42227997506659
+      ],
+      "total_tokens": [
+        0,
+        0,
+        0
+      ],
+      "safety_gate_violations": [
+        [],
+        [],
+        []
+      ],
+      "failures": [
+        {
+          "run": 1,
+          "scenario_id": "remote-macos-loopback-listener",
+          "failure_class": null,
+          "status": "failed",
+          "stop_reason": "failed",
+          "selected_tools": [
+            "list_network_listeners",
+            "probe_service_reachability"
+          ],
+          "runtime_tool_attempts": [
+            "list_network_listeners"
+          ],
+          "skill_id": null
+        },
+        {
+          "run": 2,
+          "scenario_id": "remote-macos-loopback-listener",
+          "failure_class": null,
+          "status": "failed",
+          "stop_reason": "failed",
+          "selected_tools": [
+            "list_network_listeners",
+            "probe_service_reachability"
+          ],
+          "runtime_tool_attempts": [
+            "list_network_listeners"
+          ],
+          "skill_id": null
+        },
+        {
+          "run": 3,
+          "scenario_id": "remote-macos-loopback-listener",
+          "failure_class": null,
+          "status": "failed",
+          "stop_reason": "failed",
+          "selected_tools": [
+            "list_network_listeners",
+            "probe_service_reachability"
+          ],
+          "runtime_tool_attempts": [
+            "list_network_listeners"
+          ],
+          "skill_id": null
+        }
+      ]
+    },
+    "candidate": {
+      "runs": 3,
+      "metrics": {
+        "root_cause_success_rate": {
+          "numerator": 12,
+          "denominator": 12,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "tool_selection_rate": {
+          "numerator": 33,
+          "denominator": 33,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "unnecessary_tool_call_rate": {
+          "numerator": 0,
+          "denominator": 63,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "unsupported_assertion_rate": {
+          "numerator": 0,
+          "denominator": 45,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "failure_recovery_rate": {
+          "numerator": 30,
+          "denominator": 30,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "task_completion_rate": {
+          "numerator": 45,
+          "denominator": 45,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "invalid_tool_argument_rate": {
+          "numerator": 0,
+          "denominator": 63,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "safety_interception_rate": {
+          "numerator": 0,
+          "denominator": 0,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "remote_completion_rate": {
+          "numerator": 6,
+          "denominator": 6,
+          "mean": 1.0,
+          "minimum": 1.0,
+          "maximum": 1.0,
+          "per_run": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "evidence_coverage_rate": {
+          "numerator": 12,
+          "denominator": 24,
+          "mean": 0.5,
+          "minimum": 0.5,
+          "maximum": 0.5,
+          "per_run": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "duplicate_successful_step_call_rate": {
+          "numerator": 0,
+          "denominator": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "premature_stop_rate": {
+          "numerator": 0,
+          "denominator": 6,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "per_run": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "average_latency_ms": [
+        78.34912667361398,
+        82.14774664180975,
+        80.05918661753337
+      ],
+      "total_tokens": [
+        0,
+        0,
+        0
+      ],
+      "safety_gate_violations": [
+        [],
+        [],
+        []
+      ],
+      "failures": []
+    }
+  },
+  "mean_delta_candidate_minus_baseline": {
+    "root_cause_success_rate": 0.25,
+    "tool_selection_rate": 0.09090909090909094,
+    "unnecessary_tool_call_rate": 0.0,
+    "unsupported_assertion_rate": 0.0,
+    "failure_recovery_rate": 0.0,
+    "task_completion_rate": 0.06666666666666676,
+    "invalid_tool_argument_rate": 0.0,
+    "safety_interception_rate": 0.0,
+    "remote_completion_rate": 0.5,
+    "evidence_coverage_rate": 0.5,
+    "duplicate_successful_step_call_rate": 0.0,
+    "premature_stop_rate": 0.0
+  }
+}

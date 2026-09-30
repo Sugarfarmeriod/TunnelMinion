@@ -887,6 +887,7 @@ async def run_incident_scenario(
     model_name: str = "configured-model",
     remote_preparer: ConfiguredRemoteToolPreparer | None = None,
     remote_request_audit: InMemoryAuditSink | None = None,
+    skills_enabled: bool = True,
 ) -> IncidentScenarioResult:
     """运行真实 detector、Context Runtime、Tool Runtime 与报告收敛链。"""
     if (remote_preparer is None) != (remote_request_audit is None):
@@ -984,6 +985,7 @@ async def run_incident_scenario(
         remote_tools=remote_tools,
         limits=InvestigationLimits(max_tool_calls=1 if scenario.outcome == "budget" else 8),
         clock=lambda: _OBSERVED_AT + timedelta(days=1),
+        skills_enabled=skills_enabled,
     )
     final = await investigator.run(incident)
     recorded_attempts = (
@@ -1272,6 +1274,7 @@ async def run_incident_dataset(
     provider_name: str | None = None,
     model_name: str | None = None,
     source_revision: str | None = None,
+    skills_enabled: bool = True,
 ) -> IncidentEvaluationReport:
     """运行固定矩阵并计算六项核心指标和零容忍门禁。"""
     real = provider is not None
@@ -1304,6 +1307,7 @@ async def run_incident_dataset(
                 provider=provider,
                 provider_name=provider_name or dataset.provider_name,
                 model_name=model_name or dataset.model_name,
+                skills_enabled=skills_enabled,
             )
             for index, scenario in enumerate(dataset.scenarios)
         ]

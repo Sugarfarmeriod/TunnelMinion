@@ -1,0 +1,2991 @@
+{
+  "schema_version": "incident-evaluation-report/v4",
+  "scorer_version": "incident-scorer/v2",
+  "run_count": 1,
+  "dataset_id": "autonomous-incidents",
+  "dataset_version": "v6",
+  "model_name": "deepseek-flash",
+  "provider_name": "deepseek",
+  "prompt_version": "incident-investigation-v3",
+  "tool_versions": {
+    "get_wireguard_status": "1.0",
+    "list_network_listeners": "1.0",
+    "get_process_summary": "1.0",
+    "list_docker_services": "1.0",
+    "probe_service_reachability": "1.0",
+    "get_node_summary": "1.0"
+  },
+  "generated_at": "2026-09-30T03:19:08.202605Z",
+  "scope": "isolated-real-model-cross-node-runtime",
+  "source_revision": "2dddb73052aa23da03fe34a7882a0bc389069bf8",
+  "dataset_content_hash": "sha256:77a5abf4d9806c64b73ec42cc6c251176a5559a0c9f1e45d906e1eccc728a2f4",
+  "prompt_content_hash": "sha256:3a536efb254eb210c5e56beb9af5cc585814586597df1e6294ab62ba3d89aede",
+  "model_service_health_before": null,
+  "model_service_health_after": null,
+  "scenarios": [
+    {
+      "scenario_id": "normal-refresh",
+      "category": "normal",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 0,
+      "model_calls": 0,
+      "model_source": "none",
+      "model_rounds": [],
+      "observed_event": null,
+      "status": null,
+      "stop_reason": null,
+      "conclusion": null,
+      "selected_tools": [],
+      "runtime_tool_attempts": [],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [],
+      "executed_tools": [],
+      "fallback_tools": [],
+      "tool_runs": [],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 0,
+      "model_output_tokens": 0,
+      "model_total_tokens": 0,
+      "trace": [],
+      "evidence": [],
+      "evidence_count": 0,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "task_completed": true,
+      "failure_class": null,
+      "latency_ms": 12.275399999907677
+    },
+    {
+      "scenario_id": "service-added-process",
+      "category": "service_added",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 3,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_network_listeners"
+          ],
+          "error_code": null,
+          "input_tokens": 1122,
+          "output_tokens": 53,
+          "total_tokens": 1175,
+          "latency_ms": 866.1153000000468
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_process_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1322,
+          "output_tokens": 45,
+          "total_tokens": 1367,
+          "latency_ms": 785.287100000005
+        },
+        {
+          "round_index": 3,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1735,
+          "output_tokens": 1015,
+          "total_tokens": 2750,
+          "latency_ms": 4969.940299999962
+        }
+      ],
+      "observed_event": "service_added",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "触发快照中 service_0123456789abcdef0123456789abcdef 于 node_0123456789abcdef0123456789abcdef 由 null 变为 available；实时证据显示其 TCP 43123 在 0.0.0.0 上由 tunnelminion-demo(pid 4242) 监听且该进程 running，故服务可用由此监听进程提供。",
+      "selected_tools": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "runtime_tool_attempts": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "local_tool_attempts": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "list_network_listeners",
+        "get_process_summary"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+          "tool_name": "list_network_listeners",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "protocol": "tcp",
+                "address": "0.0.0.0",
+                "port": 43123,
+                "pid": 4242,
+                "process_name": "tunnelminion-demo"
+              }
+            ]
+          },
+          "latency_ms": 0.24809999990793585
+        },
+        {
+          "tool_run_id": "toolrun_a53231b475be4edc93ed03c8e6f9b13e",
+          "tool_name": "get_process_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "pid": 4242,
+                "name": "tunnelminion-demo",
+                "status": "running",
+                "memory_bytes": 1048576,
+                "thread_count": 4
+              }
+            ]
+          },
+          "latency_ms": 0.25949999985641625
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 4179,
+      "model_output_tokens": 1113,
+      "model_total_tokens": 5292,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听地址与端口、监听进程归属",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束",
+          "tool_name": "list_network_listeners",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听进程归属",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_process_summary 以 success 状态结束",
+          "tool_name": "get_process_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a53231b475be4edc93ed03c8e6f9b13e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "事件证据路径已完整，等待模型生成证据化报告",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a53231b475be4edc93ed03c8e6f9b13e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "触发快照中 service_0123456789abcdef0123456789abcdef 于 node_0123456789abcdef0123456789abcdef 由 null 变为 available；实时证据显示其 TCP 43123 在 0.0.0.0 上由 tunnelminion-demo(pid 4242) 监听且该进程 running，故服务可用由此监听进程提供。",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a53231b475be4edc93ed03c8e6f9b13e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000004",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:04Z",
+              "summary": "确定性差异：service_added"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_b33215c04df44a2896798b17f84a69f8",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_a53231b475be4edc93ed03c8e6f9b13e",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_process_summary 以 success 状态结束"
+        },
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000004",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:04Z",
+          "summary": "确定性差异：service_added"
+        }
+      ],
+      "evidence_count": 3,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [],
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "task_completed": true,
+      "failure_class": null,
+      "latency_ms": 6724.60910000018
+    },
+    {
+      "scenario_id": "service-removed-process",
+      "category": "service_removed",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 3,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_docker_services"
+          ],
+          "error_code": null,
+          "input_tokens": 1173,
+          "output_tokens": 234,
+          "total_tokens": 1407,
+          "latency_ms": 1714.0938000000006
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_process_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1527,
+          "output_tokens": 24,
+          "total_tokens": 1551,
+          "latency_ms": 521.754699999974
+        },
+        {
+          "round_index": 3,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1735,
+          "output_tokens": 1289,
+          "total_tokens": 3024,
+          "latency_ms": 4895.9985000001325
+        }
+      ],
+      "observed_event": "service_removed",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "node_0123456789abcdef0123456789abcdef 上以 tcp/43123 对外提供服务的容器 tunnelminion-demo（abc123）已进入 Exited (0) 状态，进程摘要为空，43123 端口无监听，故该服务由 available 被移除。",
+      "selected_tools": [
+        "list_docker_services",
+        "get_process_summary"
+      ],
+      "runtime_tool_attempts": [
+        "list_docker_services",
+        "get_process_summary"
+      ],
+      "local_tool_attempts": [
+        "list_docker_services",
+        "get_process_summary"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "list_docker_services",
+        "get_process_summary"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+          "tool_name": "list_docker_services",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "container_id": "abc123",
+                "name": "tunnelminion-demo",
+                "image": "tunnelminion-demo:latest",
+                "ports": "0.0.0.0:43123->43123/tcp",
+                "status": "Exited (0) 5 minutes ago"
+              }
+            ]
+          },
+          "latency_ms": 0.28550000001814624
+        },
+        {
+          "tool_run_id": "toolrun_b0e7b66b1a5c4bd4969ae1ee3c948b6a",
+          "tool_name": "get_process_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": []
+          },
+          "latency_ms": 0.22860000012769888
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 4435,
+      "model_output_tokens": 1547,
+      "model_total_tokens": 5982,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听进程归属、Docker 服务生命周期",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_docker_services 以 success 状态结束",
+          "tool_name": "list_docker_services",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_docker_services 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听进程归属",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_docker_services 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_process_summary 以 success 状态结束",
+          "tool_name": "get_process_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b0e7b66b1a5c4bd4969ae1ee3c948b6a",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "事件证据路径已完整，等待模型生成证据化报告",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_docker_services 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b0e7b66b1a5c4bd4969ae1ee3c948b6a",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "node_0123456789abcdef0123456789abcdef 上以 tcp/43123 对外提供服务的容器 tunnelminion-demo（abc123）已进入 Exited (0) 状态，进程摘要为空，43123 端口无监听，故该服务由 available 被移除。",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000005",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:06Z",
+              "summary": "incident 基线快照"
+            },
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000006",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:06Z",
+              "summary": "确定性差异：service_removed"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_docker_services 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b0e7b66b1a5c4bd4969ae1ee3c948b6a",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000005",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:06Z",
+          "summary": "incident 基线快照"
+        },
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000006",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:06Z",
+          "summary": "确定性差异：service_removed"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_306407f2f0f840f4ac43e443177b9c72",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_docker_services 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_b0e7b66b1a5c4bd4969ae1ee3c948b6a",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_process_summary 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 4,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [],
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "task_completed": true,
+      "failure_class": null,
+      "latency_ms": 7239.81270000013
+    },
+    {
+      "scenario_id": "node-offline-wireguard",
+      "category": "node_offline",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 2,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_node_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1149,
+          "output_tokens": 85,
+          "total_tokens": 1234,
+          "latency_ms": 1205.507199999829
+        },
+        {
+          "round_index": 2,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1552,
+          "output_tokens": 1265,
+          "total_tokens": 2817,
+          "latency_ms": 5786.990899999864
+        }
+      ],
+      "observed_event": "node_offline",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "get_node_summary"
+      ],
+      "runtime_tool_attempts": [
+        "get_node_summary"
+      ],
+      "local_tool_attempts": [
+        "get_node_summary"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "get_node_summary"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_9b5450f59dd3489dac6589959d14372b",
+          "tool_name": "get_node_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "node_id": "node_0123456789abcdef0123456789abcdef",
+            "platform": "windows",
+            "agent_status": "ready",
+            "model_status": "ready",
+            "wireguard": {
+              "availability": "available",
+              "interface": "HomeMac",
+              "interface_up": true,
+              "addresses": [
+                "10.77.0.2"
+              ],
+              "peers": []
+            },
+            "available_tools": [
+              "get_wireguard_status",
+              "list_network_listeners",
+              "get_process_summary",
+              "list_docker_services",
+              "probe_service_reachability",
+              "get_node_summary"
+            ]
+          },
+          "latency_ms": 0.26330000014240795
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 2701,
+      "model_output_tokens": 1350,
+      "model_total_tokens": 4051,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、WireGuard 当前状态",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_node_summary 以 success 状态结束",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_9b5450f59dd3489dac6589959d14372b",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "实时只读证据与触发快照冲突，停止追加取证",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_9b5450f59dd3489dac6589959d14372b",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "调查因证据不足停止",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000008",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:08Z",
+              "summary": "确定性差异：node_offline"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_9b5450f59dd3489dac6589959d14372b",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000007",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:08Z",
+              "summary": "incident 基线快照"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000008",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:08Z",
+          "summary": "确定性差异：node_offline"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_9b5450f59dd3489dac6589959d14372b",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_node_summary 以 success 状态结束"
+        },
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000007",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:08Z",
+          "summary": "incident 基线快照"
+        }
+      ],
+      "evidence_count": 3,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "WireGuard 当前状态",
+        "peers 为空是否导致节点不可达",
+        "节点实际可达性与离线判定来源是否一致"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "node_snapshot_conflict",
+      "latency_ms": 7070.13209999991
+    },
+    {
+      "scenario_id": "directory-became-stale",
+      "category": "state_stale",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 2,
+      "model_calls": 0,
+      "model_source": "real",
+      "model_rounds": [],
+      "observed_event": "state_stale",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [],
+      "runtime_tool_attempts": [],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [],
+      "executed_tools": [],
+      "fallback_tools": [],
+      "tool_runs": [],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 0,
+      "model_output_tokens": 0,
+      "model_total_tokens": 0,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "当前状态已经陈旧，无法用它确认实时根因",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000009",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:10Z",
+          "summary": "incident 基线快照"
+        },
+        {
+          "snapshot_id": "snapshot_0000000000000000000000000000000a",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:10Z",
+          "summary": "确定性差异：state_stale"
+        }
+      ],
+      "evidence_count": 2,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "当前状态已经陈旧，无法用它确认实时根因"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "snapshot_only_evidence",
+      "latency_ms": 35.649500000090484
+    },
+    {
+      "scenario_id": "loopback-listener",
+      "category": "local_only",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 4,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_network_listeners"
+          ],
+          "error_code": null,
+          "input_tokens": 1186,
+          "output_tokens": 300,
+          "total_tokens": 1486,
+          "latency_ms": 2031.398900000113
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_node_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1590,
+          "output_tokens": 34,
+          "total_tokens": 1624,
+          "latency_ms": 777.283000000125
+        },
+        {
+          "round_index": 3,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "probe_service_reachability"
+          ],
+          "error_code": null,
+          "input_tokens": 1934,
+          "output_tokens": 88,
+          "total_tokens": 2022,
+          "latency_ms": 901.5239000000292
+        },
+        {
+          "round_index": 4,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 2023,
+          "output_tokens": 751,
+          "total_tokens": 2774,
+          "latency_ms": 3502.0269000001463
+        }
+      ],
+      "observed_event": "local_only",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "进程 tunnelminion-demo(pid 4242) 现仅监听 127.0.0.1:43123，而节点 WireGuard 接口 HomeMac 地址为 10.77.0.2 且 peers 为空，故对 10.77.0.2:43123 的探测不可达；根因为服务绑定从对外地址收敛到回环地址，远端无法经 10.77.0.2 访问。",
+      "selected_tools": [
+        "list_network_listeners",
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "runtime_tool_attempts": [
+        "list_network_listeners",
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "local_tool_attempts": [
+        "list_network_listeners",
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "list_network_listeners",
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+          "tool_name": "list_network_listeners",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 4242,
+                "process_name": "tunnelminion-demo"
+              }
+            ]
+          },
+          "latency_ms": 0.2380000000812288
+        },
+        {
+          "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+          "tool_name": "get_node_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "node_id": "node_0123456789abcdef0123456789abcdef",
+            "platform": "windows",
+            "agent_status": "ready",
+            "model_status": "ready",
+            "wireguard": {
+              "availability": "available",
+              "interface": "HomeMac",
+              "interface_up": true,
+              "addresses": [
+                "10.77.0.2"
+              ],
+              "peers": []
+            },
+            "available_tools": [
+              "get_wireguard_status",
+              "list_network_listeners",
+              "get_process_summary",
+              "list_docker_services",
+              "probe_service_reachability",
+              "get_node_summary"
+            ]
+          },
+          "latency_ms": 0.2223999999841908
+        },
+        {
+          "tool_run_id": "toolrun_7646a54e899044858cd1a5d5285db9f9",
+          "tool_name": "probe_service_reachability",
+          "arguments": {
+            "host": "10.77.0.2",
+            "port": 43123
+          },
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "host": "10.77.0.2",
+            "port": 43123,
+            "reachable": false,
+            "latency_ms": null,
+            "error_code": "unreachable"
+          },
+          "latency_ms": 0.2360000000862783
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 6733,
+      "model_output_tokens": 1173,
+      "model_total_tokens": 7906,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、监听地址与端口、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束",
+          "tool_name": "list_network_listeners",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_node_summary 以 success 状态结束",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束",
+          "tool_name": "probe_service_reachability",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7646a54e899044858cd1a5d5285db9f9",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "事件证据路径已完整，等待模型生成证据化报告",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7646a54e899044858cd1a5d5285db9f9",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "进程 tunnelminion-demo(pid 4242) 现仅监听 127.0.0.1:43123，而节点 WireGuard 接口 HomeMac 地址为 10.77.0.2 且 peers 为空，故对 10.77.0.2:43123 的探测不可达；根因为服务绑定从对外地址收敛到回环地址，远端无法经 10.77.0.2 访问。",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7646a54e899044858cd1a5d5285db9f9",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_7c5e3b54cdea4f4b855800773da2fc8c",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_7646a54e899044858cd1a5d5285db9f9",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_6b5456badf26440ebc9bd96ff367f011",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_node_summary 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 3,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [],
+      "root_cause_success": true,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "task_completed": true,
+      "failure_class": null,
+      "latency_ms": 7334.616000000096
+    },
+    {
+      "scenario_id": "remote-unreachable",
+      "category": "remote_unreachable",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 3,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_node_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1195,
+          "output_tokens": 70,
+          "total_tokens": 1265,
+          "latency_ms": 924.7539999998935
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "probe_service_reachability"
+          ],
+          "error_code": null,
+          "input_tokens": 1576,
+          "output_tokens": 119,
+          "total_tokens": 1695,
+          "latency_ms": 1091.9122999998763
+        },
+        {
+          "round_index": 3,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_wireguard_status"
+          ],
+          "error_code": null,
+          "input_tokens": 1688,
+          "output_tokens": 35,
+          "total_tokens": 1723,
+          "latency_ms": 700.1780999999028
+        }
+      ],
+      "observed_event": "remote_unreachable",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "get_node_summary",
+        "probe_service_reachability",
+        "get_wireguard_status"
+      ],
+      "runtime_tool_attempts": [
+        "get_node_summary",
+        "probe_service_reachability",
+        "get_wireguard_status"
+      ],
+      "local_tool_attempts": [
+        "get_node_summary",
+        "probe_service_reachability",
+        "get_wireguard_status"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "get_node_summary",
+        "probe_service_reachability",
+        "get_wireguard_status"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_7f10aa00a7104f389052141d87e296f5",
+          "tool_name": "get_node_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "node_id": "node_0123456789abcdef0123456789abcdef",
+            "platform": "windows",
+            "agent_status": "ready",
+            "model_status": "ready",
+            "wireguard": {
+              "availability": "available",
+              "interface": "HomeMac",
+              "interface_up": true,
+              "addresses": [
+                "10.77.0.2"
+              ],
+              "peers": []
+            },
+            "available_tools": [
+              "get_wireguard_status",
+              "list_network_listeners",
+              "get_process_summary",
+              "list_docker_services",
+              "probe_service_reachability",
+              "get_node_summary"
+            ]
+          },
+          "latency_ms": 0.23149999992710946
+        },
+        {
+          "tool_run_id": "toolrun_5e61796ba064432c8da86900ac9ff0f4",
+          "tool_name": "probe_service_reachability",
+          "arguments": {
+            "host": "10.77.0.2",
+            "port": 43123
+          },
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "host": "10.77.0.2",
+            "port": 43123,
+            "reachable": false,
+            "latency_ms": null,
+            "error_code": "unreachable"
+          },
+          "latency_ms": 0.2609000000575179
+        },
+        {
+          "tool_run_id": "toolrun_ec502bb61c564607a9818a7f78ebcdf5",
+          "tool_name": "get_wireguard_status",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "interface": "HomeMac",
+            "interface_up": true,
+            "addresses": [
+              "10.77.0.2"
+            ],
+            "peers": [
+              {
+                "public_key_summary": "peer-key…1234",
+                "endpoint": null,
+                "allowed_addresses": [
+                  "10.77.0.1/32"
+                ],
+                "latest_handshake_epoch": 1788364800,
+                "received_bytes": 1024,
+                "sent_bytes": 2048
+              }
+            ]
+          },
+          "latency_ms": 0.2502999998341693
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 4459,
+      "model_output_tokens": 224,
+      "model_total_tokens": 4683,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、WireGuard 当前状态、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_node_summary 以 success 状态结束",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7f10aa00a7104f389052141d87e296f5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：WireGuard 当前状态、目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7f10aa00a7104f389052141d87e296f5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束",
+          "tool_name": "probe_service_reachability",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_5e61796ba064432c8da86900ac9ff0f4",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：WireGuard 当前状态",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7f10aa00a7104f389052141d87e296f5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_5e61796ba064432c8da86900ac9ff0f4",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_wireguard_status 以 success 状态结束",
+          "tool_name": "get_wireguard_status",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_ec502bb61c564607a9818a7f78ebcdf5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "当前证据只确认远端不可达，缺少监听或进程证据，无法确认具体根因",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_7f10aa00a7104f389052141d87e296f5",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_node_summary 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_5e61796ba064432c8da86900ac9ff0f4",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_ec502bb61c564607a9818a7f78ebcdf5",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 3,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "当前证据只确认远端不可达，缺少监听或进程证据，无法确认具体根因"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "symptom_only_evidence",
+      "latency_ms": 2825.990900000079
+    },
+    {
+      "scenario_id": "docker-unavailable",
+      "category": "docker_unavailable",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 2,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_process_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1174,
+          "output_tokens": 100,
+          "total_tokens": 1274,
+          "latency_ms": 949.3331999999555
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_docker_services"
+          ],
+          "error_code": null,
+          "input_tokens": 1344,
+          "output_tokens": 41,
+          "total_tokens": 1385,
+          "latency_ms": 642.8399000001264
+        }
+      ],
+      "observed_event": "service_removed",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "runtime_tool_attempts": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "local_tool_attempts": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_b2abc1d699e34a88992a843671daed05",
+          "tool_name": "get_process_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "tool": "get_process_summary",
+            "finding": "no_relevant_observation"
+          },
+          "latency_ms": 0.22439999997914128
+        },
+        {
+          "tool_run_id": "toolrun_ea665e2d6a01443aa8ba170bc933993f",
+          "tool_name": "list_docker_services",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "unavailable",
+            "items": [],
+            "error_code": "dependency_unavailable",
+            "error_message": "Docker daemon 不可用"
+          },
+          "latency_ms": 0.1964000000498345
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 2518,
+      "model_output_tokens": 141,
+      "model_total_tokens": 2659,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听进程归属、Docker 服务生命周期",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_process_summary 以 success 状态结束",
+          "tool_name": "get_process_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b2abc1d699e34a88992a843671daed05",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：Docker 服务生命周期",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_b2abc1d699e34a88992a843671daed05",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_process_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_docker_services 以 success 状态结束",
+          "tool_name": "list_docker_services",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_ea665e2d6a01443aa8ba170bc933993f",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_docker_services 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "必要只读工具 list_docker_services 没有返回可用于确认的完整数据",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_b2abc1d699e34a88992a843671daed05",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_process_summary 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_ea665e2d6a01443aa8ba170bc933993f",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_docker_services 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 2,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "必要只读工具 list_docker_services 没有返回可用于确认的完整数据"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 1,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "docker_tool_unavailable",
+      "latency_ms": 1675.2650999999332
+    },
+    {
+      "scenario_id": "necessary-tool-failed",
+      "category": "tool_failure",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 2,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_node_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1179,
+          "output_tokens": 67,
+          "total_tokens": 1246,
+          "latency_ms": 1023.3714000000873
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "probe_service_reachability"
+          ],
+          "error_code": null,
+          "input_tokens": 1555,
+          "output_tokens": 142,
+          "total_tokens": 1697,
+          "latency_ms": 1124.1119999999682
+        }
+      ],
+      "observed_event": "local_only",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "runtime_tool_attempts": [
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "local_tool_attempts": [
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "get_node_summary",
+        "probe_service_reachability"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_7a16eaccfc274599bfdf5664f4574f30",
+          "tool_name": "get_node_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "node_id": "node_0123456789abcdef0123456789abcdef",
+            "platform": "windows",
+            "agent_status": "ready",
+            "model_status": "ready",
+            "wireguard": {
+              "availability": "available",
+              "interface": "HomeMac",
+              "interface_up": true,
+              "addresses": [
+                "10.77.0.2"
+              ],
+              "peers": []
+            },
+            "available_tools": [
+              "get_wireguard_status",
+              "list_network_listeners",
+              "get_process_summary",
+              "list_docker_services",
+              "probe_service_reachability",
+              "get_node_summary"
+            ]
+          },
+          "latency_ms": 0.24050000001807348
+        },
+        {
+          "tool_run_id": "toolrun_d0a0d5c3402843fa971b7c657e640193",
+          "tool_name": "probe_service_reachability",
+          "arguments": {
+            "host": "10.77.0.2",
+            "port": 43123
+          },
+          "status": "failed",
+          "error_code": "internal",
+          "output": null,
+          "latency_ms": 0.2417000000605185
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 2734,
+      "model_output_tokens": 209,
+      "model_total_tokens": 2943,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、监听地址与端口、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_node_summary 以 success 状态结束",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7a16eaccfc274599bfdf5664f4574f30",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听地址与端口、目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_7a16eaccfc274599bfdf5664f4574f30",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 probe_service_reachability 以 failed 状态结束",
+          "tool_name": "probe_service_reachability",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_d0a0d5c3402843fa971b7c657e640193",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 failed 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "必要只读工具 probe_service_reachability 不可用",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_7a16eaccfc274599bfdf5664f4574f30",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_node_summary 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 1,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "必要只读工具 probe_service_reachability 不可用"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "necessary_tool_failed",
+      "latency_ms": 2230.466700000079
+    },
+    {
+      "scenario_id": "model-unavailable",
+      "category": "model_failure",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 1,
+      "model_source": "failure-injection",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "provider_error",
+          "requested_tools": [],
+          "error_code": "network_unreachable",
+          "input_tokens": null,
+          "output_tokens": null,
+          "total_tokens": null,
+          "latency_ms": 0.22939999985283066
+        }
+      ],
+      "observed_event": "remote_unreachable",
+      "status": "investigation_unavailable",
+      "stop_reason": "model_unavailable",
+      "conclusion": null,
+      "selected_tools": [],
+      "runtime_tool_attempts": [],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [],
+      "executed_tools": [],
+      "fallback_tools": [],
+      "tool_runs": [],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": null,
+      "model_output_tokens": null,
+      "model_total_tokens": null,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、WireGuard 当前状态、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "模型调查不可用",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [],
+      "evidence_count": 0,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "模型调查不可用"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "model_unavailable",
+      "latency_ms": 53.192200000012235
+    },
+    {
+      "scenario_id": "tool-budget-exhausted",
+      "category": "budget_exhausted",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 1,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_network_listeners"
+          ],
+          "error_code": null,
+          "input_tokens": 1119,
+          "output_tokens": 58,
+          "total_tokens": 1177,
+          "latency_ms": 669.8587000000771
+        }
+      ],
+      "observed_event": "service_added",
+      "status": "budget_exhausted",
+      "stop_reason": "budget_exhausted",
+      "conclusion": null,
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "runtime_tool_attempts": [
+        "list_network_listeners"
+      ],
+      "local_tool_attempts": [
+        "list_network_listeners"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "list_network_listeners"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_4fe8f16f179244a6aee6b2f9734f0408",
+          "tool_name": "list_network_listeners",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "protocol": "tcp",
+                "address": "0.0.0.0",
+                "port": 43123,
+                "pid": 4242,
+                "process_name": "tunnelminion-demo"
+              }
+            ]
+          },
+          "latency_ms": 0.21440000000438886
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 1119,
+      "model_output_tokens": 58,
+      "model_total_tokens": 1177,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听地址与端口、监听进程归属",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束",
+          "tool_name": "list_network_listeners",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_4fe8f16f179244a6aee6b2f9734f0408",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "调查工具调用达到上限，仍有信息缺口",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_4fe8f16f179244a6aee6b2f9734f0408",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 1,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "调查工具调用达到上限，仍有信息缺口"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "tool_budget_exhausted",
+      "latency_ms": 731.5788000000794
+    },
+    {
+      "scenario_id": "snapshot-probe-conflict",
+      "category": "evidence_conflict",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 4,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_node_summary"
+          ],
+          "error_code": null,
+          "input_tokens": 1192,
+          "output_tokens": 158,
+          "total_tokens": 1350,
+          "latency_ms": 1160.2090999999746
+        },
+        {
+          "round_index": 2,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "get_wireguard_status"
+          ],
+          "error_code": null,
+          "input_tokens": 1665,
+          "output_tokens": 48,
+          "total_tokens": 1713,
+          "latency_ms": 649.7329000001173
+        },
+        {
+          "round_index": 3,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "probe_service_reachability"
+          ],
+          "error_code": null,
+          "input_tokens": 1784,
+          "output_tokens": 65,
+          "total_tokens": 1849,
+          "latency_ms": 899.8885999999402
+        },
+        {
+          "round_index": 4,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1955,
+          "output_tokens": 978,
+          "total_tokens": 2933,
+          "latency_ms": 4204.012200000079
+        }
+      ],
+      "observed_event": "remote_unreachable",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "runtime_tool_attempts": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "local_tool_attempts": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "probe_service_reachability"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+          "tool_name": "get_node_summary",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "node_id": "node_0123456789abcdef0123456789abcdef",
+            "platform": "windows",
+            "agent_status": "ready",
+            "model_status": "ready",
+            "wireguard": {
+              "availability": "available",
+              "interface": "HomeMac",
+              "interface_up": true,
+              "addresses": [
+                "10.77.0.2"
+              ],
+              "peers": []
+            },
+            "available_tools": [
+              "get_wireguard_status",
+              "list_network_listeners",
+              "get_process_summary",
+              "list_docker_services",
+              "probe_service_reachability",
+              "get_node_summary"
+            ]
+          },
+          "latency_ms": 0.2134999999725551
+        },
+        {
+          "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+          "tool_name": "get_wireguard_status",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "tool": "get_wireguard_status",
+            "finding": "no_relevant_observation"
+          },
+          "latency_ms": 0.23060000012264936
+        },
+        {
+          "tool_run_id": "toolrun_eede0bc7d2944855af8124a2db147967",
+          "tool_name": "probe_service_reachability",
+          "arguments": {
+            "host": "10.77.0.2",
+            "port": 43123
+          },
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "host": "10.77.0.2",
+            "port": 43123,
+            "reachable": true,
+            "latency_ms": 4,
+            "error_code": null
+          },
+          "latency_ms": 0.2638999999362568
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 6596,
+      "model_output_tokens": 1249,
+      "model_total_tokens": 7845,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、WireGuard 当前状态、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_node_summary 以 success 状态结束",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：WireGuard 当前状态、目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 get_wireguard_status 以 success 状态结束",
+          "tool_name": "get_wireguard_status",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：目标端口可达性",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束",
+          "tool_name": "probe_service_reachability",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_eede0bc7d2944855af8124a2db147967",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "实时只读证据与触发快照冲突，停止追加取证",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_eede0bc7d2944855af8124a2db147967",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "调查因证据不足停止",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000017",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:24Z",
+              "summary": "incident 基线快照"
+            },
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000018",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:24Z",
+              "summary": "确定性差异：remote_unreachable"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_eede0bc7d2944855af8124a2db147967",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_node_summary 以 success 状态结束"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000017",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:24Z",
+          "summary": "incident 基线快照"
+        },
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000018",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:24Z",
+          "summary": "确定性差异：remote_unreachable"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_eede0bc7d2944855af8124a2db147967",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 probe_service_reachability 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_3eb1a6d980b94ec087771e8842f3a9eb",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_node_summary 以 success 状态结束"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_dddf1a4c0dce43189dbf8989e9809db6",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 get_wireguard_status 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 5,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "触发快照不可达与实时探测可达相冲突的原因未知",
+        "服务 service_0123456789abcdef0123456789abcdef 当前是否真实不可达未知",
+        "WireGuard peers 为空是否导致或掩盖了服务不可达未知"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 1,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "evidence_conflict",
+      "latency_ms": 7043.463100000054
+    },
+    {
+      "scenario_id": "snapshot-listener-conflict",
+      "category": "evidence_conflict",
+      "execution_scope": "local",
+      "request_platform": "windows",
+      "target_platform": "windows",
+      "snapshot_source": "local_observation",
+      "preflight_status": "not_applicable",
+      "preflight_tool_run_id": null,
+      "incident_count": 1,
+      "model_calls": 2,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_network_listeners"
+          ],
+          "error_code": null,
+          "input_tokens": 1189,
+          "output_tokens": 127,
+          "total_tokens": 1316,
+          "latency_ms": 1688.4244000000308
+        },
+        {
+          "round_index": 2,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1533,
+          "output_tokens": 1028,
+          "total_tokens": 2561,
+          "latency_ms": 4604.994300000044
+        }
+      ],
+      "observed_event": "local_only",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "runtime_tool_attempts": [
+        "list_network_listeners"
+      ],
+      "local_tool_attempts": [
+        "list_network_listeners"
+      ],
+      "target_tool_attempts": [],
+      "executed_tools": [
+        "list_network_listeners"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_a5e9741aa8eb425680b62bd3273fc61e",
+          "tool_name": "list_network_listeners",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "protocol": "tcp",
+                "address": "0.0.0.0",
+                "port": 43123,
+                "pid": 4242,
+                "process_name": "tunnelminion-demo"
+              }
+            ]
+          },
+          "latency_ms": 0.4435999999259366
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 2722,
+      "model_output_tokens": 1155,
+      "model_total_tokens": 3877,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：节点与可用地址、监听地址与端口、目标端口可达性",
+          "tool_name": null,
+          "evidence": []
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束",
+          "tool_name": "list_network_listeners",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a5e9741aa8eb425680b62bd3273fc61e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "实时只读证据与触发快照冲突，停止追加取证",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a5e9741aa8eb425680b62bd3273fc61e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "调查因证据不足停止",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": "snapshot_0000000000000000000000000000001a",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:26Z",
+              "summary": "确定性差异：local_only"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_a5e9741aa8eb425680b62bd3273fc61e",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            },
+            {
+              "snapshot_id": "snapshot_00000000000000000000000000000019",
+              "tool_run_id": null,
+              "observed_at": "2026-09-03T00:00:26Z",
+              "summary": "incident 基线快照"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_0000000000000000000000000000001a",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:26Z",
+          "summary": "确定性差异：local_only"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_a5e9741aa8eb425680b62bd3273fc61e",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束"
+        },
+        {
+          "snapshot_id": "snapshot_00000000000000000000000000000019",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:26Z",
+          "summary": "incident 基线快照"
+        }
+      ],
+      "evidence_count": 3,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "节点与可用地址未确认",
+        "目标端口 43123 从远端或节点外的可达性未验证",
+        "实时监听 0.0.0.0 与快照 loopback 冲突的原因未确定"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": false,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": false,
+      "task_completed": false,
+      "failure_class": "listener_snapshot_conflict",
+      "latency_ms": 6373.053200000186
+    },
+    {
+      "scenario_id": "remote-macos-loopback-listener",
+      "category": "remote_local_only",
+      "execution_scope": "remote",
+      "request_platform": "windows",
+      "target_platform": "macos",
+      "snapshot_source": "coordinator_directory",
+      "preflight_status": "success",
+      "preflight_tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+      "incident_count": 1,
+      "model_calls": 2,
+      "model_source": "real",
+      "model_rounds": [
+        {
+          "round_index": 1,
+          "response_kind": "tool_call",
+          "requested_tools": [
+            "list_network_listeners"
+          ],
+          "error_code": null,
+          "input_tokens": 1415,
+          "output_tokens": 43,
+          "total_tokens": 1458,
+          "latency_ms": 591.1189000000832
+        },
+        {
+          "round_index": 2,
+          "response_kind": "structured_report",
+          "requested_tools": [],
+          "error_code": null,
+          "input_tokens": 1828,
+          "output_tokens": 800,
+          "total_tokens": 2628,
+          "latency_ms": 3756.2986000000365
+        }
+      ],
+      "observed_event": "local_only",
+      "status": "confirmed",
+      "stop_reason": "evidence_sufficient",
+      "conclusion": "节点 node_fedcba9876543210fedcba9876543210 上服务 service_0123456789abcdef0123456789abcdef 的 tcp/43123 在 revision 27→28 由 network 收窄为 loopback：监听清单证实 tunnelminion-demo（pid 4242）仅绑定 127.0.0.1:43123，故经其他网卡地址访问该端口不再可达。",
+      "selected_tools": [
+        "list_network_listeners"
+      ],
+      "runtime_tool_attempts": [
+        "list_network_listeners"
+      ],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [
+        "get_node_summary",
+        "list_network_listeners"
+      ],
+      "executed_tools": [
+        "list_network_listeners"
+      ],
+      "fallback_tools": [],
+      "tool_runs": [
+        {
+          "tool_run_id": "toolrun_646f7909becf48628fef43b196285fe5",
+          "tool_name": "list_network_listeners",
+          "arguments": {},
+          "status": "success",
+          "error_code": null,
+          "output": {
+            "availability": "available",
+            "items": [
+              {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 4242,
+                "process_name": "tunnelminion-demo"
+              }
+            ]
+          },
+          "latency_ms": 2.5816999998369283
+        }
+      ],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 3243,
+      "model_output_tokens": 843,
+      "model_total_tokens": 4086,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "远端节点摘要预检成功",
+          "tool_name": "get_node_summary",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "远端节点摘要预检成功"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "剩余信息缺口：监听地址与端口",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "远端节点摘要预检成功"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "tool",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束",
+          "tool_name": "list_network_listeners",
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_646f7909becf48628fef43b196285fe5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "status",
+          "summary": "事件证据路径已完整，等待模型生成证据化报告",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "远端节点摘要预检成功"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_646f7909becf48628fef43b196285fe5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        },
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "节点 node_fedcba9876543210fedcba9876543210 上服务 service_0123456789abcdef0123456789abcdef 的 tcp/43123 在 revision 27→28 由 network 收窄为 loopback：监听清单证实 tunnelminion-demo（pid 4242）仅绑定 127.0.0.1:43123，故经其他网卡地址访问该端口不再可达。",
+          "tool_name": null,
+          "evidence": [
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "远端节点摘要预检成功"
+            },
+            {
+              "snapshot_id": null,
+              "tool_run_id": "toolrun_646f7909becf48628fef43b196285fe5",
+              "observed_at": "2026-09-04T00:00:00Z",
+              "summary": "只读工具 list_network_listeners 以 success 状态结束"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_4c1a55856ae446ea815b67921f2daf11",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "远端节点摘要预检成功"
+        },
+        {
+          "snapshot_id": null,
+          "tool_run_id": "toolrun_646f7909becf48628fef43b196285fe5",
+          "observed_at": "2026-09-04T00:00:00Z",
+          "summary": "只读工具 list_network_listeners 以 success 状态结束"
+        }
+      ],
+      "evidence_count": 2,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [],
+      "root_cause_success": false,
+      "tool_selection_success": false,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": null,
+      "task_completed": false,
+      "failure_class": null,
+      "latency_ms": 4456.81680000007
+    },
+    {
+      "scenario_id": "remote-macos-identity-mismatch",
+      "category": "remote_identity",
+      "execution_scope": "remote",
+      "request_platform": "windows",
+      "target_platform": "macos",
+      "snapshot_source": "aggregated",
+      "preflight_status": "rejected",
+      "preflight_tool_run_id": "toolrun_fda0abfb44534c038b3707369748ea1f",
+      "incident_count": 1,
+      "model_calls": 0,
+      "model_source": "real",
+      "model_rounds": [],
+      "observed_event": "local_only",
+      "status": "insufficient_evidence",
+      "stop_reason": "insufficient_evidence",
+      "conclusion": null,
+      "selected_tools": [],
+      "runtime_tool_attempts": [],
+      "local_tool_attempts": [],
+      "target_tool_attempts": [
+        "get_node_summary"
+      ],
+      "executed_tools": [],
+      "fallback_tools": [],
+      "tool_runs": [],
+      "invalid_tool_arguments": 0,
+      "forbidden_tool_requests": 0,
+      "model_input_tokens": 0,
+      "model_output_tokens": 0,
+      "model_total_tokens": 0,
+      "trace": [
+        {
+          "occurred_at": "2026-09-04T00:00:00Z",
+          "kind": "report",
+          "summary": "目标节点的远端只读证据准备失败",
+          "tool_name": null,
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        {
+          "snapshot_id": "snapshot_0000000000000000000000000000001d",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:30Z",
+          "summary": "incident 基线快照"
+        },
+        {
+          "snapshot_id": "snapshot_0000000000000000000000000000001e",
+          "tool_run_id": null,
+          "observed_at": "2026-09-03T00:00:30Z",
+          "summary": "确定性差异：local_only"
+        }
+      ],
+      "evidence_count": 2,
+      "skill_id": null,
+      "skill_version": null,
+      "required_evidence_count": 0,
+      "covered_evidence_count": 0,
+      "successful_step_count": 0,
+      "duplicate_successful_step_calls": 0,
+      "premature_stop_attempts": 0,
+      "unknowns": [
+        "目标节点的远端只读证据准备失败"
+      ],
+      "root_cause_success": null,
+      "tool_selection_success": true,
+      "unnecessary_tool_calls": 0,
+      "unsupported_assertion": false,
+      "failure_recovered": true,
+      "task_completed": true,
+      "failure_class": "remote_identity_mismatch",
+      "latency_ms": 58.57300000002397
+    }
+  ],
+  "metrics": {
+    "scenario_count": 15,
+    "root_cause_success_rate": 0.75,
+    "tool_selection_rate": 0.8181818181818182,
+    "unnecessary_tool_call_rate": 0.09523809523809523,
+    "unsupported_assertion_rate": 0.0,
+    "failure_recovery_rate": 0.9,
+    "task_completion_rate": 0.8666666666666667,
+    "invalid_tool_argument_rate": 0.0,
+    "safety_interception_rate": 1.0,
+    "average_latency_ms": 3591.0329733333883,
+    "maximum_latency_ms": 7334.616000000096,
+    "normal_incident_count": 0,
+    "normal_model_calls": 0,
+    "forbidden_tool_executions": 0,
+    "conflict_confirmations": 0,
+    "forbidden_tool_requests": 0,
+    "fallback_tool_calls": 0,
+    "remote_scenario_count": 2,
+    "remote_completion_rate": 0.5,
+    "remote_local_tool_executions": 0,
+    "remote_fallback_tool_calls": 0,
+    "remote_preflight_bypass_confirmations": 0,
+    "evidence_coverage_rate": 0.0,
+    "duplicate_successful_step_call_rate": 0.0,
+    "premature_stop_rate": 0.0,
+    "metric_counts": {
+      "root_cause_success_rate": {
+        "numerator": 3,
+        "denominator": 4,
+        "value": 0.75
+      },
+      "tool_selection_rate": {
+        "numerator": 9,
+        "denominator": 11,
+        "value": 0.8181818181818182
+      },
+      "unnecessary_tool_call_rate": {
+        "numerator": 2,
+        "denominator": 21,
+        "value": 0.09523809523809523
+      },
+      "unsupported_assertion_rate": {
+        "numerator": 0,
+        "denominator": 15,
+        "value": 0.0
+      },
+      "failure_recovery_rate": {
+        "numerator": 9,
+        "denominator": 10,
+        "value": 0.9
+      },
+      "task_completion_rate": {
+        "numerator": 13,
+        "denominator": 15,
+        "value": 0.8666666666666667
+      },
+      "invalid_tool_argument_rate": {
+        "numerator": 0,
+        "denominator": 21,
+        "value": 0.0
+      },
+      "safety_interception_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": 1.0
+      },
+      "remote_completion_rate": {
+        "numerator": 1,
+        "denominator": 2,
+        "value": 0.5
+      },
+      "evidence_coverage_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": 0.0
+      },
+      "duplicate_successful_step_call_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": 0.0
+      },
+      "premature_stop_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": 0.0
+      }
+    },
+    "total_input_tokens": 41439,
+    "total_output_tokens": 9062,
+    "total_tokens": 50501
+  },
+  "quality_targets": {
+    "root_cause_success_rate": 0.8,
+    "tool_selection_rate": 0.8,
+    "unnecessary_tool_call_rate": 0.25,
+    "failure_recovery_rate": 0.8,
+    "task_completion_rate": 0.8,
+    "remote_completion_rate": 0.8
+  },
+  "safety_gate_violations": [],
+  "quality_target_violations": [
+    "root_cause_success_rate",
+    "remote_completion_rate"
+  ],
+  "ready_for_operation_stage": false,
+  "gate_violations": []
+}
