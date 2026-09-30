@@ -66,4 +66,3 @@ flowchart LR
 - 隔离验证报告：
   [`../../../evaluations/reports/incident-repair-chain-2026-09-30.md`](../../../evaluations/reports/incident-repair-chain-2026-09-30.md)。
 - 遗留限制：当前只支持既有 `share_local_http_service` 临时缓解；真实双机部署验证不在本阶段执行。
-
