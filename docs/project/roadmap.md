@@ -14,7 +14,7 @@ flowchart TB
     D1 --> D2["✅ scripted A/B 3×3"]
     D2 --> D3["✅ 真实模型 A/B 3×3"]
 
-    D3 --> E["5. 受控修复串联"]
+    D3 --> E["🟡 5. 受控修复串联"]
     D3 --> F["6. 按失败样本扩展少量 Skills"]
     E --> H["十分钟完整演示"]
     F --> H
@@ -40,13 +40,16 @@ flowchart TB
 | 2. Incident | 已完成 | 事件去重、证据优先、总览与操作交接已合并 |
 | 3. Harness + `service.local-only@1` | 已完成 | 可恢复状态、预算、跨节点取证、证据门和停止原因已随 PR #87 合并 |
 | 4. 固定口径 A/B 评测 | 已完成 | PR #90 已合并，DeepSeek 两侧各 3 轮；任务完成 40/45 → 44/45，最终 CI 8/8 |
-| 5. 受控修复串联 | 下一步 | 调查结果产生候选计划，继续走 Confirm → Execute → Verify → Rollback/Cleanup |
+| 5. 受控修复串联 | 进行中 | 已完成 Incident 来源后端复核、持久关联、详情回链与隔离纵切，等待 PR 审查 |
 | 6. 扩展 Skills | 下一步 | 只按稳定失败样本增加 `service-added`、`service-removed`、`remote-unreachable` 等能力 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
 | 总览服务展示 | 暂停 | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页 |
 
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
+
+当前阶段文档：
+[`Incident 到受控临时恢复访问串联`](stages/2026-09-30-incident-repair-chain.md)。
 
 ## 已完成主线
 
@@ -129,4 +132,5 @@ DeepSeek 两侧各 3 轮已完成：任务完成 `40/45 → 44/45`、远端完�
 使用真实模型与固定工具环境；下一步为受控修复串联。
 [完整口径和失败解释](../../evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md)。
 
-PR #90 于 2026-09-30 合并（`3efc5a3`）。当前下一步为受控修复串联，尚未开始实施。
+PR #90 于 2026-09-30 合并（`3efc5a3`）。受控修复串联已在
+`feature/incident-repair-chain` 完成实现与本地门禁，等待 PR 审查。
