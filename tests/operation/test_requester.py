@@ -586,16 +586,12 @@ async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
         insufficient.model_copy(update={"status": IncidentStatus.INSUFFICIENT_EVIDENCE})
     )
     missing_investigation = _confirmed_local_only_incident(incident_store, remote)
-    incident_store.put_incident(
-        missing_investigation.model_copy(update={"investigation": None})
-    )
+    incident_store.put_incident(missing_investigation.model_copy(update={"investigation": None}))
 
     invalid_payloads = (
         _input(remote).model_copy(update={"source_incident_id": IncidentId.new()}),
         _input(remote).model_copy(update={"source_incident_id": insufficient.incident_id}),
-        _input(remote).model_copy(
-            update={"source_incident_id": missing_investigation.incident_id}
-        ),
+        _input(remote).model_copy(update={"source_incident_id": missing_investigation.incident_id}),
         _input(remote).model_copy(
             update={"source_incident_id": incident.incident_id, "service_port": 8081}
         ),
