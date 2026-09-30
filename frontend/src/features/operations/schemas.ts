@@ -12,6 +12,7 @@ const runIdSchema = identifierSchema("run");
 const toolRunIdSchema = identifierSchema("toolrun");
 const nodeIdSchema = identifierSchema("node");
 const resourceIdSchema = identifierSchema("resource");
+const incidentIdSchema = identifierSchema("incident");
 
 export const operationStatusSchema = z.enum([
   "planned",
@@ -175,6 +176,7 @@ export const operationDetailSchema = z
     last_checked_at: timestampSchema.nullable(),
     error_code: z.string().nullable(),
     access_expires_at: timestampSchema.nullable(),
+    source_incident_id: incidentIdSchema.nullable(),
     service_id: z.string(),
     service_endpoint: z.string(),
     service_process_or_container: z.string(),

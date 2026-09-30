@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId
+from tunnelminion.domain.identifiers import IncidentId, NodeId, OperationId, RunId, ThreadId
 from tunnelminion.gateway.client import RemoteGatewayError
 from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
@@ -35,6 +35,19 @@ from tunnelminion.gateway.operations import (
     RequesterVerificationConfig,
     create_requester_verification_router,
 )
+from tunnelminion.incident.contracts import (
+    IncidentStatus,
+    InvestigationPhase,
+    InvestigationStepStatus,
+    InvestigationStopReason,
+    ServiceAccessibility,
+    ServiceProtocol,
+    SnapshotFreshness,
+    SnapshotObjectKind,
+    SnapshotServiceState,
+)
+from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY
+from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.model.contracts import CancellationToken, ProviderError
 from tunnelminion.operation.contracts import (
     LeaseRecord,
@@ -43,6 +56,7 @@ from tunnelminion.operation.contracts import (
     OperationStatus,
     VerificationRecord,
     VerificationResult,
+    compute_idempotency_key,
 )
 from tunnelminion.operation.definitions import SAFE_HTTP_SHARING_OPERATION
 from tunnelminion.operation.http_sharing import (
@@ -201,6 +215,7 @@ class RequesterOperationService:
         gateway_client_factory: GatewayClientFactory,
         callback_runtime: ProxyRuntime,
         clock: Callable[[], datetime],
+        incident_store: SQLiteIncidentStore | None = None,
         verification_transport: httpx.AsyncBaseTransport | None = None,
         access_transport: httpx.AsyncBaseTransport | None = None,
         proxy_limits: HTTPProxyLimits | None = None,
@@ -212,6 +227,7 @@ class RequesterOperationService:
         self._gateway_client_factory = gateway_client_factory
         self._callback_runtime = callback_runtime
         self._clock = clock
+        self._incident_store = incident_store
         self._verification_transport = verification_transport
         self._access_transport = access_transport
         self._proxy_limits = proxy_limits or HTTPProxyLimits()
@@ -239,6 +255,7 @@ class RequesterOperationService:
         """生成最新候选计划，先保存，再向固定目标节点提交一次。"""
         if not value.confirmed:
             raise RequesterOperationFailure("explicit_intent_required")
+        source_incident_id = self._validate_incident_source(value)
         try:
             peer = self._configuration.resolve_operation_peer(
                 value.target_node_id,
@@ -279,6 +296,23 @@ class RequesterOperationService:
                 or "candidate_plan_unavailable"
             )
         self._validate_plan(plan, value, context, peer)
+        if source_incident_id is not None:
+            idempotency_key = compute_idempotency_key(
+                request_node_id=plan.request_node_id,
+                target_node_id=plan.target_node_id,
+                tool_name=plan.tool_name,
+                plan_version=plan.plan_version,
+                service_fingerprint=plan.service.fingerprint,
+                access_scope=plan.access_scope,
+                source_incident_id=source_incident_id,
+            )
+            plan = OperationPlan.model_validate(
+                plan.model_dump()
+                | {
+                    "source_incident_id": source_incident_id,
+                    "idempotency_key": idempotency_key,
+                }
+            )
         record = RequesterOperationRecord.planned(plan)
         self._store.put(record)
         try:
@@ -520,6 +554,74 @@ class RequesterOperationService:
         )
         if actual != expected:
             raise RequesterOperationFailure("candidate_plan_mismatch")
+
+    def _validate_incident_source(
+        self,
+        value: RequesterOperationInput,
+    ) -> IncidentId | None:
+        """只允许真实存储中证据完整且仍匹配目标服务的 local-only 来源。"""
+        incident_id = value.source_incident_id
+        if incident_id is None:
+            return None
+        if self._incident_store is None:
+            raise RequesterOperationFailure("incident_source_unavailable")
+        incident = self._incident_store.get(incident_id)
+        if incident is None:
+            raise RequesterOperationFailure("incident_source_not_found")
+        event = incident.event
+        report = incident.report
+        investigation = incident.investigation
+        required = {item.requirement_id for item in SERVICE_LOCAL_ONLY.requirements}
+        covered: set[str] = set()
+        if investigation is not None:
+            covered = {
+                requirement
+                for step in investigation.steps
+                if step.status is InvestigationStepStatus.SUCCEEDED and step.evidence is not None
+                for requirement in step.requirement_ids
+            }
+        if (
+            incident.status is not IncidentStatus.CONFIRMED
+            or event.event_type not in SERVICE_LOCAL_ONLY.event_types
+            or event.object_kind is not SnapshotObjectKind.SERVICE
+            or event.target_node_id != value.target_node_id
+            or report is None
+            or report.conclusion is None
+            or report.stop_reason is not InvestigationStopReason.EVIDENCE_SUFFICIENT
+            or report.unknowns
+            or investigation is None
+            or investigation.skill_id != SERVICE_LOCAL_ONLY.skill_id
+            or investigation.skill_version != SERVICE_LOCAL_ONLY.version
+            or investigation.phase is not InvestigationPhase.FINISHED
+            or investigation.stop_reason is not InvestigationStopReason.EVIDENCE_SUFFICIENT
+            or investigation.unknowns
+            or not required.issubset(covered)
+        ):
+            raise RequesterOperationFailure("incident_source_not_eligible")
+        snapshot = self._incident_store.get_snapshot(event.current_snapshot_id)
+        service = (
+            next(
+                (
+                    item
+                    for item in snapshot.services
+                    if str(item.service_id) == event.object_id
+                    and item.node_id == event.target_node_id
+                ),
+                None,
+            )
+            if snapshot is not None and snapshot.revision == event.current_revision
+            else None
+        )
+        if (
+            service is None
+            or service.port != value.service_port
+            or service.protocol not in {ServiceProtocol.HTTP, ServiceProtocol.HTTPS}
+            or service.accessibility is not ServiceAccessibility.LOOPBACK
+            or service.state is not SnapshotServiceState.AVAILABLE
+            or service.freshness is not SnapshotFreshness.FRESH
+        ):
+            raise RequesterOperationFailure("incident_source_mismatch")
+        return incident_id
 
     def _store_remote_result(
         self,

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tunnelminion.domain.identifiers import (
     AuthorizationId,
+    IncidentId,
     LeaseId,
     NodeId,
     OperationId,
@@ -202,6 +203,7 @@ def compute_idempotency_key(
     plan_version: int,
     service_fingerprint: str,
     access_scope: AccessScope,
+    source_incident_id: IncidentId | None = None,
 ) -> str:
     """由稳定计划字段生成不包含秘密的幂等键。"""
     value = {
@@ -212,6 +214,8 @@ def compute_idempotency_key(
         "service_fingerprint": service_fingerprint,
         "access_scope": access_scope.model_dump(mode="json"),
     }
+    if source_incident_id is not None:
+        value["source_incident_id"] = str(source_incident_id)
     canonical = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return f"opkey_{hashlib.sha256(canonical.encode()).hexdigest()}"
 
@@ -223,6 +227,7 @@ class OperationPlan(BaseModel):
 
     protocol_version: ProtocolVersion = OPERATION_PROTOCOL_VERSION
     operation_id: OperationId
+    source_incident_id: IncidentId | None = None
     plan_version: int = Field(ge=1)
     idempotency_key: str = Field(pattern=r"^opkey_[0-9a-f]{64}$")
     request_node_id: NodeId
@@ -252,6 +257,7 @@ class OperationPlan(BaseModel):
             plan_version=self.plan_version,
             service_fingerprint=self.service.fingerprint,
             access_scope=self.access_scope,
+            source_incident_id=self.source_incident_id,
         )
         if self.idempotency_key != expected:
             raise ValueError("幂等键与计划稳定字段不一致")

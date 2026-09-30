@@ -148,6 +148,20 @@ describe("OperationDetailPage", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(`/api/operations/${operationId}`);
   });
 
+  it("展示并链接回持久化的来源 Incident", async () => {
+    const incidentId = `incident_${"8".repeat(32)}`;
+    fetchMock.mockReturnValueOnce(
+      jsonResponse(makeOperationDetail({ source_incident_id: incidentId })),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText(incidentId)).toHaveAttribute(
+      "href",
+      `/app/overview?incident_id=${incidentId}#overview-incidents`,
+    );
+  });
+
   it("初次错误可键盘恢复，刷新错误则标记陈旧详情并禁用动作", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("offline"));
     const user = userEvent.setup();

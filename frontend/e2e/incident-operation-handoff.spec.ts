@@ -241,6 +241,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   await expect(page.getByText("等待本机批准")).toBeVisible();
   expect(writes).toEqual([
     {
+      source_incident_id: incidentId,
       target_node_id: remoteNodeId,
       service_port: 4312,
       bind_port: 18881,

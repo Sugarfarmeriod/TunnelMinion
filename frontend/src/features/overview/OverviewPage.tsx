@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { requestJson } from "../../api/client";
 import {
@@ -693,7 +693,14 @@ function IncidentList({
   nodes: ResourceOverview["nodes"]["items"];
   services: ResourceOverview["services"]["items"];
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const linkedIncidentId = searchParams.get("incident_id");
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    linkedIncidentId !== null &&
+    /^incident_[0-9a-f]{32}$/.test(linkedIncidentId)
+      ? linkedIncidentId
+      : null,
+  );
   const [question, setQuestion] = useState("");
   const detail = useQuery({
     queryKey: ["incident", selectedId],

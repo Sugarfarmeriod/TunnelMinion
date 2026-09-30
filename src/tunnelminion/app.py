@@ -142,6 +142,7 @@ def build_requester_operation_service(
     tool_runtime: ToolRuntime,
     audit_sink: InMemoryAuditSink,
     stores: SQLiteStores,
+    incident_store: SQLiteIncidentStore,
 ) -> RequesterOperationService:
     """用现有模型、只读工具和固定 Gateway 组装请求端主路径。"""
     configuration = GatewayConfigurationService(
@@ -177,6 +178,7 @@ def build_requester_operation_service(
         gateway_client_factory=client,
         callback_runtime=UvicornProxyRuntime(),
         clock=lambda: datetime.now(UTC),
+        incident_store=incident_store,
     )
 
 
@@ -241,6 +243,7 @@ def build_windows_application(
         stores.preauthorizations,
         OperationPolicy(registry, stores.preauthorizations),
     )
+    incident_store = SQLiteIncidentStore(root / "incidents.sqlite3")
     requester_operations = build_requester_operation_service(
         root=root,
         node_id=node_id,
@@ -249,6 +252,7 @@ def build_windows_application(
         tool_runtime=runtime,
         audit_sink=audit,
         stores=stores,
+        incident_store=incident_store,
     )
     operation_control = OperationControlService(
         node_id=node_id,
@@ -287,7 +291,6 @@ def build_windows_application(
 
         before_snapshot = refresh_local_services
 
-    incident_store = SQLiteIncidentStore(root / "incidents.sqlite3")
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node_id,

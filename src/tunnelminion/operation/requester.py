@@ -7,7 +7,7 @@ from typing import Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tunnelminion.domain.identifiers import NodeId, OperationId
+from tunnelminion.domain.identifiers import IncidentId, NodeId, OperationId
 from tunnelminion.operation.contracts import OperationPlan, OperationSummary
 
 
@@ -16,6 +16,7 @@ class RequesterOperationInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    source_incident_id: IncidentId | None = None
     target_node_id: NodeId
     service_port: int = Field(ge=1, le=65535)
     bind_port: int = Field(ge=1024, le=65535)

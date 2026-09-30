@@ -308,6 +308,7 @@ def build_macos_local_application(
         stores.preauthorizations,
         OperationPolicy(node.tool_registry, stores.preauthorizations),
     )
+    incident_store = SQLiteIncidentStore(node.root / "incidents.sqlite3")
     requester_operations = build_requester_operation_service(
         root=node.root,
         node_id=node.node_id,
@@ -316,6 +317,7 @@ def build_macos_local_application(
         tool_runtime=node.tool_runtime,
         audit_sink=node.audit_sink,
         stores=stores,
+        incident_store=incident_store,
     )
     operation_control = OperationControlService(
         node_id=node.node_id,
@@ -354,7 +356,6 @@ def build_macos_local_application(
 
         before_snapshot = refresh_local_services
 
-    incident_store = SQLiteIncidentStore(node.root / "incidents.sqlite3")
     current_managed_path_status = managed_path_status_callback(managed)
     views = build_application_view_bindings(
         node_id=node.node_id,
