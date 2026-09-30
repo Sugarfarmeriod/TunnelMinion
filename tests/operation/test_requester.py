@@ -585,10 +585,17 @@ async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
     incident_store.put_incident(
         insufficient.model_copy(update={"status": IncidentStatus.INSUFFICIENT_EVIDENCE})
     )
+    missing_investigation = _confirmed_local_only_incident(incident_store, remote)
+    incident_store.put_incident(
+        missing_investigation.model_copy(update={"investigation": None})
+    )
 
     invalid_payloads = (
         _input(remote).model_copy(update={"source_incident_id": IncidentId.new()}),
         _input(remote).model_copy(update={"source_incident_id": insufficient.incident_id}),
+        _input(remote).model_copy(
+            update={"source_incident_id": missing_investigation.incident_id}
+        ),
         _input(remote).model_copy(
             update={"source_incident_id": incident.incident_id, "service_port": 8081}
         ),
@@ -596,6 +603,7 @@ async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
     )
     expected_codes = (
         "incident_source_not_found",
+        "incident_source_not_eligible",
         "incident_source_not_eligible",
         "incident_source_mismatch",
         "incident_source_not_eligible",
@@ -608,6 +616,19 @@ async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
     assert agent.calls == []
     assert client.submit_calls == 0
     assert stores.requester_operations.list_all() == ()
+
+    unavailable, unavailable_stores, _, _, unavailable_remote = _service(
+        tmp_path / "unavailable",
+        agent,
+        client,
+    )
+    with pytest.raises(RequesterOperationFailure, match="incident_source_unavailable"):
+        await unavailable.create_operation(
+            _input(unavailable_remote).model_copy(
+                update={"source_incident_id": incident.incident_id}
+            )
+        )
+    assert unavailable_stores.requester_operations.list_all() == ()
 
 
 @pytest.mark.anyio
