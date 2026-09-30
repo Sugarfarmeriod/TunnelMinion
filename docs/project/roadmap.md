@@ -12,7 +12,7 @@ flowchart TB
 
     C --> D1["✅ 固定实验契约"]
     D1 --> D2["✅ scripted A/B 3×3"]
-    D2 --> D3["▶ 真实模型 A/B 3×3"]
+    D2 --> D3["✅ 真实模型 A/B 3×3"]
 
     D3 --> E["5. 受控修复串联"]
     D3 --> F["6. 按失败样本扩展少量 Skills"]
@@ -26,9 +26,9 @@ flowchart TB
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
-    class A,B,C,D1,D2 done;
-    class D3 current;
-    class E,F,H next;
+    class A,B,C,D1,D2,D3 done;
+    class E current;
+    class F,H next;
     class G,U later;
 ```
 
@@ -39,7 +39,7 @@ flowchart TB
 | 1. 确定性观察 | 已完成 | 正常刷新不调用模型；服务和节点变化形成稳定事件 |
 | 2. Incident | 已完成 | 事件去重、证据优先、总览与操作交接已合并 |
 | 3. Harness + `service.local-only@1` | 已完成 | 可恢复状态、预算、跨节点取证、证据门和停止原因已随 PR #87 合并 |
-| 4. 固定口径 A/B 评测 | 进行中 | 同 dataset、模型、prompt、scorer、预算和重复次数，只改变一个机制 |
+| 4. 固定口径 A/B 评测 | 评测完成，待合并 | 同 dataset、模型、prompt、scorer、预算和重复次数，只改变一个机制 |
 | 5. 受控修复串联 | 下一步 | 调查结果产生候选计划，继续走 Confirm → Execute → Verify → Rollback/Cleanup |
 | 6. 扩展 Skills | 下一步 | 只按稳定失败样本增加 `service-added`、`service-removed`、`remote-unreachable` 等能力 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
@@ -122,3 +122,9 @@ flowchart LR
 - 评测数据与报告：[`../../evaluations`](../../evaluations)。
 - 历史 OpenSpec：[`../../openspec`](../../openspec)；只读保留，不再作为未来推进入口。
 - 每个新阶段使用 [`stages/_template.md`](stages/_template.md)，合并后回写本路线图。
+
+### 最新评测证据（2026-09-30）
+
+DeepSeek 两侧各 3 轮已完成：任务完成 `40/45 → 44/45`、远端完成 `3/6 → 6/6`、安全违规 0。
+使用真实模型与固定工具环境；下一步为受控修复串联。
+[完整口径和失败解释](../../evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md)。
