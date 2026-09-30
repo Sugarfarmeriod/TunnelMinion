@@ -1,6 +1,6 @@
 # 固定口径 Investigation Harness / Skill A/B 评测
 
-- 状态：`评测完成，待 PR 合并`
+- 状态：`已完成（PR #90 已合并）`
 - 主写分支：`feature/fixed-evaluation-ab`
 - 阶段起点：`e68a95bc9309b0100c1b63535a5daadcbf92722c`
 - 对应总流程：`4. 固定口径评测`
@@ -74,7 +74,7 @@ flowchart LR
 - [x] 安全违规为 `0`，缺少必需证据时不输出 `confirmed`。
 - [x] 生成机器可读报告和一份简明 Markdown 总结。
 - [x] 只把稳定、同口径的结果写入 README、演示或简历材料。
-- [ ] PR 合并后回写总路线图和本页完成结果。
+- [x] PR 合并后回写总路线图和本页完成结果。
 
 ## 实施记录
 
@@ -101,3 +101,9 @@ scripted 固定响应结果为：根因成功率 `9/12 → 12/12`、工具选择
 冲突场景的波动不归因于 Skill；零分母指标不用于提升声明。全部结果与解释见
 [真实模型报告](../../../evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md)。
 代码 CI 在 `2dddb73` 为 8/8；本次仅追加报告与状态。
+
+## 合并记录
+
+- PR #90 已 squash 合并：`3efc5a3ea4b9781f21a01717d35829f282a99a1e`；最终 CI 8/8。
+- CI 发现的 PyJWT 告警由独立 PR #91 修复，已合并；身份认证定向 15 项和 CI 8/8 通过。
+- 下一阶段：隔离 local-only 环境的受控修复串联；保留冲突场景作为后续 Skill 输入。
