@@ -40,7 +40,7 @@ flowchart TB
 | 2. Incident | 已完成 | 事件去重、证据优先、总览与操作交接已合并 |
 | 3. Harness + `service.local-only@1` | 已完成 | 可恢复状态、预算、跨节点取证、证据门和停止原因已随 PR #87 合并 |
 | 4. 固定口径 A/B 评测 | 已完成 | PR #90 已合并，DeepSeek 两侧各 3 轮；任务完成 40/45 → 44/45，最终 CI 8/8 |
-| 5. 受控修复串联 | 进行中 | 已完成 Incident 来源后端复核、持久关联、详情回链与隔离纵切，等待 PR 审查 |
+| 5. 受控修复串联 | 进行中 | 实现、本地全量门禁与独立审查已通过，等待推送恢复、远端 CI 和 PR 合并 |
 | 6. 扩展 Skills | 下一步 | 只按稳定失败样本增加 `service-added`、`service-removed`、`remote-unreachable` 等能力 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
 | 总览服务展示 | 暂停 | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页 |
@@ -133,4 +133,4 @@ DeepSeek 两侧各 3 轮已完成：任务完成 `40/45 → 44/45`、远端完�
 [完整口径和失败解释](../../evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md)。
 
 PR #90 于 2026-09-30 合并（`3efc5a3`）。受控修复串联已在
-`feature/incident-repair-chain` 完成实现与本地门禁，等待 PR 审查。
+`feature/incident-repair-chain` 完成实现、本地全量门禁与独立审查，等待推送恢复、远端 CI 和 PR 合并。
