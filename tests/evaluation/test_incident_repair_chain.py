@@ -73,6 +73,7 @@ from tunnelminion.web.overview import (
 async def test_tcp_observation_investigation_submits_bound_incident_operation(
     tmp_path: Path,
 ) -> None:
+    print("隔离模拟演示：模型/网络/共享资源为测试替身")
     observer = DeterministicServiceObserver(
         NODE,
         ServiceObservationConfig(interval_seconds=5, timeout_seconds=1),

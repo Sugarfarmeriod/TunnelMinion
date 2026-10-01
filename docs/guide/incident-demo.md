@@ -1,7 +1,7 @@
 # Incident 受控恢复开发者演示
 
-这是一条非特权、隔离的开发者演示。它把真实观察产生的 Incident 和同一份 `OperationPlan` 沿现有生产
-对象串到目标节点本地批准、执行、请求端独立验证和租约到期清理。
+这是一条非特权、隔离的开发者演示。生产观察器处理模拟监听证据并产生 Incident，随后同一份
+`OperationPlan` 沿现有生产对象串到目标节点本地批准、执行、请求端独立验证和租约到期清理。
 
 在仓库根目录运行：
 
@@ -11,6 +11,7 @@ $env:PYTHONUTF8='1'; uv run pytest tests/evaluation/test_incident_repair_chain.p
 
 终端会依次显示：
 
+0. 本次是隔离模拟演示，模型、网络和共享资源使用测试替身；
 1. 事件 ID（稳定的 `dedup_key`）和 Incident ID；
 2. `service.local-only@1` 的 Skill 证据覆盖率；
 3. 候选计划及其 `operation_id`；
