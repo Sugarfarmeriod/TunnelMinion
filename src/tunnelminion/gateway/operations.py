@@ -248,7 +248,11 @@ class CallbackRequesterVerifier(RequesterVerifier):
             ) as client:
                 response = await client.post(
                     f"{self._callback.endpoint}/v1/operations:verify-callback",
-                    content=request.model_dump_json(),
+                    content=request.model_dump_json(
+                        exclude={"plan": {"source_incident_id"}}
+                        if plan.source_incident_id is None
+                        else None
+                    ),
                     headers={
                         "Authorization": f"Bearer {self._callback.token}",
                         "Content-Type": "application/json",

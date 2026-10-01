@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,7 +20,7 @@ from tests.operation.factories import NOW, plan
 from tests.tools.test_registry import definition
 
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import LeaseId, NodeId, OperationId
+from tunnelminion.domain.identifiers import IncidentId, LeaseId, NodeId, OperationId
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.api import create_gateway_router
@@ -706,6 +707,75 @@ def test_callback_verifier_rejects_forged_verification_identity() -> None:
     assert result.result is VerificationResult.REQUESTER_OFFLINE
 
 
+def test_callback_wire_omits_absent_source_and_keeps_present_source() -> None:
+    caller = NodeId.new()
+    operation_plan = _remote_plan(caller, NodeId.new())
+    lease = LeaseRecord(
+        lease_id=LeaseId.new(),
+        operation_id=operation_plan.operation_id,
+        starts_at=NOW,
+        expires_at=NOW + timedelta(minutes=1),
+    )
+    bodies: list[dict[str, object]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        bodies.append(cast(dict[str, object], json.loads(request.content)))
+        return httpx.Response(
+            200,
+            content=RemoteVerificationResult(
+                verification=VerificationRecord(
+                    operation_id=operation_plan.operation_id,
+                    verifier_node_id=caller,
+                    result=VerificationResult.PASSED,
+                    evidence_summary="fixture",
+                    verified_at=NOW,
+                )
+            ).model_dump_json(),
+        )
+
+    verifier = CallbackRequesterVerifier(
+        RequesterVerificationCallback(
+            endpoint="http://10.77.0.2:18882",
+            token="tmn_test-callback-token-with-more-than-forty-three-characters",
+        ),
+        transport=httpx.MockTransport(capture),
+    )
+    result = asyncio.run(
+        verifier.verify(
+            operation_plan,
+            lease,
+            "tmn_test-share-token-with-more-than-forty-three-characters",
+        )
+    )
+
+    assert result.result is VerificationResult.PASSED
+    assert "source_incident_id" not in cast(dict[str, object], bodies[0]["plan"])
+    incident_id = IncidentId.new()
+    with_source = OperationPlan.model_validate(
+        operation_plan.model_dump()
+        | {
+            "source_incident_id": incident_id,
+            "idempotency_key": compute_idempotency_key(
+                request_node_id=operation_plan.request_node_id,
+                target_node_id=operation_plan.target_node_id,
+                tool_name=operation_plan.tool_name,
+                plan_version=operation_plan.plan_version,
+                service_fingerprint=operation_plan.service.fingerprint,
+                access_scope=operation_plan.access_scope,
+                source_incident_id=incident_id,
+            ),
+        }
+    )
+    asyncio.run(
+        verifier.verify(
+            with_source,
+            lease,
+            "tmn_test-share-token-with-more-than-forty-three-characters",
+        )
+    )
+    assert cast(dict[str, object], bodies[1]["plan"])["source_incident_id"] == str(incident_id)
+
+
 @pytest.mark.anyio
 async def test_fixed_client_runs_remote_operation_and_validates_envelopes(tmp_path: Path) -> None:
     caller = NodeId.new()
@@ -767,6 +837,56 @@ async def test_fixed_client_runs_remote_operation_and_validates_envelopes(tmp_pa
     with pytest.raises(RemoteGatewayError) as conflict:
         await waiting_client.execute_operation(waiting_plan)
     assert conflict.value.code is ErrorCode.INVALID_ARGUMENT
+
+
+@pytest.mark.anyio
+async def test_submit_wire_omits_absent_source_and_keeps_present_source() -> None:
+    caller = NodeId.new()
+    target = NodeId.new()
+    without_source = _remote_plan(caller, target)
+    incident_id = IncidentId.new()
+    with_source = OperationPlan.model_validate(
+        without_source.model_dump()
+        | {
+            "source_incident_id": incident_id,
+            "idempotency_key": compute_idempotency_key(
+                request_node_id=without_source.request_node_id,
+                target_node_id=without_source.target_node_id,
+                tool_name=without_source.tool_name,
+                plan_version=without_source.plan_version,
+                service_fingerprint=without_source.service.fingerprint,
+                access_scope=without_source.access_scope,
+                source_incident_id=incident_id,
+            ),
+        }
+    )
+    bodies: list[dict[str, object]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        bodies.append(cast(dict[str, object], json.loads(request.content)))
+        submitted = without_source if len(bodies) == 1 else with_source
+        return httpx.Response(
+            200,
+            content=RemoteOperationResult(
+                protocol=GATEWAY_PROTOCOL,
+                execution_node_id=target,
+                summary=OperationSummary.from_record(OperationRecord.planned(submitted)),
+            ).model_dump_json(),
+        )
+
+    client = FixedGatewayClient(
+        "http://10.77.0.1:8787",
+        TOKEN,
+        caller,
+        target,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(capture),
+    )
+    await client.submit_operation(without_source)
+    await client.submit_operation(with_source)
+
+    assert "source_incident_id" not in cast(dict[str, object], bodies[0]["plan"])
+    assert cast(dict[str, object], bodies[1]["plan"])["source_incident_id"] == str(incident_id)
 
 
 @pytest.mark.anyio

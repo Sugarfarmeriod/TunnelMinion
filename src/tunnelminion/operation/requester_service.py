@@ -17,8 +17,16 @@ from pydantic import ValidationError
 
 from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
+from tunnelminion.agent.service_observation import compute_observed_service_id
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import IncidentId, NodeId, OperationId, RunId, ThreadId
+from tunnelminion.domain.identifiers import (
+    IncidentId,
+    NodeId,
+    OperationId,
+    RunId,
+    ServiceId,
+    ThreadId,
+)
 from tunnelminion.gateway.client import RemoteGatewayError
 from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
@@ -255,7 +263,7 @@ class RequesterOperationService:
         """生成最新候选计划，先保存，再向固定目标节点提交一次。"""
         if not value.confirmed:
             raise RequesterOperationFailure("explicit_intent_required")
-        source_incident_id = self._validate_incident_source(value)
+        incident_source = self._validate_incident_source(value)
         try:
             peer = self._configuration.resolve_operation_peer(
                 value.target_node_id,
@@ -296,7 +304,18 @@ class RequesterOperationService:
                 or "candidate_plan_unavailable"
             )
         self._validate_plan(plan, value, context, peer)
-        if source_incident_id is not None:
+        if incident_source is not None:
+            source_incident_id, source_service_id = incident_source
+            if (
+                compute_observed_service_id(
+                    plan.target_node_id,
+                    ServiceProtocol.TCP,
+                    plan.service.host,
+                    plan.service.port,
+                )
+                != source_service_id
+            ):
+                raise RequesterOperationFailure("incident_source_mismatch")
             idempotency_key = compute_idempotency_key(
                 request_node_id=plan.request_node_id,
                 target_node_id=plan.target_node_id,
@@ -310,6 +329,9 @@ class RequesterOperationService:
                 plan.model_dump()
                 | {
                     "source_incident_id": source_incident_id,
+                    "service": plan.service.model_copy(
+                        update={"service_id": str(source_service_id)}
+                    ),
                     "idempotency_key": idempotency_key,
                 }
             )
@@ -558,7 +580,7 @@ class RequesterOperationService:
     def _validate_incident_source(
         self,
         value: RequesterOperationInput,
-    ) -> IncidentId | None:
+    ) -> tuple[IncidentId, ServiceId] | None:
         """只允许真实存储中证据完整且仍匹配目标服务的 local-only 来源。"""
         incident_id = value.source_incident_id
         if incident_id is None:
@@ -598,30 +620,52 @@ class RequesterOperationService:
             or not required.issubset(covered)
         ):
             raise RequesterOperationFailure("incident_source_not_eligible")
-        snapshot = self._incident_store.get_snapshot(event.current_snapshot_id)
+        incident_snapshot = self._incident_store.get_snapshot(event.current_snapshot_id)
         service = (
             next(
                 (
                     item
-                    for item in snapshot.services
+                    for item in incident_snapshot.services
                     if str(item.service_id) == event.object_id
                     and item.node_id == event.target_node_id
                 ),
                 None,
             )
-            if snapshot is not None and snapshot.revision == event.current_revision
+            if incident_snapshot is not None
+            and incident_snapshot.revision == event.current_revision
+            else None
+        )
+        latest_snapshot = self._incident_store.latest_snapshot()
+        current_service = (
+            next(
+                (
+                    item
+                    for item in latest_snapshot.services
+                    if service is not None
+                    and item.service_id == service.service_id
+                    and item.node_id == event.target_node_id
+                ),
+                None,
+            )
+            if latest_snapshot is not None
             else None
         )
         if (
             service is None
             or service.port != value.service_port
-            or service.protocol not in {ServiceProtocol.HTTP, ServiceProtocol.HTTPS}
+            or service.protocol is not ServiceProtocol.TCP
             or service.accessibility is not ServiceAccessibility.LOOPBACK
             or service.state is not SnapshotServiceState.AVAILABLE
             or service.freshness is not SnapshotFreshness.FRESH
+            or current_service is None
+            or current_service.port != service.port
+            or current_service.protocol is not ServiceProtocol.TCP
+            or current_service.accessibility is not ServiceAccessibility.LOOPBACK
+            or current_service.state is not SnapshotServiceState.AVAILABLE
+            or current_service.freshness is not SnapshotFreshness.FRESH
         ):
             raise RequesterOperationFailure("incident_source_mismatch")
-        return incident_id
+        return incident_id, service.service_id
 
     def _store_remote_result(
         self,
