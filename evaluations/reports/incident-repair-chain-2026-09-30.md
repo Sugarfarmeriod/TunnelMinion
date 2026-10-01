@@ -73,10 +73,15 @@ uv run --frozen pytest --no-cov `
 HTTP 应用候选与监听端点，执行前实时指纹和目标授权保护当前操作。当前数据不证明历史进程连续性，也不
 检测历史同端口换进程。
 
-报告生成时，本地分支因 TLS 握手故障尚未推送到远端：默认 Schannel 最近一次返回
-`schannel: failed to receive handshake, SSL/TLS connection failed`；按授权进行的一次非持久化 OpenSSL
-后端尝试返回 `TLS connect error: error:00000000:lib(0)::reason(0)`。未关闭证书验证，也未修改网络、代理、
-防火墙或 Git 全局配置；因此远端 CI 尚未启动，本报告不把本地门禁写成远端 CI 结果。
+## 最终远端验收（2026-10-02，北京时间）
+
+- 推送恢复后，PR #93 已合并为 `084d7645a7f632e78629319d533b0655c2557765`。
+- 最终被测 head：`d8b4a21aaed8e3fd0f9980fd043ce46354cc904b`；业务代码仍为上述独立审查版本。
+- [最终 CI 36894291268](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/36894291268)：8/8 通过，覆盖双平台后端、浏览器、构建、运行包及供应链检查。
+- 最终版本包含 urllib3 2.7.0 → 2.8.0 安全更新。独立 PR #94 的 Windows 检查曾在
+  `test_macos_default_runtime_observes_local_services_before_incident_snapshot` 出现 Incident 空列表失败；
+  该补丁已集成到上述全绿版本，因此 #94 关闭为重复交付，不将其独立运行写成通过。
+- 历史 TLS 推送阻塞已解除；未关闭证书验证或修改用户网络配置。
 
 ## 产品边界
 

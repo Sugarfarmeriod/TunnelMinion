@@ -14,7 +14,7 @@ flowchart TB
     D1 --> D2["✅ scripted A/B 3×3"]
     D2 --> D3["✅ 真实模型 A/B 3×3"]
 
-    D3 --> E["🟡 5. 受控修复串联"]
+    D3 --> E["✅ 5. 受控修复串联"]
     D3 --> F["6. 按失败样本扩展少量 Skills"]
     E --> H["十分钟完整演示"]
     F --> H
@@ -26,8 +26,7 @@ flowchart TB
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
-    class A,B,C,D1,D2,D3 done;
-    class E current;
+    class A,B,C,D1,D2,D3,E done;
     class F,H next;
     class G,U later;
 ```
@@ -40,7 +39,7 @@ flowchart TB
 | 2. Incident | 已完成 | 事件去重、证据优先、总览与操作交接已合并 |
 | 3. Harness + `service.local-only@1` | 已完成 | 可恢复状态、预算、跨节点取证、证据门和停止原因已随 PR #87 合并 |
 | 4. 固定口径 A/B 评测 | 已完成 | PR #90 已合并，DeepSeek 两侧各 3 轮；任务完成 40/45 → 44/45，最终 CI 8/8 |
-| 5. 受控修复串联 | 进行中 | 实现、本地全量门禁与独立审查已通过，等待推送恢复、远端 CI 和 PR 合并 |
+| 5. 受控修复串联 | 已完成 | PR #93 已合并；来源校验、目标授权、临时恢复、验证与清理串联，最终 CI 8/8 |
 | 6. 扩展 Skills | 下一步 | 只按稳定失败样本增加 `service-added`、`service-removed`、`remote-unreachable` 等能力 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
 | 总览服务展示 | 暂停 | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页 |
@@ -48,7 +47,7 @@ flowchart TB
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
 
-当前阶段文档：
+最近完成的受控修复阶段：
 [`Incident 到受控临时恢复访问串联`](stages/2026-09-30-incident-repair-chain.md)。
 
 ## 已完成主线
@@ -99,8 +98,8 @@ flowchart LR
 ### 受控修复串联
 
 复用现有 Operation Runtime，不新建第二套执行系统。`InvestigationResult` 只生成候选计划；模型不能直接
-触达写适配器。首个演示继续使用隔离、可清理的 `local_only` 环境，只有目标节点确认后才能修改绑定，
-并由请求端独立验证。
+触达写适配器。首个演示继续使用隔离、可清理的 `local_only` 环境，只有目标节点确认后才创建自有临时入口，
+并由请求端独立验证；不修改原服务绑定。
 
 ### 扩展少量 Skills
 
@@ -129,8 +128,10 @@ flowchart LR
 ### 最新评测证据（2026-09-30）
 
 DeepSeek 两侧各 3 轮已完成：任务完成 `40/45 → 44/45`、远端完成 `3/6 → 6/6`、安全违规 0。
-使用真实模型与固定工具环境；下一步为受控修复串联。
+使用真实模型与固定工具环境；受控修复串联也已完成。
 [完整口径和失败解释](../../evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md)。
 
-PR #90 于 2026-09-30 合并（`3efc5a3`）。受控修复串联已在
-`feature/incident-repair-chain` 完成实现、本地全量门禁与独立审查，等待推送恢复、远端 CI 和 PR 合并。
+PR #90 于 2026-09-30 合并（`3efc5a3`）；PR #93 于 2026-10-02（北京时间）合并
+（`084d7645a7f632e78629319d533b0655c2557765`），最终 CI 8/8，独立审查 APPROVE。
+下一步优先复现 `snapshot-listener-conflict` 中遗漏节点取证的问题，再决定最小的证据完整性 Skill；
+不把单次模型波动当成稳定缺陷，不改变评分器来制造提升。
