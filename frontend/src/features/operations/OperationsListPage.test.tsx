@@ -249,6 +249,7 @@ describe("OperationsListPage", () => {
       );
       expect(writes).toHaveLength(1);
       expect(JSON.parse(String(writes[0]?.[1]?.body))).toEqual({
+        source_incident_id: incidentId,
         target_node_id: targetNodeId,
         service_port: 4312,
         bind_port: 18881,

@@ -553,6 +553,19 @@ export function OperationDetailPage() {
               value: detail.service_process_or_container,
             },
             { label: "服务指纹", value: detail.service_fingerprint },
+            {
+              label: "来源 Incident",
+              value:
+                detail.source_incident_id === null ? (
+                  "无（手动发起）"
+                ) : (
+                  <Link
+                    to={`/app/overview?incident_id=${encodeURIComponent(detail.source_incident_id)}#overview-incidents`}
+                  >
+                    {detail.source_incident_id}
+                  </Link>
+                ),
+            },
             { label: "预期变化", value: detail.expected_change },
             { label: "风险", value: detail.risk_summary },
             {

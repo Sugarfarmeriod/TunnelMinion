@@ -107,6 +107,9 @@ export function OperationsListPage() {
     setCreateMessage(null);
     try {
       const detail = await createRequesterOperation({
+        ...(incidentPrefill.kind === "valid"
+          ? { source_incident_id: incidentPrefill.incidentId }
+          : {}),
         target_node_id: String(form.get("target_node_id")),
         service_port: Number(form.get("service_port")),
         bind_port: Number(form.get("bind_port")),

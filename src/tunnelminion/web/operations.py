@@ -251,6 +251,7 @@ class OperationDetailView(BaseModel):
     last_checked_at: datetime | None
     error_code: str | None
     access_expires_at: datetime | None
+    source_incident_id: str | None
     service_id: str
     service_endpoint: str
     service_process_or_container: str
@@ -288,6 +289,9 @@ class OperationDetailView(BaseModel):
             last_checked_at=None,
             error_code=None,
             access_expires_at=None,
+            source_incident_id=(
+                str(plan.source_incident_id) if plan.source_incident_id is not None else None
+            ),
             service_id=_safe_text(plan.service.service_id),
             service_endpoint=f"{plan.service.scheme}://{plan.service.host}:{plan.service.port}",
             service_process_or_container=_safe_text(plan.service.process_or_container),
@@ -351,6 +355,9 @@ class OperationDetailView(BaseModel):
             last_checked_at=record.last_checked_at,
             error_code=record.error_code,
             access_expires_at=access_expires_at,
+            source_incident_id=(
+                str(plan.source_incident_id) if plan.source_incident_id is not None else None
+            ),
             service_id=_safe_text(plan.service.service_id),
             service_endpoint=f"{plan.service.scheme}://{plan.service.host}:{plan.service.port}",
             service_process_or_container=_safe_text(plan.service.process_or_container),
@@ -714,6 +721,10 @@ def create_operation_router(service: OperationControlService) -> APIRouter:
                 "access_upstream_unavailable": status.HTTP_502_BAD_GATEWAY,
                 "explicit_execution_required": status.HTTP_409_CONFLICT,
                 "explicit_intent_required": status.HTTP_409_CONFLICT,
+                "incident_source_mismatch": status.HTTP_409_CONFLICT,
+                "incident_source_not_eligible": status.HTTP_409_CONFLICT,
+                "incident_source_not_found": status.HTTP_404_NOT_FOUND,
+                "incident_source_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
             }.get(exc.code, status.HTTP_503_SERVICE_UNAVAILABLE)
             return HTTPException(
                 status_code,

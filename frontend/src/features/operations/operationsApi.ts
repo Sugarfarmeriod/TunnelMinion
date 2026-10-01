@@ -52,6 +52,7 @@ export type OperationActionPayload =
   | { action: "execute"; confirmed: true };
 
 export interface RequesterOperationInput {
+  source_incident_id?: string;
   target_node_id: string;
   service_port: number;
   bind_port: number;

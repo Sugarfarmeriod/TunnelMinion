@@ -14,8 +14,17 @@ from tests.operation.factories import NOW, plan
 
 from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
+from tunnelminion.agent.service_observation import compute_observed_service_id
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import LeaseId, NodeId, OperationId, ThreadId
+from tunnelminion.domain.identifiers import (
+    IncidentId,
+    LeaseId,
+    NodeId,
+    OperationId,
+    SnapshotId,
+    ThreadId,
+    ToolRunId,
+)
 from tunnelminion.domain.tools import Platform
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.client import RemoteGatewayError
@@ -34,6 +43,29 @@ from tunnelminion.gateway.contracts import (
     RequesterVerificationCallback,
 )
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.incident.contracts import (
+    EvidenceReference,
+    Incident,
+    IncidentEventType,
+    IncidentReport,
+    IncidentStatus,
+    InvestigationPhase,
+    InvestigationState,
+    InvestigationStepState,
+    InvestigationStepStatus,
+    InvestigationStopReason,
+    NormalizedSnapshot,
+    ServiceAccessibility,
+    ServiceProtocol,
+    SnapshotDiffEvent,
+    SnapshotFreshness,
+    SnapshotObjectKind,
+    SnapshotService,
+    SnapshotServiceState,
+    SnapshotSource,
+)
+from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY
+from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.contracts import (
     CancellationToken,
@@ -290,6 +322,8 @@ def _service(
     verification_transport: httpx.AsyncBaseTransport | None = None,
     access_transport: httpx.AsyncBaseTransport | None = None,
     proxy_limits: HTTPProxyLimits | None = None,
+    incident_store: SQLiteIncidentStore | None = None,
+    remote_node_id: NodeId | None = None,
 ) -> tuple[
     RequesterOperationService,
     SQLiteStores,
@@ -298,7 +332,7 @@ def _service(
     NodeId,
 ]:
     local = NodeId.new()
-    remote = NodeId.new()
+    remote = remote_node_id or NodeId.new()
     repository = FileGatewayConfigurationRepository(tmp_path / "gateway.json")
     configuration = GatewayConfigurationService(repository, MemorySecrets())
     configuration.configure_local(GatewayBindConfig(host="10.77.0.2"))
@@ -340,6 +374,7 @@ def _service(
         verification_transport=verification_transport,
         access_transport=access_transport,
         proxy_limits=proxy_limits,
+        incident_store=incident_store,
     )
     return service, stores, configuration, local, remote
 
@@ -352,6 +387,114 @@ def _input(remote: NodeId) -> RequesterOperationInput:
         duration_seconds=300,
         confirmed=True,
     )
+
+
+def _confirmed_local_only_incident(
+    store: SQLiteIncidentStore,
+    target: NodeId,
+    *,
+    port: int = 8080,
+) -> Incident:
+    service_id = compute_observed_service_id(
+        target,
+        ServiceProtocol.TCP,
+        "127.0.0.1",
+        port,
+    )
+    baseline_id = SnapshotId.new()
+    current_id = SnapshotId.new()
+    baseline_revision = store.next_revision()
+    current_revision = baseline_revision + 1
+    service = SnapshotService(
+        service_id=service_id,
+        node_id=target,
+        state=SnapshotServiceState.AVAILABLE,
+        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        freshness=SnapshotFreshness.FRESH,
+        evidence_at=NOW,
+        protocol=ServiceProtocol.TCP,
+        port=port,
+        accessibility=ServiceAccessibility.LOOPBACK,
+    )
+    store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=baseline_id,
+            observed_at=NOW - timedelta(seconds=1),
+            revision=baseline_revision,
+            services=(service.model_copy(update={"accessibility": ServiceAccessibility.NETWORK}),),
+        )
+    )
+    store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=current_id,
+            observed_at=NOW,
+            revision=current_revision,
+            services=(service,),
+        )
+    )
+    evidence = tuple(
+        EvidenceReference(
+            tool_run_id=ToolRunId.new(),
+            observed_at=NOW,
+            summary=step.description,
+        )
+        for step in SERVICE_LOCAL_ONLY.requirements[:3]
+    )
+    steps = tuple(
+        InvestigationStepState(
+            step_id=step.step_id,
+            requirement_ids=step.requirement_ids,
+            tool_name=step.tool_name,
+            execution=step.execution,
+            status=InvestigationStepStatus.SUCCEEDED,
+            attempts=1,
+            evidence=evidence[index],
+        )
+        for index, step in enumerate(SERVICE_LOCAL_ONLY.steps)
+    )
+    incident_id = IncidentId.new()
+    dedup_key = f"sha256:{str(incident_id).removeprefix('incident_') * 2}"
+    incident = Incident(
+        incident_id=incident_id,
+        dedup_key=dedup_key,
+        event=SnapshotDiffEvent(
+            event_type=IncidentEventType.LOCAL_ONLY,
+            object_kind=SnapshotObjectKind.SERVICE,
+            object_id=str(service_id),
+            target_node_id=target,
+            baseline_snapshot_id=baseline_id,
+            current_snapshot_id=current_id,
+            baseline_revision=baseline_revision,
+            current_revision=current_revision,
+            observed_at=NOW,
+            source=SnapshotSource.COORDINATOR_DIRECTORY,
+            before_state="network",
+            after_state="loopback",
+            dedup_key=dedup_key,
+        ),
+        status=IncidentStatus.CONFIRMED,
+        created_at=NOW,
+        last_observed_at=NOW,
+        investigation=InvestigationState(
+            skill_id=SERVICE_LOCAL_ONLY.skill_id,
+            skill_version=SERVICE_LOCAL_ONLY.version,
+            phase=InvestigationPhase.FINISHED,
+            model_rounds=1,
+            tool_calls=3,
+            steps=steps,
+            facts=("目标服务仅监听回环地址",),
+            stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
+            updated_at=NOW,
+        ),
+        report=IncidentReport(
+            facts=("目标服务仅监听回环地址",),
+            conclusion="目标服务仅监听回环地址，请求节点无法直接访问",
+            stop_reason=InvestigationStopReason.EVIDENCE_SUFFICIENT,
+            evidence=evidence,
+        ),
+    )
+    store.put_incident(incident)
+    return incident
 
 
 async def _post_callback(
@@ -399,6 +542,167 @@ async def test_create_persists_before_single_submit_and_accepts_remote_summary(
     assert tuple(item.node_id for item in service.eligible_peers()) == (remote,)
     assert service.list_operations() == (created,)
     assert service.get_operation(created.plan.operation_id) == created
+
+
+@pytest.mark.anyio
+async def test_incident_source_is_verified_and_persists_with_operation(tmp_path: Path) -> None:
+    agent = FakeDiagnosticAgent(_candidate)
+    client = FakeGatewayClient()
+    incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
+    service, stores, _configuration, _local, remote = _service(
+        tmp_path,
+        agent,
+        client,
+        incident_store=incident_store,
+    )
+    incident = _confirmed_local_only_incident(incident_store, remote)
+    payload = _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
+
+    def before_submit(operation_plan: OperationPlan) -> None:
+        assert operation_plan.source_incident_id == incident.incident_id
+        assert operation_plan.service.service_id == incident.event.object_id
+        client.submit_result = _remote(
+            operation_plan,
+            OperationStatus.AWAITING_AUTHORIZATION,
+        )
+
+    client.before_submit = before_submit
+    created = await service.create_operation(payload)
+
+    restored = stores.requester_operations.get(created.plan.operation_id)
+    assert restored is not None
+    assert restored.plan.source_incident_id == incident.incident_id
+    assert client.submit_calls == 1
+
+
+@pytest.mark.anyio
+async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
+    tmp_path: Path,
+) -> None:
+    agent = FakeDiagnosticAgent(_candidate)
+    client = FakeGatewayClient()
+    incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
+    service, stores, _configuration, _local, remote = _service(
+        tmp_path,
+        agent,
+        client,
+        incident_store=incident_store,
+    )
+    incident = _confirmed_local_only_incident(incident_store, remote)
+    insufficient = _confirmed_local_only_incident(incident_store, remote)
+    incident_store.put_incident(
+        insufficient.model_copy(update={"status": IncidentStatus.INSUFFICIENT_EVIDENCE})
+    )
+    missing_investigation = _confirmed_local_only_incident(incident_store, remote)
+    incident_store.put_incident(missing_investigation.model_copy(update={"investigation": None}))
+
+    invalid_payloads = (
+        _input(remote).model_copy(update={"source_incident_id": IncidentId.new()}),
+        _input(remote).model_copy(update={"source_incident_id": insufficient.incident_id}),
+        _input(remote).model_copy(update={"source_incident_id": missing_investigation.incident_id}),
+        _input(remote).model_copy(
+            update={"source_incident_id": incident.incident_id, "service_port": 8081}
+        ),
+        _input(NodeId.new()).model_copy(update={"source_incident_id": incident.incident_id}),
+    )
+    expected_codes = (
+        "incident_source_not_found",
+        "incident_source_not_eligible",
+        "incident_source_not_eligible",
+        "incident_source_mismatch",
+        "incident_source_not_eligible",
+    )
+
+    for payload, code in zip(invalid_payloads, expected_codes, strict=True):
+        with pytest.raises(RequesterOperationFailure, match=code):
+            await service.create_operation(payload)
+
+    assert agent.calls == []
+    assert client.submit_calls == 0
+    assert stores.requester_operations.list_all() == ()
+
+    unavailable, unavailable_stores, _, _, unavailable_remote = _service(
+        tmp_path / "unavailable",
+        agent,
+        client,
+    )
+    with pytest.raises(RequesterOperationFailure, match="incident_source_unavailable"):
+        await unavailable.create_operation(
+            _input(unavailable_remote).model_copy(
+                update={"source_incident_id": incident.incident_id}
+            )
+        )
+    assert unavailable_stores.requester_operations.list_all() == ()
+
+
+@pytest.mark.anyio
+async def test_incident_source_requires_latest_snapshot_and_matching_realtime_endpoint(
+    tmp_path: Path,
+) -> None:
+    client = FakeGatewayClient()
+    incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
+    matching_agent = FakeDiagnosticAgent(_candidate)
+    service, stores, _configuration, _local, remote = _service(
+        tmp_path,
+        matching_agent,
+        client,
+        incident_store=incident_store,
+    )
+    incident = _confirmed_local_only_incident(incident_store, remote)
+    payload = _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
+    incident_store.put_snapshot(
+        NormalizedSnapshot(
+            snapshot_id=SnapshotId.new(),
+            observed_at=NOW + timedelta(seconds=1),
+            revision=incident_store.next_revision(),
+        )
+    )
+
+    with pytest.raises(RequesterOperationFailure, match="incident_source_mismatch"):
+        await service.create_operation(payload)
+    assert matching_agent.calls == []
+
+    current = incident_store.get_snapshot(incident.event.current_snapshot_id)
+    assert current is not None
+    incident_store.put_snapshot(
+        current.model_copy(
+            update={"snapshot_id": SnapshotId.new(), "revision": incident_store.next_revision()}
+        )
+    )
+
+    def changed_endpoint(
+        context: ToolCallContext,
+        target_host: str,
+        service_port: int,
+        bind_port: int,
+        duration_seconds: int,
+    ) -> OperationPlan:
+        candidate = _candidate(
+            context,
+            target_host,
+            service_port,
+            bind_port,
+            duration_seconds,
+        )
+        return candidate.model_copy(
+            update={"service": candidate.service.model_copy(update={"host": "127.0.0.2"})}
+        )
+
+    changed_agent = FakeDiagnosticAgent(changed_endpoint)
+    changed_service, _, _, _, changed_remote = _service(
+        tmp_path / "changed",
+        changed_agent,
+        client,
+        incident_store=incident_store,
+        remote_node_id=remote,
+    )
+    with pytest.raises(RequesterOperationFailure, match="incident_source_mismatch"):
+        await changed_service.create_operation(
+            _input(changed_remote).model_copy(update={"source_incident_id": incident.incident_id})
+        )
+    assert changed_agent.calls == [("10.77.0.1", 8080)]
+    assert client.submit_calls == 0
+    assert stores.requester_operations.list_all() == ()
 
 
 @pytest.mark.anyio

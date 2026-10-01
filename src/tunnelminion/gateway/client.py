@@ -161,7 +161,11 @@ class FixedGatewayClient:
         result = await self._request_operation(
             "POST",
             "/v1/operations:submit",
-            content=request.model_dump_json(),
+            content=request.model_dump_json(
+                exclude={"plan": {"source_incident_id"}}
+                if plan.source_incident_id is None
+                else None
+            ),
         )
         if result.summary.operation_id != plan.operation_id:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")

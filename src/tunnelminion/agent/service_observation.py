@@ -73,6 +73,20 @@ class ServiceObservationStatus(BaseModel):
     disabled_sources: tuple[str, ...] = ()
 
 
+def compute_observed_service_id(
+    node_id: NodeId,
+    protocol: ServiceProtocol,
+    host: str,
+    port: int,
+) -> ServiceId:
+    """按观察层实际持久化的传输端点生成稳定服务身份。"""
+    canonical_host = "wildcard" if host in {"0.0.0.0", "::"} else host.lower()
+    digest = hashlib.sha256(f"{node_id}:{protocol}:{canonical_host}:{port}".encode()).hexdigest()[
+        :32
+    ]
+    return ServiceId(f"service_{digest}")
+
+
 class DeterministicServiceObserver:
     """固定顺序采集监听、进程和 Docker，并拒绝部分或超预算快照。"""
 
@@ -210,7 +224,12 @@ class DeterministicServiceObserver:
         for value in services:
             item = value
             protocol = ServiceProtocol.UDP if item.protocol == "udp" else ServiceProtocol.TCP
-            service_id = self._service_id(protocol, item.address, item.port)
+            service_id = compute_observed_service_id(
+                self._node_id,
+                protocol,
+                item.address,
+                item.port,
+            )
             candidate = ServiceSummary(
                 service_id=service_id,
                 protocol=protocol,
@@ -227,13 +246,6 @@ class DeterministicServiceObserver:
         return tuple(
             sorted(values.values(), key=lambda item: (item.port, item.protocol, item.host))
         )
-
-    def _service_id(self, protocol: ServiceProtocol, host: str, port: int) -> ServiceId:
-        canonical_host = "wildcard" if host in {"0.0.0.0", "::"} else host.lower()
-        digest = hashlib.sha256(
-            f"{self._node_id}:{protocol}:{canonical_host}:{port}".encode()
-        ).hexdigest()[:32]
-        return ServiceId(f"service_{digest}")
 
     def _validate_budget(self, services: tuple[ServiceSummary, ...]) -> None:
         if len(services) > self._config.max_services:

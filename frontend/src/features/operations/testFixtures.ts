@@ -65,6 +65,7 @@ export function makeOperationDetail(
     last_checked_at: null,
     error_code: null,
     access_expires_at: null,
+    source_incident_id: null,
     service_id: "local-admin",
     service_endpoint: "http://127.0.0.1:8080",
     service_process_or_container: "local-admin.exe",
