@@ -17,7 +17,7 @@ flowchart TB
     D3 --> E["✅ 5. 受控修复串联"]
     D3 --> F["✅ 冲突停止路径复核"]
     F -.真实需求与稳定失败.-> K["6. 扩展少量 Skills"]
-    E --> H["十分钟完整演示"]
+    E --> H["🔄 十分钟完整演示"]
     F --> H
     H -.真实外部接入需求.-> G["7. MCP 薄适配"]
 
@@ -28,7 +28,7 @@ flowchart TB
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
     class A,B,C,D1,D2,D3,E,F done;
-    class H next;
+    class H current;
     class G,U,K later;
 ```
 
@@ -42,7 +42,7 @@ flowchart TB
 | 4. 固定口径 A/B 评测 | 已完成 | PR #90 已合并，DeepSeek 两侧各 3 轮；任务完成 40/45 → 44/45，最终 CI 8/8 |
 | 5. 受控修复串联 | 已完成 | PR #93 已合并；来源校验、目标授权、临时恢复、验证与清理串联，最终 CI 8/8 |
 | 6. 扩展 Skills | 条件触发 | 冲突停止复核未证明新增 Skill 的必要性；有明确用户需求和稳定失败再扩展 |
-| 十分钟完整演示 | 下一步 | 复用已完成链路，展示状态、证据、人工批准与清理，并区分模拟与真实环境 |
+| 十分钟完整演示 | 当前 | `test/incident-demo` 已形成单命令纵切，待 PR 门禁与合并；明确区分模拟与真实环境 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
 | 总览服务展示 | 暂停 | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页 |
 
@@ -138,4 +138,6 @@ PR #90 于 2026-09-30 合并（`3efc5a3`）；PR #93 于 2026-10-02（北京时�
 2026-10-02 复核发现：`snapshot-listener-conflict` 的先查监听路径由 Runtime 主动停止，
 两种查询顺序都正确返回证据不足；评分器要求两项工具齐全造成分数差异。本轮不新增 Skill、不修改评分器。
 [复现命令与结果](../../evaluations/reports/evidence-conflict-assessment-2026-10-02.md)。
-下一步整理已有链路的十分钟可重复演示；更多 Skill 改为真实需求和稳定失败触发。
+当前正在把已有链路整理为十分钟可重复演示；更多 Skill 改为真实需求和稳定失败触发。
+
+当前演示阶段：[`Incident 受控恢复十分钟演示`](stages/2026-10-02-incident-demo.md)。
