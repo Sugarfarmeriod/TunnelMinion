@@ -1,0 +1,95 @@
+{
+  "scope": "real cross-node manual diagnostic, human approval, execution, content verification and lease expiry",
+  "package_ci_run": "36900227249",
+  "source_incident_id": null,
+  "operation_id": "operation_510627c620e94c419a3007e53f6fb1e5",
+  "state": "expired",
+  "service_endpoint": "http://127.0.0.1:43123",
+  "bind_host": "10.77.0.1",
+  "bind_port": 18881,
+  "duration_seconds": 120,
+  "tool_run_ids": [
+    "toolrun_1ecf4abc0d6740239eaf8af7d77fdf2b",
+    "toolrun_25c8a73a860e477e83dfcab702eed186",
+    "toolrun_a63f50665208487daedbb61bc4d81f1a",
+    "toolrun_28feab95c7134a7c838f5a501f5a2994"
+  ],
+  "resources": [],
+  "execution_summary": {
+    "operation_id": "operation_510627c620e94c419a3007e53f6fb1e5",
+    "thread_id": "thread_f5b5b04140ac48b19bb16b8964234847",
+    "run_id": "run_00b62f5be9124bafbb75a4d07025ca18",
+    "tool_run_ids": [
+      "toolrun_1ecf4abc0d6740239eaf8af7d77fdf2b",
+      "toolrun_25c8a73a860e477e83dfcab702eed186",
+      "toolrun_a63f50665208487daedbb61bc4d81f1a",
+      "toolrun_28feab95c7134a7c838f5a501f5a2994"
+    ],
+    "request_node_id": "node_ea2fdf9823ac4db9a281a39edc1ae1d2",
+    "target_node_id": "node_ab20a99d6ae6451690076c561e4b7683",
+    "tool_name": "share_local_http_service",
+    "level": 2,
+    "status": "succeeded",
+    "authorization_kind": "one_time",
+    "authorization_basis": "目标节点本地用户逐次批准",
+    "bind_host": "10.77.0.1",
+    "bind_port": 18881,
+    "absolute_expires_at": "2026-10-02T19:07:17.478235Z",
+    "resource_ids": [
+      "resource_96b98e287bbc441b8235d43f66574408"
+    ],
+    "verification_results": [
+      "passed"
+    ],
+    "cleanup_result": null,
+    "error": null,
+    "updated_at": "2026-10-02T19:05:18.492911Z"
+  },
+  "content_check": {
+    "http_status": 200,
+    "matched": true,
+    "checked_at": "2026-10-02T19:05:30.290681+00:00"
+  },
+  "final_summary": {
+    "operation_id": "operation_510627c620e94c419a3007e53f6fb1e5",
+    "thread_id": "thread_f5b5b04140ac48b19bb16b8964234847",
+    "run_id": "run_00b62f5be9124bafbb75a4d07025ca18",
+    "tool_run_ids": [
+      "toolrun_1ecf4abc0d6740239eaf8af7d77fdf2b",
+      "toolrun_25c8a73a860e477e83dfcab702eed186",
+      "toolrun_a63f50665208487daedbb61bc4d81f1a",
+      "toolrun_28feab95c7134a7c838f5a501f5a2994"
+    ],
+    "request_node_id": "node_ea2fdf9823ac4db9a281a39edc1ae1d2",
+    "target_node_id": "node_ab20a99d6ae6451690076c561e4b7683",
+    "tool_name": "share_local_http_service",
+    "level": 2,
+    "status": "expired",
+    "authorization_kind": "one_time",
+    "authorization_basis": "目标节点本地用户逐次批准",
+    "bind_host": "10.77.0.1",
+    "bind_port": 18881,
+    "absolute_expires_at": "2026-10-02T19:07:17.478235Z",
+    "resource_ids": [
+      "resource_96b98e287bbc441b8235d43f66574408"
+    ],
+    "verification_results": [
+      "passed"
+    ],
+    "cleanup_result": "succeeded",
+    "error": null,
+    "updated_at": "2026-10-02T19:07:17.828537Z"
+  },
+  "expired_access_http_status": 410,
+  "temporary_port_closed": true,
+  "test_resources_stopped": true,
+  "existing_macos_ports_preserved": [
+    8765,
+    8787
+  ],
+  "limits": [
+    "source_incident_id is null: manual diagnostic, not automatic Incident acceptance",
+    "single successful real run; no success-rate or latency generalization",
+    "local UIs retained on 18765; isolated configurations retained for inspection"
+  ]
+}
