@@ -19,6 +19,8 @@ flowchart TB
     F -.真实需求与稳定失败.-> K["6. 扩展少量 Skills"]
     E --> H["✅ 十分钟隔离演示"]
     F --> H
+    H --> R["✅ 真实双机：手动诊断到到期清理"]
+    R -.尚未验收.-> I["自动 Incident 触发的真实双机闭环"]
     H -.真实外部接入需求.-> G["7. MCP 薄适配"]
 
     C -.独立产品支线.-> U["总览服务展示"]
@@ -27,8 +29,8 @@ flowchart TB
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
-    class A,B,C,D1,D2,D3,E,F,H done;
-    class G,U,K later;
+    class A,B,C,D1,D2,D3,E,F,H,R done;
+    class G,U,K,I later;
 ```
 
 ## 当前状态
@@ -42,6 +44,8 @@ flowchart TB
 | 5. 受控修复串联 | 已完成 | PR #93 已合并；来源校验、目标授权、临时恢复、验证与清理串联，最终 CI 8/8 |
 | 6. 扩展 Skills | 条件触发 | 冲突停止复核未证明新增 Skill 的必要性；有明确用户需求和稳定失败再扩展 |
 | 十分钟隔离演示 | 已完成 | PR #97 已合并，CI 8/8；同一事件贯穿批准、执行、验证与清理，附单命令和讲解提纲 |
+| 真实双机手动诊断与恢复 | 已完成 | DeepSeek 实际诊断、Mac 人工批准、Windows 访问 HTTP 200、120 秒到期清理；单次真实运行 |
+| 自动 Incident 触发的真实双机闭环 | 尚未验收 | 本次 source_incident_id 为空，不能替代该项验收 |
 | 7. MCP 薄适配 | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本 |
 | 总览服务展示 | 暂停 | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页 |
 
@@ -139,6 +143,7 @@ PR #90 于 2026-09-30 合并（`3efc5a3`）；PR #93 于 2026-10-02（北京时�
 [复现命令与结果](../../evaluations/reports/evidence-conflict-assessment-2026-10-02.md)。
 隔离开发者演示已完成：PR #97 合并为 `6fb73d4ac6c00fdd69ecf1024143abe4a0442247`，CI 8/8。
 [运行命令与十分钟讲解](../guide/incident-demo.md)。更多 Skill 由真实需求和稳定失败触发；
-真实双机受控恢复尚未验收，涉及实际网络或服务写入时需要另行明确授权，不能把模拟演示计为完成。
+2026-10-03 已在用户授权的独立端口完成真实双机手动诊断与恢复验收。
+[阶段结果与边界](stages/2026-10-03-real-recovery.md)：自动 Incident 触发仍未验收，不与手动入口混算。
 
 已完成演示阶段：[`Incident 受控恢复十分钟演示`](stages/2026-10-02-incident-demo.md)。
