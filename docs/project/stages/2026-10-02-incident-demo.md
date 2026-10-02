@@ -1,6 +1,6 @@
 # Incident 受控恢复十分钟演示
 
-- 状态：`当前（待 PR 合并）`
+- 状态：`已完成（PR #97 已合并，CI 8/8）`
 - 主写分支：`test/incident-demo`
 - 基线：`d5edeb2589bf379dfeff6696fc4b7d81a33c3ee2`
 - 对应总流程：`十分钟完整演示`
@@ -37,7 +37,7 @@ flowchart LR
 - [x] 同一链路批准、执行、验证与到期清理成功。
 - [x] 输出事件标识、Skill 证据覆盖、计划、验证和资源归零结果。
 - [x] 定向验证与必要门禁通过。
-- [ ] PR 合并，路线图与本页结果已回写。
+- [x] PR 合并，路线图与本页结果已回写。
 
 ## 实施记录
 
@@ -51,3 +51,7 @@ flowchart LR
 - 演示命令：见 [`../../guide/incident-demo.md`](../../guide/incident-demo.md)。
 - 本地门禁：纵切及相邻操作工作流、请求端测试 `23 passed`；Ruff 和 Pyright 通过。
 - PR：[#97](https://github.com/Sugarfarmeriod/TunnelMinion/pull/97)；首个实现提交：`cdd1910`。
+
+- 最终实现 head：`63268362dcadde6dd3fe27f4e6fca4702721daf3`；合并提交：`6fb73d4ac6c00fdd69ecf1024143abe4a0442247`。
+- [远端 CI 36900227249](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/36900227249)：8/8 通过。
+- 指南已补十分钟讲解顺序和职责图；本阶段仅隔离开发者演示，不包含真实双机受控恢复验收。
