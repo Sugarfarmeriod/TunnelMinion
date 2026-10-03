@@ -117,6 +117,52 @@ function incidentDetail() {
       created_at: observedAt,
       last_observed_at: observedAt,
       run_id: `run_${"8".repeat(32)}`,
+      investigation: {
+        schema_version: "investigation-state/v1",
+        skill_id: "service.local-only",
+        skill_version: "1",
+        phase: "finished",
+        model_rounds: 2,
+        tool_calls: 2,
+        steps: [
+          {
+            step_id: "target-listener",
+            requirement_ids: ["target-listener"],
+            tool_name: "get_process_summary",
+            execution: "target",
+            status: "succeeded",
+            attempts: 1,
+            evidence: {
+              snapshot_id: snapshotB,
+              tool_run_id: `toolrun_${"9".repeat(32)}`,
+              observed_at: observedAt,
+              summary: "目标节点确认服务只监听 127.0.0.1:4312",
+            },
+            observations: {},
+            failure_code: null,
+          },
+          {
+            step_id: "requester-reachability",
+            requirement_ids: ["requester-reachability"],
+            tool_name: "probe_service",
+            execution: "requester",
+            status: "succeeded",
+            attempts: 1,
+            evidence: {
+              snapshot_id: null,
+              tool_run_id: `toolrun_${"a".repeat(32)}`,
+              observed_at: observedAt,
+              summary: "请求节点无法连接目标服务",
+            },
+            observations: {},
+            failure_code: null,
+          },
+        ],
+        facts: ["目标服务只监听环回地址", "请求节点无法连接目标服务"],
+        unknowns: [],
+        stop_reason: "evidence_sufficient",
+        updated_at: observedAt,
+      },
       hypotheses: [],
       trace: [],
       report: {
@@ -144,7 +190,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   context,
   page,
   request,
-}) => {
+}, testInfo) => {
   const overview = await remoteIncidentOverview(request);
   const created = makeOperationDetail({
     role: "requester",
@@ -177,13 +223,15 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
     }),
   ];
   const writes: unknown[] = [];
+  const incidentRequests: string[] = [];
 
   await context.route("**/api/resources/overview", (route) =>
     fulfillJson(route, overview),
   );
-  await context.route(`**/api/incidents/${incidentId}`, (route) =>
-    fulfillJson(route, incidentDetail()),
-  );
+  await context.route(`**/api/incidents/${incidentId}`, (route) => {
+    incidentRequests.push(route.request().method());
+    return fulfillJson(route, incidentDetail());
+  });
   await context.route("**/api/operations**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -224,6 +272,19 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   ).toHaveCount(4);
 
   await page.getByRole("button", { name: "查看调查详情" }).click();
+  const detail = page.locator(".incident-detail");
+  await expect(detail).toContainText("service.local-only@1");
+  await expect(detail).toContainText("调查已停止");
+  await expect(detail).toContainText("get_process_summary");
+  await detail.getByText("查看公开证据引用").first().click();
+  await expect(detail).toContainText(snapshotB);
+  await expect(detail).toContainText("目标节点确认服务只监听 127.0.0.1:4312");
+  expect(incidentRequests).toEqual(["GET"]);
+  expect(writes).toEqual([]);
+  await detail.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("investigation-evidence-view.png"),
+  });
   await page.getByRole("link", { name: "生成候选处理计划" }).click();
   await expect(page).toHaveURL(
     `/app/operations?incident_id=${incidentId}&target_node_id=${remoteNodeId}&service_port=4312`,
@@ -238,7 +299,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   await page.getByRole("checkbox", { name: /目标节点批准后会创建/ }).check();
   await page.getByRole("button", { name: "生成计划并请求批准" }).click();
   await expect(page).toHaveURL(`/app/operations/${createdOperationId}`);
-  await expect(page.getByText("等待本机批准")).toBeVisible();
+  await expect(page.getByText("等待本机批准").first()).toBeVisible();
   expect(writes).toEqual([
     {
       source_incident_id: incidentId,
