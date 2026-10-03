@@ -1,6 +1,6 @@
 # 调查证据可视化
 
-- 状态：`进行中`
+- 状态：`已完成`
 - 主写分支：`feature/investigation-evidence-view`
 - 基线：`48e7db33c01b2d3c765ba4dd0f4b74c954dc6a97`
 - 对应总流程：`跨节点调查：Harness + Skill`
@@ -48,7 +48,11 @@ Windows CI 暴露了一个测试同步竞态：旧测试看到两次 `observe` �
 
 ## 完成结果
 
-实现与本地验证已完成，[PR #100](https://github.com/Sugarfarmeriod/TunnelMinion/pull/100) 等待复核，尚未合并：
+2026-10-04，[PR #100](https://github.com/Sugarfarmeriod/TunnelMinion/pull/100) 已 squash 合并为 `1025f1c5556cee361f7bed6a3c49cd2ed81ed511`。
+最终提交 `a1483cc163c7c453028dfd11a9307d59a3b58f3a` 的 [CI 8/8 通过](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/37139612253)。
+协调者已核对实际 diff、测试和浏览器截图；本阶段为只读展示与测试同步修复，不额外启动独立安全审计。
+
+- 测试同步修复后的 `tests/test_macos_app.py`：10 项通过，Ruff 与 Pyright 通过；生产逻辑未改动。
 
 - Vitest：`16` 个文件、`110` 项测试通过。
 - Playwright：incident 定向用例在 Chromium 与 WebKit 共 `4` 项通过；断言详情请求仅为 GET、打开详情不产生写请求，并展开核对公开证据。

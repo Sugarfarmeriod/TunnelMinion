@@ -15,7 +15,9 @@ flowchart TB
     D2 --> D3["✅ 真实模型 A/B 3×3"]
 
     D3 --> E["✅ 5. 受控修复串联"]
-    C --> V["🚧 调查证据可视化"]
+    C --> V["✅ 调查证据可视化"]
+    V --> W["下一步：沿一次调查讲清模型与程序职责"]
+    D3 --> W
     D3 --> F["✅ 冲突停止路径复核"]
     F -.真实需求与稳定失败.-> K["6. 扩展少量 Skills"]
     E --> H["✅ 十分钟隔离演示"]
@@ -30,8 +32,8 @@ flowchart TB
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
-    class A,B,C,D1,D2,D3,E,F,H,R done;
-    class V current;
+    class A,B,C,D1,D2,D3,E,F,H,R,V done;
+    class W next;
     class G,U,K,I later;
 ```
 
@@ -42,7 +44,7 @@ flowchart TB
 | 1. 确定性观察                       | 已完成   | 正常刷新不调用模型；服务和节点变化形成稳定事件                                       |
 | 2. Incident                         | 已完成   | 事件去重、证据优先、总览与操作交接已合并                                             |
 | 3. Harness + `service.local-only@1` | 已完成   | 可恢复状态、预算、跨节点取证、证据门和停止原因已随 PR #87 合并                       |
-| 调查证据可视化                      | 进行中   | 总览只读展示 Skill、阶段、工具步骤、公开证据和停止原因；不改调查状态机               |
+| 调查证据可视化                      | 已完成   | PR #100 已合并，最终 CI 8/8；总览展示 Skill、工具步骤、证据和停止原因               |
 | 4. 固定口径 A/B 评测                | 已完成   | PR #90 已合并，DeepSeek 两侧各 3 轮；任务完成 40/45 → 44/45，最终 CI 8/8             |
 | 5. 受控修复串联                     | 已完成   | PR #93 已合并；来源校验、目标授权、临时恢复、验证与清理串联，最终 CI 8/8             |
 | 6. 扩展 Skills                      | 条件触发 | 冲突停止复核未证明新增 Skill 的必要性；有明确用户需求和稳定失败再扩展                |
@@ -58,7 +60,11 @@ flowchart TB
 最近完成的受控修复阶段：
 [`Incident 到受控临时恢复访问串联`](stages/2026-09-30-incident-repair-chain.md)。
 
-当前阶段：[`调查证据可视化`](stages/2026-10-03-investigation-evidence-view.md)。
+刚完成：[`调查证据可视化`](stages/2026-10-03-investigation-evidence-view.md)，2026-10-04 合并为 `1025f1c`。
+
+下一步：沿一条已有的 `local_only` 调查记录，说明输入、模型选工具、程序校验证据和停止条件，
+把页面字段对应到代码与评测；完成标准是一个可复核案例和简明讲解，不新增框架或协议。
+自动 Incident 触发的真实双机闭环仍未验收，不用页面 fixture 代替。
 
 ## 已完成主线
 
