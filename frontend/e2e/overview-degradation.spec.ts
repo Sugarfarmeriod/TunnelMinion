@@ -210,12 +210,13 @@ function staleCacheOverview(): ResourceOverview {
 test.describe("Overview 浏览器层降级与恢复矩阵", () => {
   test("无模型时仍保留本机总览，并给出配置模型的下一步", async ({ page }) => {
     await serveOverview(page, modelUnavailableOverview());
+    await page.getByText("运行基础", { exact: true }).click();
 
     const modelCard = page.locator('article[aria-labelledby="overview-model"]');
     await expect(modelCard).toContainText("还没有配置模型");
     await expect(modelCard).toContainText("没有保存模型配置");
     await expect(
-      modelCard.getByRole("link", { name: /资源总览仍可使用/ }),
+      modelCard.getByRole("link", { name: /需要聊天时再去设置中配置模型/ }),
     ).toBeVisible();
     await expect(
       page.locator('article[aria-labelledby="overview-local"]'),
@@ -226,6 +227,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, coordinatorUnconfiguredOverview());
+    await page.getByText("运行基础", { exact: true }).click();
 
     const coordinatorCard = page.locator(
       'article[aria-labelledby="overview-coordinator"]',
@@ -233,19 +235,17 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(coordinatorCard).toContainText(
       "未配置 Coordinator，当前按仅本机模式工作",
     );
-    await expect(coordinatorCard).toContainText(
-      "仅使用本机功能即可；需要多节点目录时再配置 Coordinator。",
-    );
     await expect(
       page.locator('article[aria-labelledby="overview-local"]'),
     ).toContainText("本机接口已准备好");
     await expect(
-      page.locator('article[aria-labelledby="overview-nodes"]'),
-    ).toContainText("当前没有服务端确认的节点记录。本机功能仍可使用。");
+      page.locator('article[aria-labelledby="overview-devices"]'),
+    ).toContainText("尚未发现设备或监听项");
   });
 
   test("peer 离线时单独标记路径和节点，不误报本机故障", async ({ page }) => {
     await serveOverview(page, peerOfflineOverview());
+    await page.getByText("运行基础", { exact: true }).click();
 
     const networkCard = page.locator(
       'article[aria-labelledby="overview-network"]',
@@ -254,10 +254,10 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(networkCard).toContainText("真实探测");
     await expect(networkCard).toContainText("未通过");
     await expect(
-      page.locator('article[aria-labelledby="overview-nodes"]'),
+      page.locator('article[aria-labelledby="overview-devices"]'),
     ).toContainText("实验室 Mac（脱敏）");
     await expect(
-      page.locator('article[aria-labelledby="overview-nodes"]'),
+      page.locator('article[aria-labelledby="overview-devices"]'),
     ).toContainText("当前离线");
     await expect(
       page.locator('article[aria-labelledby="overview-local"]'),
@@ -268,6 +268,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, firewallLogUnavailableOverview());
+    await page.getByText("运行基础", { exact: true }).click();
 
     const networkCard = page.locator(
       'article[aria-labelledby="overview-network"]',
@@ -275,7 +276,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(networkCard).toContainText("当前选择了直连路径");
     await expect(networkCard).toContainText("firewall_log_unavailable");
     await expect(networkCard).toContainText(
-      "防火墙日志只是可选诊断，不是运行条件。",
+      "防火墙日志不可用不影响当前路径判断。",
     );
     await expect(networkCard).toContainText("真实探测");
     await expect(networkCard).toContainText("已通过");
@@ -285,19 +286,21 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, staleCacheOverview());
+    await page.getByText("运行基础", { exact: true }).click();
 
     const coordinatorCard = page.locator(
       'article[aria-labelledby="overview-coordinator"]',
     );
     await expect(coordinatorCard).toContainText("Coordinator 目录已经陈旧");
     await expect(coordinatorCard).toContainText("directory_cache_stale");
-    const nodesCard = page.locator('article[aria-labelledby="overview-nodes"]');
+    const nodesCard = page.locator(
+      'article[aria-labelledby="overview-devices"]',
+    );
     await expect(nodesCard).toContainText("缓存中的实验节点");
     await expect(nodesCard).toContainText("有在线证据（证据陈旧）");
-    await expect(nodesCard).toContainText("不要把缓存记录当作当前在线");
-    await expect(
-      page.locator('article[aria-labelledby="overview-services"]'),
-    ).toContainText("缓存中的只读服务");
+    await expect(nodesCard).toContainText("先展开标记为异常或证据陈旧的设备");
+    await page.getByText("缓存中的实验节点", { exact: true }).click();
+    await expect(nodesCard).toContainText("缓存中的只读服务");
   });
 
   test("刷新失败后保留旧数据，再次刷新恢复新证据", async ({ page }) => {

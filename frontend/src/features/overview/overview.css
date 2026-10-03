@@ -36,7 +36,31 @@
 .overview-generated-at {
   color: var(--color-muted);
   font-size: 0.875rem;
-  margin: var(--space-3) 0 var(--space-5);
+  margin: var(--space-3) 0 var(--space-7);
+}
+
+.overview-section {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-7);
+}
+
+.overview-section__heading {
+  align-items: end;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.overview-section__heading h3,
+.overview-section__heading p {
+  margin: 0;
+}
+
+.overview-section__heading > p {
+  color: var(--color-muted);
+  max-width: 34rem;
+  text-align: right;
 }
 
 .overview-cache-warning,
@@ -87,10 +111,6 @@
   padding: var(--space-4);
 }
 
-.overview-card[aria-labelledby="overview-incidents"] {
-  grid-column: 1 / -1;
-}
-
 .overview-card__heading,
 .overview-resource-list__heading,
 .overview-evidence__heading {
@@ -124,7 +144,7 @@
 
 .overview-status--warning {
   background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  color: color-mix(in srgb, #b26a00 85%, var(--color-text));
+  color: color-mix(in srgb, #8a5000 92%, var(--color-text));
 }
 
 .overview-status--danger {
@@ -143,6 +163,22 @@
   gap: var(--space-2);
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
+}
+
+.overview-metadata-disclosure {
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted);
+  padding-top: var(--space-2);
+}
+
+.overview-metadata-disclosure summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.overview-metadata-disclosure[open] summary {
+  margin-bottom: var(--space-2);
 }
 
 .overview-details div,
@@ -207,6 +243,108 @@
 .overview-empty,
 .overview-explanation {
   color: var(--color-muted);
+}
+
+.overview-device-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.overview-device {
+  background: color-mix(in srgb, var(--color-muted) 6%, var(--color-surface));
+  border-radius: calc(var(--radius-panel) / 2);
+  padding: 0 var(--space-3);
+}
+
+.overview-device > summary,
+.overview-system > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  list-style: none;
+  padding: var(--space-3) 0;
+}
+
+.overview-device > summary::-webkit-details-marker,
+.overview-system > summary::-webkit-details-marker {
+  display: none;
+}
+
+.overview-device > summary::before,
+.overview-system > summary::before {
+  content: "+";
+  flex: 0 0 auto;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.overview-device[open] > summary::before,
+.overview-system[open] > summary::before {
+  content: "−";
+}
+
+.overview-device > summary > span:first-of-type,
+.overview-system > summary > span:first-of-type {
+  display: grid;
+  margin-right: auto;
+}
+
+.overview-device small,
+.overview-system small {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.overview-service-rows {
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.overview-service-rows li {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-width: 0;
+  padding: var(--space-3) 0;
+}
+
+.overview-service-rows li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.overview-service-rows li > div {
+  display: grid;
+  min-width: 0;
+}
+
+.overview-service-rows li span:not(.overview-status) {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.overview-system {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-panel) * 0.75);
+  margin-top: var(--space-7);
+  padding: 0 var(--space-4);
+}
+
+.overview-system > summary > span:last-child {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.overview-system .overview-grid {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-4) 0;
 }
 
 .incident-detail {
@@ -335,6 +473,15 @@
     align-self: flex-start;
   }
 
+  .overview-section__heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .overview-section__heading > p {
+    text-align: left;
+  }
+
   .overview-details,
   .overview-metadata,
   .investigation-summary,
@@ -345,5 +492,11 @@
   .incident-suggestions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .overview-device > summary,
+  .overview-service-rows li,
+  .overview-system > summary {
+    align-items: flex-start;
   }
 }
