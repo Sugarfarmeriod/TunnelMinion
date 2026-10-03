@@ -44,6 +44,8 @@ flowchart LR
 
 Playwright fixture 中的两条成功步骤只用于验证文本、展开和布局，不构成 `service.local-only` 四类必需证据已经充分的业务验收，也不是真实模型或真机结果。
 
+Windows CI 暴露了一个测试同步竞态：旧测试看到两次 `observe` 已开始便修改服务列表，但此时稳定基线不一定已经提交，随后固定等待事件也不能保证确认轮次完成。测试现改为直接驱动真实 `IncidentObservationService.observe_once()`：先确定性完成两轮无事件基线，再执行两轮变化确认；生产逻辑和原断言均未改动。该定向用例连续运行 `20` 次均通过。
+
 ## 完成结果
 
 实现与本地验证已完成，[PR #100](https://github.com/Sugarfarmeriod/TunnelMinion/pull/100) 等待复核，尚未合并：

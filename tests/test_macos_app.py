@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -391,12 +390,10 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     services = [local_service("service_33333333333333333333333333333333", 18083)]
-    observations = 0
     model_calls = 0
+    incident_observer: IncidentObservationService | None = None
 
     async def observe(_self: object) -> ServiceObservationSnapshot:
-        nonlocal observations
-        observations += 1
         return ServiceObservationSnapshot(
             observed_at=datetime.now(UTC),
             services=tuple(services),
@@ -407,35 +404,39 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
         model_calls += 1
         raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
 
-    def fast_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
-        kwargs["interval_seconds"] = 1
-        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+    def capture_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        nonlocal incident_observer
+        kwargs["interval_seconds"] = 3600
+        incident_observer = IncidentObservationService(
+            *args,  # pyright: ignore[reportArgumentType]
+            **kwargs,  # pyright: ignore[reportArgumentType]
+        )
+        return incident_observer
 
     monkeypatch.setattr(
         "tunnelminion.agent.service_observation.DeterministicServiceObserver.observe",
         observe,
     )
     monkeypatch.setattr(ModelConfigurationService, "create_provider", unavailable)
-    monkeypatch.setattr("tunnelminion.macos_app.IncidentObservationService", fast_incident_observer)
+    monkeypatch.setattr(
+        "tunnelminion.macos_app.IncidentObservationService", capture_incident_observer
+    )
     bundle = build_macos_local_application(tmp_path / "local-observation")
 
     client: Any
     with TestClient(bundle.app, base_url="http://127.0.0.1") as client:
-        deadline = time.monotonic() + 3
-        while observations < 2 and time.monotonic() < deadline:
-            time.sleep(0.05)
+        assert incident_observer is not None
+        assert asyncio.run(incident_observer.observe_once()).incidents == ()
+        assert asyncio.run(incident_observer.observe_once()).incidents == ()
         overview = client.get("/api/resources/overview").json()
         assert [item["port"] for item in overview["services"]["items"]] == [18083]
         assert overview["incidents"]["items"] == []
         assert model_calls == 0
 
         services.append(local_service("service_44444444444444444444444444444444", 18084))
-        deadline = time.monotonic() + 4
-        while time.monotonic() < deadline:
-            overview = client.get("/api/resources/overview").json()
-            if overview["incidents"]["items"]:
-                break
-            time.sleep(0.05)
+        assert asyncio.run(incident_observer.observe_once()).incidents == ()
+        assert len(asyncio.run(incident_observer.observe_once()).incidents) == 1
+        overview = client.get("/api/resources/overview").json()
 
         assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
         assert model_calls == 1
