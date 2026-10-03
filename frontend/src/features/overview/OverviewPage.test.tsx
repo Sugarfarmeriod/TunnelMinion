@@ -313,7 +313,69 @@ describe("OverviewPage", () => {
     const detail = {
       incident: {
         schema_version: "incident/v1",
-        investigation: null,
+        investigation: {
+          schema_version: "investigation-state/v1",
+          skill_id: "service.local-only",
+          skill_version: "1",
+          phase: "collecting",
+          model_rounds: 2,
+          tool_calls: 3,
+          steps: [
+            {
+              step_id: "inspect-target-listener",
+              requirement_ids: ["target-listener"],
+              tool_name: "get_process_summary",
+              execution: "target",
+              status: "succeeded",
+              attempts: 1,
+              evidence: {
+                snapshot_id: snapshotB,
+                tool_run_id: `toolrun_${"9".repeat(32)}`,
+                observed_at: evidenceAt,
+                summary: "目标节点确认服务只监听环回地址",
+              },
+              observations: { private_note: "不应展示" },
+              failure_code: null,
+            },
+            {
+              step_id: "probe-requester",
+              requirement_ids: ["requester-reachability"],
+              tool_name: "probe_service",
+              execution: "requester",
+              status: "failed",
+              attempts: 2,
+              evidence: null,
+              observations: {},
+              failure_code: "connection_refused",
+            },
+            {
+              step_id: "inspect-private-network",
+              requirement_ids: ["private-network"],
+              tool_name: "get_node_summary",
+              execution: "target",
+              status: "attempted",
+              attempts: 1,
+              evidence: null,
+              observations: {},
+              failure_code: null,
+            },
+            {
+              step_id: "confirm-owner",
+              requirement_ids: ["target-process"],
+              tool_name: "get_process_owner",
+              execution: "target",
+              status: "pending",
+              attempts: 0,
+              evidence: null,
+              observations: {},
+              failure_code: null,
+            },
+          ],
+          facts: ["服务只监听环回地址"],
+          unknowns: ["还不知道监听进程"],
+          stop_reason: null,
+          updated_at: generatedAt,
+        },
         incident_id: incidentId,
         dedup_key: `sha256:${"a".repeat(64)}`,
         event: {
@@ -398,7 +460,19 @@ describe("OverviewPage", () => {
     ).toBeVisible();
     expect(screen.getByText(malicious)).toBeVisible();
     expect(screen.getByText("还不知道监听进程")).toBeVisible();
+    expect(screen.getByText("service.local-only@1")).toBeVisible();
+    expect(screen.getByText("正在收集证据")).toBeVisible();
+    expect(screen.getByText("工具执行成功")).toBeVisible();
+    expect(screen.getByText("工具执行失败")).toBeVisible();
+    expect(screen.getByText("已尝试，结果待确认")).toBeVisible();
+    expect(screen.getByText("等待执行")).toBeVisible();
+    expect(screen.getByText("调查进行中")).toBeVisible();
+    expect(screen.queryByText("不应展示")).not.toBeInTheDocument();
     expect(container.querySelector("script")).toBeNull();
+
+    await user.click(screen.getByText("查看公开证据引用"));
+    expect(screen.getByText(snapshotB)).toBeVisible();
+    expect(screen.getByText("目标节点确认服务只监听环回地址")).toBeVisible();
 
     const composer = screen.getByLabelText("针对这个事件追问");
     const suggestion = screen.getByRole("button", {
@@ -548,6 +622,7 @@ describe("OverviewPage", () => {
       name: "生成候选处理计划",
     });
 
+    expect(screen.getByText(/暂未记录结构化调查过程/)).toBeVisible();
     expect(handoff).toHaveAttribute(
       "href",
       `/app/operations?incident_id=${incidentId}&target_node_id=${nodeB}&service_port=4312`,

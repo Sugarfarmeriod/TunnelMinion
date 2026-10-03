@@ -18,6 +18,7 @@ import {
   incidentOperationHandoff,
   operationsRequiringAttention,
 } from "./overviewActions";
+import { InvestigationDetails } from "./InvestigationDetails";
 
 import "./overview.css";
 
@@ -160,16 +161,6 @@ const incidentStatusLabels: Record<
   investigation_unavailable: "模型调查不可用",
   closed: "已关闭",
 };
-
-const stopReasonLabels = {
-  evidence_sufficient: "证据充分",
-  insufficient_evidence: "证据不足",
-  budget_exhausted: "预算已用完",
-  cancelled: "用户取消",
-  failed: "调查失败",
-  interrupted: "运行中断",
-  model_unavailable: "模型不可用",
-} as const;
 
 const platformLabels: Record<
   NonNullable<ResourceOverview["local"]["platform"]>,
@@ -820,37 +811,7 @@ function IncidentList({
           {detail.isError ? <p role="alert">调查详情暂时无法读取。</p> : null}
           {detail.data !== undefined ? (
             <>
-              <h4>调查详情</h4>
-              <p>
-                <strong>结论：</strong>
-                {detail.data.incident.report?.conclusion ?? "尚未确认根因"}
-              </p>
-              <p>
-                <strong>停止原因：</strong>
-                {detail.data.incident.report === null
-                  ? "调查尚未停止"
-                  : stopReasonLabels[detail.data.incident.report.stop_reason]}
-              </p>
-              <h5>公开调查轨迹</h5>
-              {detail.data.incident.trace.length === 0 ? (
-                <p>尚无工具或报告轨迹。</p>
-              ) : (
-                <ol>
-                  {detail.data.incident.trace.map((item, index) => (
-                    <li key={`${item.occurred_at}-${index}`}>{item.summary}</li>
-                  ))}
-                </ol>
-              )}
-              <h5>未知项</h5>
-              {detail.data.incident.report?.unknowns.length ? (
-                <ul>
-                  {detail.data.incident.report.unknowns.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p>没有已记录的未知项。</p>
-              )}
+              <InvestigationDetails incident={detail.data.incident} />
               <h5>处理</h5>
               {handoff?.available ? (
                 <div className="incident-operation-handoff">
