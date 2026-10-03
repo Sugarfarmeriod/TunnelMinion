@@ -36,7 +36,7 @@ flowchart LR
 - [x] 打开详情只发 GET，不增加轮询或模型调用。
 - [x] 前端全量格式、类型、测试、构建和体积门禁通过。
 - [x] fixture 浏览器截图可复核并明确不是实机证据。
-- [ ] Pull Request 创建并等待复核，不自行合并。
+- [x] Pull Request 创建并等待复核，不自行合并。
 
 ## 实施记录
 
@@ -46,7 +46,7 @@ Playwright fixture 中的两条成功步骤只用于验证文本、展开和布�
 
 ## 完成结果
 
-实现与本地验证已完成，等待 Pull Request 复核，尚未合并：
+实现与本地验证已完成，[PR #100](https://github.com/Sugarfarmeriod/TunnelMinion/pull/100) 等待复核，尚未合并：
 
 - Vitest：`16` 个文件、`110` 项测试通过。
 - Playwright：incident 定向用例在 Chromium 与 WebKit 共 `4` 项通过；断言详情请求仅为 GET、打开详情不产生写请求，并展开核对公开证据。
