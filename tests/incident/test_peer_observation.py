@@ -281,7 +281,9 @@ def test_factories_feed_remote_changes_to_normal_incident_observer(
     assert snapshot is not None
     current_overview = overview_providers[0]
     resumed = IncidentObservationService(
-        current_overview, store, watched_service_id=watches.service.service_id,
+        current_overview,
+        store,
+        watched_service_id=watches.service.service_id,
     )
     assert asyncio.run(resumed.observe_once()).incidents == ()
     normal = IncidentObservationService(current_overview, store)
