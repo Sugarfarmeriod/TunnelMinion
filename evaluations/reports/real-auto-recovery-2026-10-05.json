@@ -49,6 +49,15 @@
   "execution_started": false,
   "natural_expiry_verified": false,
   "exact_model_token_usage": null,
+  "quality_checks": {
+    "python_full_passed": 1563,
+    "python_full_skipped": 6,
+    "python_full_failed": 0,
+    "statement_coverage_percent": 100,
+    "branch_coverage_percent": 100,
+    "pyright_errors": 0,
+    "scorer_modified": false
+  },
   "processes_retained_for_human_approval": {
     "windows_runtime_pid": 18488,
     "mac_gateway_pid": 42021,
