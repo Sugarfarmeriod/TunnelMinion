@@ -35,6 +35,7 @@ const sourceLabels: Record<SectionMeta["source"], string> = {
   coordinator_directory: "Coordinator 目录",
   network_path_evidence: "网络路径证据",
   local_observation: "本机观测",
+  static_peer_observation: "显式对端只读观察",
   aggregated: "服务端聚合",
   unknown: "来源未知",
 };

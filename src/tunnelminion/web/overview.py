@@ -55,6 +55,7 @@ class OverviewSource(StrEnum):
     COORDINATOR_DIRECTORY = "coordinator_directory"
     NETWORK_PATH_EVIDENCE = "network_path_evidence"
     LOCAL_OBSERVATION = "local_observation"
+    STATIC_PEER_OBSERVATION = "static_peer_observation"
     AGGREGATED = "aggregated"
     UNKNOWN = "unknown"
 

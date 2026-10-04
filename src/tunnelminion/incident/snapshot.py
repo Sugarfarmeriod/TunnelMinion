@@ -201,7 +201,14 @@ class SnapshotDiffDetector:
                         after.freshness.value,
                     )
                 )
-            if str(before.accessibility) != "loopback" and str(after.accessibility) == "loopback":
+            if (
+                str(before.accessibility) != "loopback"
+                and str(after.accessibility) == "loopback"
+                and (
+                    after.source is not SnapshotSource.STATIC_PEER_OBSERVATION
+                    or str(before.accessibility) == "network"
+                )
+            ):
                 values.append(
                     self._event(
                         IncidentEventType.LOCAL_ONLY,

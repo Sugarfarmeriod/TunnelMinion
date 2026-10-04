@@ -37,6 +37,7 @@ from tunnelminion.incident.observer import (
     IncidentObservationService,
     incident_observation_lifespan,
 )
+from tunnelminion.incident.peer_observation import StaticPeerServiceObserver
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
@@ -276,6 +277,18 @@ def build_windows_application(
         if managed.coordinator is not None
         else ServiceSnapshotCache()
     )
+    remote_preparer = ConfiguredRemoteToolPreparer(
+        GatewayConfigurationService(
+            FileGatewayConfigurationRepository(root / "gateway.json"),
+            gateway_secret_store(root),
+        ),
+        node_id,
+        Platform.WINDOWS,
+        audit,
+    )
+    peer_observer = StaticPeerServiceObserver.from_file(root, node_id, remote_preparer)
+    if peer_observer is not None and managed.coordinator is not None:
+        raise ValueError("静态对端观察不能与目录观察同时启用")
     before_snapshot = None
     if managed.coordinator is None:
         local_observer = DeterministicServiceObserver(
@@ -288,6 +301,8 @@ def build_windows_application(
 
         async def refresh_local_services() -> None:
             service_cache.replace(await local_observer.observe())
+            if peer_observer is not None:
+                await peer_observer.refresh()
 
         before_snapshot = refresh_local_services
 
@@ -301,6 +316,7 @@ def build_windows_application(
         managed_path_status=current_managed_path_status,
         incidents=lambda: incidents_overview(incident_store),
         local_services=service_cache.read,
+        peer_observation=peer_observer,
     )
     incident_observer = IncidentObservationService(
         views.overview_service.view,
@@ -312,17 +328,10 @@ def build_windows_application(
             incident_store,
             Platform.WINDOWS,
             local_node_id=node_id,
-            remote_tools=ConfiguredRemoteToolPreparer(
-                GatewayConfigurationService(
-                    FileGatewayConfigurationRepository(root / "gateway.json"),
-                    gateway_secret_store(root),
-                ),
-                node_id,
-                Platform.WINDOWS,
-                audit,
-            ),
+            remote_tools=remote_preparer,
         ),
         before_snapshot=before_snapshot,
+        watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
     )
     app = FastAPI(
         title="TunnelMinion",
