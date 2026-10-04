@@ -841,7 +841,6 @@ class IncidentInvestigator:
                 )
                 self._store.put_incident(current)
                 continue
-            evidence_conflict = evidence_conflict or not self._skill_can_confirm(current)
             return self._apply_decision(
                 current,
                 decision,
@@ -911,10 +910,18 @@ class IncidentInvestigator:
             and has_tool_evidence
             and required_ids.issubset(supporting_cited)
             and not evidence_conflict
+            and self._skill_can_confirm(incident)
         )
         unknowns = list(decision.unknowns)
         if not confirmed and decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT:
-            unknowns.append("模型没有提供足以确认根因的有效证据引用；至少需要一项只读工具证据")
+            if evidence_conflict:
+                unknowns.append("只读工具证据与事件快照存在冲突，不能确认根因")
+            elif not self._skill_can_confirm(incident):
+                unknowns.append(
+                    "Skill 的事实确认条件未满足；请检查私网状态、目标监听、进程与请求端探测"
+                )
+            else:
+                unknowns.append("模型没有提供足以确认根因的有效证据引用；至少需要一项只读工具证据")
         report = IncidentReport(
             facts=tuple(facts),
             candidate_explanations=tuple(
@@ -1256,9 +1263,11 @@ class IncidentInvestigator:
             }
             if address is not None:
                 observations["private_address"] = address
+            label = "可用" if ready else "不可用"
+            if wireguard.get("availability") != "available":
+                label = "未知（状态数据不完整）"
             return observations, (
-                f"目标私网状态：{'可用' if ready else '不可用'}"
-                + (f"，地址 {address}" if address is not None else ""),
+                f"目标私网状态：{label}" + (f"，地址 {address}" if address is not None else ""),
             )
         if tool_name == "list_network_listeners":
             affected = self._affected_object_context(incident)

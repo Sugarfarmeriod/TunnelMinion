@@ -35,6 +35,17 @@
   "stop_reason": "insufficient_evidence",
   "report_unknowns": ["模型没有提供足以确认根因的有效证据引用；至少需要一项只读工具证据"],
   "conclusion": null,
+  "read_only_root_cause_review": {
+    "hypothesis_supported": true,
+    "hypothesis_cited_all_three_tool_evidence_ids": true,
+    "actual_blocker": "Skill 私网确认条件未满足，而非模型证据引用无效",
+    "misleading_runtime_stop_message_fixed": true,
+    "mac_socket": "/var/run/wireguard/utun8.sock",
+    "mac_socket_owner": "root:daemon",
+    "mac_socket_mode": "srwx------",
+    "privilege_escalation_performed": false,
+    "historical_report_unknowns_preserved": true
+  },
   "exact_token_usage": null,
   "token_usage_note": "本次 Incident 持久化记录只有模型轮次，没有 token 用量，不用历史均值代替实测",
   "operation_created": false,
