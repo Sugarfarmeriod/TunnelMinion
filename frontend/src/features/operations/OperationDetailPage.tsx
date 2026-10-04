@@ -134,7 +134,6 @@ function LifecycleEvidence({ detail }: { detail: OperationDetail }) {
           </p>
         </div>
       )}
-
     </section>
   );
 }
