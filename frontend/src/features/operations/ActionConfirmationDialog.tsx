@@ -165,6 +165,12 @@ export function ActionConfirmationDialog({
                   required
                   type="datetime-local"
                   value={expiresAt}
+                  onInvalid={(event) => {
+                    const section = event.currentTarget.closest("details");
+                    if (section !== null) {
+                      section.open = true;
+                    }
+                  }}
                   onChange={(event) => setExpiresAt(event.currentTarget.value)}
                 />
               </label>

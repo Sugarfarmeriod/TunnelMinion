@@ -133,6 +133,11 @@ test("批准摘要按精确身份匹配名称，陈旧名称不冒充访问者",
     fullPage: true,
     path: testInfo.outputPath("named-request-confirmation.png"),
   });
+  await dialog.getByText("调整批准有效期").click();
+  await dialog.getByLabel("批准有效期截止时间").fill("");
+  await dialog.getByText("调整批准有效期").click();
+  await dialog.getByRole("button", { name: "确认批准一次" }).click();
+  await expect(dialog.getByLabel("批准有效期截止时间")).toBeVisible();
   await page.keyboard.press("Escape");
   overview.nodes.items[0].freshness = "stale";
   await page.reload();
