@@ -584,6 +584,35 @@ async def test_incident_source_is_verified_and_persists_with_operation(
 
 
 @pytest.mark.anyio
+async def test_static_peer_source_rejects_wrong_logical_identity(tmp_path: Path) -> None:
+    client = FakeGatewayClient()
+    incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
+    service, _, _, _, remote = _service(
+        tmp_path, FakeDiagnosticAgent(_candidate), client, incident_store=incident_store
+    )
+    incident = _confirmed_local_only_incident(incident_store, remote)
+    current = incident_store.get_snapshot(incident.event.current_snapshot_id)
+    assert current is not None
+    # 伪称静态来源，但保留旧端点身份；不能跳过逻辑端口身份校验。
+    incident_store.put_snapshot(
+        current.model_copy(
+            update={
+                "services": (
+                    current.services[0].model_copy(
+                        update={"source": SnapshotSource.STATIC_PEER_OBSERVATION}
+                    ),
+                )
+            }
+        )
+    )
+    with pytest.raises(RequesterOperationFailure, match="incident_source_mismatch"):
+        await service.create_operation(
+            _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
+        )
+    assert client.submit_calls == 0
+
+
+@pytest.mark.anyio
 async def test_invalid_incident_source_stops_before_diagnostics_or_remote_write(
     tmp_path: Path,
 ) -> None:
