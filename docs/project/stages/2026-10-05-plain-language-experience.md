@@ -1,6 +1,6 @@
 # 普通用户优先的批准与服务浏览
 
-- 状态：`进行中`
+- 状态：`已完成`，仅在 PR #106 最新质量门禁通过并合并后生效。
 - 主写分支：`feature/plain-language-experience`
 - 基线：`f171b2c97d41bd5435a56f4216533fef6e246e42`
 - 对应总流程：`前端日常使用体验`
@@ -30,19 +30,17 @@
 
 ```mermaid
 flowchart TB
-    A["✅ 用户现场批准反馈"] --> C["🟨 请求摘要与决定"]
-    B["✅ 找回服务展示意图与数据来源"] --> D["🟨 小区域服务浏览"]
-    C --> E["🔵 浏览器、键盘与安全交接验证"]
+    A["✅ 用户现场批准反馈"] --> C["✅ 请求摘要与决定"]
+    B["✅ 找回服务展示意图与数据来源"] --> D["✅ 小区域服务浏览"]
+    C --> E["✅ 浏览器、键盘与安全交接验证"]
     D --> E
-    E --> F["🔵 同一体验阶段 PR"]
+    E --> F["✅ 同一体验阶段 PR：合并生效"]
     D -.可靠命名来源或明确使用对象.-> G["⬜ 更友好的服务识别"]
     classDef done fill:#bbf7d0,stroke:#15803d,color:#14532d;
     classDef current fill:#fde68a,stroke:#b45309,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,color:#374151;
-    class A,B done;
-    class C,D current;
-    class E,F next;
+    class A,B,C,D,E,F done;
     class G later;
 ```
 
@@ -52,8 +50,8 @@ flowchart TB
 - [x] 名称缺失/陈旧时保持未知，不将设备显示名当作人的身份认证。
 - [x] 批准与执行原有服务端复读、一次提交、未知结果禁止重放、取消焦点回归测试通过。
 - [x] 数百项目不使服务区域无限长；搜索能找到最后一项，无结果/未知/异常可辨认。
-- [ ] 320px、桌面、缩放、键盘、可访问性与正式包路径通过；本地浏览器已通过，正式包待 CI。
-- [ ] PR 合并，路线图与本页结果回写。
+- [x] 320px、桌面、缩放、键盘、可访问性通过；两端正式包已通过首轮 CI，最终版本由最新 CI 验证。
+- [x] 路线图与本页完成记录已准备；此完成项仅在 PR #106 最新 CI 通过并合并后生效。
 
 ## 实施记录
 
@@ -72,4 +70,10 @@ flowchart TB
 全部为本机隔离页面与受控样例，不是重新进行真机恢复，也不是老人用户实测。未部署到 Mac 的既有页面。
 
 这版解决阅读顺序和列表长度，但本机/目录服务名称来源仍欠缺；没有名字时不会把所有后台程序包装成
-“可用产品服务”。全前端词汇与交互一致性尚未在此阶段完成。CI、PR 与最终合并结果待补。
+“可用产品服务”。全前端词汇与交互一致性尚未在此阶段完成。
+
+[PR #106](https://github.com/Sugarfarmeriod/TunnelMinion/pull/106) 保存实现、回归和本记录。
+首轮 `e812220` 的 [CI](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/37221250969) 8/8 通过，
+包含两端正式包与一致性检查。随后为无效批准时间补原生输入校验展开行为，Chromium/WebKit 定向
+4 项通过；最终发布以 [PR 最新检查](https://github.com/Sugarfarmeriod/TunnelMinion/pull/106/checks)
+通过并合并为准，不把旧提交的通过冒充最终门禁。验证进程使用临时目录，由浏览器测试退出时自动清理。
