@@ -1,0 +1,58 @@
+{
+  "status": "awaiting_human_approval",
+  "scope": "真实自动事件、真实模型调查、同源临时修复申请，尚未执行",
+  "windows_source_commit": "05fb9ee",
+  "mac_package_source_commit": "42a7098",
+  "readonly_permission": {
+    "installed_by_user_local_admin_authentication": true,
+    "gateway_runs_as_normal_user": true,
+    "helper_binary_owner": "root:wheel",
+    "helper_binary_mode": "555",
+    "allowed_interface": "utun8",
+    "allowed_show_fields": ["interfaces", "peers", "allowed-ips", "endpoints", "latest-handshakes", "transfer"],
+    "allowed_peer_query_succeeded": true,
+    "unlisted_public_key_query_without_authentication_denied": true,
+    "dump_or_private_key_query_executed": false,
+    "temporary_rule_cleanup_pending": true
+  },
+  "baseline_revisions": [2862, 2863, 2864],
+  "source_changed_to_loopback_at": "2026-10-04T16:04:55.340554Z",
+  "incident_id": "incident_24b3a76df2461100e7339079e6f7fb4e",
+  "service_id": "service_5729dae53f6e87733532008a3c1f3f1f",
+  "event_type": "local_only",
+  "event_current_revision": 2866,
+  "event_at": "2026-10-04T16:05:57.863436Z",
+  "investigation_status": "confirmed",
+  "skill": "service.local-only@1",
+  "model_rounds": 3,
+  "tool_calls_including_preflight": 3,
+  "stop_reason": "evidence_sufficient",
+  "investigation_tool_evidence": [
+    "toolrun_b285b334885f437b81f147e4299e3926",
+    "toolrun_90217229fa7a44aeb047f65962ad56a2",
+    "toolrun_9faba056a86f4385bdc42350e61c5e17"
+  ],
+  "conclusion_summary": "目标私网正常，Python 样例仅监听回环 43123，请求端不能直接访问",
+  "operation_id": "operation_13f76941ecb5425ba9d8c5f5e30aad1f",
+  "operation_source_incident_id": "incident_24b3a76df2461100e7339079e6f7fb4e",
+  "operation_tool_evidence": [
+    "toolrun_0726dd6fdd684e879d4630ccfbe1bb5b",
+    "toolrun_8e38afb7d5f24286957b7c2835471f98",
+    "toolrun_023764ffd07040a49bb60a6af8602027"
+  ],
+  "target_operation_status": "awaiting_authorization",
+  "service_endpoint": "http://127.0.0.1:43123",
+  "sharing_bind_port": 18881,
+  "duration_seconds": 120,
+  "owned_resources_before_approval": [],
+  "sharing_port_listening_before_approval": false,
+  "execution_started": false,
+  "natural_expiry_verified": false,
+  "exact_model_token_usage": null,
+  "processes_retained_for_human_approval": {
+    "windows_runtime_pid": 18488,
+    "mac_gateway_pid": 42021,
+    "mac_loopback_source_pid": 42401,
+    "mac_ui_pid": 95881
+  }
+}
