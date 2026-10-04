@@ -660,13 +660,13 @@ class RequesterOperationService:
             or service.protocol is not ServiceProtocol.TCP
             or service.accessibility is not ServiceAccessibility.LOOPBACK
             or service.state is not SnapshotServiceState.AVAILABLE
-            or service.freshness is not SnapshotFreshness.FRESH
+            or service.freshness not in {SnapshotFreshness.FRESH, SnapshotFreshness.LIVE}
             or current_service is None
             or current_service.port != service.port
             or current_service.protocol is not ServiceProtocol.TCP
             or current_service.accessibility is not ServiceAccessibility.LOOPBACK
             or current_service.state is not SnapshotServiceState.AVAILABLE
-            or current_service.freshness is not SnapshotFreshness.FRESH
+            or current_service.freshness not in {SnapshotFreshness.FRESH, SnapshotFreshness.LIVE}
         ):
             raise RequesterOperationFailure("incident_source_mismatch")
         return incident_id, service

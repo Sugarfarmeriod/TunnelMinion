@@ -915,10 +915,13 @@ class IncidentInvestigator:
         unknowns = list(decision.unknowns)
         if not confirmed and decision.stop_reason is InvestigationStopReason.EVIDENCE_SUFFICIENT:
             if evidence_conflict:
-                unknowns.append("只读工具证据与事件快照存在冲突，不能确认根因")
+                unknowns.append(
+                    "模型没有提供足以确认根因的无冲突事实：只读工具证据与事件快照存在冲突"
+                )
             elif not self._skill_can_confirm(incident):
                 unknowns.append(
-                    "Skill 的事实确认条件未满足；请检查私网状态、目标监听、进程与请求端探测"
+                    "模型没有提供足以确认根因的完整事实：Skill 的事实确认条件未满足；"
+                    "请检查私网状态、目标监听、进程与请求端探测，这不代表证据引用缺失"
                 )
             else:
                 unknowns.append("模型没有提供足以确认根因的有效证据引用；至少需要一项只读工具证据")

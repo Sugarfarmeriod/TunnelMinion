@@ -398,6 +398,7 @@ def _confirmed_local_only_incident(
     *,
     port: int = 8080,
     source: SnapshotSource = SnapshotSource.COORDINATOR_DIRECTORY,
+    freshness: SnapshotFreshness = SnapshotFreshness.FRESH,
 ) -> Incident:
     service_id = (
         compute_static_peer_service_id(target, port)
@@ -413,7 +414,7 @@ def _confirmed_local_only_incident(
         node_id=target,
         state=SnapshotServiceState.AVAILABLE,
         source=source,
-        freshness=SnapshotFreshness.FRESH,
+        freshness=freshness,
         evidence_at=NOW,
         protocol=ServiceProtocol.TCP,
         port=port,
@@ -551,8 +552,9 @@ async def test_create_persists_before_single_submit_and_accepts_remote_summary(
 @pytest.mark.parametrize(
     "source", (SnapshotSource.COORDINATOR_DIRECTORY, SnapshotSource.STATIC_PEER_OBSERVATION)
 )
+@pytest.mark.parametrize("freshness", (SnapshotFreshness.FRESH, SnapshotFreshness.LIVE))
 async def test_incident_source_is_verified_and_persists_with_operation(
-    tmp_path: Path, source: SnapshotSource
+    tmp_path: Path, source: SnapshotSource, freshness: SnapshotFreshness
 ) -> None:
     agent = FakeDiagnosticAgent(_candidate)
     client = FakeGatewayClient()
@@ -563,7 +565,9 @@ async def test_incident_source_is_verified_and_persists_with_operation(
         client,
         incident_store=incident_store,
     )
-    incident = _confirmed_local_only_incident(incident_store, remote, source=source)
+    incident = _confirmed_local_only_incident(
+        incident_store, remote, source=source, freshness=freshness
+    )
     payload = _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
 
     def before_submit(operation_plan: OperationPlan) -> None:
@@ -581,6 +585,34 @@ async def test_incident_source_is_verified_and_persists_with_operation(
     assert restored is not None
     assert restored.plan.source_incident_id == incident.incident_id
     assert client.submit_calls == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "freshness",
+    (
+        SnapshotFreshness.STALE,
+        SnapshotFreshness.EXPIRED,
+        SnapshotFreshness.UNKNOWN,
+        SnapshotFreshness.UNAVAILABLE,
+    ),
+)
+async def test_static_peer_source_rejects_noncurrent_evidence(
+    tmp_path: Path, freshness: SnapshotFreshness
+) -> None:
+    client = FakeGatewayClient()
+    agent = FakeDiagnosticAgent(_candidate)
+    incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
+    service, _, _, _, remote = _service(tmp_path, agent, client, incident_store=incident_store)
+    incident = _confirmed_local_only_incident(
+        incident_store, remote, source=SnapshotSource.STATIC_PEER_OBSERVATION, freshness=freshness
+    )
+    with pytest.raises(RequesterOperationFailure, match="incident_source_mismatch"):
+        await service.create_operation(
+            _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
+        )
+    assert agent.calls == []
+    assert client.submit_calls == 0
 
 
 @pytest.mark.anyio
