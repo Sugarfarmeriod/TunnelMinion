@@ -1,6 +1,6 @@
 # 总览产品体验收敛
 
-- 状态：`进行中`
+- 状态：`已完成`
 - 主写分支：`feature/product-experience`
 - 基线：`be86a14ba431b3d7ab90f8317a8cd074ad57148a`
 - 对应总流程：`总览服务展示`
@@ -52,7 +52,7 @@ flowchart LR
 - [x] 缺少可靠名称、陈旧、未知和不可用状态不被猜测或抹去。
 - [x] 调查详情与操作交接原路径保持可用，页面读取不产生额外写请求。
 - [x] 前端全量测试、Chromium/WebKit 定向浏览器测试和构建门禁通过。
-- [ ] PR 合并，路线图与本页结果已回写。
+- [x] PR 合并，路线图与本页结果已回写。
 
 ## 实施记录
 
@@ -65,4 +65,8 @@ flowchart LR
 预算与供应链脚本通过。新增浏览器用例同时覆盖 1280px、320px、无横向溢出和严重/关键级可访问性问题为
 零；截图由该用例写入 `frontend/test-results/overview-product-experience-*/`，作为每次运行的可复核产物。
 
-待 PR、CI 与合并结果填写。
+PR [#102](https://github.com/Sugarfarmeriod/TunnelMinion/pull/102) 于 2026-10-04 合并为
+`2f174b921129ba8ec51cca803a83514918928f0e`。
+[最终 CI](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/37180619316) 8/8 通过，包含两端正式包
+与双平台一致性检查。首次正式包测试遗漏了展开“运行基础”的用户操作；补齐操作后原检查全部通过。
+截图使用隔离数据与浏览器 fixture，不作为真实双机恢复证据。本阶段没有部署到用户现有服务。
