@@ -1,13 +1,19 @@
 import { useMemo, useRef, useState } from "react";
 
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
-import { operationActionLabels } from "./operationPresentation";
+import {
+  operationActionLabels,
+  formatOperationTime,
+} from "./operationPresentation";
+import { RequestExplanation } from "./RequestExplanation";
 import type { OperationActionPayload } from "./operationsApi";
 import type { OperationAction, OperationDetail } from "./schemas";
+import type { ResourceOverview } from "../../api/schemas/overview";
 
 interface ActionConfirmationDialogProps {
   action: OperationAction;
   detail: OperationDetail;
+  overview?: ResourceOverview;
   submitting: boolean;
   returnFocus: HTMLElement | null;
   fallbackFocus: HTMLElement | null;
@@ -24,6 +30,7 @@ function localDateTimeValue(date: Date): string {
 export function ActionConfirmationDialog({
   action,
   detail,
+  overview,
   submitting,
   returnFocus,
   fallbackFocus,
@@ -101,49 +108,73 @@ export function ActionConfirmationDialog({
         tabIndex={-1}
       >
         <form onSubmit={handleSubmit}>
-          <p className="eyebrow">对象明确确认</p>
+          <p className="eyebrow">最后确认</p>
           <h2 id="operation-confirm-title">{title}</h2>
           <p id="operation-confirm-description">
-            这是刚刚按 ID
-            复读的服务端详情。确认只提交一次；按钮是否出现不代替服务端授权与并发检查。
+            {action === "approve"
+              ? "这次同意只用于下面这一个请求，不会自动同意以后的请求。"
+              : "请确认要对下面这个请求进行操作。"}
           </p>
-          <dl className="operation-dialog__object">
-            <div>
-              <dt>操作 ID</dt>
-              <dd>{detail.summary.operation_id}</dd>
-            </div>
-            <div>
-              <dt>服务</dt>
-              <dd>{detail.service_id}</dd>
-            </div>
-            <div>
-              <dt>当前状态</dt>
-              <dd>{detail.state}</dd>
-            </div>
-            <div>
-              <dt>请求节点</dt>
-              <dd>{detail.summary.request_node_id}</dd>
-            </div>
-            <div>
-              <dt>目标入口</dt>
-              <dd>{detail.service_endpoint}</dd>
-            </div>
-            <div>
-              <dt>风险</dt>
-              <dd>{detail.risk_summary}</dd>
-            </div>
-          </dl>
+          <RequestExplanation detail={detail} overview={overview} compact />
+          <details className="operation-technical-details">
+            <summary>查看请求编号与技术详情</summary>
+            <dl className="operation-dialog__object">
+              <div>
+                <dt>操作 ID</dt>
+                <dd>{detail.summary.operation_id}</dd>
+              </div>
+              <div>
+                <dt>服务</dt>
+                <dd>{detail.service_id}</dd>
+              </div>
+              <div>
+                <dt>当前状态</dt>
+                <dd>{detail.state}</dd>
+              </div>
+              <div>
+                <dt>请求节点</dt>
+                <dd>{detail.summary.request_node_id}</dd>
+              </div>
+              <div>
+                <dt>目标入口</dt>
+                <dd>{detail.service_endpoint}</dd>
+              </div>
+              <div>
+                <dt>风险</dt>
+                <dd>{detail.risk_summary}</dd>
+              </div>
+            </dl>
+          </details>
 
           {action === "approve" ? (
-            <label className="operation-dialog__field">
-              批准绝对过期时间
-              <input
-                required
-                type="datetime-local"
-                value={expiresAt}
-                onChange={(event) => setExpiresAt(event.currentTarget.value)}
-              />
-            </label>
+            <p>
+              对方需要在{" "}
+              {Number.isNaN(new Date(expiresAt).getTime())
+                ? "有效的截止时间"
+                : formatOperationTime(new Date(expiresAt).toISOString())}{" "}
+              前开始使用；超过这个时间，需要重新请求。
+            </p>
+          ) : null}
+          {action === "approve" ? (
+            <details className="operation-technical-details">
+              <summary>调整批准有效期</summary>
+              <p>对方必须在这个时间之前开始。开始后的访问时长不会因此延长。</p>
+              <label className="operation-dialog__field">
+                批准有效期截止时间
+                <input
+                  required
+                  type="datetime-local"
+                  value={expiresAt}
+                  onInvalid={(event) => {
+                    const section = event.currentTarget.closest("details");
+                    if (section !== null) {
+                      section.open = true;
+                    }
+                  }}
+                  onChange={(event) => setExpiresAt(event.currentTarget.value)}
+                />
+              </label>
+            </details>
           ) : null}
 
           {action === "reject" || action === "cancel" ? (
@@ -161,14 +192,13 @@ export function ActionConfirmationDialog({
 
           {action === "revoke" ? (
             <p className="operation-dialog__warning">
-              撤销会触发本机生命周期清理。若清理不能安全完成，详情会保留受影响资源和人工处理建议。
+              对方将不能继续使用这个临时入口。如果关闭失败，页面会告诉你需要怎样处理。
             </p>
           ) : null}
 
           {action === "execute" ? (
             <p className="operation-dialog__warning">
-              请求端会先开放一次性验证回调，再执行同一 operation
-              ID。响应未知时页面只查询，不自动重放。
+              开始后会创建临时入口并检查能否使用。结果不明确时，请先刷新，不要重复开始。
             </p>
           ) : null}
 
@@ -182,7 +212,11 @@ export function ActionConfirmationDialog({
               返回检查详情
             </button>
             <button
-              className="operation-button--danger"
+              className={
+                action === "reject" || action === "revoke"
+                  ? "operation-button--danger"
+                  : undefined
+              }
               disabled={submitting}
               type="submit"
             >

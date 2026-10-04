@@ -2,7 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { requestJson } from "../../api/client";
+import { resourceOverviewSchema } from "../../api/schemas/overview";
 import { ActionConfirmationDialog } from "./ActionConfirmationDialog";
+import { RequestExplanation } from "./RequestExplanation";
 import {
   formatOperationTime,
   operationActionLabels,
@@ -131,13 +134,6 @@ function LifecycleEvidence({ detail }: { detail: OperationDetail }) {
           </p>
         </div>
       )}
-
-      {detail.manual_action === null ? null : (
-        <div className="operation-manual-action" role="alert">
-          <strong>需要人工处理</strong>
-          <p>{detail.manual_action}</p>
-        </div>
-      )}
     </section>
   );
 }
@@ -187,6 +183,13 @@ export function OperationDetailPage() {
     queryKey: operationQueryKeys.detail(operationId ?? "missing"),
     queryFn: () => getOperation(operationId ?? ""),
     enabled: operationId !== undefined && operationId.length > 0,
+  });
+  const overviewQuery = useQuery({
+    queryKey: ["resource-overview"],
+    queryFn: () =>
+      requestJson("/api/resources/overview", resourceOverviewSchema),
+    enabled: operationId !== undefined && operationId.length > 0,
+    retry: false,
   });
 
   function closeConfirmation() {
@@ -452,12 +455,13 @@ export function OperationDetailPage() {
       <header className="operation-detail-header">
         <div>
           <p className="eyebrow">
-            {detail.role === "target" ? "目标端本机权威记录" : "请求端远端摘要"}
+            {detail.role === "target"
+              ? "有人请求使用这台电脑的服务"
+              : "发给另一台电脑的请求"}
           </p>
           <h2 id="operation-detail-title" ref={detailTitleRef} tabIndex={-1}>
-            {detail.service_id}
+            临时访问请求
           </h2>
-          <p className="operation-id">operation {summary.operation_id}</p>
         </div>
         <div className="operation-detail-header__controls">
           <span
@@ -542,130 +546,163 @@ export function OperationDetailPage() {
         </div>
       )}
 
-      <div className="operation-detail-layout">
-        <DetailList
-          title="计划目标与证据"
-          items={[
-            { label: "服务 ID", value: detail.service_id },
-            { label: "服务端点", value: detail.service_endpoint },
-            {
-              label: "进程或容器",
-              value: detail.service_process_or_container,
-            },
-            { label: "服务指纹", value: detail.service_fingerprint },
-            {
-              label: "来源 Incident",
-              value:
-                detail.source_incident_id === null ? (
-                  "无（手动发起）"
-                ) : (
-                  <Link
-                    to={`/app/overview?incident_id=${encodeURIComponent(detail.source_incident_id)}#overview-incidents`}
-                  >
-                    {detail.source_incident_id}
-                  </Link>
-                ),
-            },
-            { label: "预期变化", value: detail.expected_change },
-            { label: "风险", value: detail.risk_summary },
-            {
-              label: "计划创建",
-              value: formatOperationTime(detail.created_at),
-            },
-          ]}
-        />
-        <DetailList
-          title="访问者、端口与有效期"
-          items={[
-            {
-              label: "本机角色",
-              value: detail.role === "target" ? "目标端" : "请求端",
-            },
-            { label: "请求节点（访问者）", value: summary.request_node_id },
-            { label: "目标节点", value: summary.target_node_id },
-            { label: "绑定地址", value: summary.bind_host },
-            { label: "绑定端口", value: summary.bind_port },
-            { label: "计划持续时间", value: `${detail.duration_seconds} 秒` },
-            {
-              label: "绝对到期时间",
-              value: formatOperationTime(summary.absolute_expires_at),
-            },
-            {
-              label: "本机访问会话到期",
-              value: formatOperationTime(detail.access_expires_at),
-            },
-          ]}
-        />
-        <DetailList
-          title="授权、验证与回滚依据"
-          items={[
-            { label: "操作等级", value: `L${summary.level}` },
-            {
-              label: "授权类型",
-              value: summary.authorization_kind ?? "尚未授权",
-            },
-            {
-              label: "授权依据",
-              value: summary.authorization_basis ?? "尚未授权",
-            },
-            { label: "验证方法", value: detail.verification_method },
-            { label: "回滚方法", value: detail.rollback_method },
-            {
-              label: "最后更新",
-              value: formatOperationTime(summary.updated_at),
-            },
-            {
-              label: "最后查询目标节点",
-              value: formatOperationTime(detail.last_checked_at),
-            },
-            {
-              label: "请求端错误码",
-              value: detail.error_code ?? "无",
-            },
-          ]}
-        />
-        {summary.error === null ? null : (
-          <section
-            aria-labelledby="operation-error-title"
-            className="operation-detail-card operation-detail-card--danger"
-          >
-            <h3 id="operation-error-title">脱敏错误</h3>
-            <p>
-              <strong>{summary.error.code}</strong>：{summary.error.message}
-            </p>
-            <p>
-              {summary.error.retryable
-                ? "服务端允许稍后重试。"
-                : "不要重复提交。"}
-              关联 ID：{summary.error.correlation_id}
-            </p>
-          </section>
-        )}
-        {detail.role === "target" ? (
-          <>
-            <LifecycleEvidence detail={detail} />
-            <OperationHistory detail={detail} />
-          </>
-        ) : (
-          <section className="operation-detail-card">
-            <h3>请求端持有的信息</h3>
-            <p>
-              这里只保存计划、脱敏远端摘要和查询时间。完整授权、资源、验证与清理记录仍由目标节点持有。
-            </p>
-          </section>
-        )}
-      </div>
+      <RequestExplanation
+        detail={detail}
+        overview={overviewQuery.isError ? undefined : overviewQuery.data}
+      />
+      {detail.error_code === null ? null : (
+        <div
+          className="operations-callout operations-callout--warning"
+          role="alert"
+        >
+          {detail.error_code === "access_session_unavailable"
+            ? "这台电脑已无法打开临时访问。请刷新状态，不要重复开始。"
+            : "这次请求还没有完成。请刷新状态，具体原因可在技术详情中查看。"}
+        </div>
+      )}
+      {summary.error === null ? null : (
+        <div
+          className="operations-callout operations-callout--danger"
+          role="alert"
+        >
+          <strong>这次请求遇到了问题</strong>
+          <p>{summary.error.message}</p>
+        </div>
+      )}
+      {detail.manual_action === null ? null : (
+        <div className="operation-manual-action" role="alert">
+          <strong>需要你处理：临时入口没有安全关闭</strong>
+          <p>{detail.manual_action}</p>
+        </div>
+      )}
+      <details className="operation-technical-details">
+        <summary>查看技术详情与记录</summary>
+        <p className="operation-id">operation {summary.operation_id}</p>
+        <div className="operation-detail-layout">
+          <DetailList
+            title="计划目标与证据"
+            items={[
+              { label: "服务 ID", value: detail.service_id },
+              { label: "服务端点", value: detail.service_endpoint },
+              {
+                label: "进程或容器",
+                value: detail.service_process_or_container,
+              },
+              { label: "服务指纹", value: detail.service_fingerprint },
+              {
+                label: "来源 Incident",
+                value:
+                  detail.source_incident_id === null ? (
+                    "无（手动发起）"
+                  ) : (
+                    <Link
+                      to={`/app/overview?incident_id=${encodeURIComponent(detail.source_incident_id)}#overview-incidents`}
+                    >
+                      {detail.source_incident_id}
+                    </Link>
+                  ),
+              },
+              { label: "预期变化", value: detail.expected_change },
+              { label: "风险", value: detail.risk_summary },
+              {
+                label: "计划创建",
+                value: formatOperationTime(detail.created_at),
+              },
+            ]}
+          />
+          <DetailList
+            title="访问者、端口与有效期"
+            items={[
+              {
+                label: "本机角色",
+                value: detail.role === "target" ? "目标端" : "请求端",
+              },
+              { label: "请求节点（访问者）", value: summary.request_node_id },
+              { label: "目标节点", value: summary.target_node_id },
+              { label: "绑定地址", value: summary.bind_host },
+              { label: "绑定端口", value: summary.bind_port },
+              { label: "计划持续时间", value: `${detail.duration_seconds} 秒` },
+              {
+                label: "绝对到期时间",
+                value: formatOperationTime(summary.absolute_expires_at),
+              },
+              {
+                label: "本机访问会话到期",
+                value: formatOperationTime(detail.access_expires_at),
+              },
+            ]}
+          />
+          <DetailList
+            title="授权、验证与回滚依据"
+            items={[
+              { label: "操作等级", value: `L${summary.level}` },
+              {
+                label: "授权类型",
+                value: summary.authorization_kind ?? "尚未授权",
+              },
+              {
+                label: "授权依据",
+                value: summary.authorization_basis ?? "尚未授权",
+              },
+              { label: "验证方法", value: detail.verification_method },
+              { label: "回滚方法", value: detail.rollback_method },
+              {
+                label: "最后更新",
+                value: formatOperationTime(summary.updated_at),
+              },
+              {
+                label: "最后查询目标节点",
+                value: formatOperationTime(detail.last_checked_at),
+              },
+              {
+                label: "请求端错误码",
+                value: detail.error_code ?? "无",
+              },
+            ]}
+          />
+          {summary.error === null ? null : (
+            <section
+              aria-labelledby="operation-error-title"
+              className="operation-detail-card operation-detail-card--danger"
+            >
+              <h3 id="operation-error-title">脱敏错误</h3>
+              <p>
+                <strong>{summary.error.code}</strong>：{summary.error.message}
+              </p>
+              <p>
+                {summary.error.retryable
+                  ? "服务端允许稍后重试。"
+                  : "不要重复提交。"}
+                关联 ID：{summary.error.correlation_id}
+              </p>
+            </section>
+          )}
+          {detail.role === "target" ? (
+            <>
+              <LifecycleEvidence detail={detail} />
+              <OperationHistory detail={detail} />
+            </>
+          ) : (
+            <section className="operation-detail-card">
+              <h3>请求端持有的信息</h3>
+              <p>
+                这里只保存计划、脱敏远端摘要和查询时间。完整授权、资源、验证与清理记录仍由目标节点持有。
+              </p>
+            </section>
+          )}
+        </div>
+      </details>
 
       <section
         aria-labelledby="operation-actions-title"
         className="operation-actions"
       >
         <div>
-          <h3 id="operation-actions-title">服务端当前允许动作</h3>
+          <h3 id="operation-actions-title">你可以做什么</h3>
           <p>
             {detail.role === "target"
-              ? "每次打开确认前都会重新按 ID 读取详情；模型或 Coordinator 离线不会替代本机判断。"
-              : "执行前会先刷新目标节点状态；访问凭据只在本机服务端内存中，不会进入浏览器。"}
+              ? "认识这个请求再批准；不确定就拒绝。批准后，还需要对方开始使用。"
+              : "对方批准后，你才能开始使用。看不到最新结果时，请先刷新。"}
           </p>
         </div>
         <div className="operation-actions__buttons">
@@ -679,6 +716,11 @@ export function OperationDetailPage() {
                 <button
                   key={action}
                   id={`operation-action-${action}`}
+                  className={
+                    action === "approve" || action === "execute"
+                      ? undefined
+                      : "operation-button--secondary"
+                  }
                   disabled={
                     preparingAction !== null ||
                     submitting ||
@@ -713,6 +755,7 @@ export function OperationDetailPage() {
         <ActionConfirmationDialog
           action={confirmation.action}
           detail={confirmation.detail}
+          overview={overviewQuery.isError ? undefined : overviewQuery.data}
           fallbackFocus={detailTitleRef.current}
           returnFocus={confirmation.returnFocus}
           safeFallbackFocus={detailTitleRef.current}
