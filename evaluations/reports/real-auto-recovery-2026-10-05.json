@@ -1,6 +1,6 @@
 {
-  "status": "awaiting_human_approval",
-  "scope": "真实自动事件、真实模型调查、同源临时修复申请，尚未执行",
+  "status": "expired_successfully_waiting_permission_cleanup",
+  "scope": "真实自动事件、真实模型调查、同源人工批准修复、实际访问与自然到期成功；临时只读权限尚待撤回",
   "windows_source_commit": "05fb9ee",
   "mac_package_source_commit": "42a7098",
   "readonly_permission": {
@@ -40,14 +40,56 @@
     "toolrun_8e38afb7d5f24286957b7c2835471f98",
     "toolrun_023764ffd07040a49bb60a6af8602027"
   ],
-  "target_operation_status": "awaiting_authorization",
+  "target_operation_status": "expired",
   "service_endpoint": "http://127.0.0.1:43123",
   "sharing_bind_port": 18881,
   "duration_seconds": 120,
   "owned_resources_before_approval": [],
   "sharing_port_listening_before_approval": false,
-  "execution_started": false,
-  "natural_expiry_verified": false,
+  "execution_started": true,
+  "human_approval_verified": {
+    "status_before_execution": "authorized",
+    "authorization_kind": "one_time",
+    "authorization_basis": "目标节点本地用户逐次批准"
+  },
+  "execution": {
+    "resource_id": "resource_394ad23ae62348c8a677a2ea5b653eba",
+    "resource_kind": "embedded_http_proxy",
+    "resource_created_at": "2026-10-04T16:21:47.969931Z",
+    "expires_at": "2026-10-04T16:23:47.969931Z",
+    "requester_verification_result": "passed",
+    "requester_verification_status_code": 204,
+    "verified_at": "2026-10-04T16:21:49.272647Z",
+    "web_content_status_code": 200,
+    "web_content_marker_matched": true,
+    "web_content_checked_at": "2026-10-04T16:21:49.848804Z"
+  },
+  "natural_expiry_verified": true,
+  "natural_expiry": {
+    "cleanup_result": "succeeded",
+    "reason": "normal_expiry：租约到期并完成连接排空",
+    "completed_at": "2026-10-04T16:23:48.206492Z",
+    "access_after_expiry_http_status": 410,
+    "access_after_expiry_checked_at": "2026-10-04T16:24:15.194857Z",
+    "sharing_port_closed": true,
+    "original_source_still_healthy_before_shutdown": true,
+    "ownership_audit_record_retained": true
+  },
+  "session_cleanup": {
+    "verified_at": "2026-10-04T16:25:48.218682Z",
+    "windows_runtime_pid_18488_stopped": true,
+    "mac_gateway_pid_42021_stopped": true,
+    "mac_source_pid_42401_stopped": true,
+    "windows_test_ports_closed": [18765, 18900],
+    "mac_test_ports_closed": [18889, 18881, 43123],
+    "mac_existing_ports_retained": [18765, 8765, 8787],
+    "windows_peer_observation_disabled": true,
+    "temporary_readonly_rule_removed": false,
+    "temporary_readonly_helper_removed": false,
+    "ssh_native_admin_cleanup_error": "-60007，未推断为密码错误",
+    "local_admin_cleanup_requested": true,
+    "network_configuration_changed": false
+  },
   "exact_model_token_usage": null,
   "quality_checks": {
     "python_full_passed": 1563,
