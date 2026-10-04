@@ -16,7 +16,7 @@ flowchart TB
 
     D3 --> E["✅ 5. 受控修复串联"]
     C --> V["✅ 调查证据可视化"]
-    V --> W["下一步：沿一次调查讲清模型与程序职责"]
+    V --> W["✅ 沿一次调查讲清模型与程序职责"]
     D3 --> W
     D3 --> F["✅ 冲突停止路径复核"]
     F -.真实需求与稳定失败.-> K["6. 扩展少量 Skills"]
@@ -34,7 +34,7 @@ flowchart TB
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
     class A,B,C,D1,D2,D3,E,F,H,R,V done;
     class U done;
-    class W next;
+    class W done;
     class G,K,I later;
 ```
 
@@ -54,6 +54,7 @@ flowchart TB
 | 自动 Incident 触发的真实双机闭环    | 尚未验收 | 本次 source_incident_id 为空，不能替代该项验收                                       |
 | 7. MCP 薄适配                       | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本                                 |
 | 总览产品体验收敛                    | 已完成   | PR #102 已合并，CI 8/8；待办优先、按设备汇总监听项，完整清单与工程证据按需展开      |
+| 单案例讲解                          | 已完成   | PR #104 合并生效；复核真实模型固定环境记录，区分预检、模型选择、程序证据门与处理交接 |
 
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
@@ -64,9 +65,9 @@ flowchart TB
 刚完成：[`调查证据可视化`](stages/2026-10-03-investigation-evidence-view.md)，2026-10-04 合并为 `1025f1c`。
 
 刚完成：[`总览产品体验收敛`](stages/2026-10-04-product-experience.md)，PR #102 合并为 `2f174b9`。
-下一步沿一条已有的
-`local_only` 调查记录，说明输入、模型选工具、程序校验证据和停止条件，把页面字段对应到代码与评测；
-完成标准是一个可复核案例和简明讲解，不新增框架或协议。
+刚完成：[沿一次调查讲清模型与程序职责](stages/2026-10-04-investigation-case.md)。已有
+`local_only` 调查记录的输入、模型选工具、程序校验证据和停止条件已逐条讲解，页面字段对应到代码与评测；
+复核三条工具证据覆盖四类事实，并明确调查到处理的权限边界，不新增框架或协议。完成状态随 PR #104 合并生效。
 自动 Incident 触发的真实双机闭环仍未验收，不用页面 fixture 代替。
 
 ## 已完成主线
