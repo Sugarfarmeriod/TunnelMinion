@@ -260,17 +260,16 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   });
 
   await page.goto("/app/overview");
-  const attention = page.locator(
-    '[aria-labelledby="overview-operation-attention"]',
-  );
+  const attention = page.getByRole("list", { name: "需要你处理的请求" });
   await expect(attention.getByText("待本机批准")).toBeVisible();
   await expect(attention.getByText("待确认执行")).toBeVisible();
   await expect(attention.getByText("写入结果待确认")).toBeVisible();
   await expect(attention.getByText("清理失败，需人工处理")).toBeVisible();
-  await expect(
-    attention.getByRole("link", { name: "打开最新操作详情" }),
-  ).toHaveCount(4);
+  await expect(attention.getByRole("link", { name: "查看并处理" })).toHaveCount(
+    4,
+  );
 
+  await page.getByText("更多信息", { exact: true }).click();
   await page.getByRole("button", { name: "查看调查详情" }).click();
   const detail = page.locator(".incident-detail");
   await expect(detail).toContainText("service.local-only@1");
@@ -312,7 +311,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   ]);
 });
 
-test("Operation 摘要失败只降级待办卡且不产生写请求", async ({
+test("请求读取失败只显示提示，不阻断设备和调查且不产生写请求", async ({
   context,
   page,
   request,
@@ -331,9 +330,11 @@ test("Operation 摘要失败只降级待办卡且不产生写请求", async ({
 
   await page.goto("/app/overview");
 
-  await expect(page.getByText("远端服务只监听环回地址")).toBeVisible();
+  await expect(page.getByText("更多信息", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("操作待办暂时无法读取；资源和 incident 总览不受影响。"),
+    page.getByText("暂时读不到待处理请求；设备和服务仍可查看。"),
   ).toBeVisible();
+  await page.getByText("更多信息", { exact: true }).click();
+  await expect(page.getByText("远端服务只监听环回地址")).toBeVisible();
   expect(writes).toBe(0);
 });
