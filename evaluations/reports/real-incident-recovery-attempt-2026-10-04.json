@@ -38,6 +38,35 @@
     "natural_expiry_verified": false,
     "automatic_dual_machine_acceptance_passed": false
   },
+  "retry_after_user_mac_confirmation": {
+    "verified_at": "2026-10-04T15:09:53Z",
+    "gateway_http_status_at_root": 404,
+    "source_http_status": 200,
+    "authenticated_observation": {
+      "snapshot_revision": 2856,
+      "observed_at": "2026-10-04T15:09:31.386055Z",
+      "service_id": "service_5729dae53f6e87733532008a3c1f3f1f",
+      "port": 43123,
+      "state": "available",
+      "freshness": "live",
+      "accessibility": "network",
+      "overview_display_name": "Python",
+      "node_state": "online"
+    },
+    "model_validation_http_status": 402,
+    "persisted_incident_ids": [],
+    "changed_to_loopback": false,
+    "operation_created": false,
+    "cleanup_verified": {
+      "windows_runtime_pid_34428_stopped": true,
+      "mac_gateway_pid_31569_stopped": true,
+      "mac_source_pid_31570_stopped": true,
+      "windows_ports_18765_18900_not_listening": true,
+      "mac_ports_18889_18881_43123_not_listening": true,
+      "mac_ports_18765_8765_8787_retained": true
+    },
+    "note": "用户在 Mac 确认后重试，HTTP 超时不再复现且认证只读观察成功；不推断具体系统弹窗机制。模型仍返回 402，未制造故障。"
+  },
   "cleanup": {
     "windows_runtime_pid_37980_stopped": true,
     "windows_ports_18765_18900_not_listening": true,
