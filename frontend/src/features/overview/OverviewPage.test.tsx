@@ -138,19 +138,22 @@ describe("OverviewPage", () => {
 
   it("先显示 loading，再按独立领域展示服务端强类型状态", async () => {
     fetchMock.mockReturnValueOnce(jsonResponse(makeOverview()));
+    const user = userEvent.setup();
 
     renderOverview();
 
     expect(screen.getByRole("status")).toHaveTextContent("正在读取本机");
     expect(
-      await screen.findByRole("heading", { name: "本机运行" }),
+      await screen.findByRole("heading", { name: "需要你处理" }),
     ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "设备与服务" })).toBeVisible();
+    expect(screen.getByText("尚未发现设备或监听项")).toBeVisible();
+    await user.click(screen.getByText("运行基础"));
+    expect(screen.getByRole("heading", { name: "本机运行" })).toBeVisible();
     expect(screen.getByText("本机接口已准备好")).toBeVisible();
     expect(screen.getByText("模型现在可以使用")).toBeVisible();
     expect(screen.getByText("Coordinator 目录已同步")).toBeVisible();
     expect(screen.getByText("当前选择了直连路径")).toBeVisible();
-    expect(screen.getByText("还没有已知节点")).toBeVisible();
-    expect(screen.getByText("还没有已知服务")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/resources/overview",
       expect.objectContaining({ credentials: "same-origin" }),
@@ -216,23 +219,25 @@ describe("OverviewPage", () => {
       error: { code: "service_inventory_unavailable", retryable: true },
     };
     fetchMock.mockReturnValueOnce(jsonResponse(payload));
+    const user = userEvent.setup();
 
     renderOverview();
 
-    expect(await screen.findByText("还没有配置模型")).toBeVisible();
+    await user.click(await screen.findByText("运行基础"));
+    expect(screen.getByText("还没有配置模型")).toBeVisible();
     expect(
       screen.getByText("未配置 Coordinator，当前按仅本机模式工作"),
     ).toBeVisible();
     expect(screen.getByText("peer 路径当前不可达")).toBeVisible();
+    for (const disclosure of screen.getAllByText("查看证据")) {
+      await user.click(disclosure);
+    }
     expect(screen.getByText("firewall_log_unavailable")).toBeVisible();
-    expect(screen.getByText("directory_cache_stale")).toBeVisible();
     expect(screen.getByText("service_inventory_unavailable")).toBeVisible();
-    expect(screen.getByText("当前没有服务端确认的服务记录。")).toBeVisible();
+    expect(screen.getByText("2 台设备 · 0 个监听项")).toBeVisible();
     expect(screen.getByText("当前离线（证据陈旧）")).toBeVisible();
     expect(screen.getByText("状态未知")).toBeVisible();
-    expect(
-      screen.getByText(/防火墙日志只是可选诊断，不是运行条件/),
-    ).toBeVisible();
+    expect(screen.getByText(/先看真实探测是否通过/)).toBeVisible();
     expect(screen.queryByText(/^健康$/)).not.toBeInTheDocument();
   });
 
@@ -269,14 +274,75 @@ describe("OverviewPage", () => {
       },
     ];
     fetchMock.mockReturnValueOnce(jsonResponse(payload));
+    const user = userEvent.setup();
 
     const { container } = renderOverview();
 
-    expect(await screen.findByText(maliciousNode)).toBeVisible();
+    await user.click(await screen.findByText(maliciousNode));
     expect(screen.getByText(maliciousService)).toBeVisible();
     expect(screen.getByText(/https:\/\/service\.example:443/)).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("按设备汇总全部监听项，不再用分页隐藏总数", async () => {
+    const payload = makeOverview();
+    payload.nodes.items = [
+      {
+        node_id: nodeA,
+        display_name: "工作室 Mac",
+        platform: "macos",
+        state: "online",
+        source: "coordinator_directory",
+        evidence_at: evidenceAt,
+        freshness: "fresh",
+        service_count: 7,
+      },
+      {
+        node_id: nodeB,
+        display_name: "客厅电脑",
+        platform: "windows",
+        state: "online",
+        source: "coordinator_directory",
+        evidence_at: evidenceAt,
+        freshness: "fresh",
+        service_count: 6,
+      },
+    ];
+    payload.services.items = Array.from({ length: 13 }, (_, index) => ({
+      service_id: `service_${index.toString(16).padStart(32, "0")}`,
+      node_id: index < 7 ? nodeA : nodeB,
+      display_name: null,
+      protocol: "tcp" as const,
+      port: 9000 + index,
+      access_address: `tcp://10.77.0.${index < 7 ? 1 : 2}:${9000 + index}`,
+      accessibility: "network" as const,
+      lifecycle: "active" as const,
+      state: "available" as const,
+      source: "coordinator_directory" as const,
+      evidence_at: evidenceAt,
+      freshness: "fresh" as const,
+    }));
+    fetchMock.mockReturnValueOnce(jsonResponse(payload));
+    const user = userEvent.setup();
+
+    renderOverview();
+
+    expect(await screen.findByText("2 台设备 · 13 个监听项")).toBeVisible();
+    expect(screen.queryByText("第 1 / 3 页")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByText("未识别监听项")
+        .filter((item) => item.closest("details")?.open),
+    ).toHaveLength(0);
+    await user.click(screen.getByText("工作室 Mac"));
+    expect(
+      screen
+        .getAllByText("未识别监听项")
+        .filter((item) => item.closest("details")?.open),
+    ).toHaveLength(7);
+    expect(screen.getByText("tcp://10.77.0.1:9006")).toBeVisible();
+    expect(screen.queryByText(nodeA.slice(0, 8))).not.toBeInTheDocument();
   });
 
   it("展示 incident 详情、未知项和建议追问，并把不可信轨迹只当文本", async () => {
@@ -797,14 +863,14 @@ describe("OverviewPage", () => {
     renderOverview();
 
     const refresh = await screen.findByRole("button", { name: "刷新证据" });
-    const settingsLink = screen.getByRole("link", {
-      name: /需要聊天时再去设置中配置模型/,
-    });
     await user.tab();
     expect(refresh).toHaveFocus();
-    await user.tab();
-    expect(settingsLink).toHaveFocus();
-    expect(screen.getByRole("heading", { name: "已知节点" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "已知服务" })).toBeVisible();
+    await user.click(screen.getByText("运行基础"));
+    expect(
+      screen.getByRole("link", {
+        name: /需要聊天时再去设置中配置模型/,
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "设备与服务" })).toBeVisible();
   });
 });

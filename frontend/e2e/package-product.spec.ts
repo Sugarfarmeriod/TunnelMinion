@@ -84,6 +84,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
 
   await page.goto("/app/overview");
   await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await page.getByText("运行基础", { exact: true }).click();
   await expect(page.getByText(/standalone ·/)).toBeVisible();
   await expect(page.getByText("还没有配置模型")).toBeVisible();
   await expect(

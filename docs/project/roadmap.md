@@ -26,15 +26,16 @@ flowchart TB
     R -.尚未验收.-> I["自动 Incident 触发的真实双机闭环"]
     H -.真实外部接入需求.-> G["7. MCP 薄适配"]
 
-    C -.独立产品支线.-> U["总览服务展示"]
+    C -.独立产品支线.-> U["总览产品体验收敛"]
 
     classDef done fill:#bbf7d0,stroke:#15803d,stroke-width:4px,color:#14532d;
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
     class A,B,C,D1,D2,D3,E,F,H,R,V done;
+    class U current;
     class W next;
-    class G,U,K,I later;
+    class G,K,I later;
 ```
 
 ## 当前状态
@@ -52,7 +53,7 @@ flowchart TB
 | 真实双机手动诊断与恢复              | 已完成   | DeepSeek 实际诊断、Mac 人工批准、Windows 访问 HTTP 200、120 秒到期清理；单次真实运行 |
 | 自动 Incident 触发的真实双机闭环    | 尚未验收 | 本次 source_incident_id 为空，不能替代该项验收                                       |
 | 7. MCP 薄适配                       | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本                                 |
-| 总览服务展示                        | 暂停     | 已有搜索/分页成果保留；重新启动时解决服务归属和小区域完整表达，而不是继续堆分页      |
+| 总览产品体验收敛                    | 进行中   | 待办优先、按设备汇总监听项，完整清单与工程证据按需展开；不按端口猜服务身份          |
 
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
@@ -62,8 +63,9 @@ flowchart TB
 
 刚完成：[`调查证据可视化`](stages/2026-10-03-investigation-evidence-view.md)，2026-10-04 合并为 `1025f1c`。
 
-下一步：沿一条已有的 `local_only` 调查记录，说明输入、模型选工具、程序校验证据和停止条件，
-把页面字段对应到代码与评测；完成标准是一个可复核案例和简明讲解，不新增框架或协议。
+当前阶段：[`总览产品体验收敛`](stages/2026-10-04-product-experience.md)。完成后再沿一条已有的
+`local_only` 调查记录，说明输入、模型选工具、程序校验证据和停止条件，把页面字段对应到代码与评测；
+完成标准是一个可复核案例和简明讲解，不新增框架或协议。
 自动 Incident 触发的真实双机闭环仍未验收，不用页面 fixture 代替。
 
 ## 已完成主线
@@ -132,7 +134,8 @@ flowchart LR
 - 不恢复旧 packet relay、复杂 Provider、复杂自动组网和大规模 showcase。
 - 不修改 WireGuard、防火墙、路由、DNS 或生产服务来完成普通开发验收。
 - 不为简历关键词提前增加多 Agent、A2A、RAG、MCP 或通用 Harness 平台。
-- 总览支线保留现有成果；只有“服务归属清楚、有限区域可读、无需无尽翻页”的方案明确后再继续。
+- 总览支线已重启：服务按可靠节点名称归拢，有限区域先表达完整概况，端口与证据按需展开；没有可靠名称时
+  明确保留未知，不按端口猜测。
 
 ## 证据和历史
 
