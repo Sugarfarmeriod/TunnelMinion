@@ -33,7 +33,7 @@ flowchart TB
     classDef next fill:#bfdbfe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a;
     classDef later fill:#e5e7eb,stroke:#6b7280,stroke-width:2px,color:#374151;
     class A,B,C,D1,D2,D3,E,F,H,R,V done;
-    class U current;
+    class U done;
     class W next;
     class G,K,I later;
 ```
@@ -53,7 +53,7 @@ flowchart TB
 | 真实双机手动诊断与恢复              | 已完成   | DeepSeek 实际诊断、Mac 人工批准、Windows 访问 HTTP 200、120 秒到期清理；单次真实运行 |
 | 自动 Incident 触发的真实双机闭环    | 尚未验收 | 本次 source_incident_id 为空，不能替代该项验收                                       |
 | 7. MCP 薄适配                       | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本                                 |
-| 总览产品体验收敛                    | 进行中   | 待办优先、按设备汇总监听项，完整清单与工程证据按需展开；不按端口猜服务身份          |
+| 总览产品体验收敛                    | 已完成   | PR #102 已合并，CI 8/8；待办优先、按设备汇总监听项，完整清单与工程证据按需展开      |
 
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
@@ -63,7 +63,8 @@ flowchart TB
 
 刚完成：[`调查证据可视化`](stages/2026-10-03-investigation-evidence-view.md)，2026-10-04 合并为 `1025f1c`。
 
-当前阶段：[`总览产品体验收敛`](stages/2026-10-04-product-experience.md)。完成后再沿一条已有的
+刚完成：[`总览产品体验收敛`](stages/2026-10-04-product-experience.md)，PR #102 合并为 `2f174b9`。
+下一步沿一条已有的
 `local_only` 调查记录，说明输入、模型选工具、程序校验证据和停止条件，把页面字段对应到代码与评测；
 完成标准是一个可复核案例和简明讲解，不新增框架或协议。
 自动 Incident 触发的真实双机闭环仍未验收，不用页面 fixture 代替。
