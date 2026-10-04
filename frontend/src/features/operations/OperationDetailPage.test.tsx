@@ -63,7 +63,14 @@ describe("OperationDetailPage", () => {
 
   beforeEach(() => {
     fetchMock = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (path: string, init: RequestInit) =>
+      path === "/api/resources/overview"
+        ? jsonResponse(
+            { detail: { code: "unavailable", message: "名称暂不可用" } },
+            503,
+          )
+        : fetchMock(path, init),
+    );
   });
 
   afterEach(() => {
@@ -132,16 +139,20 @@ describe("OperationDetailPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("按 operation ID");
     expect(
-      await screen.findByRole("heading", { name: maliciousService }),
+      await screen.findByRole("heading", { name: "临时访问请求" }),
     ).toBeVisible();
+    await userEvent.setup().click(screen.getByText("查看技术详情与记录"));
+    expect(screen.getByText(maliciousService)).toBeVisible();
     expect(screen.getByText("清理失败，需要人工处理")).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "验证、资源与清理" }),
     ).toBeVisible();
     expect(screen.getByText("requester_offline")).toBeVisible();
     expect(screen.getAllByText(maliciousText).length).toBeGreaterThan(2);
-    expect(screen.getByText("关闭残留入口并核对资源所有权")).toBeVisible();
-    expect(screen.getByRole("alert", { name: "" })).toBeInTheDocument();
+    expect(
+      screen.getAllByText("关闭残留入口并核对资源所有权")[0],
+    ).toBeVisible();
+    expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
     expect(screen.getByText("当前没有可提交动作。")).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
@@ -476,7 +487,7 @@ describe("OperationDetailPage", () => {
     await user.click(await screen.findByRole("button", { name: "执行操作" }));
     expect(
       await screen.findByRole("dialog", { name: "确认执行操作" }),
-    ).toHaveTextContent("响应未知时页面只查询，不自动重放");
+    ).toHaveTextContent("结果不明确时，请先刷新，不要重复开始");
     const confirm = screen.getByRole("button", { name: "确认执行操作" });
     fireEvent.click(confirm);
     fireEvent.click(confirm);

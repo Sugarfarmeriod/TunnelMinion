@@ -525,7 +525,7 @@ function DeviceServiceOverview({
           : undefined
       }
       summary={summary}
-      title="监听概况"
+      title="我的设备"
       tone={collectionTone(
         services,
         services.items.map((item) => stateTone(item.state, item.freshness)),
@@ -584,15 +584,77 @@ function ServiceRows({
 }: {
   services: ResourceOverview["services"]["items"];
 }) {
+  const [search, setSearch] = useState("");
+  const named = services.filter((service) => service.display_name?.trim());
+  const uncertain = services.filter(
+    (service) =>
+      service.state !== "available" ||
+      !["fresh", "live"].includes(service.freshness),
+  ).length;
+  const filtered = services.filter((service) =>
+    `${service.display_name ?? ""} ${service.access_address ?? ""} ${service.port} ${service.service_id}`
+      .toLocaleLowerCase()
+      .includes(search.trim().toLocaleLowerCase()),
+  );
   if (services.length === 0) {
-    return <p className="overview-empty">这台设备尚未报告监听项。</p>;
+    return <p className="overview-empty">还没有发现这台电脑可供查看的服务。</p>;
   }
   return (
-    <ul className="overview-service-rows">
+    <div className="overview-service-browser">
+      <p className="overview-explanation">
+        {named.length > 0
+          ? `${named.length} 个有名称的服务`
+          : "还没有能认出名称的服务"}
+        {` · ${services.length - named.length} 个后台项目用途未识别`}
+        {uncertain > 0 ? ` · ${uncertain} 项状态需要确认` : ""}
+      </p>
+      {named.length === 0 ? (
+        <p className="overview-empty">
+          电脑后台程序也会出现在这里。检测到项目，不代表它就是你想使用的服务。
+        </p>
+      ) : (
+        <ServiceList services={named} />
+      )}
+      <details className="overview-connections">
+        <summary>查看全部 {services.length} 个检测项目（技术清单）</summary>
+        <label className="overview-service-search">
+          查找名称或地址
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.currentTarget.value)}
+          />
+        </label>
+        <p className="overview-explanation" role="status">
+          找到 {filtered.length} 项，共 {services.length} 项
+        </p>
+        {filtered.length === 0 ? (
+          <p>没有匹配的项目，试试其他名称或地址。</p>
+        ) : (
+          <ServiceList services={filtered} technical />
+        )}
+      </details>
+    </div>
+  );
+}
+
+function ServiceList({
+  services,
+  technical = false,
+}: {
+  services: ResourceOverview["services"]["items"];
+  technical?: boolean;
+}) {
+  return (
+    <ul
+      className="overview-service-rows"
+      tabIndex={0}
+      aria-label={technical ? "完整检测清单" : "有名称的服务"}
+    >
       {services.map((service) => (
         <li key={service.service_id}>
           <div>
-            <strong>{service.display_name ?? "未识别监听项"}</strong>
+            <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
             <span>{service.access_address ?? "访问地址未知"}</span>
           </div>
           <StatusBadge tone={stateTone(service.state, service.freshness)}>
@@ -959,9 +1021,9 @@ export function OverviewPage() {
     <section aria-labelledby="overview-title" className="overview-page surface">
       <header className="overview-page__header">
         <div>
-          <p className="eyebrow">服务端确认的状态</p>
+          <p className="eyebrow">你的设备，尽在这里</p>
           <h2 id="overview-title">总览</h2>
-          <p>本机运行、模型、Coordinator 和跨节点网络分别显示，互不冒充。</p>
+          <p>看看有没有需要处理的请求，再找到你想用的服务。</p>
         </div>
         <button
           disabled={query.isFetching}
@@ -1013,7 +1075,7 @@ export function OverviewPage() {
             <p className="eyebrow">按设备归拢</p>
             <h3 id="overview-resources-title">设备与服务</h3>
           </div>
-          <p>先看每台设备的完整概况，需要时再展开所有监听项。</p>
+          <p>先找你认识的服务。电脑后台的项目收在技术清单里。</p>
         </header>
         <DeviceServiceOverview nodes={data.nodes} services={data.services} />
       </section>

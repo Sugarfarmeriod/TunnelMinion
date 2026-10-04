@@ -27,6 +27,8 @@ flowchart TB
     H -.真实外部接入需求.-> G["7. MCP 薄适配"]
 
     C -.独立产品支线.-> U["总览产品体验收敛"]
+    U --> P["🟨 普通用户优先：批准与服务浏览"]
+    I --> P
 
     classDef done fill:#bbf7d0,stroke:#15803d,stroke-width:4px,color:#14532d;
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
@@ -37,6 +39,7 @@ flowchart TB
     class W done;
     class I done;
     class G,K later;
+    class P current;
 ```
 
 ## 当前状态
@@ -55,6 +58,7 @@ flowchart TB
 | 自动 Incident 触发的真实双机闭环    | 已完成   | 同源人工批准、Windows HTTP 200、自然到期 410、资源及临时权限清理通过；随 PR #105 合并生效 |
 | 7. MCP 薄适配                       | 条件触发 | 出现真实外部工具接入对象，并能证明比原生适配更省成本                                 |
 | 总览产品体验收敛                    | 已完成   | PR #102 已合并，CI 8/8；待办优先、按设备汇总监听项，完整清单与工程证据按需展开      |
+| 普通用户优先的批准与服务浏览        | 进行中   | 请求对象、风险、时长和决定优先；后台项目计数与可搜索技术清单；不猜服务用途          |
 | 单案例讲解                          | 已完成   | PR #104 合并生效；复核真实模型固定环境记录，区分预检、模型选择、程序证据门与处理交接 |
 
 最近完成阶段文档：
@@ -117,6 +121,9 @@ flowchart LR
 - 形成一份可直接支持简历口径的 Markdown 总结和机器可读报告。
 
 ## 后续阶段
+
+当前主写：[普通用户优先的批准与服务浏览](stages/2026-10-05-plain-language-experience.md)。源于现场批准
+页过于专业和服务列表臃肿的反馈，先打通两条日常路径；不将换肤等同于易用，也不宣称全产品已经重做。
 
 ### 受控修复串联
 

@@ -128,7 +128,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
 
   await page.goto(`/app/operations/${fixture.operation_id}`);
   await expect(
-    page.getByRole("heading", { name: "package-acceptance-dashboard" }),
+    page.getByRole("heading", { name: "临时访问请求" }),
   ).toBeVisible();
   const approve = page.getByRole("button", { name: "批准一次" });
   await approve.click();

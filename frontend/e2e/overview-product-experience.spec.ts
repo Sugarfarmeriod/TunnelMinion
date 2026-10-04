@@ -79,9 +79,20 @@ test("总览先给待办，再按设备完整收拢监听项", async ({
   const device = page
     .locator(".overview-device")
     .filter({ hasText: "工作室 Mac" });
-  await expect(device.getByRole("listitem")).toHaveCount(7);
-  await expect(device.getByText("照片备份", { exact: true })).toBeVisible();
-  await expect(device.getByText("未识别监听项")).toHaveCount(6);
+  await expect(
+    device.getByRole("list", { name: "有名称的服务" }).getByRole("listitem"),
+  ).toHaveCount(1);
+  await expect(
+    device
+      .getByRole("list", { name: "有名称的服务" })
+      .getByText("照片备份", { exact: true }),
+  ).toBeVisible();
+  await expect(device.getByText("用途未识别的后台项目").first()).toBeHidden();
+  await device.getByText("查看全部 7 个检测项目（技术清单）").click();
+  await expect(
+    device.getByRole("list", { name: "完整检测清单" }).getByRole("listitem"),
+  ).toHaveCount(7);
+  await expect(device.getByText("用途未识别的后台项目")).toHaveCount(6);
   await expect(device).toContainText("tcp://10.77.0.1:9006");
 
   const accessibility = await new AxeBuilder({ page })

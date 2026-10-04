@@ -53,7 +53,7 @@ for (const viewport of [
 ] as const) {
   test(`${viewport.name} 下真实 operation 详情和确认框可操作`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.setViewportSize({
       width: viewport.width,
       height: viewport.height,
@@ -61,18 +61,29 @@ for (const viewport of [
     await page.goto(`/app/operations/${operationId}`);
 
     await expect(
-      page.getByRole("heading", { name: "package-acceptance-dashboard" }),
+      page.getByRole("heading", { name: "临时访问请求" }),
     ).toBeVisible();
-    await expect(page.getByText(`operation ${operationId}`)).toBeVisible();
+    await expect(page.getByText(`operation ${operationId}`)).toBeHidden();
     await expect(page.getByText("等待本机批准")).toBeVisible();
     await expectNoHorizontalOverflow(page);
+    await page.screenshot({
+      fullPage: true,
+      path: testInfo.outputPath("request-page.png"),
+    });
 
     const approve = page.getByRole("button", { name: "批准一次" });
     await approve.click();
     const dialog = page.getByRole("dialog", { name: "确认批准一次" });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(operationId);
-    await expect(dialog.getByLabel("批准绝对过期时间")).toBeVisible();
+    await expect(dialog.getByLabel("批准有效期截止时间")).toBeHidden();
+    await expect(dialog).toContainText("最多 5 分钟");
+    await page.screenshot({
+      fullPage: true,
+      path: testInfo.outputPath("request-confirmation.png"),
+    });
+    await dialog.getByText("调整批准有效期").click();
+    await expect(dialog.getByLabel("批准有效期截止时间")).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     const results = await new AxeBuilder({ page })
@@ -217,7 +228,9 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   await expect(page.getByText("已授权，等待执行")).toBeVisible();
   await page.getByRole("button", { name: "执行操作" }).click();
   const executeDialog = page.getByRole("dialog", { name: "确认执行操作" });
-  await expect(executeDialog).toContainText("不自动重放");
+  await expect(executeDialog).toContainText(
+    "结果不明确时，请先刷新，不要重复开始",
+  );
   await executeDialog.getByRole("button", { name: "确认执行操作" }).click();
   await expect(page.getByText("请求节点验证通过")).toBeVisible();
   expect(executeCalls).toBe(1);
@@ -239,6 +252,10 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
     error_code: "access_session_unavailable",
   });
   await page.reload();
+  await expect(
+    page.getByText("这台电脑已无法打开临时访问。请刷新状态，不要重复开始。"),
+  ).toBeVisible();
+  await page.getByText("查看技术详情与记录").click();
   await expect(page.getByText("access_session_unavailable")).toBeVisible();
   await expect(page.getByRole("link", { name: "打开临时访问" })).toHaveCount(0);
 

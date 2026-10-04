@@ -279,8 +279,10 @@ describe("OverviewPage", () => {
     const { container } = renderOverview();
 
     await user.click(await screen.findByText(maliciousNode));
-    expect(screen.getByText(maliciousService)).toBeVisible();
-    expect(screen.getByText(/https:\/\/service\.example:443/)).toBeVisible();
+    expect(screen.getAllByText(maliciousService)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(/https:\/\/service\.example:443/)[0],
+    ).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
   });
@@ -332,13 +334,16 @@ describe("OverviewPage", () => {
     expect(screen.queryByText("第 1 / 3 页")).not.toBeInTheDocument();
     expect(
       screen
-        .getAllByText("未识别监听项")
+        .getAllByText("用途未识别的后台项目")
         .filter((item) => item.closest("details")?.open),
     ).toHaveLength(0);
     await user.click(screen.getByText("工作室 Mac"));
+    expect(screen.getByText("查看全部 7 个检测项目（技术清单）")).toBeVisible();
+    expect(screen.getByText("tcp://10.77.0.1:9006")).not.toBeVisible();
+    await user.click(screen.getByText("查看全部 7 个检测项目（技术清单）"));
     expect(
       screen
-        .getAllByText("未识别监听项")
+        .getAllByText("用途未识别的后台项目")
         .filter((item) => item.closest("details")?.open),
     ).toHaveLength(7);
     expect(screen.getByText("tcp://10.77.0.1:9006")).toBeVisible();
