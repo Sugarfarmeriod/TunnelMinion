@@ -1,6 +1,7 @@
 {
-  "status": "expired_successfully_waiting_permission_cleanup",
-  "scope": "真实自动事件、真实模型调查、同源人工批准修复、实际访问与自然到期成功；临时只读权限尚待撤回",
+  "status": "real_case_acceptance_passed",
+  "scope": "真实自动事件、真实模型调查、同源人工批准修复、实际访问、自然到期与临时权限清理成功；单个授权案例",
+  "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/105",
   "windows_source_commit": "05fb9ee",
   "mac_package_source_commit": "42a7098",
   "readonly_permission": {
@@ -13,7 +14,7 @@
     "allowed_peer_query_succeeded": true,
     "unlisted_public_key_query_without_authentication_denied": true,
     "dump_or_private_key_query_executed": false,
-    "temporary_rule_cleanup_pending": true
+    "temporary_rule_cleanup_pending": false
   },
   "baseline_revisions": [2862, 2863, 2864],
   "source_changed_to_loopback_at": "2026-10-04T16:04:55.340554Z",
@@ -84,8 +85,9 @@
     "mac_test_ports_closed": [18889, 18881, 43123],
     "mac_existing_ports_retained": [18765, 8765, 8787],
     "windows_peer_observation_disabled": true,
-    "temporary_readonly_rule_removed": false,
-    "temporary_readonly_helper_removed": false,
+    "temporary_readonly_rule_removed": true,
+    "temporary_readonly_helper_removed": true,
+    "permission_cleanup_verified_at": "2026-10-04T16:29:08.187985Z",
     "ssh_native_admin_cleanup_error": "-60007，未推断为密码错误",
     "local_admin_cleanup_requested": true,
     "network_configuration_changed": false
