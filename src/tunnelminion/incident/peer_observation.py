@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from datetime import UTC, datetime
 from ipaddress import ip_address
 from pathlib import Path
@@ -11,12 +10,13 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.agent.remote import RemotePreparationError
+from tunnelminion.agent.service_observation import compute_static_peer_service_id
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceLifecycle,
     ServiceProtocol,
 )
-from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, ThreadId
+from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.client import RemoteGatewayError
 from tunnelminion.incident.investigation import InvestigationRemoteToolPreparer
@@ -62,9 +62,8 @@ class StaticPeerServiceObserver:
         self._local_node_id = local_node_id
         self._preparer = preparer
         # 用户指定的是逻辑端口，地址变化不能变成两个不同服务。
-        digest = hashlib.sha256(f"static-peer:{config.node_id}:tcp:{config.port}".encode())
         self.service = KnownServiceOverview(
-            service_id=ServiceId(f"service_{digest.hexdigest()[:32]}"),
+            service_id=compute_static_peer_service_id(config.node_id, config.port),
             node_id=config.node_id,
             protocol=ServiceProtocol.TCP,
             port=config.port,

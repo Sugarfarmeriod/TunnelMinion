@@ -14,7 +14,10 @@ from tests.operation.factories import NOW, plan
 
 from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
-from tunnelminion.agent.service_observation import compute_observed_service_id
+from tunnelminion.agent.service_observation import (
+    compute_observed_service_id,
+    compute_static_peer_service_id,
+)
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import (
     IncidentId,
@@ -394,12 +397,12 @@ def _confirmed_local_only_incident(
     target: NodeId,
     *,
     port: int = 8080,
+    source: SnapshotSource = SnapshotSource.COORDINATOR_DIRECTORY,
 ) -> Incident:
-    service_id = compute_observed_service_id(
-        target,
-        ServiceProtocol.TCP,
-        "127.0.0.1",
-        port,
+    service_id = (
+        compute_static_peer_service_id(target, port)
+        if source is SnapshotSource.STATIC_PEER_OBSERVATION
+        else compute_observed_service_id(target, ServiceProtocol.TCP, "127.0.0.1", port)
     )
     baseline_id = SnapshotId.new()
     current_id = SnapshotId.new()
@@ -409,7 +412,7 @@ def _confirmed_local_only_incident(
         service_id=service_id,
         node_id=target,
         state=SnapshotServiceState.AVAILABLE,
-        source=SnapshotSource.COORDINATOR_DIRECTORY,
+        source=source,
         freshness=SnapshotFreshness.FRESH,
         evidence_at=NOW,
         protocol=ServiceProtocol.TCP,
@@ -467,7 +470,7 @@ def _confirmed_local_only_incident(
             baseline_revision=baseline_revision,
             current_revision=current_revision,
             observed_at=NOW,
-            source=SnapshotSource.COORDINATOR_DIRECTORY,
+            source=source,
             before_state="network",
             after_state="loopback",
             dedup_key=dedup_key,
@@ -545,7 +548,12 @@ async def test_create_persists_before_single_submit_and_accepts_remote_summary(
 
 
 @pytest.mark.anyio
-async def test_incident_source_is_verified_and_persists_with_operation(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "source", (SnapshotSource.COORDINATOR_DIRECTORY, SnapshotSource.STATIC_PEER_OBSERVATION)
+)
+async def test_incident_source_is_verified_and_persists_with_operation(
+    tmp_path: Path, source: SnapshotSource
+) -> None:
     agent = FakeDiagnosticAgent(_candidate)
     client = FakeGatewayClient()
     incident_store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
@@ -555,7 +563,7 @@ async def test_incident_source_is_verified_and_persists_with_operation(tmp_path:
         client,
         incident_store=incident_store,
     )
-    incident = _confirmed_local_only_incident(incident_store, remote)
+    incident = _confirmed_local_only_incident(incident_store, remote, source=source)
     payload = _input(remote).model_copy(update={"source_incident_id": incident.incident_id})
 
     def before_submit(operation_plan: OperationPlan) -> None:
