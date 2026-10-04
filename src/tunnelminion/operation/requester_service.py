@@ -17,14 +17,16 @@ from pydantic import ValidationError
 
 from tunnelminion.agent.diagnostics import CrossNodeAgentAnswer
 from tunnelminion.agent.planning import CandidatePlanIntent
-from tunnelminion.agent.service_observation import compute_observed_service_id
+from tunnelminion.agent.service_observation import (
+    compute_observed_service_id,
+    compute_static_peer_service_id,
+)
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import (
     IncidentId,
     NodeId,
     OperationId,
     RunId,
-    ServiceId,
     ThreadId,
 )
 from tunnelminion.gateway.client import RemoteGatewayError
@@ -52,7 +54,9 @@ from tunnelminion.incident.contracts import (
     ServiceProtocol,
     SnapshotFreshness,
     SnapshotObjectKind,
+    SnapshotService,
     SnapshotServiceState,
+    SnapshotSource,
 )
 from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY
 from tunnelminion.incident.storage import SQLiteIncidentStore
@@ -305,16 +309,16 @@ class RequesterOperationService:
             )
         self._validate_plan(plan, value, context, peer)
         if incident_source is not None:
-            source_incident_id, source_service_id = incident_source
-            if (
-                compute_observed_service_id(
-                    plan.target_node_id,
-                    ServiceProtocol.TCP,
-                    plan.service.host,
-                    plan.service.port,
+            source_incident_id, source_service = incident_source
+            source_service_id = source_service.service_id
+            expected_service_id = (
+                compute_static_peer_service_id(plan.target_node_id, plan.service.port)
+                if source_service.source is SnapshotSource.STATIC_PEER_OBSERVATION
+                else compute_observed_service_id(
+                    plan.target_node_id, ServiceProtocol.TCP, plan.service.host, plan.service.port
                 )
-                != source_service_id
-            ):
+            )
+            if expected_service_id != source_service_id:
                 raise RequesterOperationFailure("incident_source_mismatch")
             idempotency_key = compute_idempotency_key(
                 request_node_id=plan.request_node_id,
@@ -580,7 +584,7 @@ class RequesterOperationService:
     def _validate_incident_source(
         self,
         value: RequesterOperationInput,
-    ) -> tuple[IncidentId, ServiceId] | None:
+    ) -> tuple[IncidentId, SnapshotService] | None:
         """只允许真实存储中证据完整且仍匹配目标服务的 local-only 来源。"""
         incident_id = value.source_incident_id
         if incident_id is None:
@@ -656,16 +660,16 @@ class RequesterOperationService:
             or service.protocol is not ServiceProtocol.TCP
             or service.accessibility is not ServiceAccessibility.LOOPBACK
             or service.state is not SnapshotServiceState.AVAILABLE
-            or service.freshness is not SnapshotFreshness.FRESH
+            or service.freshness not in {SnapshotFreshness.FRESH, SnapshotFreshness.LIVE}
             or current_service is None
             or current_service.port != service.port
             or current_service.protocol is not ServiceProtocol.TCP
             or current_service.accessibility is not ServiceAccessibility.LOOPBACK
             or current_service.state is not SnapshotServiceState.AVAILABLE
-            or current_service.freshness is not SnapshotFreshness.FRESH
+            or current_service.freshness not in {SnapshotFreshness.FRESH, SnapshotFreshness.LIVE}
         ):
             raise RequesterOperationFailure("incident_source_mismatch")
-        return incident_id, service.service_id
+        return incident_id, service
 
     def _store_remote_result(
         self,

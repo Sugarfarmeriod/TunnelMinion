@@ -87,6 +87,12 @@ def compute_observed_service_id(
     return ServiceId(f"service_{digest}")
 
 
+def compute_static_peer_service_id(node_id: NodeId, port: int) -> ServiceId:
+    """显式静态对端按逻辑 TCP 端口定身份，地址变化不改变身份。"""
+    digest = hashlib.sha256(f"static-peer:{node_id}:tcp:{port}".encode()).hexdigest()[:32]
+    return ServiceId(f"service_{digest}")
+
+
 class DeterministicServiceObserver:
     """固定顺序采集监听、进程和 Docker，并拒绝部分或超预算快照。"""
 

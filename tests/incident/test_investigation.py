@@ -1450,6 +1450,61 @@ def test_probe_fallback_only_uses_a_valid_private_ipv4_and_incident_port(
     ) == {"host": "10.77.0.3", "port": 43123}
 
 
+@pytest.mark.parametrize(
+    ("skill_pending", "conflict", "valid_reference", "expected_message"),
+    (
+        (True, False, True, "Skill 的事实确认条件未满足"),
+        (False, True, True, "只读工具证据与事件快照存在冲突"),
+        (False, False, False, "模型没有提供足以确认根因的有效证据引用"),
+        (False, False, True, None),
+    ),
+)
+def test_report_stop_reason_distinguishes_fact_gate_from_citation_failure(
+    tmp_path: Path,
+    skill_pending: bool,
+    conflict: bool,
+    valid_reference: bool,
+    expected_message: str | None,
+) -> None:
+    investigator, store, _, _ = _runtime(tmp_path, "report-gates")
+    incident = _incident(store).transition(IncidentStatus.INVESTIGATING, at=NOW, run_id=RunId.new())
+    if skill_pending:
+        incident = investigator._ensure_skill_state(  # pyright: ignore[reportPrivateUsage]
+            incident, SERVICE_LOCAL_ONLY
+        )
+    reference = EvidenceReference(tool_run_id=ToolRunId.new(), observed_at=NOW, summary="只读证据")
+    reference_id = str(reference.tool_run_id)
+    decision = investigator._parse_decision(  # pyright: ignore[reportPrivateUsage]
+        {
+            "hypotheses": [
+                {
+                    "summary": "服务仅监听回环",
+                    "status": "supported",
+                    "evidence_refs": [reference_id if valid_reference else "missing"],
+                }
+            ],
+            "conclusion": "服务仅监听回环",
+            "stop_reason": "evidence_sufficient",
+        },
+        None,
+    )
+    result = investigator._apply_decision(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        decision,
+        {reference_id: reference},
+        required_evidence=(reference,),
+        evidence_conflict=conflict,
+    )
+    assert result.report is not None
+    if expected_message is None:
+        assert result.status is IncidentStatus.CONFIRMED
+        assert result.report.conclusion is not None
+    else:
+        assert result.status is IncidentStatus.INSUFFICIENT_EVIDENCE
+        assert result.report.conclusion is None
+        assert any(expected_message in value for value in result.report.unknowns)
+
+
 def test_skill_observations_reject_malformed_tool_outputs(tmp_path: Path) -> None:
     investigator, store, _, _ = _runtime(tmp_path, "skill-output-validation")
     incident = _incident(store)
@@ -1474,6 +1529,21 @@ def test_skill_observations_reject_malformed_tool_outputs(tmp_path: Path) -> Non
         {"wireguard": {"availability": "available", "interface_up": False, "addresses": []}},
     )
     assert observations == {"private_network_ready": False, "interface_up": False}
+
+    observations, facts = investigator._skill_observations(  # pyright: ignore[reportPrivateUsage]
+        incident,
+        "get_node_summary",
+        {
+            "wireguard": {
+                "availability": "degraded",
+                "interface_up": True,
+                "addresses": ["10.77.0.1"],
+                "error_code": "permission_denied",
+            }
+        },
+    )
+    assert observations is not None and observations["private_network_ready"] is False
+    assert facts == ("目标私网状态：未知（状态数据不完整），地址 10.77.0.1",)
 
     skilled = investigator._ensure_skill_state(  # pyright: ignore[reportPrivateUsage]
         incident,

@@ -53,6 +53,7 @@ const source = z.enum([
   "coordinator_directory",
   "network_path_evidence",
   "local_observation",
+  "static_peer_observation",
   "aggregated",
   "unknown",
 ]);

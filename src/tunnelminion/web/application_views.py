@@ -25,6 +25,7 @@ from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.coordinator import contracts as coordinator_contracts
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.incident.peer_observation import StaticPeerServiceObserver
 from tunnelminion.model.configuration import ModelConfigurationService
 from tunnelminion.model.contracts import ProviderErrorCode
 from tunnelminion.network.path_controller import (
@@ -119,6 +120,7 @@ def build_application_view_bindings(
     managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
     incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
     local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
+    peer_observation: StaticPeerServiceObserver | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -134,6 +136,7 @@ def build_application_view_bindings(
         managed_path_status,
         incidents,
         local_services,
+        peer_observation,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -194,6 +197,7 @@ class _ApplicationViewAdapter:
         managed_path_status: Callable[[], ManagedPathStatus | None] | None = None,
         incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
         local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
+        peer_observation: StaticPeerServiceObserver | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
@@ -203,6 +207,7 @@ class _ApplicationViewAdapter:
         self.managed_path_status_provider = managed_path_status
         self.incidents_provider = incidents
         self.local_services_provider = local_services
+        self.peer_observation = peer_observation
         self.clock = clock
         self.package = package
 
@@ -486,10 +491,12 @@ class _ApplicationViewAdapter:
                 for item in cached.nodes
                 if item.identity.node_id != self.node_id
             )
+        if self.peer_observation is not None:
+            items.append(self.peer_observation.node)
         return overview_contracts.KnownNodesOverview(
             source=(
                 overview_contracts.OverviewSource.AGGREGATED
-                if cached is not None
+                if cached is not None or self.peer_observation is not None
                 else overview_contracts.OverviewSource.LOCAL_OBSERVATION
             ),
             evidence_at=now,
@@ -513,11 +520,14 @@ class _ApplicationViewAdapter:
                         self.service_view(service, node.identity.node_id, _NODE_STATES[node.status])
                         for service in node.services
                     )
+        if self.peer_observation is not None:
+            items.append(self.peer_observation.service)
         times = tuple(item.evidence_at for item in items if item.evidence_at is not None)
         return overview_contracts.KnownServicesOverview(
             source=(
                 overview_contracts.OverviewSource.AGGREGATED
-                if snapshot is not None and cached is not None
+                if self.peer_observation is not None
+                or (snapshot is not None and cached is not None)
                 else overview_contracts.OverviewSource.COORDINATOR_DIRECTORY
                 if cached is not None
                 else overview_contracts.OverviewSource.LOCAL_OBSERVATION
