@@ -58,7 +58,7 @@
 
 .settings-page .settings-button--danger-outline {
   background: transparent;
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .settings-status-card,
@@ -98,7 +98,7 @@
 
 .settings-status--unavailable {
   background: color-mix(in srgb, #b42318 10%, var(--color-surface));
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .settings-metadata {
@@ -213,7 +213,7 @@
 .settings-inline-error,
 .settings-notice--error,
 .settings-query-error {
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .settings-inline-error {

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol, cast
@@ -56,6 +58,7 @@ class ServiceObservationSnapshot(BaseModel):
 
     observed_at: datetime
     services: tuple[ServiceSummary, ...]
+    display_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     degraded_sources: tuple[str, ...] = ()
     disabled_sources: tuple[str, ...] = ()
     complete: bool = True
@@ -161,6 +164,7 @@ class DeterministicServiceObserver:
                 snapshot = ServiceObservationSnapshot(
                     observed_at=now,
                     services=services,
+                    display_names=self._display_names(inventory.services),
                     degraded_sources=inventory.unavailable_sources,
                     disabled_sources=self._disabled_sources(),
                 )
@@ -252,6 +256,30 @@ class DeterministicServiceObserver:
         return tuple(
             sorted(values.values(), key=lambda item: (item.port, item.protocol, item.host))
         )
+
+    def _display_names(self, services: tuple[RemoteServiceSummary, ...]) -> dict[str, str]:
+        """仅为本机可证明归属的项目命名，不外传、不猜应用用途。"""
+        names: dict[str, set[str]] = {}
+        for item in services:
+            if item.protocol != "tcp" or item.process_pid == os.getpid():
+                continue
+            name = None
+            if item.container_name and item.container_name.strip():
+                name = f"Docker · {item.container_name.strip()[:55]} · {item.port}"
+            elif item.process_pid is not None and re.fullmatch(
+                r"pythonw?(?:\d+(?:\.\d+)*)?(?:\.exe)?", item.process_name or "", re.I
+            ):
+                name = f"Python 服务 · {item.port}"
+            if name is not None:
+                service_id = compute_observed_service_id(
+                    self._node_id, ServiceProtocol.TCP, item.address, item.port
+                )
+                names.setdefault(str(service_id), set()).add(name)
+        return {
+            service_id: next(iter(values))
+            for service_id, values in names.items()
+            if len(values) == 1
+        }
 
     def _validate_budget(self, services: tuple[ServiceSummary, ...]) -> None:
         if len(services) > self._config.max_services:

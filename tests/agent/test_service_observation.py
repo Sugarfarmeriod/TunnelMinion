@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -136,6 +137,8 @@ def test_observation_merges_listener_process_docker_udp_and_dual_stack() -> None
     assert tcp.protocol is ServiceProtocol.TCP
     assert tcp.accessibility is ServiceAccessibility.NETWORK
     assert tcp.confidence == 0.95
+    assert snapshot.display_names == {str(tcp.service_id): "Docker · web · 8080"}
+    assert "Docker" not in snapshot.model_dump_json()
     assert udp.protocol is ServiceProtocol.UDP
     assert udp.accessibility is ServiceAccessibility.LOOPBACK
     assert "safe-name" not in snapshot.model_dump_json()
@@ -157,6 +160,94 @@ def test_docker_failure_is_degraded_but_listener_snapshot_is_complete() -> None:
     assert snapshot.degraded_sources == ("list_docker_services",)
     assert "secret" not in snapshot.model_dump_json()
     assert value.status.last_error_code is None
+
+
+def test_automatic_names_select_python_without_system_ports_or_own_runtime() -> None:
+    listeners = FakeAdapter(
+        collection(
+            NetworkListener(
+                protocol="tcp", address="127.0.0.1", port=43123, pid=101, process_name="python3.14"
+            ),
+            NetworkListener(
+                protocol="tcp", address="127.0.0.1", port=43124, pid=102, process_name="Python.EXE"
+            ),
+            NetworkListener(
+                protocol="tcp", address="0.0.0.0", port=80, pid=103, process_name="svchost.exe"
+            ),
+            NetworkListener(
+                protocol="tcp",
+                address="127.0.0.1",
+                port=4174,
+                pid=os.getpid(),
+                process_name="python",
+            ),
+            NetworkListener(
+                protocol="udp", address="0.0.0.0", port=5353, pid=104, process_name="python"
+            ),
+            NetworkListener(protocol="tcp", address="127.0.0.1", port=43125, process_name="python"),
+            NetworkListener(
+                protocol="tcp",
+                address="127.0.0.1",
+                port=43126,
+                pid=105,
+                process_name="python-helper",
+            ),
+        )
+    )
+    snapshot = asyncio.run(
+        observer(listeners, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    assert len(snapshot.services) == 7
+    assert set(snapshot.display_names.values()) == {"Python 服务 · 43123", "Python 服务 · 43124"}
+    assert "Python 服务" not in snapshot.model_dump_json()
+
+
+def test_names_keep_unknown_container_labels_out_and_merge_python_dual_stack() -> None:
+    listeners = FakeAdapter(
+        collection(
+            NetworkListener(
+                protocol="tcp", address="0.0.0.0", port=43123, pid=101, process_name="python"
+            ),
+            NetworkListener(
+                protocol="tcp", address="::", port=43123, pid=102, process_name="python"
+            ),
+        )
+    )
+    docker = FakeAdapter(
+        collection(
+            DockerService(
+                container_id="container",
+                name=" ",
+                image="image",
+                ports="0.0.0.0:8080->80/tcp",
+                status="Up",
+            )
+        )
+    )
+    snapshot = asyncio.run(observer(listeners, FakeAdapter(collection()), docker).observe())
+    assert set(snapshot.display_names.values()) == {"Python 服务 · 43123"}
+
+
+def test_conflicting_container_names_do_not_choose_a_product_identity() -> None:
+    docker = FakeAdapter(
+        collection(
+            *(
+                DockerService(
+                    container_id=name,
+                    name=name,
+                    image="image",
+                    ports="0.0.0.0:8080->80/tcp",
+                    status="Up",
+                )
+                for name in ("first", "second")
+            )
+        )
+    )
+    snapshot = asyncio.run(
+        observer(FakeAdapter(collection()), FakeAdapter(collection()), docker).observe()
+    )
+    assert len(snapshot.services) == 1
+    assert snapshot.display_names == {}
 
 
 def test_disabled_sources_do_not_execute_and_active_probe_defaults_off() -> None:
