@@ -107,3 +107,8 @@ Chromium/WebKit 全量 48 项、构建、格式和体积预算；后续阅读层
 [安全公告 GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)，因此阻止运行包构建。
 仅将锁文件中的该依赖更新至修复版 `1.2.2`，不修改直接依赖、产品代码或安全门禁；供应链检查和
 最终运行包验证使用更新后的锁文件，不豁免漏洞。
+
+Python 测试及两端正式包随后通过，但 Python 供应链扫描命中已有间接依赖 `langgraph-sdk@0.4.2`
+的[授权装饰器安全公告 GHSA-fvww-7h3r-vfhp](https://github.com/advisories/GHSA-fvww-7h3r-vfhp)。
+仅将 `uv.lock` 中该依赖更新至修复版 `0.4.4`，不新增 LangGraph 功能，也不把间接依赖存在当作
+本项目调查循环使用 LangGraph 的证据。发布仍要求最新锁文件通过原有完整门禁。
