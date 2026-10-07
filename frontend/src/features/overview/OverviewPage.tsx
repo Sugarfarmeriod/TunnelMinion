@@ -115,9 +115,9 @@ const nodeStateLabels: Record<
   ResourceOverview["nodes"]["items"][number]["state"],
   string
 > = {
-  local: "本机节点",
-  online: "有在线证据",
-  stale: "只有陈旧证据",
+  local: "这台电脑",
+  online: "最近在线",
+  stale: "需要刷新确认",
   offline: "当前离线",
   revoked: "已撤销",
   incompatible: "版本不兼容",
@@ -128,8 +128,8 @@ const serviceStateLabels: Record<
   ResourceOverview["services"]["items"][number]["state"],
   string
 > = {
-  available: "有可用证据",
-  degraded: "部分能力受限",
+  available: "已发现，访问待确认",
+  degraded: "部分功能受限",
   unavailable: "当前不可用",
   stopped: "已停止",
   unknown: "状态未知",
@@ -529,21 +529,22 @@ function DeviceServiceOverview({
                     {node.platform === null
                       ? "平台未知"
                       : platformLabels[node.platform]}
-                    {` · ${nodeServices.filter((service) => service.display_name?.trim()).length} 个有名称的服务`}
+                    {nodeServices.some((service) =>
+                      service.display_name?.trim(),
+                    )
+                      ? ` · ${nodeServices.filter((service) => service.display_name?.trim()).length} 个有名称的服务`
+                      : nodeServices.length > 0
+                        ? " · 服务名称还不清楚"
+                        : " · 暂无服务记录"}
                   </small>
                 </span>
                 <StatusBadge tone={stateTone(node.state, node.freshness)}>
                   {node.freshness === "stale" || node.freshness === "expired"
-                    ? `${nodeStateLabels[node.state]}（证据陈旧）`
+                    ? `${nodeStateLabels[node.state]}（记录已过时）`
                     : nodeStateLabels[node.state]}
                 </StatusBadge>
               </summary>
               <ServiceRows services={nodeServices} />
-              <p className="overview-resource-list__evidence">
-                {sourceLabels[node.source]} ·{" "}
-                {formatTimestamp(node.evidence_at)} ·{" "}
-                {freshnessLabels[node.freshness]}
-              </p>
             </details>
           ))}
           {unassigned.length > 0 ? (
@@ -586,16 +587,19 @@ function ServiceRows({
   }
   return (
     <div className="overview-service-browser">
-      <p className="overview-explanation">
-        {named.length > 0
-          ? `${named.length} 个有名称的服务`
-          : "还没有能认出名称的服务"}
-        {` · ${services.length - named.length} 个后台项目用途未识别`}
-        {uncertain > 0 ? ` · ${uncertain} 项状态需要确认` : ""}
-      </p>
+      {services.length > named.length || uncertain > 0 ? (
+        <p className="overview-explanation">
+          {services.length > named.length
+            ? `${services.length - named.length} 个后台项目用途未识别`
+            : ""}
+          {uncertain > 0
+            ? `${services.length > named.length ? " · " : ""}${uncertain} 项状态需要确认`
+            : ""}
+        </p>
+      ) : null}
       {named.length === 0 ? (
         <p className="overview-empty">
-          电脑后台程序也会出现在这里。检测到项目，不代表它就是你想使用的服务。
+          还不能确定哪些是你想用的服务；后台记录可以在下面查看。
         </p>
       ) : (
         <ServiceList services={named} />
@@ -640,11 +644,13 @@ function ServiceList({
         <li key={service.service_id}>
           <div>
             <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
-            <span>{service.access_address ?? "访问地址未知"}</span>
+            {technical ? (
+              <span>{service.access_address ?? "访问地址未知"}</span>
+            ) : null}
           </div>
           <StatusBadge tone={stateTone(service.state, service.freshness)}>
             {service.freshness === "stale" || service.freshness === "expired"
-              ? `${serviceStateLabels[service.state]}（证据陈旧）`
+              ? `${serviceStateLabels[service.state]}（记录已过时）`
               : serviceStateLabels[service.state]}
           </StatusBadge>
         </li>
@@ -964,10 +970,7 @@ export function OverviewPage() {
       <header className="overview-page__header">
         <div>
           <h2 id="overview-title">总览</h2>
-          <p>
-            {data.nodes.items.length} 台设备 · {data.services.items.length}{" "}
-            个检测项目
-          </p>
+          <p>{data.nodes.items.length} 台设备</p>
         </div>
         <button
           disabled={query.isFetching}
@@ -1015,6 +1018,20 @@ export function OverviewPage() {
           />
           <div className="overview-source-details">
             <h3>设备与服务的数据来源</h3>
+            {showMore ? (
+              <ul aria-label="设备记录来源" className="overview-resource-list">
+                {data.nodes.items.map((node) => (
+                  <li key={node.node_id}>
+                    <strong>{node.display_name}</strong>
+                    <p>
+                      {sourceLabels[node.source]} ·{" "}
+                      {formatTimestamp(node.evidence_at)} ·{" "}
+                      {freshnessLabels[node.freshness]}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <p>设备清单</p>
             <SectionMetadata meta={data.nodes} />
             <p>服务清单</p>

@@ -237,14 +237,14 @@ describe("OverviewPage", () => {
     }
     expect(screen.getByText("firewall_log_unavailable")).toBeVisible();
     expect(screen.getByText("service_inventory_unavailable")).toBeVisible();
-    expect(screen.getByText("2 台设备 · 0 个检测项目")).toBeVisible();
+    expect(screen.getByText("2 台设备")).toBeVisible();
     expect(
       screen.getByText("设备清单还不能确认最新状态，请刷新后再判断。"),
     ).toBeVisible();
     expect(
       screen.getByText("服务清单还不能确认最新状态，请刷新后再判断。"),
     ).toBeVisible();
-    expect(screen.getByText("当前离线（证据陈旧）")).toBeVisible();
+    expect(screen.getByText("当前离线（记录已过时）")).toBeVisible();
     expect(screen.getByText("状态未知")).toBeVisible();
     expect(screen.getByText(/先看真实探测是否通过/)).toBeVisible();
     expect(screen.queryByText(/^健康$/)).not.toBeInTheDocument();
@@ -289,6 +289,10 @@ describe("OverviewPage", () => {
 
     await user.click(await screen.findByText(maliciousNode));
     expect(screen.getAllByText(maliciousService)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(/https:\/\/service\.example:443/)[0],
+    ).not.toBeVisible();
+    await user.click(screen.getByText("查看全部 1 个检测项目（技术清单）"));
     expect(
       screen.getAllByText(/https:\/\/service\.example:443/)[0],
     ).toBeVisible();
@@ -339,7 +343,7 @@ describe("OverviewPage", () => {
 
     renderOverview();
 
-    expect(await screen.findByText("2 台设备 · 13 个检测项目")).toBeVisible();
+    expect(await screen.findByText("2 台设备")).toBeVisible();
     expect(screen.queryByText("第 1 / 3 页")).not.toBeInTheDocument();
     expect(
       screen

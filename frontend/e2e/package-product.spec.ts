@@ -109,12 +109,12 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   await expect(
     page.getByRole("button", { name: "为什么这个服务只能从本机访问？" }),
   ).toBeVisible();
-  const operationAttention = page.locator(
-    '[aria-labelledby="overview-operation-attention"]',
-  );
+  const operationAttention = page.getByRole("list", {
+    name: "需要你处理的请求",
+  });
   await expect(operationAttention.getByText("待本机批准")).toBeVisible();
   await expect(
-    operationAttention.getByRole("link", { name: "打开最新操作详情" }),
+    operationAttention.getByRole("link", { name: "查看并处理" }),
   ).toHaveAttribute("href", `/app/operations/${fixture.operation_id}`);
 
   await page.goto("/app/chat");

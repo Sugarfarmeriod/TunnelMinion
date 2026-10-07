@@ -293,11 +293,11 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(coordinatorCard).toContainText("directory_cache_stale");
     const nodesCard = page.locator(".overview-devices");
     await expect(nodesCard).toContainText("缓存中的实验节点");
-    await expect(nodesCard).toContainText("有在线证据（证据陈旧）");
+    await expect(nodesCard).toContainText("最近在线（记录已过时）");
     await expect(nodesCard).toContainText(
       "设备清单还不能确认最新状态，请刷新后再判断。",
     );
-    await page.getByText("缓存中的实验节点", { exact: true }).click();
+    await nodesCard.getByText("缓存中的实验节点", { exact: true }).click();
     await expect(nodesCard).toContainText("缓存中的只读服务");
   });
 

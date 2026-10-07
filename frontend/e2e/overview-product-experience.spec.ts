@@ -13,6 +13,20 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
   const response = await request.get("/api/resources/overview");
   const overview = (await response.json()) as ResourceOverview;
   const evidenceAt = overview.generated_at;
+  overview.nodes = {
+    ...overview.nodes,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: evidenceAt,
+  };
+  overview.services = {
+    ...overview.services,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: evidenceAt,
+  };
   overview.nodes.items = [
     {
       node_id: nodeA,
@@ -69,7 +83,7 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
     0,
   );
   await expect(page.locator(".overview-card:visible")).toHaveCount(0);
-  await expect(page.getByText("2 台设备 · 13 个检测项目")).toBeVisible();
+  await expect(page.getByText("2 台设备", { exact: true })).toBeVisible();
   await expect(page.getByText("工作室 Mac", { exact: true })).toBeVisible();
   await expect(page.getByText("客厅电脑", { exact: true })).toBeVisible();
   await expect(page.getByText("更多信息", { exact: true })).toBeVisible();
@@ -107,6 +121,9 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
   await expect(device).toContainText("tcp://10.77.0.1:9006");
   await page.getByText("更多信息", { exact: true }).click();
   await expect(page.getByText("本机程序正在运行")).toBeVisible();
+  await expect(page.getByRole("list", { name: "设备记录来源" })).toContainText(
+    "Coordinator 目录",
+  );
   await page.getByText("更多信息", { exact: true }).click();
 
   const accessibility = await new AxeBuilder({ page })

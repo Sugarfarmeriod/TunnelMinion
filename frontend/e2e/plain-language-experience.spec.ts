@@ -14,6 +14,20 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
   const overview = (await (
     await request.get("/api/resources/overview")
   ).json()) as ResourceOverview;
+  overview.nodes = {
+    ...overview.nodes,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: overview.generated_at,
+  };
+  overview.services = {
+    ...overview.services,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: overview.generated_at,
+  };
   overview.nodes.items = [
     {
       node_id: targetNodeId,
@@ -61,6 +75,8 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
     "299 个后台项目用途未识别 · 1 项状态需要确认",
   );
   await expect(device.getByText("tcp://10.77.0.1:9299")).toBeHidden();
+  await expect(device.getByText("tcp://10.77.0.1:9000")).toBeHidden();
+  await expect(device.getByText("Coordinator 目录")).toHaveCount(0);
   await expect(page.locator(".overview-card:visible")).toHaveCount(0);
   await expect(
     page.getByRole("list", { name: "需要你处理的请求" }),
