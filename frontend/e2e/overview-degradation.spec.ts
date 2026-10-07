@@ -210,7 +210,7 @@ function staleCacheOverview(): ResourceOverview {
 test.describe("Overview 浏览器层降级与恢复矩阵", () => {
   test("无模型时仍保留本机总览，并给出配置模型的下一步", async ({ page }) => {
     await serveOverview(page, modelUnavailableOverview());
-    await page.getByText("运行基础", { exact: true }).click();
+    await page.getByText("更多信息", { exact: true }).click();
 
     const modelCard = page.locator('article[aria-labelledby="overview-model"]');
     await expect(modelCard).toContainText("还没有配置模型");
@@ -227,7 +227,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, coordinatorUnconfiguredOverview());
-    await page.getByText("运行基础", { exact: true }).click();
+    await page.getByText("更多信息", { exact: true }).click();
 
     const coordinatorCard = page.locator(
       'article[aria-labelledby="overview-coordinator"]',
@@ -238,14 +238,14 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(
       page.locator('article[aria-labelledby="overview-local"]'),
     ).toContainText("本机接口已准备好");
-    await expect(
-      page.locator('article[aria-labelledby="overview-devices"]'),
-    ).toContainText("尚未发现设备或监听项");
+    await expect(page.locator(".overview-devices")).toContainText(
+      "还没有发现设备或服务。",
+    );
   });
 
   test("peer 离线时单独标记路径和节点，不误报本机故障", async ({ page }) => {
     await serveOverview(page, peerOfflineOverview());
-    await page.getByText("运行基础", { exact: true }).click();
+    await page.getByText("更多信息", { exact: true }).click();
 
     const networkCard = page.locator(
       'article[aria-labelledby="overview-network"]',
@@ -253,12 +253,10 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(networkCard).toContainText("peer 路径当前不可达");
     await expect(networkCard).toContainText("真实探测");
     await expect(networkCard).toContainText("未通过");
-    await expect(
-      page.locator('article[aria-labelledby="overview-devices"]'),
-    ).toContainText("实验室 Mac（脱敏）");
-    await expect(
-      page.locator('article[aria-labelledby="overview-devices"]'),
-    ).toContainText("当前离线");
+    await expect(page.locator(".overview-devices")).toContainText(
+      "实验室 Mac（脱敏）",
+    );
+    await expect(page.locator(".overview-devices")).toContainText("当前离线");
     await expect(
       page.locator('article[aria-labelledby="overview-local"]'),
     ).toContainText("本机程序正在运行");
@@ -268,7 +266,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, firewallLogUnavailableOverview());
-    await page.getByText("运行基础", { exact: true }).click();
+    await page.getByText("更多信息", { exact: true }).click();
 
     const networkCard = page.locator(
       'article[aria-labelledby="overview-network"]',
@@ -286,20 +284,20 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     page,
   }) => {
     await serveOverview(page, staleCacheOverview());
-    await page.getByText("运行基础", { exact: true }).click();
+    await page.getByText("更多信息", { exact: true }).click();
 
     const coordinatorCard = page.locator(
       'article[aria-labelledby="overview-coordinator"]',
     );
     await expect(coordinatorCard).toContainText("Coordinator 目录已经陈旧");
     await expect(coordinatorCard).toContainText("directory_cache_stale");
-    const nodesCard = page.locator(
-      'article[aria-labelledby="overview-devices"]',
-    );
+    const nodesCard = page.locator(".overview-devices");
     await expect(nodesCard).toContainText("缓存中的实验节点");
-    await expect(nodesCard).toContainText("有在线证据（证据陈旧）");
-    await expect(nodesCard).toContainText("先展开标记为异常或证据陈旧的设备");
-    await page.getByText("缓存中的实验节点", { exact: true }).click();
+    await expect(nodesCard).toContainText("最近在线（记录已过时）");
+    await expect(nodesCard).toContainText(
+      "设备清单还不能确认最新状态，请刷新后再判断。",
+    );
+    await nodesCard.getByText("缓存中的实验节点", { exact: true }).click();
     await expect(nodesCard).toContainText("缓存中的只读服务");
   });
 
@@ -356,7 +354,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(page.getByText("刷新前的节点记录")).toBeVisible();
 
     const refresh = page.getByRole("button", {
-      name: "刷新证据",
+      name: "刷新",
       exact: true,
     });
     await refresh.click();

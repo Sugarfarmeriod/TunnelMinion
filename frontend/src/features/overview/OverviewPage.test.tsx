@@ -100,7 +100,7 @@ function jsonResponse(payload: unknown): Promise<Response> {
   );
 }
 
-function renderOverview() {
+function renderOverview(entry = "/app/overview") {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -109,9 +109,7 @@ function renderOverview() {
   function Wrapper({ children }: PropsWithChildren) {
     return (
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/app/overview"]}>
-          {children}
-        </MemoryRouter>
+        <MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>
       </QueryClientProvider>
     );
   }
@@ -136,19 +134,24 @@ describe("OverviewPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("先显示 loading，再按独立领域展示服务端强类型状态", async () => {
+  it("首页没有空栏目，技术状态从更多信息打开", async () => {
     fetchMock.mockReturnValueOnce(jsonResponse(makeOverview()));
     const user = userEvent.setup();
 
     renderOverview();
 
     expect(screen.getByRole("status")).toHaveTextContent("正在读取本机");
+    expect(await screen.findByText("还没有发现设备或服务。")).toBeVisible();
     expect(
-      await screen.findByRole("heading", { name: "需要你处理" }),
-    ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "设备与服务" })).toBeVisible();
-    expect(screen.getByText("尚未发现设备或监听项")).toBeVisible();
-    await user.click(screen.getByText("运行基础"));
+      screen.queryByRole("heading", { name: "需要你处理" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("list", { name: "需要你处理的请求" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("还没有发现设备或服务。")).toBeVisible();
+    expect(screen.getByText("本机程序正在运行")).not.toBeVisible();
+    expect(screen.getByText("没有检测到重要变化")).not.toBeVisible();
+    await user.click(screen.getByText("更多信息"));
     expect(screen.getByRole("heading", { name: "本机运行" })).toBeVisible();
     expect(screen.getByText("本机接口已准备好")).toBeVisible();
     expect(screen.getByText("模型现在可以使用")).toBeVisible();
@@ -223,7 +226,7 @@ describe("OverviewPage", () => {
 
     renderOverview();
 
-    await user.click(await screen.findByText("运行基础"));
+    await user.click(await screen.findByText("更多信息"));
     expect(screen.getByText("还没有配置模型")).toBeVisible();
     expect(
       screen.getByText("未配置 Coordinator，当前按仅本机模式工作"),
@@ -234,8 +237,14 @@ describe("OverviewPage", () => {
     }
     expect(screen.getByText("firewall_log_unavailable")).toBeVisible();
     expect(screen.getByText("service_inventory_unavailable")).toBeVisible();
-    expect(screen.getByText("2 台设备 · 0 个监听项")).toBeVisible();
-    expect(screen.getByText("当前离线（证据陈旧）")).toBeVisible();
+    expect(screen.getByText("2 台设备")).toBeVisible();
+    expect(
+      screen.getByText("设备清单还不能确认最新状态，请刷新后再判断。"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("服务清单还不能确认最新状态，请刷新后再判断。"),
+    ).toBeVisible();
+    expect(screen.getByText("当前离线（记录已过时）")).toBeVisible();
     expect(screen.getByText("状态未知")).toBeVisible();
     expect(screen.getByText(/先看真实探测是否通过/)).toBeVisible();
     expect(screen.queryByText(/^健康$/)).not.toBeInTheDocument();
@@ -280,6 +289,10 @@ describe("OverviewPage", () => {
 
     await user.click(await screen.findByText(maliciousNode));
     expect(screen.getAllByText(maliciousService)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(/https:\/\/service\.example:443/)[0],
+    ).not.toBeVisible();
+    await user.click(screen.getByText("查看全部 1 个检测项目（技术清单）"));
     expect(
       screen.getAllByText(/https:\/\/service\.example:443/)[0],
     ).toBeVisible();
@@ -330,7 +343,7 @@ describe("OverviewPage", () => {
 
     renderOverview();
 
-    expect(await screen.findByText("2 台设备 · 13 个监听项")).toBeVisible();
+    expect(await screen.findByText("2 台设备")).toBeVisible();
     expect(screen.queryByText("第 1 / 3 页")).not.toBeInTheDocument();
     expect(
       screen
@@ -523,6 +536,7 @@ describe("OverviewPage", () => {
     const user = userEvent.setup();
     const { container } = renderOverview();
 
+    await user.click(await screen.findByText("更多信息"));
     await user.click(
       await screen.findByRole("button", { name: "查看调查详情" }),
     );
@@ -685,9 +699,8 @@ describe("OverviewPage", () => {
     });
     const user = userEvent.setup();
 
-    renderOverview();
-    await user.click(
-      await screen.findByRole("button", { name: "查看调查详情" }),
+    renderOverview(
+      `/app/overview?incident_id=${incidentId}#overview-incidents`,
     );
     const handoff = await screen.findByRole("link", {
       name: "生成候选处理计划",
@@ -750,9 +763,7 @@ describe("OverviewPage", () => {
     expect(screen.getByText("待确认执行")).toBeVisible();
     expect(screen.getByText("写入结果待确认")).toBeVisible();
     expect(screen.getByText("清理失败，需人工处理")).toBeVisible();
-    expect(
-      screen.getAllByRole("link", { name: "打开最新操作详情" }),
-    ).toHaveLength(4);
+    expect(screen.getAllByRole("link", { name: "查看并处理" })).toHaveLength(4);
 
     cleanup();
     fetchMock.mockImplementation((input) =>
@@ -762,13 +773,9 @@ describe("OverviewPage", () => {
     );
     renderOverview();
 
+    expect(await screen.findByText("更多信息")).toBeVisible();
     expect(
-      await screen.findByRole("heading", { name: "事件与自主调查" }),
-    ).toBeVisible();
-    expect(
-      await screen.findByText(
-        "操作待办暂时无法读取；资源和 incident 总览不受影响。",
-      ),
+      await screen.findByText("暂时读不到待处理请求；设备和服务仍可查看。"),
     ).toBeVisible();
   });
 
@@ -817,7 +824,7 @@ describe("OverviewPage", () => {
 
     renderOverview();
     await screen.findByText("旧的节点记录");
-    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    await user.click(screen.getByRole("button", { name: "刷新" }));
 
     expect(
       await screen.findByText("刷新失败，下面是上一次成功读取的缓存。"),
@@ -826,7 +833,7 @@ describe("OverviewPage", () => {
       screen.getByText("这些状态现在都不能视为最新，请稍后再次刷新。"),
     ).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "刷新证据" }));
+    await user.click(screen.getByRole("button", { name: "刷新" }));
 
     expect(await screen.findByText("刷新后恢复的节点")).toBeVisible();
     await waitFor(() => {
@@ -867,15 +874,15 @@ describe("OverviewPage", () => {
 
     renderOverview();
 
-    const refresh = await screen.findByRole("button", { name: "刷新证据" });
+    const refresh = await screen.findByRole("button", { name: "刷新" });
     await user.tab();
     expect(refresh).toHaveFocus();
-    await user.click(screen.getByText("运行基础"));
+    await user.click(screen.getByText("更多信息"));
     expect(
       screen.getByRole("link", {
         name: /需要聊天时再去设置中配置模型/,
       }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "设备与服务" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "总览" })).toBeVisible();
   });
 });

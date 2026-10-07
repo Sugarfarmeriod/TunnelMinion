@@ -6,13 +6,27 @@ import type { ResourceOverview } from "../src/api/schemas/overview";
 const nodeA = `node_${"1".repeat(32)}`;
 const nodeB = `node_${"2".repeat(32)}`;
 
-test("总览先给待办，再按设备完整收拢监听项", async ({
+test("没有请求时首页只呈现设备，其他信息按需打开", async ({
   page,
   request,
 }, testInfo) => {
   const response = await request.get("/api/resources/overview");
   const overview = (await response.json()) as ResourceOverview;
   const evidenceAt = overview.generated_at;
+  overview.nodes = {
+    ...overview.nodes,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: evidenceAt,
+  };
+  overview.services = {
+    ...overview.services,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: evidenceAt,
+  };
   overview.nodes.items = [
     {
       node_id: nodeA,
@@ -57,23 +71,34 @@ test("总览先给待办，再按设备完整收拢监听项", async ({
       body: JSON.stringify(overview),
     }),
   );
-  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/app/overview");
 
-  const attention = page.getByRole("heading", { name: "需要你处理" });
-  const resources = page.getByRole("heading", { name: "设备与服务" });
-  await expect(attention).toBeVisible();
-  await expect(resources).toBeVisible();
-  expect((await attention.boundingBox())?.y).toBeLessThan(
-    (await resources.boundingBox())?.y ?? 0,
+  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "需要你处理的请求" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "需要你处理" })).toHaveCount(
+    0,
   );
-  await expect(page.getByText("2 台设备 · 13 个监听项")).toBeVisible();
+  await expect(page.locator(".overview-card:visible")).toHaveCount(0);
+  await expect(page.getByText("2 台设备", { exact: true })).toBeVisible();
   await expect(page.getByText("工作室 Mac", { exact: true })).toBeVisible();
   await expect(page.getByText("客厅电脑", { exact: true })).toBeVisible();
-  await expect(page.getByText("运行基础", { exact: true })).toBeVisible();
+  await expect(page.getByText("更多信息", { exact: true })).toBeVisible();
   await expect(page.getByText("本机程序正在运行")).toBeHidden();
   await expect(page.getByText(/第 \d+ \/ \d+ 页/)).toHaveCount(0);
   await expect(page.getByText(nodeA.slice(0, 8))).toHaveCount(0);
+  expect(
+    (await page.getByText("客厅电脑", { exact: true }).boundingBox())!.y,
+  ).toBeLessThan(600);
+
+  await page.screenshot({
+    animations: "disabled",
+    fullPage: true,
+    path: testInfo.outputPath("overview-single-view-1280.png"),
+  });
 
   await page.getByText("工作室 Mac", { exact: true }).click();
   const device = page
@@ -94,6 +119,12 @@ test("总览先给待办，再按设备完整收拢监听项", async ({
   ).toHaveCount(7);
   await expect(device.getByText("用途未识别的后台项目")).toHaveCount(6);
   await expect(device).toContainText("tcp://10.77.0.1:9006");
+  await page.getByText("更多信息", { exact: true }).click();
+  await expect(page.getByText("本机程序正在运行")).toBeVisible();
+  await expect(page.getByRole("list", { name: "设备记录来源" })).toContainText(
+    "Coordinator 目录",
+  );
+  await page.getByText("更多信息", { exact: true }).click();
 
   const accessibility = await new AxeBuilder({ page })
     .include("main")

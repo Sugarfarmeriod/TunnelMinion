@@ -242,6 +242,7 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
     accessPage.getByRole("heading", { name: "isolated shared service" }),
   ).toBeVisible();
   expect(accessPage.url()).not.toMatch(/token|secret|credential/i);
+  await accessPage.close();
 
   requester = makeOperationDetail({
     role: "requester",
@@ -265,6 +266,9 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   await rejectDialog
     .getByRole("textbox", { name: "拒绝原因" })
     .fill("本机不同意开放");
+  await expect(
+    rejectDialog.getByRole("textbox", { name: "拒绝原因" }),
+  ).toHaveValue("本机不同意开放");
   await rejectDialog.getByRole("button", { name: "确认拒绝" }).click();
   await expect(page.getByText("已拒绝")).toBeVisible();
   expect(rejectCalls).toBe(1);

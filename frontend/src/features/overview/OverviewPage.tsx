@@ -115,9 +115,9 @@ const nodeStateLabels: Record<
   ResourceOverview["nodes"]["items"][number]["state"],
   string
 > = {
-  local: "本机节点",
-  online: "有在线证据",
-  stale: "只有陈旧证据",
+  local: "这台电脑",
+  online: "最近在线",
+  stale: "需要刷新确认",
   offline: "当前离线",
   revoked: "已撤销",
   incompatible: "版本不兼容",
@@ -128,8 +128,8 @@ const serviceStateLabels: Record<
   ResourceOverview["services"]["items"][number]["state"],
   string
 > = {
-  available: "有可用证据",
-  degraded: "部分能力受限",
+  available: "已发现，访问待确认",
+  degraded: "部分功能受限",
   unavailable: "当前不可用",
   stopped: "已停止",
   unknown: "状态未知",
@@ -503,36 +503,21 @@ function DeviceServiceOverview({
   const unassigned = services.items.filter(
     (service) => !knownNodeIds.has(service.node_id),
   );
-  const attentionCount = services.items.filter(
-    (service) =>
-      service.state !== "available" ||
-      service.freshness === "stale" ||
-      service.freshness === "expired" ||
-      service.freshness === "unknown",
-  ).length;
-  const summary =
-    nodes.items.length === 0 && services.items.length === 0
-      ? "尚未发现设备或监听项"
-      : `${nodes.items.length} 台设备 · ${services.items.length} 个监听项`;
-
   return (
-    <SectionCard
-      id="overview-devices"
-      meta={services}
-      nextStep={
-        attentionCount > 0
-          ? "先展开标记为异常或证据陈旧的设备，再刷新确认。"
-          : undefined
-      }
-      summary={summary}
-      title="我的设备"
-      tone={collectionTone(
-        services,
-        services.items.map((item) => stateTone(item.state, item.freshness)),
+    <section aria-label="设备与服务" className="overview-devices">
+      {[
+        { label: "设备", meta: nodes },
+        { label: "服务", meta: services },
+      ].map(({ label, meta }) =>
+        meta.error !== null ||
+        !["fresh", "live", "not_applicable"].includes(meta.freshness) ? (
+          <p className="overview-cache-warning" key={label} role="status">
+            {label}清单还不能确认最新状态，请刷新后再判断。
+          </p>
+        ) : null,
       )}
-    >
       {groups.length === 0 && unassigned.length === 0 ? (
-        <p className="overview-empty">当前没有服务端确认的监听项。</p>
+        <p className="overview-empty">还没有发现设备或服务。</p>
       ) : (
         <div className="overview-device-list">
           {groups.map(({ node, services: nodeServices }) => (
@@ -544,21 +529,22 @@ function DeviceServiceOverview({
                     {node.platform === null
                       ? "平台未知"
                       : platformLabels[node.platform]}
-                    {` · ${nodeServices.length} 个监听项`}
+                    {nodeServices.some((service) =>
+                      service.display_name?.trim(),
+                    )
+                      ? ` · ${nodeServices.filter((service) => service.display_name?.trim()).length} 个有名称的服务`
+                      : nodeServices.length > 0
+                        ? " · 服务名称还不清楚"
+                        : " · 暂无服务记录"}
                   </small>
                 </span>
                 <StatusBadge tone={stateTone(node.state, node.freshness)}>
                   {node.freshness === "stale" || node.freshness === "expired"
-                    ? `${nodeStateLabels[node.state]}（证据陈旧）`
+                    ? `${nodeStateLabels[node.state]}（记录已过时）`
                     : nodeStateLabels[node.state]}
                 </StatusBadge>
               </summary>
               <ServiceRows services={nodeServices} />
-              <p className="overview-resource-list__evidence">
-                {sourceLabels[node.source]} ·{" "}
-                {formatTimestamp(node.evidence_at)} ·{" "}
-                {freshnessLabels[node.freshness]}
-              </p>
             </details>
           ))}
           {unassigned.length > 0 ? (
@@ -566,7 +552,7 @@ function DeviceServiceOverview({
               <summary>
                 <span>
                   <strong>所属设备未识别</strong>
-                  <small>{unassigned.length} 个监听项</small>
+                  <small>{unassigned.length} 个检测项目</small>
                 </span>
                 <StatusBadge tone="neutral">归属未知</StatusBadge>
               </summary>
@@ -575,7 +561,7 @@ function DeviceServiceOverview({
           ) : null}
         </div>
       )}
-    </SectionCard>
+    </section>
   );
 }
 
@@ -601,16 +587,19 @@ function ServiceRows({
   }
   return (
     <div className="overview-service-browser">
-      <p className="overview-explanation">
-        {named.length > 0
-          ? `${named.length} 个有名称的服务`
-          : "还没有能认出名称的服务"}
-        {` · ${services.length - named.length} 个后台项目用途未识别`}
-        {uncertain > 0 ? ` · ${uncertain} 项状态需要确认` : ""}
-      </p>
+      {services.length > named.length || uncertain > 0 ? (
+        <p className="overview-explanation">
+          {services.length > named.length
+            ? `${services.length - named.length} 个后台项目用途未识别`
+            : ""}
+          {uncertain > 0
+            ? `${services.length > named.length ? " · " : ""}${uncertain} 项状态需要确认`
+            : ""}
+        </p>
+      ) : null}
       {named.length === 0 ? (
         <p className="overview-empty">
-          电脑后台程序也会出现在这里。检测到项目，不代表它就是你想使用的服务。
+          还不能确定哪些是你想用的服务；后台记录可以在下面查看。
         </p>
       ) : (
         <ServiceList services={named} />
@@ -655,11 +644,13 @@ function ServiceList({
         <li key={service.service_id}>
           <div>
             <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
-            <span>{service.access_address ?? "访问地址未知"}</span>
+            {technical ? (
+              <span>{service.access_address ?? "访问地址未知"}</span>
+            ) : null}
           </div>
           <StatusBadge tone={stateTone(service.state, service.freshness)}>
             {service.freshness === "stale" || service.freshness === "expired"
-              ? `${serviceStateLabels[service.state]}（证据陈旧）`
+              ? `${serviceStateLabels[service.state]}（记录已过时）`
               : serviceStateLabels[service.state]}
           </StatusBadge>
         </li>
@@ -668,7 +659,7 @@ function ServiceList({
   );
 }
 
-function OperationAttentionCard({
+function OperationAttention({
   nodes,
 }: {
   nodes: ResourceOverview["nodes"]["items"];
@@ -679,97 +670,55 @@ function OperationAttentionCard({
   });
   const attention = operationsRequiringAttention(query.data ?? []);
 
+  if (query.isPending) {
+    return <p role="status">正在查看是否有请求需要你处理……</p>;
+  }
+  if (query.isError) {
+    return (
+      <div
+        className="overview-cache-warning overview-operation-error"
+        role="alert"
+      >
+        <p>暂时读不到待处理请求；设备和服务仍可查看。</p>
+        <button type="button" onClick={() => void query.refetch()}>
+          重试读取请求
+        </button>
+      </div>
+    );
+  }
+  if (attention.length === 0) {
+    return null;
+  }
+
   return (
-    <article
-      aria-labelledby="overview-operation-attention"
-      className="overview-card"
-    >
-      <div className="overview-card__heading">
-        <h3 id="overview-operation-attention">待你处理的操作</h3>
-        <StatusBadge
-          tone={
-            query.isError
-              ? "danger"
-              : attention.some((item) => item.kind === "cleanup")
-                ? "danger"
-                : attention.length > 0
-                  ? "warning"
-                  : "neutral"
-          }
-        >
-          {query.isPending
-            ? "正在读取"
-            : query.isError
-              ? "暂时不可用"
-              : attention.length === 0
-                ? "当前没有待办"
-                : `${attention.length} 项待办`}
-        </StatusBadge>
-      </div>
-
-      {query.isPending ? (
-        <p aria-live="polite" role="status">
-          正在读取本机操作待办……
-        </p>
-      ) : query.isError ? (
-        <div className="overview-operation-error" role="alert">
-          <p>操作待办暂时无法读取；资源和 incident 总览不受影响。</p>
-          <button type="button" onClick={() => void query.refetch()}>
-            重新读取操作待办
-          </button>
-        </div>
-      ) : attention.length === 0 ? (
-        <p className="overview-empty">
-          当前没有需要你批准、执行、确认结果或处理清理失败的操作。
-        </p>
-      ) : (
-        <ul className="overview-resource-list">
-          {attention.map(({ kind, label, operation }) => {
-            const target = nodes.find(
-              (node) => node.node_id === operation.target_node_id,
-            );
-            return (
-              <li key={`${operation.role}-${operation.operation_id}`}>
-                <div className="overview-resource-list__heading">
-                  <strong>
-                    {operation.tool_name === "share_local_http_service"
-                      ? "临时共享本机服务"
-                      : operation.tool_name}
-                  </strong>
-                  <StatusBadge tone={kind === "cleanup" ? "danger" : "warning"}>
-                    {label}
-                  </StatusBadge>
-                </div>
-                <p>
-                  {operation.role === "target" ? "目标端审批" : "请求端跟进"} ·{" "}
-                  {target === undefined
-                    ? "目标设备未在当前目录中"
-                    : `目标设备 ${target.display_name}`}
-                </p>
-                <p className="overview-resource-list__evidence">
-                  最后更新：{formatTimestamp(operation.updated_at)}
-                </p>
-                <Link
-                  className="overview-operation-link"
-                  to={`/app/operations/${encodeURIComponent(operation.operation_id)}`}
-                >
-                  打开最新操作详情
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <div className="overview-next-step">
-        <strong>建议：</strong>
-        {attention.length > 0 ? (
-          "先打开详情复读最新计划和允许动作，再作决定。"
-        ) : (
-          <Link to="/app/operations">查看全部操作记录</Link>
-        )}
-      </div>
-    </article>
+    <ul aria-label="需要你处理的请求" className="overview-request-list">
+      {attention.map(({ kind, label, operation }) => {
+        const target = nodes.find(
+          (node) => node.node_id === operation.target_node_id,
+        );
+        return (
+          <li key={`${operation.role}-${operation.operation_id}`}>
+            <div className="overview-resource-list__heading">
+              <strong>{target?.display_name ?? "设备名称未知"}</strong>
+              <StatusBadge tone={kind === "cleanup" ? "danger" : "warning"}>
+                {label}
+              </StatusBadge>
+            </div>
+            <p>
+              {operation.tool_name === "share_local_http_service"
+                ? "临时访问请求"
+                : "请求需要你确认"}
+            </p>
+            <Link
+              className="overview-operation-link"
+              to={`/app/operations/${encodeURIComponent(operation.operation_id)}`}
+            >
+              查看并处理
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -847,11 +796,6 @@ function IncidentList({
     <SectionCard
       id="overview-incidents"
       meta={data}
-      nextStep={
-        data.items.length === 0
-          ? "继续正常使用；普通刷新不会调用模型。"
-          : "先看证据化结论和未知项，再决定是否追问或处理。"
-      }
       summary={
         data.items.length === 0
           ? "没有检测到重要变化"
@@ -977,6 +921,10 @@ function readableRequestError(error: Error): string {
 }
 
 export function OverviewPage() {
+  const [searchParams] = useSearchParams();
+  const [showMore, setShowMore] = useState(() =>
+    /^incident_[0-9a-f]{32}$/.test(searchParams.get("incident_id") ?? ""),
+  );
   const query = useQuery({
     queryKey: ["resource-overview"],
     queryFn: () =>
@@ -1021,16 +969,15 @@ export function OverviewPage() {
     <section aria-labelledby="overview-title" className="overview-page surface">
       <header className="overview-page__header">
         <div>
-          <p className="eyebrow">你的设备，尽在这里</p>
           <h2 id="overview-title">总览</h2>
-          <p>看看有没有需要处理的请求，再找到你想用的服务。</p>
+          <p>{data.nodes.items.length} 台设备</p>
         </div>
         <button
           disabled={query.isFetching}
           type="button"
           onClick={() => void query.refetch()}
         >
-          {query.isFetching ? "正在刷新……" : "刷新证据"}
+          {query.isFetching ? "正在刷新……" : "刷新"}
         </button>
       </header>
 
@@ -1041,58 +988,62 @@ export function OverviewPage() {
         </div>
       ) : null}
 
-      <p className="overview-generated-at">
-        本页数据由服务端生成于 {formatTimestamp(data.generated_at)}。
-      </p>
+      <OperationAttention nodes={data.nodes.items} />
+      <DeviceServiceOverview nodes={data.nodes} services={data.services} />
 
-      <section
-        aria-labelledby="overview-attention-title"
-        className="overview-section"
+      <details
+        className="overview-more"
+        open={showMore}
+        onToggle={(event) => setShowMore(event.currentTarget.open)}
       >
-        <header className="overview-section__heading">
-          <div>
-            <p className="eyebrow">先看这里</p>
-            <h3 id="overview-attention-title">需要你处理</h3>
-          </div>
-          <p>只汇总需要决定、批准或继续调查的事项。</p>
-        </header>
-        <div className="overview-grid overview-grid--attention">
-          <OperationAttentionCard nodes={data.nodes.items} />
+        <summary>
+          <span>更多信息</span>
+          {data.incidents.error !== null ||
+          !["fresh", "live", "not_applicable"].includes(
+            data.incidents.freshness,
+          ) ? (
+            <span>最近变化还不能确认最新状态</span>
+          ) : data.incidents.items.length > 0 ? (
+            <span>{data.incidents.items.length} 条最近变化</span>
+          ) : null}
+        </summary>
+        <div className="overview-more__content">
+          <p className="overview-generated-at">
+            本页数据由服务端生成于 {formatTimestamp(data.generated_at)}。
+          </p>
           <IncidentList
             data={data.incidents}
             nodes={data.nodes.items}
             services={data.services.items}
           />
-        </div>
-      </section>
-
-      <section
-        aria-labelledby="overview-resources-title"
-        className="overview-section"
-      >
-        <header className="overview-section__heading">
-          <div>
-            <p className="eyebrow">按设备归拢</p>
-            <h3 id="overview-resources-title">设备与服务</h3>
+          <div className="overview-source-details">
+            <h3>设备与服务的数据来源</h3>
+            {showMore ? (
+              <ul aria-label="设备记录来源" className="overview-resource-list">
+                {data.nodes.items.map((node) => (
+                  <li key={node.node_id}>
+                    <strong>{node.display_name}</strong>
+                    <p>
+                      {sourceLabels[node.source]} ·{" "}
+                      {formatTimestamp(node.evidence_at)} ·{" "}
+                      {freshnessLabels[node.freshness]}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p>设备清单</p>
+            <SectionMetadata meta={data.nodes} />
+            <p>服务清单</p>
+            <SectionMetadata meta={data.services} />
           </div>
-          <p>先找你认识的服务。电脑后台的项目收在技术清单里。</p>
-        </header>
-        <DeviceServiceOverview nodes={data.nodes} services={data.services} />
-      </section>
-
-      <details className="overview-system">
-        <summary>
-          <span>
-            <strong>运行基础</strong>
-            <small>本机、模型、Coordinator 与跨节点路径</small>
-          </span>
-          <span>查看 4 项状态</span>
-        </summary>
-        <div className="overview-grid overview-grid--system">
-          <LocalRuntimeCard data={data.local} />
-          <ModelCard data={data.model} />
-          <CoordinatorCard data={data.coordinator} />
-          <NetworkPathCard data={data.network_path} />
+          <h3>运行基础</h3>
+          <div className="overview-grid overview-grid--system">
+            <LocalRuntimeCard data={data.local} />
+            <ModelCard data={data.model} />
+            <CoordinatorCard data={data.coordinator} />
+            <NetworkPathCard data={data.network_path} />
+          </div>
         </div>
       </details>
     </section>
