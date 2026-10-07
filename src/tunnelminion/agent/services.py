@@ -261,7 +261,10 @@ class RemoteServiceInventoryBuilder:
             (
                 item
                 for item in published
-                if item[1] == listener.protocol and item[2] == listener.port
+                if item[1] == listener.protocol
+                and item[2] == listener.port
+                and ("wildcard" if item[4] in {"0.0.0.0", "::"} else item[4])
+                == ("wildcard" if listener.address in {"0.0.0.0", "::"} else listener.address)
             ),
             None,
         )

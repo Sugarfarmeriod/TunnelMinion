@@ -82,7 +82,7 @@
 
 .chat-button--danger {
   background: color-mix(in srgb, #b42318 12%, var(--color-surface));
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .chat-thread-list,
@@ -203,13 +203,13 @@
 
 .chat-run-status--running {
   background: color-mix(in srgb, #1d4ed8 10%, var(--color-surface));
-  color: color-mix(in srgb, #1d4ed8 85%, var(--color-text));
+  color: var(--color-accent-strong);
 }
 
 .chat-run-status--failed,
 .chat-run-status--interrupted {
   background: color-mix(in srgb, #b42318 12%, var(--color-surface));
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .chat-tool-events li {

@@ -873,6 +873,25 @@ def test_service_sources_empty_cache_and_unknown_node_state() -> None:
     local_view = bindings(managed(config(), coordinator=local_only)).overview_service.view()
     assert local_view.services.source is OverviewSource.LOCAL_OBSERVATION
 
+
+def test_local_automatic_names_reach_overview_without_renaming_remote_records() -> None:
+    service = service_summary(ServiceId.new())
+    remote = directory_node().model_copy(update={"services": (service,)})
+    coordinator = coordinator_loops(CoordinatorSyncStatus(phase=SyncPhase.IDLE), nodes=(remote,))
+    snapshot = ServiceObservationSnapshot(
+        observed_at=NOW,
+        services=(service,),
+        display_names={str(service.service_id): "Python 服务 · 8082"},
+    )
+    coordinator.service_cache.replace(snapshot)
+    overview = bindings(managed(config(), coordinator=coordinator)).overview_service.view()
+    local_item = next(item for item in overview.services.items if item.node_id == LOCAL_NODE)
+    remote_item = next(item for item in overview.services.items if item.node_id == REMOTE_NODE)
+    assert local_item.display_name == "Python 服务 · 8082"
+    assert local_item.service_id == service.service_id
+    assert remote_item.display_name is None
+    assert "Python 服务" not in snapshot.model_dump_json()
+
     adapter = views._ApplicationViewAdapter(  # pyright: ignore[reportPrivateUsage]
         LOCAL_NODE,
         Platform.WINDOWS,

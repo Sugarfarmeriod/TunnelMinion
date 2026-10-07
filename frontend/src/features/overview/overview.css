@@ -148,12 +148,12 @@
 
 .overview-status--warning {
   background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  color: color-mix(in srgb, #8a5000 92%, var(--color-text));
+  color: var(--color-warning-text);
 }
 
 .overview-status--danger {
   background: color-mix(in srgb, #b42318 12%, var(--color-surface));
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .overview-status--neutral {

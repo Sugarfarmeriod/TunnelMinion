@@ -194,12 +194,12 @@
 
 .operation-status--warning {
   background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  color: color-mix(in srgb, #b26a00 75%, var(--color-text));
+  color: var(--color-warning-text);
 }
 
 .operation-status--danger {
   background: color-mix(in srgb, #b42318 12%, var(--color-surface));
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .operation-status--neutral {

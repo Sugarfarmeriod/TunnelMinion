@@ -61,7 +61,7 @@
 
 .memories-page .memory-button--danger-outline {
   background: transparent;
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .memory-scope-form {
@@ -142,7 +142,7 @@
 .memory-notice--error,
 .memory-query-error,
 .memory-inline-error {
-  color: color-mix(in srgb, #b42318 85%, var(--color-text));
+  color: var(--color-danger-text);
 }
 
 .memory-notice--error,

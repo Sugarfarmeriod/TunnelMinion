@@ -509,7 +509,11 @@ class _ApplicationViewAdapter:
         snapshot = self.local_service_snapshot()
         if snapshot is not None:
             items.extend(
-                self.service_view(service, self.node_id, overview_contracts.KnownNodeState.LOCAL)
+                self.service_view(
+                    service, self.node_id, overview_contracts.KnownNodeState.LOCAL
+                ).model_copy(
+                    update={"display_name": snapshot.display_names.get(str(service.service_id))}
+                )
                 for service in snapshot.services
             )
         cached = self.cache()

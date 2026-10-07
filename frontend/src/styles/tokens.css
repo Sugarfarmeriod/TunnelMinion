@@ -3,34 +3,42 @@
   --font-sans:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  --color-canvas: #f5f7f4;
+  --color-canvas: #eef1f5;
   --color-surface: #ffffff;
-  --color-text: #17201c;
-  --color-muted: #56625c;
-  --color-border: #d6ddd8;
-  --color-accent-soft: #dff4e8;
-  --color-accent-strong: #075c38;
-  --color-focus: #007a4d;
+  --color-text: #202938;
+  --color-muted: #526075;
+  --color-border: #d8dee8;
+  --color-accent-soft: #e8eefb;
+  --color-accent-strong: #244cab;
+  --color-focus: #3560c5;
+  --color-warning-text: #805000;
+  --color-danger-text: #a52b25;
+  --color-chrome: #202938;
+  --color-chrome-text: #f3f5f9;
+  --color-chrome-muted: #bdc7d7;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
   --space-7: 2.5rem;
-  --radius-pill: 999px;
-  --radius-panel: 1rem;
-  --shadow-panel: 0 1rem 3rem rgb(23 32 28 / 8%);
+  --radius-pill: 0.375rem;
+  --radius-panel: 0.625rem;
+  --shadow-panel: 0 2px 6px rgb(32 41 56 / 3%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-canvas: #111714;
-    --color-surface: #18211d;
-    --color-text: #eef5f1;
-    --color-muted: #afbbb5;
-    --color-border: #35423c;
-    --color-accent-soft: #173d2b;
-    --color-accent-strong: #91e6b9;
-    --color-focus: #78dba8;
+    --color-canvas: #111722;
+    --color-surface: #1b2331;
+    --color-text: #edf1f8;
+    --color-muted: #b1bed1;
+    --color-border: #39465b;
+    --color-accent-soft: #263a60;
+    --color-accent-strong: #abc5ff;
+    --color-focus: #91b4ff;
+    --color-warning-text: #f7ce7a;
+    --color-danger-text: #ffb2ab;
+    --color-chrome: #151c28;
   }
 }

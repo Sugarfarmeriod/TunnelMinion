@@ -150,6 +150,33 @@ def test_inventory_survives_degraded_sources_and_unknown_address() -> None:
     assert inventory.services[0].confidence is EvidenceConfidence.LOW
 
 
+def test_same_port_on_different_addresses_does_not_claim_container_ownership() -> None:
+    inventory = RemoteServiceInventoryBuilder().build(
+        NodeId.new(),
+        observation(
+            "list_network_listeners",
+            [{"protocol": "tcp", "address": "127.0.0.1", "port": 8080, "pid": 10}],
+        ),
+        observation("get_process_summary", [{"pid": 10, "name": "python"}]),
+        observation(
+            "list_docker_services",
+            [
+                {
+                    "container_id": "other",
+                    "name": "other-app",
+                    "image": "image",
+                    "ports": "10.77.0.2:8080->80/tcp",
+                    "status": "Up",
+                }
+            ],
+        ),
+    )
+    assert len(inventory.services) == 2
+    local = next(item for item in inventory.services if item.address == "127.0.0.1")
+    assert local.container_name is None
+    assert local.process_name == "python"
+
+
 def test_inventory_rejects_mislabeled_evidence() -> None:
     wrong = observation("wrong_tool", [])
     valid_processes = observation("get_process_summary", [])

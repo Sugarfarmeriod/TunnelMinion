@@ -23,20 +23,22 @@ const navigation = [
 function ProductShell() {
   return (
     <div className="product-shell">
-      <header className="product-header">
-        <div>
-          <p className="eyebrow">本机控制台</p>
-          <h1>TunnelMinion</h1>
-        </div>
-        <p className="privacy-note">只连接这台电脑上的 TunnelMinion</p>
-      </header>
-      <nav aria-label="主要导航" className="primary-navigation">
-        {navigation.map(([label, path]) => (
-          <NavLink key={path} to={path}>
-            {label}
-          </NavLink>
-        ))}
-      </nav>
+      <div className="product-chrome">
+        <header className="product-header">
+          <div>
+            <p className="eyebrow">设备工作台</p>
+            <h1>TunnelMinion</h1>
+          </div>
+          <p className="privacy-note">只连接这台电脑上的 TunnelMinion</p>
+        </header>
+        <nav aria-label="主要导航" className="primary-navigation">
+          {navigation.map(([label, path]) => (
+            <NavLink key={path} to={path}>
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
       <main id="main-content" tabIndex={-1}>
         <Outlet />
       </main>
