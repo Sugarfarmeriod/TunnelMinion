@@ -1,6 +1,6 @@
 # 自动精选服务与桌面应用风格
 
-- 状态：`进行中`
+- 状态：实现完成；最终完成以 PR #108 最新 CI 通过并合并为条件
 - 主写分支：`feature/automatic-service-experience`
 - 基线：`978f248127dfa71efd6c0ed669bee93021ebd695`
 - 对应总流程：可识别的服务与统一日常交互
@@ -49,3 +49,7 @@ Docker 名称来自容器记录，Python 只使用有 PID 归属的运行时名�
 `frontend/test-results/desktop-all-screens/`，均是隔离页面，不是重新部署 Mac 或老人用户实测。
 本阶段先交付可靠本机精选与统一基础风格；远端归属同步、Python 脚本的业务用途及历史服务停机后保留
 尚未实现，不把当前名字存在当作这些能力已经完成。
+
+[PR #108](https://github.com/Sugarfarmeriod/TunnelMinion/pull/108) 保存实现和验收；最终跨平台回归、
+运行包、一致性与供应链结果以 [PR 最新检查](https://github.com/Sugarfarmeriod/TunnelMinion/pull/108/checks)
+为准。路线图完成状态随最终门禁通过并合并生效；没有在 CI 结束前将安装包结果写成已通过。
