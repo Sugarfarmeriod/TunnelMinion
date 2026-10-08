@@ -541,8 +541,10 @@ describe("OverviewPage", () => {
       await screen.findByRole("button", { name: "查看调查详情" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "调查详情" }),
+      await screen.findByRole("heading", { name: "调查结果" }),
     ).toBeVisible();
+    expect(screen.getByText("service.local-only@1")).not.toBeVisible();
+    await user.click(screen.getByText("查看技术过程与证据"));
     expect(screen.getByText(malicious)).toBeVisible();
     expect(screen.getByText("还不知道监听进程")).toBeVisible();
     expect(screen.getByText("service.local-only@1")).toBeVisible();
@@ -559,11 +561,12 @@ describe("OverviewPage", () => {
     expect(screen.getByText(snapshotB)).toBeVisible();
     expect(screen.getByText("目标节点确认服务只监听环回地址")).toBeVisible();
 
+    await user.click(screen.getByText("继续问一下（会使用模型额度）"));
     const composer = screen.getByLabelText("针对这个事件追问");
     const suggestion = screen.getByRole("button", {
       name: "哪个进程持有这个监听端口？",
     });
-    await user.tab();
+    await user.click(composer);
     expect(composer).toHaveFocus();
     await user.tab();
     expect(suggestion).toHaveFocus();
@@ -703,15 +706,19 @@ describe("OverviewPage", () => {
       `/app/overview?incident_id=${incidentId}#overview-incidents`,
     );
     const handoff = await screen.findByRole("link", {
-      name: "生成候选处理计划",
+      name: "查看临时访问方案",
     });
 
-    expect(screen.getByText(/暂未记录结构化调查过程/)).toBeVisible();
+    expect(screen.getByText(/暂未记录结构化调查过程/)).not.toBeVisible();
     expect(handoff).toHaveAttribute(
       "href",
       `/app/operations?incident_id=${incidentId}&target_node_id=${nodeB}&service_port=4312`,
     );
-    expect(screen.getByText(/调查结论也不会成为授权/)).toBeVisible();
+    expect(
+      screen.getByText(/只有你发出请求、对方批准并确认执行后/),
+    ).toBeVisible();
+    await user.click(screen.getByText("查看技术过程与证据"));
+    expect(screen.getByText(/暂未记录结构化调查过程/)).toBeVisible();
     await user.click(handoff);
     expect(
       fetchMock.mock.calls.filter(

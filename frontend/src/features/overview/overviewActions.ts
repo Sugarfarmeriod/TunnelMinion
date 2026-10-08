@@ -4,6 +4,30 @@ import type { OperationListItem } from "../operations/schemas";
 type NodeItem = ResourceOverview["nodes"]["items"][number];
 type ServiceItem = ResourceOverview["services"]["items"][number];
 
+export function serviceIncidentLinks(
+  services: readonly ServiceItem[],
+  incidents: ResourceOverview["incidents"]["items"],
+): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const service of services) {
+    counts.set(service.service_id, (counts.get(service.service_id) ?? 0) + 1);
+  }
+  const links = new Map<string, string>();
+  const latestFirst = [...incidents].sort(
+    (a, b) => Date.parse(b.last_observed_at) - Date.parse(a.last_observed_at),
+  );
+  for (const incident of latestFirst) {
+    if (
+      incident.object_kind === "service" &&
+      counts.get(incident.object_id) === 1 &&
+      !links.has(incident.object_id)
+    ) {
+      links.set(incident.object_id, incident.incident_id);
+    }
+  }
+  return links;
+}
+
 export interface IncidentHandoffInput {
   incidentId: string;
   status: ResourceOverview["incidents"]["items"][number]["status"];

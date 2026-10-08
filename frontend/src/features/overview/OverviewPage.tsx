@@ -16,6 +16,7 @@ import {
 
 import {
   incidentOperationHandoff,
+  serviceIncidentLinks,
   operationsRequiringAttention,
 } from "./overviewActions";
 import { InvestigationDetails } from "./InvestigationDetails";
@@ -153,7 +154,7 @@ const incidentStatusLabels: Record<
 > = {
   pending: "等待调查",
   investigating: "正在调查",
-  confirmed: "已确认根因",
+  confirmed: "已查明原因",
   insufficient_evidence: "证据不足",
   budget_exhausted: "调查预算已用完",
   cancelled: "调查已取消",
@@ -489,10 +490,13 @@ function NetworkPathCard({ data }: { data: ResourceOverview["network_path"] }) {
 function DeviceServiceOverview({
   nodes,
   services,
+  incidents,
 }: {
   nodes: ResourceOverview["nodes"];
   services: ResourceOverview["services"];
+  incidents: ResourceOverview["incidents"];
 }) {
+  const incidentLinks = serviceIncidentLinks(services.items, incidents.items);
   const knownNodeIds = new Set(nodes.items.map((node) => node.node_id));
   const groups = nodes.items.map((node) => ({
     node,
@@ -544,7 +548,10 @@ function DeviceServiceOverview({
                     : nodeStateLabels[node.state]}
                 </StatusBadge>
               </summary>
-              <ServiceRows services={nodeServices} />
+              <ServiceRows
+                services={nodeServices}
+                incidentLinks={incidentLinks}
+              />
             </details>
           ))}
           {unassigned.length > 0 ? (
@@ -556,7 +563,10 @@ function DeviceServiceOverview({
                 </span>
                 <StatusBadge tone="neutral">归属未知</StatusBadge>
               </summary>
-              <ServiceRows services={unassigned} />
+              <ServiceRows
+                services={unassigned}
+                incidentLinks={incidentLinks}
+              />
             </details>
           ) : null}
         </div>
@@ -567,8 +577,10 @@ function DeviceServiceOverview({
 
 function ServiceRows({
   services,
+  incidentLinks,
 }: {
   services: ResourceOverview["services"]["items"];
+  incidentLinks: Map<string, string | null>;
 }) {
   const [search, setSearch] = useState("");
   const named = services.filter((service) => service.display_name?.trim());
@@ -602,7 +614,7 @@ function ServiceRows({
           还不能确定哪些是你想用的服务；后台记录可以在下面查看。
         </p>
       ) : (
-        <ServiceList services={named} />
+        <ServiceList services={named} incidentLinks={incidentLinks} />
       )}
       <details className="overview-connections">
         <summary>查看全部 {services.length} 个检测项目（技术清单）</summary>
@@ -620,7 +632,11 @@ function ServiceRows({
         {filtered.length === 0 ? (
           <p>没有匹配的项目，试试其他名称或地址。</p>
         ) : (
-          <ServiceList services={filtered} technical />
+          <ServiceList
+            services={filtered}
+            incidentLinks={incidentLinks}
+            technical
+          />
         )}
       </details>
     </div>
@@ -629,9 +645,11 @@ function ServiceRows({
 
 function ServiceList({
   services,
+  incidentLinks,
   technical = false,
 }: {
   services: ResourceOverview["services"]["items"];
+  incidentLinks: Map<string, string | null>;
   technical?: boolean;
 }) {
   return (
@@ -644,8 +662,24 @@ function ServiceList({
         <li key={service.service_id}>
           <div>
             <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
+            {!technical &&
+            service.state === "available" &&
+            ["fresh", "live"].includes(service.freshness) ? (
+              <span>
+                {service.accessibility === "loopback"
+                  ? "只接受所属电脑的连接，其他电脑不能直接打开。"
+                  : "已发现服务，还没有确认其他电脑能否使用。"}
+              </span>
+            ) : null}
             {technical ? (
               <span>{service.access_address ?? "访问地址未知"}</span>
+            ) : null}
+            {incidentLinks.get(service.service_id) ? (
+              <Link
+                to={`/app/overview?incident_id=${incidentLinks.get(service.service_id)}#overview-incidents`}
+              >
+                查看这项服务的变化
+              </Link>
             ) : null}
           </div>
           <StatusBadge tone={stateTone(service.state, service.freshness)}>
@@ -731,14 +765,13 @@ function IncidentList({
   nodes: ResourceOverview["nodes"]["items"];
   services: ResourceOverview["services"]["items"];
 }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const linkedIncidentId = searchParams.get("incident_id");
-  const [selectedId, setSelectedId] = useState<string | null>(() =>
+  const selectedId =
     linkedIncidentId !== null &&
     /^incident_[0-9a-f]{32}$/.test(linkedIncidentId)
       ? linkedIncidentId
-      : null,
-  );
+      : null;
   const [question, setQuestion] = useState("");
   const detail = useQuery({
     queryKey: ["incident", selectedId],
@@ -763,7 +796,11 @@ function IncidentList({
   });
 
   function openIncident(incidentId: string) {
-    setSelectedId(incidentId);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("incident_id", incidentId);
+      return next;
+    });
     setQuestion("");
     followUp.reset();
   }
@@ -816,7 +853,7 @@ function IncidentList({
       {data.items.length === 0 ? (
         <p className="overview-empty">暂无需要调查的异常或重要变化。</p>
       ) : (
-        <ul className="overview-resource-list">
+        <ul className="overview-resource-list" hidden={selectedId !== null}>
           {data.items.map((incident) => (
             <li key={incident.incident_id}>
               <div className="overview-resource-list__heading">
@@ -849,19 +886,46 @@ function IncidentList({
 
       {selectedId !== null ? (
         <section aria-live="polite" className="incident-detail">
+          <button
+            className="incident-back"
+            type="button"
+            onClick={() =>
+              setSearchParams((previous) => {
+                const next = new URLSearchParams(previous);
+                next.delete("incident_id");
+                return next;
+              })
+            }
+          >
+            返回最近变化
+          </button>
           {detail.isPending ? <p>正在读取调查详情……</p> : null}
           {detail.isError ? <p role="alert">调查详情暂时无法读取。</p> : null}
           {detail.data !== undefined ? (
             <>
-              <InvestigationDetails incident={detail.data.incident} />
-              <h5>处理</h5>
+              <h4>调查结果</h4>
+              <StatusBadge
+                tone={stateTone(detail.data.incident.status, data.freshness)}
+              >
+                {incidentStatusLabels[detail.data.incident.status]}
+              </StatusBadge>
+              <p>
+                <strong>结论：</strong>
+                {detail.data.incident.status === "confirmed" &&
+                detail.data.incident.event.event_type === "local_only" &&
+                detail.data.incident.report !== null
+                  ? "这项服务只接受所属电脑的连接，其他电脑不能直接使用。"
+                  : (detail.data.incident.report?.conclusion ??
+                    "还没有查清原因。")}
+              </p>
+              <h5>下一步</h5>
               {handoff?.available ? (
                 <div className="incident-operation-handoff">
                   <p>
-                    只会预填目标节点和端口；进入页面不会创建操作，调查结论也不会成为授权。
+                    先查看方案。只有你发出请求、对方批准并确认执行后，才会开始临时访问。
                   </p>
                   <Link className="incident-operation-link" to={handoff.href}>
-                    生成候选处理计划
+                    查看临时访问方案
                   </Link>
                 </div>
               ) : (
@@ -869,43 +933,54 @@ function IncidentList({
                   {handoff?.message ?? "当前没有可安全生成的候选处理入口。"}
                 </p>
               )}
-              <form className="incident-follow-up" onSubmit={submitFollowUp}>
-                <label htmlFor="incident-question">针对这个事件追问</label>
-                <textarea
-                  id="incident-question"
-                  maxLength={2000}
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
-                />
-                <div className="incident-suggestions">
-                  {detail.data.suggested_questions.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setQuestion(item)}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  disabled={question.trim() === "" || followUp.isPending}
-                  type="submit"
-                >
-                  {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
-                </button>
-              </form>
-              {followUp.isError ? (
-                <p role="alert">追问当前不可用；原 incident 证据没有改变。</p>
-              ) : null}
-              {followUp.data !== undefined ? (
-                <p role="status">
-                  追问已在原有聊天能力中开始。{" "}
-                  <Link to={`/app/chat?thread=${followUp.data.thread_id}`}>
-                    打开对应聊天线程
-                  </Link>
+              <details className="incident-technical">
+                <summary>查看技术过程与证据</summary>
+                <p>
+                  <strong>原始报告结论：</strong>
+                  {detail.data.incident.report?.conclusion ?? "未记录"}
                 </p>
-              ) : null}
+                <InvestigationDetails incident={detail.data.incident} />
+              </details>
+              <details className="incident-question-disclosure">
+                <summary>继续问一下（会使用模型额度）</summary>
+                <form className="incident-follow-up" onSubmit={submitFollowUp}>
+                  <label htmlFor="incident-question">针对这个事件追问</label>
+                  <textarea
+                    id="incident-question"
+                    maxLength={2000}
+                    value={question}
+                    onChange={(event) => setQuestion(event.target.value)}
+                  />
+                  <div className="incident-suggestions">
+                    {detail.data.suggested_questions.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setQuestion(item)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    disabled={question.trim() === "" || followUp.isPending}
+                    type="submit"
+                  >
+                    {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
+                  </button>
+                </form>
+                {followUp.isError ? (
+                  <p role="alert">追问当前不可用；原 incident 证据没有改变。</p>
+                ) : null}
+                {followUp.data !== undefined ? (
+                  <p role="status">
+                    追问已在原有聊天能力中开始。{" "}
+                    <Link to={`/app/chat?thread=${followUp.data.thread_id}`}>
+                      打开对应聊天线程
+                    </Link>
+                  </p>
+                ) : null}
+              </details>
             </>
           ) : null}
         </section>
@@ -921,10 +996,11 @@ function readableRequestError(error: Error): string {
 }
 
 export function OverviewPage() {
-  const [searchParams] = useSearchParams();
-  const [showMore, setShowMore] = useState(() =>
-    /^incident_[0-9a-f]{32}$/.test(searchParams.get("incident_id") ?? ""),
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedIncident = /^incident_[0-9a-f]{32}$/.test(
+    searchParams.get("incident_id") ?? "",
   );
+  const [showMore, setShowMore] = useState(false);
   const query = useQuery({
     queryKey: ["resource-overview"],
     queryFn: () =>
@@ -989,12 +1065,25 @@ export function OverviewPage() {
       ) : null}
 
       <OperationAttention nodes={data.nodes.items} />
-      <DeviceServiceOverview nodes={data.nodes} services={data.services} />
+      <DeviceServiceOverview
+        nodes={data.nodes}
+        services={data.services}
+        incidents={data.incidents}
+      />
 
       <details
         className="overview-more"
-        open={showMore}
-        onToggle={(event) => setShowMore(event.currentTarget.open)}
+        open={showMore || linkedIncident}
+        onToggle={(event) => {
+          setShowMore(event.currentTarget.open);
+          if (!event.currentTarget.open && linkedIncident) {
+            setSearchParams((previous) => {
+              const next = new URLSearchParams(previous);
+              next.delete("incident_id");
+              return next;
+            });
+          }
+        }}
       >
         <summary>
           <span>更多信息</span>
@@ -1012,6 +1101,7 @@ export function OverviewPage() {
             本页数据由服务端生成于 {formatTimestamp(data.generated_at)}。
           </p>
           <IncidentList
+            key={searchParams.get("incident_id") ?? "recent"}
             data={data.incidents}
             nodes={data.nodes.items}
             services={data.services.items}

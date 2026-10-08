@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Route,
 } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 import { resourceOverviewSchema } from "../src/api/schemas/overview";
 import {
@@ -269,9 +270,44 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
     4,
   );
 
-  await page.getByText("更多信息", { exact: true }).click();
-  await page.getByRole("button", { name: "查看调查详情" }).click();
+  await page
+    .getByLabel("设备与服务")
+    .getByText("远端 Mac", { exact: true })
+    .click();
+  await page
+    .getByRole("list", { name: "有名称的服务" })
+    .getByRole("link", { name: "查看这项服务的变化" })
+    .click();
   const detail = page.locator(".incident-detail");
+  const handoff = detail.getByRole("link", { name: "查看临时访问方案" });
+  await expect(handoff).toBeVisible();
+  await expect(detail.getByText("service.local-only@1")).toBeHidden();
+  await expect(detail.getByText("get_process_summary")).toBeHidden();
+  await expect(detail.getByRole("textbox")).toBeHidden();
+  const a11y = await new AxeBuilder({ page })
+    .include(".incident-detail")
+    .analyze();
+  expect(
+    a11y.violations.filter((item) =>
+      ["serious", "critical"].includes(item.impact ?? ""),
+    ),
+  ).toEqual([]);
+  expect(incidentRequests).toEqual(["GET"]);
+  expect(writes).toEqual([]);
+  await detail.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("service-result-first.png"),
+  });
+  await page.setViewportSize({ width: 320, height: 760 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await detail.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("service-result-narrow.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await detail.getByText("查看技术过程与证据").click();
   await expect(detail).toContainText("service.local-only@1");
   await expect(detail).toContainText("调查已停止");
   await expect(detail).toContainText("get_process_summary");
@@ -284,7 +320,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
     animations: "disabled",
     path: testInfo.outputPath("investigation-evidence-view.png"),
   });
-  await page.getByRole("link", { name: "生成候选处理计划" }).click();
+  await handoff.click();
   await expect(page).toHaveURL(
     `/app/operations?incident_id=${incidentId}&target_node_id=${remoteNodeId}&service_port=4312`,
   );
@@ -309,6 +345,80 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
       confirmed: true,
     },
   ]);
+});
+
+test("同页切换调查、返回历史和关闭详情不会遗留旧追问或产生写请求", async ({
+  page,
+  context,
+  request,
+}) => {
+  const overview = await remoteIncidentOverview(request);
+  const nextId = `incident_${"b".repeat(32)}`;
+  overview.incidents.items.push({
+    ...overview.incidents.items[0],
+    incident_id: nextId,
+    status: "insufficient_evidence",
+    last_observed_at: "2026-09-09T09:00:00+08:00",
+    conclusion: "还没有查清原因",
+  });
+  const next = incidentDetail();
+  next.incident.incident_id = nextId;
+  next.incident.status = "insufficient_evidence";
+  next.incident.report.conclusion = "还没有查清原因";
+  let writes = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes++;
+  });
+  await context.route("**/api/resources/overview", (route) =>
+    fulfillJson(route, overview),
+  );
+  await context.route("**/api/operations", (route) => fulfillJson(route, []));
+  await context.route(`**/api/incidents/${incidentId}`, (route) =>
+    fulfillJson(route, incidentDetail()),
+  );
+  await context.route(`**/api/incidents/${nextId}`, (route) =>
+    fulfillJson(route, next),
+  );
+  await page.goto(`/app/overview?incident_id=${incidentId}`);
+  const detail = page.locator(".incident-detail");
+  await expect(
+    detail.getByRole("link", { name: "查看临时访问方案" }),
+  ).toBeVisible();
+  await detail.getByText("继续问一下（会使用模型额度）").click();
+  await detail.getByRole("textbox").fill("上一次的问题");
+  await detail.getByRole("button", { name: "返回最近变化" }).click();
+  await expect(page.getByRole("button", { name: "查看调查详情" })).toHaveCount(
+    2,
+  );
+  await page
+    .getByLabel("设备与服务")
+    .getByText("远端 Mac", { exact: true })
+    .click();
+  await page
+    .getByRole("list", { name: "有名称的服务" })
+    .getByRole("link", { name: "查看这项服务的变化" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`incident_id=${nextId}`));
+  await expect(
+    detail.getByText("结论：还没有查清原因", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("link", { name: "查看临时访问方案" }),
+  ).toHaveCount(0);
+  await detail.getByText("继续问一下（会使用模型额度）").click();
+  await expect(detail.getByRole("textbox")).toHaveValue("");
+  await page.goBack();
+  await expect(
+    page.getByRole("button", { name: "查看调查详情" }).first(),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(
+    detail.getByText("结论：还没有查清原因", { exact: true }),
+  ).toBeVisible();
+  await page.getByText("更多信息", { exact: true }).click();
+  await expect(page.locator(".overview-more")).not.toHaveAttribute("open");
+  await expect(page).not.toHaveURL(/incident_id=/);
+  expect(writes).toBe(0);
 });
 
 test("请求读取失败只显示提示，不阻断设备和调查且不产生写请求", async ({

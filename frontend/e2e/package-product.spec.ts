@@ -92,10 +92,17 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   ).toBeVisible();
   await expect(page.getByText("没有配置跨节点路径")).toBeVisible();
   await expect(page.getByText("服务只能从本机访问")).toBeVisible();
-  await expect(page.getByText("已确认根因")).toBeVisible();
+  await expect(page.getByText("已查明原因")).toBeVisible();
   await expect(page.getByText(fixture.incident.conclusion)).toBeVisible();
   await page.getByRole("button", { name: "查看调查详情" }).click();
-  await expect(page.getByRole("heading", { name: "调查详情" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "调查结果" })).toBeVisible();
+  await expect(
+    page.locator(".incident-detail").getByText("证据充分"),
+  ).toBeHidden();
+  await page
+    .locator(".incident-detail")
+    .getByText("查看技术过程与证据")
+    .click();
   await expect(
     page.locator(".incident-detail").getByText("证据充分"),
   ).toBeVisible();
@@ -106,6 +113,10 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     page.getByText("只读工具 probe_service_reachability 以 success 状态结束"),
   ).toBeVisible();
   await expect(page.getByText("没有已记录的未知项。")).toBeVisible();
+  await page
+    .locator(".incident-detail")
+    .getByText("继续问一下（会使用模型额度）")
+    .click();
   await expect(
     page.getByRole("button", { name: "为什么这个服务只能从本机访问？" }),
   ).toBeVisible();

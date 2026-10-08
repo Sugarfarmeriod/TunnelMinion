@@ -93,12 +93,6 @@ export function InvestigationDetails({ incident }: { incident: Incident }) {
 
   return (
     <>
-      <h4>调查详情</h4>
-      <p>
-        <strong>结论：</strong>
-        {incident.report?.conclusion ?? "尚未确认根因"}
-      </p>
-
       {investigation === null || investigation === undefined ? (
         <p className="overview-empty">
           暂未记录结构化调查过程，下面保留已有的公开轨迹和报告。

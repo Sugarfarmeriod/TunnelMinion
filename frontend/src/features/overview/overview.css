@@ -228,6 +228,10 @@
   padding: 0;
 }
 
+.overview-resource-list[hidden] {
+  display: none;
+}
+
 .overview-evidence-list li,
 .overview-resource-list li {
   background: color-mix(in srgb, var(--color-muted) 6%, var(--color-surface));
@@ -414,6 +418,37 @@
 .incident-detail h5,
 .incident-detail p {
   margin: 0;
+}
+
+.incident-detail > .overview-status {
+  justify-self: start;
+}
+
+.incident-detail .incident-back {
+  background: transparent;
+  color: var(--color-accent-strong);
+  font-weight: 400;
+  justify-self: start;
+  padding-left: 0;
+}
+
+.incident-technical,
+.incident-question-disclosure {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) 0;
+}
+
+.incident-technical > summary,
+.incident-question-disclosure > summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  align-content: center;
+}
+
+.incident-technical[open],
+.incident-question-disclosure[open] {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .investigation-summary,

@@ -6,6 +6,7 @@ import { makeOperationListItem } from "../operations/testFixtures";
 import {
   incidentOperationHandoff,
   operationsRequiringAttention,
+  serviceIncidentLinks,
   type IncidentHandoffInput,
 } from "./overviewActions";
 
@@ -63,6 +64,47 @@ const incident: IncidentHandoffInput = {
   objectId: serviceId,
   targetNodeId: remoteNodeId,
 };
+
+describe("serviceIncidentLinks", () => {
+  const event: ResourceOverview["incidents"]["items"][number] = {
+    incident_id: incidentId,
+    event_type: "local_only",
+    object_kind: "service",
+    object_id: serviceId,
+    severity: "warning",
+    status: "confirmed",
+    first_observed_at: observedAt,
+    last_observed_at: observedAt,
+    conclusion: null,
+  };
+  it("按准确身份选最近记录，不串同名同端口或节点事件", () => {
+    const newer = {
+      ...event,
+      incident_id: `incident_${"5".repeat(32)}`,
+      last_observed_at: "2026-09-09T09:00:00+08:00",
+    };
+    const other = { ...services[0], service_id: `service_${"6".repeat(32)}` };
+    const events = [
+      event,
+      newer,
+      { ...newer, object_kind: "node" as const, object_id: other.service_id },
+    ];
+    expect(serviceIncidentLinks([...services, other], events)).toEqual(
+      new Map([[serviceId, newer.incident_id]]),
+    );
+    expect(events[0]).toBe(event);
+  });
+  it("重复身份和没有同一服务记录时不生成入口", () => {
+    expect(
+      serviceIncidentLinks(
+        [...services, { ...services[0], node_id: localNodeId }],
+        [event],
+      ).size,
+    ).toBe(0);
+    expect(serviceIncidentLinks(services, []).size).toBe(0);
+    expect(serviceIncidentLinks([], [event]).size).toBe(0);
+  });
+});
 
 describe("incidentOperationHandoff", () => {
   it("只为已确认且仍新鲜的远端 local-only 服务生成预填链接", () => {
