@@ -44,6 +44,8 @@ class MacOSSystemReader(PsutilSystemReader):
             completed = subprocess.run(
                 (
                     self._lsof_path,
+                    "+c",
+                    "0",
                     "-nP",
                     "-iTCP",
                     "-sTCP:LISTEN",

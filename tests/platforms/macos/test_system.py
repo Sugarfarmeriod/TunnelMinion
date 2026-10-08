@@ -59,7 +59,7 @@ def test_macos_reader_falls_back_to_fixed_lsof_command(
             command,
             0,
             "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n"
-            "Python 21968 mac 4u IPv4 0x1 0t0 TCP 127.0.0.1:18880 (LISTEN)\n",
+            "llama-server 21968 mac 4u IPv4 0x1 0t0 TCP 127.0.0.1:18880 (LISTEN)\n",
             "",
         )
 
@@ -69,9 +69,12 @@ def test_macos_reader_falls_back_to_fixed_lsof_command(
     listeners = MacOSSystemReader("/usr/sbin/lsof").listeners()
 
     assert len(listeners) == 1
+    assert listeners[0].process_name == "llama-server"
     assert commands == [
         (
             "/usr/sbin/lsof",
+            "+c",
+            "0",
             "-nP",
             "-iTCP",
             "-sTCP:LISTEN",

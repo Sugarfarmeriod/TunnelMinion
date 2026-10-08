@@ -203,6 +203,33 @@ def test_exact_endpoint_names_without_port_guessing_or_local_pid_exclusion() -> 
     assert remote.prepared == [str(REMOTE)] and remote.executed == list(TOOLS)
 
 
+def test_remote_model_identity_uses_existing_listener_permission_only() -> None:
+    remote = Remote()
+    remote.tools = (TOOLS[0],)
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [
+            {
+                "protocol": "tcp",
+                "address": "0.0.0.0",
+                "port": 8088,
+                "pid": 101,
+                "process_name": "llama-server",
+            }
+        ],
+    }
+    target = node()
+    view = observer(remote, cache(target))
+    asyncio.run(view.refresh())
+    assert view.names() == {
+        (str(REMOTE), str(target.services[1].service_id)): "模型服务 · llama.cpp · 8088"
+    }
+    assert remote.executed == [TOOLS[0]]
+    remote.outputs[TOOLS[0]] = {"availability": "available", "items": []}
+    asyncio.run(view.refresh())
+    assert view.names() == {}
+
+
 @pytest.mark.parametrize(
     "tools,output",
     [

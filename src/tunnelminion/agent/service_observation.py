@@ -116,6 +116,10 @@ def select_service_display_names(
             r"pythonw?(?:\d+(?:\.\d+)*)?(?:\.exe)?", item.process_name or "", re.I
         ):
             name = f"Python 服务 · {item.port}"
+        elif item.process_pid is not None and re.fullmatch(
+            r"llama-server(?:\.exe)?", item.process_name or "", re.I
+        ):
+            name = f"模型服务 · llama.cpp · {item.port}"
         if name is not None:
             service_id = compute_observed_service_id(
                 node_id, ServiceProtocol.TCP, item.address, item.port
