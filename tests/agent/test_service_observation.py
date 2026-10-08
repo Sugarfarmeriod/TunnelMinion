@@ -228,6 +228,46 @@ def test_names_keep_unknown_container_labels_out_and_merge_python_dual_stack() -
     assert set(snapshot.display_names.values()) == {"Python 服务 · 43123"}
 
 
+@pytest.mark.parametrize(
+    "process_name,pid,protocol,selected",
+    [
+        ("llama-server", 101, "tcp", True),
+        ("llama-server.exe", 101, "tcp", True),
+        ("LLAMA-SERVER.EXE", 101, "tcp", True),
+        ("llama-ser", 101, "tcp", False),
+        ("llama-server-helper", 101, "tcp", False),
+        ("system", 101, "tcp", False),
+        ("llama-server", None, "tcp", False),
+        ("llama-server", 101, "udp", False),
+    ],
+)
+def test_model_names_require_exact_process_identity_not_a_known_port(
+    process_name: str, pid: int | None, protocol: str, selected: bool
+) -> None:
+    snapshot = asyncio.run(
+        observer(
+            FakeAdapter(
+                collection(
+                    NetworkListener(
+                        protocol=protocol,
+                        address="0.0.0.0",
+                        port=18080,
+                        pid=pid,
+                        process_name=process_name,
+                    )
+                )
+            ),
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    assert len(snapshot.services) == 1
+    assert set(snapshot.display_names.values()) == (
+        {"模型服务 · llama.cpp · 18080"} if selected else set()
+    )
+    assert "llama.cpp" not in snapshot.model_dump_json()
+
+
 def test_conflicting_container_names_do_not_choose_a_product_identity() -> None:
     docker = FakeAdapter(
         collection(

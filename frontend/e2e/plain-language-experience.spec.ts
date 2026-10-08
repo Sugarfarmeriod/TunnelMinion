@@ -37,19 +37,20 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
       source: "coordinator_directory",
       freshness: "fresh",
       evidence_at: overview.generated_at,
-      service_count: 3,
+      service_count: 4,
     },
   ];
   overview.services.items = [
     "Python 服务 · 43123",
     "Docker · my-app · 8088",
+    "模型服务 · llama.cpp · 8080",
     null,
   ].map((display_name, index) => ({
     service_id: `service_${index.toString(16).padStart(32, "0")}`,
     node_id: targetNodeId,
     display_name,
     protocol: "tcp" as const,
-    port: [43123, 8088, 9000][index],
+    port: [43123, 8088, 8080, 9000][index],
     access_address: null,
     accessibility: "loopback" as const,
     lifecycle: "active" as const,
@@ -70,7 +71,8 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   const selected = device.getByRole("list", { name: "有名称的服务" });
   await expect(selected).toContainText("Python 服务 · 43123");
   await expect(selected).toContainText("Docker · my-app · 8088");
-  await expect(selected.getByRole("listitem")).toHaveCount(2);
+  await expect(selected).toContainText("模型服务 · llama.cpp · 8080");
+  await expect(selected.getByRole("listitem")).toHaveCount(3);
   await expect(device).toContainText("1 个后台项目用途未识别");
   await page.screenshot({
     fullPage: true,
@@ -80,10 +82,10 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   await page.reload();
   await page.getByText("客厅电脑", { exact: true }).click();
   await expect(selected).toHaveCount(0);
-  await device.getByText("查看全部 3 个检测项目（技术清单）").click();
+  await device.getByText("查看全部 4 个检测项目（技术清单）").click();
   await expect(
     device.getByRole("list", { name: "完整检测清单" }).getByRole("listitem"),
-  ).toHaveCount(3);
+  ).toHaveCount(4);
 });
 
 test("三百个后台项目不淹没有名称的服务，完整清单可搜索到末项", async ({
