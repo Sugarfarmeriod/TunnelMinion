@@ -232,7 +232,10 @@ test("批准摘要按精确身份匹配名称，陈旧名称不冒充访问者",
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("书房电脑");
   await expect(dialog).toContainText("最多 5 分钟");
-  await expect(dialog).toContainText("不一定只能看，也可能更改内容");
+  await expect(dialog).toContainText(
+    "能否修改内容或是否需要登录，取决于服务本身",
+  );
+  await expect(dialog).toContainText("访问检查通过不代表这些风险已确认安全");
   await page.screenshot({
     fullPage: true,
     path: testInfo.outputPath("named-request-confirmation.png"),
@@ -247,6 +250,6 @@ test("批准摘要按精确身份匹配名称，陈旧名称不冒充访问者",
   await page.reload();
   await expect(page.getByText("访问者名称未知")).toBeVisible();
   await expect(
-    page.getByText("请先与发起请求的人确认。不认识的请求不要批准。"),
+    page.getByText("请与发起请求的人确认身份，不要只凭设备名称判断。"),
   ).toBeVisible();
 });

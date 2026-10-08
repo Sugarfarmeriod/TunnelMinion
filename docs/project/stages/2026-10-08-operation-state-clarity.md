@@ -29,4 +29,6 @@ PR #112 实机截图 `frontend/test-results/request-approval-live/request-retry-
 
 浏览器首次 WebKit 拒绝原因输入遇到确认框焦点初始化竞争；测试改为明确等待返回按钮获得初始焦点，不加固定延时、不改生产焦点逻辑，随后定向检查通过。已目视核验 `frontend/test-results/operation-detail-浏览器完成请求、等待批准、执行、访问、重启降级和目标端拒绝-chromium/access-state-clarity.png`，它是本地 fixture 截图，不是新一轮实机请求。
 
+首轮完整 CI 的构建任务在安装 uv 时获取外部版本清单失败，尚未运行产品构建；浏览器全量检查另发现名称摘要测试仍断言旧风险和身份提示整句。同步为新版风险与身份提醒断言，保留陈旧名称不能冒充访问者的检查，不降低安全覆盖。最终本地全量双浏览器 68 项全部通过；外部下载失败不通过改产品代码绕过。
+
 对应 [PR #113](https://github.com/Sugarfarmeriod/TunnelMinion/pull/113)，完成状态以该 PR 最新提交的完整 CI 与合并为准。下一步若要验证用户自己的真实服务，需要先提供服务用途、所在电脑和可测试范围；不能由 Python 进程名或端口猜测，也不能把上次测试的一单批准转为长期授权。
