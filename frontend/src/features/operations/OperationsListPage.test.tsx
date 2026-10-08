@@ -155,6 +155,7 @@ describe("OperationsListPage", () => {
         return jsonResponse([
           {
             node_id: targetNodeId,
+            platform: "macos",
             host: "10.77.0.1",
             port: 8787,
             allowed_tools: ["get_node_summary"],
