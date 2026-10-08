@@ -116,6 +116,7 @@ export const operationListSchema = z.array(operationListItemSchema);
 export const eligibleOperationPeerSchema = z
   .object({
     node_id: nodeIdSchema,
+    platform: z.enum(["windows", "macos", "linux"]).nullable().optional(),
     host: z.string(),
     port: z.number().int().min(1024).max(65_535),
     allowed_tools: z.array(z.string()),

@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { makeOperationDetail } from "./testFixtures";
-import { operationDetailSchema } from "./schemas";
+import { makeOperationDetail, targetNodeId } from "./testFixtures";
+import { eligibleOperationPeersSchema, operationDetailSchema } from "./schemas";
+
+describe("eligibleOperationPeersSchema", () => {
+  const peer = {
+    node_id: targetNodeId,
+    host: "10.77.0.1",
+    port: 18889,
+    allowed_tools: ["get_node_summary", "list_network_listeners"],
+    allowed_operations: ["share_local_http_service"],
+    credential_configured: true,
+  };
+  it.each(["macos", "windows", "linux", null, undefined])(
+    "接受实际平台字段 %s 和旧响应",
+    (platform) => {
+      const actual = platform === undefined ? peer : { ...peer, platform };
+      expect(eligibleOperationPeersSchema.parse([actual])).toEqual([actual]);
+    },
+  );
+  it("仍拒绝非法平台与未约定字段，不用平台字段放宽授权", () => {
+    expect(
+      eligibleOperationPeersSchema.safeParse([{ ...peer, platform: "other" }])
+        .success,
+    ).toBe(false);
+    expect(
+      eligibleOperationPeersSchema.safeParse([
+        { ...peer, platform: "macos", token: "forbidden-fixture" },
+      ]).success,
+    ).toBe(false);
+  });
+});
 
 describe("operationDetailSchema", () => {
   it("接受服务端强类型详情并拒绝额外敏感字段", () => {

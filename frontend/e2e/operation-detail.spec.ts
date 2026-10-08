@@ -126,6 +126,7 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
       await fulfillJson(route, [
         {
           node_id: targetNodeId,
+          platform: "macos",
           host: "10.77.0.1",
           port: 8787,
           allowed_tools: ["get_node_summary"],
