@@ -660,33 +660,52 @@ function ServiceList({
     >
       {services.map((service) => (
         <li key={service.service_id}>
-          <div>
-            <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
-            {!technical &&
-            service.state === "available" &&
-            ["fresh", "live"].includes(service.freshness) ? (
-              <span>
-                {service.accessibility === "loopback"
-                  ? "只接受所属电脑的连接，其他电脑不能直接打开。"
-                  : "已发现服务，还没有确认其他电脑能否使用。"}
-              </span>
-            ) : null}
-            {technical ? (
+          {technical ? (
+            <div>
+              <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
               <span>{service.access_address ?? "访问地址未知"}</span>
-            ) : null}
-            {incidentLinks.get(service.service_id) ? (
-              <Link
-                to={`/app/overview?incident_id=${incidentLinks.get(service.service_id)}#overview-incidents`}
-              >
-                查看这项服务的变化
-              </Link>
-            ) : null}
-          </div>
-          <StatusBadge tone={stateTone(service.state, service.freshness)}>
-            {service.freshness === "stale" || service.freshness === "expired"
-              ? `${serviceStateLabels[service.state]}（记录已过时）`
-              : serviceStateLabels[service.state]}
-          </StatusBadge>
+            </div>
+          ) : (
+            <details className="overview-service">
+              <summary>
+                <strong>{service.display_name}</strong>
+                <StatusBadge tone={stateTone(service.state, service.freshness)}>
+                  {service.freshness === "stale" ||
+                  service.freshness === "expired"
+                    ? `${serviceStateLabels[service.state]}（记录已过时）`
+                    : serviceStateLabels[service.state]}
+                </StatusBadge>
+              </summary>
+              <div className="overview-service__body">
+                <p>
+                  {service.accessibility === "loopback"
+                    ? "只接受所属电脑的连接，其他电脑不能直接打开。"
+                    : service.accessibility === "network"
+                      ? "已发现服务，还没有确认其他电脑能否使用。"
+                      : "连接方式还不清楚，请先确认服务的监听设置。"}
+                </p>
+                <p>
+                  <span>检测到的地址</span>
+                  <code>{service.access_address ?? "访问地址未知"}</code>
+                </p>
+              </div>
+            </details>
+          )}
+          {incidentLinks.get(service.service_id) ? (
+            <Link
+              className="overview-service__action"
+              to={`/app/overview?incident_id=${incidentLinks.get(service.service_id)}#overview-incidents`}
+            >
+              查看这项服务的变化
+            </Link>
+          ) : null}
+          {technical ? (
+            <StatusBadge tone={stateTone(service.state, service.freshness)}>
+              {service.freshness === "stale" || service.freshness === "expired"
+                ? `${serviceStateLabels[service.state]}（记录已过时）`
+                : serviceStateLabels[service.state]}
+            </StatusBadge>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -996,6 +1015,7 @@ function readableRequestError(error: Error): string {
 }
 
 export function OverviewPage() {
+  const [refreshRequested, setRefreshRequested] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedIncident = /^incident_[0-9a-f]{32}$/.test(
     searchParams.get("incident_id") ?? "",
@@ -1047,11 +1067,21 @@ export function OverviewPage() {
         <div>
           <h2 id="overview-title">总览</h2>
           <p>{data.nodes.items.length} 台设备</p>
+          <p className="overview-refresh-feedback" role="status">
+            {query.isFetching
+              ? "正在读取最新记录，已有内容保留在这里。"
+              : refreshRequested && !query.isRefetchError
+                ? "记录已重新读取；检测到服务不代表已确认能连接。"
+                : null}
+          </p>
         </div>
         <button
           disabled={query.isFetching}
           type="button"
-          onClick={() => void query.refetch()}
+          onClick={() => {
+            setRefreshRequested(true);
+            void query.refetch();
+          }}
         >
           {query.isFetching ? "正在刷新……" : "刷新"}
         </button>

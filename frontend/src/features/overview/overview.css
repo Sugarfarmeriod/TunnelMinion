@@ -362,6 +362,85 @@
   border-top: 1px solid var(--color-border);
 }
 
+.overview-service-rows:has(.overview-service) > li {
+  display: block;
+  padding: 0;
+}
+
+.overview-service {
+  border-radius: var(--radius-pill);
+}
+
+.overview-service > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-3);
+  list-style: none;
+  min-height: 3.25rem;
+  padding: var(--space-2) var(--space-3);
+  transition: background-color 140ms ease;
+}
+
+.overview-service > summary::-webkit-details-marker {
+  display: none;
+}
+
+.overview-service > summary strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.overview-service > summary::after {
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  content: "";
+  flex: 0 0 0.4rem;
+  height: 0.4rem;
+  transform: rotate(-45deg);
+  transition: transform 140ms ease;
+}
+
+.overview-service[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+.overview-service > summary:hover,
+.overview-service[open] {
+  background: var(--color-accent-soft);
+}
+
+.overview-service__body {
+  border-left: 2px solid var(--color-accent-strong);
+  margin: 0 var(--space-3) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+.overview-service__body p {
+  margin: 0 0 var(--space-2);
+}
+
+.overview-service__body code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.overview-service__action {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+}
+
+.overview-refresh-feedback:empty {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-service > summary,
+  .overview-service > summary::after {
+    transition: none;
+  }
+}
+
 .overview-service-rows li > div {
   display: grid;
   min-width: 0;
@@ -555,6 +634,28 @@
 }
 
 @media (max-width: 32rem) {
+  .overview-service > summary {
+    display: grid;
+    gap: var(--space-1) var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .overview-service > summary .overview-status {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .overview-service > summary::after {
+    grid-column: 2;
+    grid-row: 1;
+    width: 0.4rem;
+  }
+
+  .overview-service-rows:has(.overview-service) {
+    max-height: 28rem;
+  }
+
   .overview-page__header {
     align-items: stretch;
     flex-direction: column;

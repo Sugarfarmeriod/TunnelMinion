@@ -292,6 +292,10 @@ describe("OverviewPage", () => {
     expect(
       screen.getAllByText(/https:\/\/service\.example:443/)[0],
     ).not.toBeVisible();
+    await user.click(screen.getAllByText(maliciousService)[0]);
+    expect(
+      screen.getAllByText(/https:\/\/service\.example:443/)[0],
+    ).toBeVisible();
     await user.click(screen.getByText("查看全部 1 个检测项目（技术清单）"));
     expect(
       screen.getAllByText(/https:\/\/service\.example:443/)[0],

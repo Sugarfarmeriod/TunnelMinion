@@ -59,9 +59,11 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     freshness: "fresh" as const,
     evidence_at: overview.generated_at,
   }));
-  await page.route("**/api/resources/overview", (route) =>
-    route.fulfill({ json: overview }),
-  );
+  let pendingRefresh: Promise<void> | undefined;
+  await page.route("**/api/resources/overview", async (route) => {
+    await pendingRefresh;
+    await route.fulfill({ json: overview });
+  });
   await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
   await page.goto("/app/overview");
   await page.getByText("客厅电脑", { exact: true }).click();
@@ -77,6 +79,57 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   await page.screenshot({
     fullPage: true,
     path: testInfo.outputPath("remote-service-selection.png"),
+  });
+  const model = selected.locator("details").filter({ hasText: "模型服务" });
+  const modelSummary = model.locator("summary");
+  await expect(model.getByText("访问地址未知")).toBeHidden();
+  await modelSummary.focus();
+  await page.keyboard.press("Enter");
+  await expect(model.getByText("访问地址未知")).toBeVisible();
+  await expect(model).toContainText("其他电脑不能直接打开");
+  await expect(selected.locator("details[open]")).toHaveCount(1);
+  let releaseRefresh!: () => void;
+  pendingRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.getByRole("button", { name: "正在刷新……" })).toBeDisabled();
+  await expect(
+    page.getByText("正在读取最新记录，已有内容保留在这里。"),
+  ).toBeVisible();
+  await expect(model.getByText("访问地址未知")).toBeVisible();
+  overview.services.items[2].state = "unknown";
+  releaseRefresh();
+  await expect(
+    page.getByText("记录已重新读取；检测到服务不代表已确认能连接。"),
+  ).toBeVisible();
+  await expect(model).toHaveAttribute("open", "");
+  await expect(modelSummary).toContainText("状态未知");
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("service-interaction-1280.png"),
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await modelSummary.evaluate(
+      (element) => getComputedStyle(element).transitionDuration,
+    ),
+  ).toBe("0s");
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 760 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  const a11y = await new AxeBuilder({ page }).include("main").analyze();
+  expect(
+    a11y.violations.filter((item) =>
+      ["serious", "critical"].includes(item.impact ?? ""),
+    ),
+  ).toEqual([]);
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("service-interaction-320.png"),
   });
   for (const service of overview.services.items) service.display_name = null;
   await page.reload();
@@ -156,7 +209,7 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
     "299 个后台项目用途未识别 · 1 项状态需要确认",
   );
   await expect(device.getByText("tcp://10.77.0.1:9299")).toBeHidden();
-  await expect(device.getByText("tcp://10.77.0.1:9000")).toBeHidden();
+  await expect(device.getByText("tcp://10.77.0.1:9000").first()).toBeHidden();
   await expect(device.getByText("Coordinator 目录")).toHaveCount(0);
   await expect(page.locator(".overview-card:visible")).toHaveCount(0);
   await expect(
