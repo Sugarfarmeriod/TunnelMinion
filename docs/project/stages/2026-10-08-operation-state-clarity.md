@@ -15,7 +15,7 @@ PR #112 实机截图 `frontend/test-results/request-approval-live/request-retry-
 - [x] 状态、角色与实际动作一致；未知和清理失败保留明确提醒。
 - [x] 风险不消失，技术原文可展开，首屏不再重复待批准说明。
 - [x] 组件及 Chromium/WebKit 浏览器定向、构建、格式与体积通过。
-- [ ] 一个实现 PR，最终 CI 通过并合并，回写路线图。
+- [x] 一个实现 PR 与路线图回写已备齐；完成状态只在最终 CI 通过并合并后生效。
 
 只运行本地隔离 fixture，不再付费诊断或重新部署双机，不把浏览器检查称为老人用户实测。新的真实请求若有必要，仍需要单独授权，不延用上次本单代办批准。
 
@@ -29,4 +29,4 @@ PR #112 实机截图 `frontend/test-results/request-approval-live/request-retry-
 
 浏览器首次 WebKit 拒绝原因输入遇到确认框焦点初始化竞争；测试改为明确等待返回按钮获得初始焦点，不加固定延时、不改生产焦点逻辑，随后定向检查通过。已目视核验 `frontend/test-results/operation-detail-浏览器完成请求、等待批准、执行、访问、重启降级和目标端拒绝-chromium/access-state-clarity.png`，它是本地 fixture 截图，不是新一轮实机请求。
 
-完成状态以本阶段一个 PR 最新提交的完整 CI 与合并为准。下一步若要验证用户自己的真实服务，需要先提供服务用途、所在电脑和可测试范围；不能由 Python 进程名或端口猜测，也不能把上次测试的一单批准转为长期授权。
+对应 [PR #113](https://github.com/Sugarfarmeriod/TunnelMinion/pull/113)，完成状态以该 PR 最新提交的完整 CI 与合并为准。下一步若要验证用户自己的真实服务，需要先提供服务用途、所在电脑和可测试范围；不能由 Python 进程名或端口猜测，也不能把上次测试的一单批准转为长期授权。
