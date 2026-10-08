@@ -171,11 +171,9 @@ describe("OperationsListPage", () => {
     const user = userEvent.setup();
 
     renderList();
-    await screen.findByRole("option", { name: new RegExp(targetNodeId) });
-    await user.click(
-      screen.getByRole("checkbox", { name: /目标节点批准后会创建/ }),
-    );
-    const submit = screen.getByRole("button", { name: "生成计划并请求批准" });
+    await screen.findByRole("option", { name: /名称未知/ });
+    await user.click(screen.getByRole("checkbox", { name: /我了解风险/ }));
+    const submit = screen.getByRole("button", { name: "发送访问请求" });
     fireEvent.click(submit);
     fireEvent.click(submit);
 
@@ -223,23 +221,17 @@ describe("OperationsListPage", () => {
       `/app/operations?incident_id=${incidentId}&target_node_id=${targetNodeId}&service_port=4312`,
     );
 
-    expect(
-      await screen.findByText(`来自 Incident ${incidentId}`),
-    ).toBeVisible();
-    expect(screen.getByLabelText("目标节点")).toHaveValue(targetNodeId);
-    expect(screen.getByLabelText("目标服务端口")).toHaveValue(4312);
+    expect(await screen.findByText("已带入刚才调查的服务")).toBeVisible();
+    expect(screen.getByLabelText("哪台电脑")).toHaveValue(targetNodeId);
+    expect(screen.getByLabelText("服务的端口号码")).toHaveValue(4312);
     expect(
       fetchMock.mock.calls.filter(
         ([, init]) => (init?.method ?? "GET").toUpperCase() === "POST",
       ),
     ).toHaveLength(0);
 
-    await user.click(
-      screen.getByRole("checkbox", { name: /目标节点批准后会创建/ }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "生成计划并请求批准" }),
-    );
+    await user.click(screen.getByRole("checkbox", { name: /我了解风险/ }));
+    await user.click(screen.getByRole("button", { name: "发送访问请求" }));
 
     await waitFor(() => {
       const writes = fetchMock.mock.calls.filter(
@@ -283,13 +275,9 @@ describe("OperationsListPage", () => {
       `/app/operations?incident_id=${incidentId}&target_node_id=${unavailableTarget}&service_port=4312`,
     );
 
-    expect(
-      await screen.findByText(/该目标当前不在服务端返回的合格对端中/),
-    ).toBeVisible();
-    expect(screen.getByLabelText("目标节点")).toHaveValue(unavailableTarget);
-    expect(
-      screen.getByRole("button", { name: "生成计划并请求批准" }),
-    ).toBeDisabled();
+    expect(await screen.findByText(/这台电脑当前不可申请/)).toBeVisible();
+    expect(screen.getByLabelText("哪台电脑")).toHaveValue(unavailableTarget);
+    expect(screen.getByRole("button", { name: "发送访问请求" })).toBeDisabled();
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
     ).toBe(false);
@@ -320,12 +308,68 @@ describe("OperationsListPage", () => {
 
     renderList();
 
-    expect(await screen.findByText(/当前没有已配置凭据/)).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "生成计划并请求批准" }),
-    ).toBeDisabled();
+    expect(await screen.findByText(/还没有允许临时访问的电脑/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "发送访问请求" })).toBeDisabled();
     expect(
       screen.getByRole("link", { name: "查看操作最新详情" }),
     ).toBeVisible();
+  });
+
+  it.each([
+    ["60", 60],
+    ["900", 900],
+    ["3600", 3600],
+    ["custom", 125],
+  ])("时长 %s 保留秒数协议且展开设置不会提交", async (choice, seconds) => {
+    fetchMock.mockImplementation((input, init) => {
+      if (input === "/api/operations/eligible-peers") {
+        return jsonResponse([
+          {
+            node_id: targetNodeId,
+            host: "10.77.0.1",
+            port: 8787,
+            allowed_tools: [],
+            allowed_operations: ["share_local_http_service"],
+            credential_configured: true,
+          },
+        ]);
+      }
+      return jsonResponse(
+        init?.method === "POST"
+          ? makeOperationDetail({ role: "requester" })
+          : [],
+      );
+    });
+    const user = userEvent.setup();
+    renderList();
+    await screen.findByRole("option", { name: /名称未知/ });
+    expect(screen.getByLabelText("临时共享端口")).not.toBeVisible();
+    await user.click(screen.getByText("技术设置（通常不用改）"));
+    expect(screen.getByLabelText("临时共享端口")).toBeVisible();
+    await user.selectOptions(
+      screen.getByLabelText("使用多久", { selector: "select" }),
+      choice,
+    );
+    if (choice === "custom") {
+      const custom = screen.getByLabelText("自定义时长（秒）");
+      await user.clear(custom);
+      await user.type(custom, String(seconds));
+    }
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
+    ).toBe(false);
+    expect(screen.getByText(/可能使用模型额度/)).toBeVisible();
+    await user.click(screen.getByRole("checkbox", { name: /我了解风险/ }));
+    await user.click(screen.getByRole("button", { name: "发送访问请求" }));
+    await waitFor(() => {
+      const writes = fetchMock.mock.calls.filter(
+        ([, init]) => init?.method === "POST",
+      );
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(String(writes[0]?.[1]?.body))).toMatchObject({
+        duration_seconds: seconds,
+        bind_port: 18881,
+      });
+    });
   });
 });

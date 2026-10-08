@@ -210,8 +210,8 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   });
 
   await page.goto("/app/operations");
-  await page.getByRole("checkbox", { name: /目标节点批准后会创建/ }).check();
-  await page.getByRole("button", { name: "生成计划并请求批准" }).click();
+  await page.getByRole("checkbox", { name: /我了解风险/ }).check();
+  await page.getByRole("button", { name: "发送访问请求" }).click();
   await expect(page).toHaveURL(`/app/operations/${operationId}`);
   await expect(page.getByText("等待本机批准")).toBeVisible();
   expect(createPayloads).toEqual([

@@ -324,15 +324,46 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   await expect(page).toHaveURL(
     `/app/operations?incident_id=${incidentId}&target_node_id=${remoteNodeId}&service_port=4312`,
   );
-  await expect(page.getByText(`来自 Incident ${incidentId}`)).toBeVisible();
+  await expect(page.getByText("已带入刚才调查的服务")).toBeVisible();
   await expect(page.locator('select[name="target_node_id"]')).toHaveValue(
     remoteNodeId,
   );
-  await expect(page.getByLabel("目标服务端口")).toHaveValue("4312");
+  await expect(page.locator('input[name="service_port"]')).toHaveValue("4312");
+  const application = page.locator(".operation-request-card");
+  await expect(
+    application.getByRole("option", { name: "远端 Mac", exact: true }),
+  ).toBeAttached();
+  await expect(
+    application.getByText("远端管理面板", { exact: true }),
+  ).toBeVisible();
+  await expect(application.getByLabel("临时共享端口")).toBeHidden();
+  await expect(application.getByText(/来源事件/)).toBeHidden();
+  await expect(application.getByText(/可能使用模型额度/)).toBeVisible();
+  const applicationA11y = await new AxeBuilder({ page })
+    .include(".operation-request-card")
+    .analyze();
+  expect(
+    applicationA11y.violations.filter((item) =>
+      ["serious", "critical"].includes(item.impact ?? ""),
+    ),
+  ).toEqual([]);
+  await application.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("request-form-first.png"),
+  });
+  await page.setViewportSize({ width: 320, height: 760 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await application.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("request-form-narrow.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
   expect(writes).toEqual([]);
 
-  await page.getByRole("checkbox", { name: /目标节点批准后会创建/ }).check();
-  await page.getByRole("button", { name: "生成计划并请求批准" }).click();
+  await page.getByRole("checkbox", { name: /我了解风险/ }).check();
+  await page.getByRole("button", { name: "发送访问请求" }).click();
   await expect(page).toHaveURL(`/app/operations/${createdOperationId}`);
   await expect(page.getByText("等待本机批准").first()).toBeVisible();
   expect(writes).toEqual([
@@ -346,6 +377,68 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
     },
   ]);
 });
+
+for (const mismatch of [
+  "stale",
+  "stopped",
+  "duplicate",
+  "other-node",
+  "other-port",
+  "unavailable",
+] as const) {
+  test(`申请页的 ${mismatch} 归属不会冒充已识别服务`, async ({
+    context,
+    page,
+    request,
+  }) => {
+    const overview = await remoteIncidentOverview(request);
+    const service = overview.services.items[0]!;
+    if (mismatch === "stale") service.freshness = "stale";
+    if (mismatch === "stopped") service.lifecycle = "stopped";
+    if (mismatch === "duplicate") overview.services.items.push({ ...service });
+    if (mismatch === "other-node") service.node_id = localNodeId;
+    if (mismatch === "other-port") service.port = 4313;
+    await context.route("**/api/resources/overview", (route) =>
+      mismatch === "unavailable"
+        ? fulfillJson(route, { error: "unavailable" }, 503)
+        : fulfillJson(route, overview),
+    );
+    const writes: string[] = [];
+    await context.route("**/api/operations**", (route) => {
+      if (route.request().method() !== "GET")
+        writes.push(route.request().method());
+      return fulfillJson(
+        route,
+        new URL(route.request().url()).pathname.endsWith("eligible-peers")
+          ? [
+              {
+                node_id: remoteNodeId,
+                host: "10.77.0.2",
+                port: 8787,
+                allowed_tools: [],
+                allowed_operations: ["share_local_http_service"],
+                credential_configured: true,
+              },
+            ]
+          : [],
+      );
+    });
+    await page.goto(
+      `/app/operations?incident_id=${incidentId}&target_node_id=${remoteNodeId}&service_port=4312`,
+    );
+    const application = page.locator(".operation-request-card");
+    await expect(
+      application.getByText("还不能确认服务名称", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      application.getByText("远端管理面板", { exact: true }),
+    ).toHaveCount(0);
+    await expect(application.getByLabel("服务的端口号码")).toHaveValue("4312");
+    await application.getByText("技术设置（通常不用改）").click();
+    await expect(application.getByLabel("临时共享端口")).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+}
 
 test("同页切换调查、返回历史和关闭详情不会遗留旧追问或产生写请求", async ({
   page,

@@ -144,6 +144,26 @@
   justify-self: start;
 }
 
+.operation-request-form__technical,
+.operation-request-form__risk {
+  grid-column: 1 / -1;
+}
+
+.operation-request-form__technical summary {
+  cursor: pointer;
+  color: var(--color-muted);
+  padding: var(--space-2) 0;
+}
+
+.operation-request-form__technical label {
+  max-width: 20rem;
+}
+
+.operation-request-form__risk {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
 .operations-list,
 .operation-detail-list {
   display: grid;

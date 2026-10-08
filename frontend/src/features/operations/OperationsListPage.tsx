@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
+import { requestJson } from "../../api/client";
+import { resourceOverviewSchema } from "../../api/schemas/overview";
 import {
   formatOperationTime,
   operationStatusLabels,
@@ -62,6 +64,9 @@ export function OperationsListPage() {
   const createInFlight = useRef(false);
   const [creating, setCreating] = useState(false);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const [selectedPort, setSelectedPort] = useState<number | null>(null);
+  const [duration, setDuration] = useState("300");
   const query = useQuery({
     queryKey: operationQueryKeys.list,
     queryFn: listOperations,
@@ -69,6 +74,12 @@ export function OperationsListPage() {
   const peersQuery = useQuery({
     queryKey: [...operationQueryKeys.all, "eligible-peers"],
     queryFn: listEligibleOperationPeers,
+  });
+  const overviewQuery = useQuery({
+    queryKey: ["resource-overview"],
+    queryFn: () =>
+      requestJson("/api/resources/overview", resourceOverviewSchema),
+    retry: false,
   });
   const incidentPrefill = parseIncidentOperationPrefill(searchParams);
   const prefillTargetAvailable =
@@ -85,21 +96,75 @@ export function OperationsListPage() {
     incidentPrefill.kind === "valid"
       ? incidentPrefill.targetNodeId
       : (peersQuery.data?.[0]?.node_id ?? "");
+  const targetNodeId = selectedTarget ?? defaultTargetNodeId;
+  const targetAvailable =
+    peersQuery.data?.some((peer) => peer.node_id === targetNodeId) === true;
+  const servicePort =
+    selectedPort ??
+    (incidentPrefill.kind === "valid" ? incidentPrefill.servicePort : 8080);
+  const overview = overviewQuery.isError ? undefined : overviewQuery.data;
+  function computerName(nodeId: string, host: string) {
+    const nodes = overview?.nodes.items.filter(
+      (node) => node.node_id === nodeId,
+    );
+    const node = nodes?.length === 1 ? nodes[0] : undefined;
+    const name =
+      node &&
+      ["live", "fresh"].includes(node.freshness) &&
+      ["local", "online"].includes(node.state)
+        ? node.display_name.trim()
+        : "";
+    if (
+      name &&
+      overview?.nodes.items.filter((item) => item.display_name.trim() === name)
+        .length === 1
+    ) {
+      return name;
+    }
+    const duplicateHost =
+      (peersQuery.data ?? []).filter((peer) => peer.host === host).length > 1;
+    return `${name || "名称未知"} · ${host}${duplicateHost ? ` · ${nodeId.slice(-8)}` : ""}`;
+  }
+  const sourceIncidents =
+    incidentPrefill.kind === "valid"
+      ? overview?.incidents.items.filter(
+          (item) => item.incident_id === incidentPrefill.incidentId,
+        )
+      : undefined;
+  const sourceIncident =
+    sourceIncidents?.length === 1 ? sourceIncidents[0] : undefined;
+  const sourceServices =
+    sourceIncident?.object_kind === "service"
+      ? overview?.services.items.filter(
+          (item) => item.service_id === sourceIncident.object_id,
+        )
+      : undefined;
+  const sourceService =
+    sourceServices?.length === 1 ? sourceServices[0] : undefined;
+  const serviceName =
+    sourceService &&
+    sourceService.node_id === targetNodeId &&
+    sourceService.port === servicePort &&
+    ["live", "fresh"].includes(sourceService.freshness) &&
+    sourceService.lifecycle === "active" &&
+    sourceService.state === "available"
+      ? sourceService.display_name?.trim()
+      : undefined;
 
   async function createOperation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (createInFlight.current) {
       return;
     }
-    if (prefillBlocked) {
+    if (prefillBlocked || !targetAvailable) {
       setCreateMessage(
-        "Incident 预填上下文已经失效；本次没有创建操作。请返回总览刷新，或打开普通新建入口。",
+        "这台电脑现在不能申请访问，没有发送请求。请返回总览刷新，或重新选择可申请的电脑。",
       );
       return;
     }
     const form = new FormData(event.currentTarget);
     if (form.get("confirmed") !== "on") {
-      setCreateMessage("请先确认：目标节点批准后，这会创建一个临时访问入口。");
+      setCreateMessage("请先勾选确认风险，再发送访问请求。");
       return;
     }
     createInFlight.current = true;
@@ -113,7 +178,9 @@ export function OperationsListPage() {
         target_node_id: String(form.get("target_node_id")),
         service_port: Number(form.get("service_port")),
         bind_port: Number(form.get("bind_port")),
-        duration_seconds: Number(form.get("duration_seconds")),
+        duration_seconds: Number(
+          duration === "custom" ? form.get("duration_seconds") : duration,
+        ),
         confirmed: true,
       });
       queryClient.setQueryData(
@@ -179,10 +246,10 @@ export function OperationsListPage() {
     >
       <header className="operations-page__header">
         <div>
-          <p className="eyebrow">本机批准与远端请求</p>
+          <p className="eyebrow">访问请求与处理记录</p>
           <h2 id="operations-title">操作</h2>
           <p>
-            列表只显示摘要。打开详情后会按 ID 重新读取完整计划和服务端允许动作。
+            发出请求、等待对方批准，再由你确认开始。已有请求可以在下方继续查看。
           </p>
         </div>
 
@@ -191,19 +258,21 @@ export function OperationsListPage() {
             className={`operations-callout ${prefillBlocked ? "operations-callout--warning" : ""}`}
             role={prefillBlocked ? "alert" : "status"}
           >
-            <strong>来自 Incident {incidentPrefill.incidentId}</strong>
+            <strong>已带入刚才调查的服务</strong>
             <span>
-              已预填目标节点和端口；所有值仍会按最新证据重新诊断，调查结论不等于确认或授权。
+              发送前会重新检查。现在只是填写申请，还没有发出请求或获得批准。
             </span>
             {prefillBlocked ? (
               <>
-                <span>
-                  该目标当前不在服务端返回的合格对端中，本次上下文请求已禁用。
-                </span>
+                <span>这台电脑当前不可申请，本次不会发送请求。</span>
                 <Link to="/app/operations">打开普通新建入口</Link>
               </>
             ) : (
-              <Link to="/app/overview">返回 Incident 总览</Link>
+              <Link
+                to={`/app/overview?incident_id=${incidentPrefill.incidentId}#overview-incidents`}
+              >
+                返回调查结果
+              </Link>
             )}
           </div>
         ) : incidentPrefill.kind === "invalid" ? (
@@ -211,7 +280,7 @@ export function OperationsListPage() {
             className="operations-callout operations-callout--warning"
             role="alert"
           >
-            <strong>Incident 预填参数无效，本次上下文请求已禁用。</strong>
+            <strong>带入的服务信息不完整，本次不会发送请求。</strong>
             <Link to="/app/operations">打开普通新建入口</Link>
           </div>
         ) : null}
@@ -241,11 +310,9 @@ export function OperationsListPage() {
         className="operation-request-card"
       >
         <div>
-          <p className="eyebrow">请求节点</p>
-          <h3 id="request-operation-title">请求临时 HTTP 访问</h3>
+          <h3 id="request-operation-title">申请临时访问</h3>
           <p>
-            这里只收集目标节点和端口。远端地址、Gateway 凭据、回调 token
-            与访问凭据都由本机服务端处理。
+            临时使用另一台电脑上的网页服务。对方可以拒绝、随时停止，到期后会自动关闭。
           </p>
         </div>
 
@@ -254,23 +321,23 @@ export function OperationsListPage() {
             className="operations-callout operations-callout--warning"
             role="alert"
           >
-            <strong>现在读不到可用对端，新建入口已禁用。</strong>
+            <strong>现在读不到可申请的电脑，暂时不能发送新请求。</strong>
             <span>已有操作仍可查看和控制。</span>
             <button type="button" onClick={() => void peersQuery.refetch()}>
-              重新读取对端
+              重新读取电脑
             </button>
           </div>
         ) : null}
 
         {!peersQuery.isPending && peersQuery.data?.length === 0 ? (
           <p className="operation-muted" role="status">
-            当前没有已配置凭据且允许临时 HTTP 共享的对端；已有操作不受影响。
+            还没有允许临时访问的电脑。需要先完成连接和授权；已有请求仍可查看。
           </p>
         ) : null}
 
         <form className="operation-request-form" onSubmit={createOperation}>
           <label>
-            目标节点
+            哪台电脑
             <select
               key={`${defaultTargetNodeId}-${peersQuery.data?.length ?? "loading"}`}
               required
@@ -279,74 +346,123 @@ export function OperationsListPage() {
                 peersQuery.data === undefined ||
                 peersQuery.data.length === 0
               }
-              defaultValue={defaultTargetNodeId}
+              value={targetNodeId}
+              onChange={(event) => setSelectedTarget(event.target.value)}
               name="target_node_id"
             >
-              {incidentPrefill.kind === "valid" &&
+              {targetNodeId &&
               peersQuery.data !== undefined &&
-              !prefillTargetAvailable ? (
-                <option value={incidentPrefill.targetNodeId}>
-                  {incidentPrefill.targetNodeId} · 当前不合格
-                </option>
+              !targetAvailable ? (
+                <option value={targetNodeId}>原来的电脑 · 当前不可申请</option>
               ) : null}
               {(peersQuery.data ?? []).map((peer) => (
                 <option key={peer.node_id} value={peer.node_id}>
-                  {peer.node_id} · {peer.host}
+                  {computerName(peer.node_id, peer.host)}
                 </option>
               ))}
             </select>
           </label>
+          <div>
+            <p>
+              <strong>什么服务</strong>
+            </p>
+            <p>{serviceName || "还不能确认服务名称"}</p>
+            {!serviceName ? (
+              <p className="operation-muted">
+                请向服务的主人确认下面的端口号码，不要凭号码猜服务用途。
+              </p>
+            ) : null}
+            {serviceName ? (
+              <input name="service_port" type="hidden" value={servicePort} />
+            ) : (
+              <label>
+                服务的端口号码
+                <input
+                  value={servicePort}
+                  onChange={(event) =>
+                    setSelectedPort(Number(event.target.value))
+                  }
+                  max="65535"
+                  min="1"
+                  name="service_port"
+                  required
+                  type="number"
+                />
+              </label>
+            )}
+          </div>
           <label>
-            目标服务端口
-            <input
-              defaultValue={
-                incidentPrefill.kind === "valid"
-                  ? incidentPrefill.servicePort
-                  : 8080
-              }
-              max="65535"
-              min="1"
-              name="service_port"
-              required
-              type="number"
-            />
+            使用多久
+            <select
+              value={duration}
+              onChange={(event) => setDuration(event.target.value)}
+            >
+              <option value="60">1 分钟</option>
+              <option value="300">5 分钟</option>
+              <option value="900">15 分钟</option>
+              <option value="3600">1 小时</option>
+              <option value="custom">自定义时长</option>
+            </select>
+            {duration === "custom" ? (
+              <input
+                aria-label="自定义时长（秒）"
+                defaultValue="300"
+                min="1"
+                max="86400"
+                name="duration_seconds"
+                required
+                type="number"
+              />
+            ) : null}
           </label>
-          <label>
-            临时共享端口
-            <input
-              defaultValue="18881"
-              max="65535"
-              min="1024"
-              name="bind_port"
-              required
-              type="number"
-            />
-          </label>
-          <label>
-            持续秒数
-            <input
-              defaultValue="300"
-              max="86400"
-              min="1"
-              name="duration_seconds"
-              required
-              type="number"
-            />
-          </label>
+          <details className="operation-request-form__technical">
+            <summary>技术设置（通常不用改）</summary>
+            <p className="operation-muted">
+              电脑编号：{targetNodeId || "尚未取得"}；服务端口：{servicePort}
+            </p>
+            {incidentPrefill.kind === "valid" ? (
+              <p className="operation-muted">
+                来源事件：{incidentPrefill.incidentId}
+              </p>
+            ) : null}
+            <label>
+              临时共享端口
+              <input
+                defaultValue="18881"
+                max="65535"
+                min="1024"
+                name="bind_port"
+                required
+                type="number"
+              />
+            </label>
+          </details>
+          <div className="operation-request-form__risk">
+            <p>
+              <strong>先确认风险</strong>
+            </p>
+            <p>
+              能查看什么、能修改什么，取决于服务本身。临时访问不代表只能查看。
+            </p>
+            <p className="operation-muted">
+              发送会进行模型诊断，可能使用模型额度。对方批准后，还需要你确认开始。
+            </p>
+          </div>
           <label className="operation-request-form__confirmation">
             <input name="confirmed" required type="checkbox" />
-            我确认：目标节点批准后会创建临时入口，目标节点仍拥有撤销和到期清理权。
+            我了解风险，要向对方申请临时访问。对方可以拒绝或随时停止。
           </label>
           <button
             disabled={
               creating ||
               prefillBlocked ||
+              !targetAvailable ||
               peersQuery.data === undefined ||
               peersQuery.data.length === 0
             }
             type="submit"
           >
-            {creating ? "正在生成并提交一次……" : "生成计划并请求批准"}
+            {creating ? "正在检查并发送，请稍候……" : "发送访问请求"}
           </button>
         </form>
         {createMessage === null ? null : (
