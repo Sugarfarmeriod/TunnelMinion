@@ -699,11 +699,6 @@ export function OperationDetailPage() {
       >
         <div>
           <h3 id="operation-actions-title">你可以做什么</h3>
-          <p>
-            {detail.role === "target"
-              ? "认识这个请求再批准；不确定就拒绝。批准后，还需要对方开始使用。"
-              : "对方批准后，你才能开始使用。看不到最新结果时，请先刷新。"}
-          </p>
         </div>
         <div className="operation-actions__buttons">
           {unknownResult !== null || serverResultUnknown ? (
