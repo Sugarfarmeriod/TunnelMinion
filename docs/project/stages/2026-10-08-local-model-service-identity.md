@@ -29,4 +29,8 @@
 
 已目视核验忽略目录 `frontend/test-results/plain-language-experience-远端自动归属进入精选，归属失效不丢原服务-chromium/remote-service-selection.png`：模型服务与 Python/Docker 同列，不新增栏目。截图为 fixture；完整质量门禁与 CI 用最新提交结果验收，不把定向测试的局部覆盖率称为全仓覆盖率。
 
+补充只读实机源码验证：Mac `lsof +c 0` 的真实 8080 监听结果传入本轮 `MacOSSystemReader.parse_lsof_output`、`RemoteServiceInventoryBuilder` 与共用精选函数，输出“模型服务 · llama.cpp · 8080”。复核用脚本在忽略目录 `frontend/test-results/model-service-live-readonly.py`，不安装到 Mac，不发送推理请求；这是实际元数据与新源码的验证，不是新版运行包已经部署。
+
+Windows 本地 `scripts/quality.py all` 通过：格式、lint、严格类型无错误，1602 项测试通过、6 项平台跳过，语句与分支覆盖 100%。对应 [PR #114](https://github.com/Sugarfarmeriod/TunnelMinion/pull/114)；最终完成仍以该 PR 最新提交的双平台完整 CI 和合并为准，不用本地 Windows 结果代替 Mac 门禁。
+
 现场旧包 build source revision 为 `c36e21f61b356c98bbfe74aa034dbd12ab6d7d4d`；本阶段未替换旧进程或包。若要让用户在实际 Mac 页面看到此改动，下一步需要明确授权启动最新版隔离只读页面，保持当前模型及旧页面不动，不发送推理请求或恢复额外 Gateway 权限。
