@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any, Protocol, cast
 
 import httpx
@@ -471,7 +471,17 @@ def test_macos_managed_runtime_does_not_build_second_service_observer(
     monkeypatch.setattr("tunnelminion.macos_app.build_managed_node_application", fake_managed)
     monkeypatch.setattr("tunnelminion.macos_app.DeterministicServiceObserver", fail_observer)
 
+    captured: list[object] = []
+
+    def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        captured.append(kwargs["before_snapshot"])
+        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("tunnelminion.macos_app.IncidentObservationService", capture_observer)
     assert build_macos_local_application(tmp_path / "managed-observation").managed_node.coordinator
+    from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
+
+    assert cast(MethodType, captured[0]).__func__ is RemoteServicePresentationObserver.refresh
 
 
 def test_macos_factory_binds_configured_coordinator_and_real_path_views(

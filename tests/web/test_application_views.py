@@ -1022,3 +1022,35 @@ def test_helper_branch_tables_cover_all_freshness_values() -> None:
     )
     assert adapter.worst(()) is OverviewFreshness.UNKNOWN
     assert adapter.worst(tuple(OverviewFreshness)) is OverviewFreshness.UNKNOWN
+
+
+def test_remote_names_are_node_scoped_and_do_not_change_directory_facts() -> None:
+    remote = directory_node()
+    service = remote.services[0]
+    loops = coordinator_loops(CoordinatorSyncStatus(phase=SyncPhase.IDLE), nodes=(remote,))
+    snapshot = ServiceObservationSnapshot(
+        observed_at=NOW,
+        services=(service,),
+        display_names={str(service.service_id): "本机名称"},
+    )
+    names = {(str(REMOTE_NODE), str(service.service_id)): "Docker · my-app · 8088"}
+    result = views.build_application_view_bindings(
+        node_id=LOCAL_NODE,
+        platform=Platform.WINDOWS,
+        model_service=model_service(),
+        managed=managed(config(), coordinator=loops),
+        local_services=lambda: snapshot,
+        remote_service_names=lambda: names,
+        clock=lambda: NOW,
+    )
+    before = (
+        bindings(managed(config(), coordinator=loops)).overview_service.view().services.items[0]
+    )
+    items = {str(item.node_id): item for item in result.overview_service.view().services.items}
+    assert items[str(LOCAL_NODE)].display_name == "本机名称"
+    assert items[str(REMOTE_NODE)].display_name == "Docker · my-app · 8088"
+    assert items[str(REMOTE_NODE)].model_copy(update={"display_name": None}) == before
+    names.clear()
+    items = {str(item.node_id): item for item in result.overview_service.view().services.items}
+    assert items[str(REMOTE_NODE)].display_name is None
+    assert items[str(LOCAL_NODE)].display_name == "本机名称"

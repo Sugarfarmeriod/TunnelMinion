@@ -121,6 +121,7 @@ def build_application_view_bindings(
     incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
     local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
     peer_observation: StaticPeerServiceObserver | None = None,
+    remote_service_names: Callable[[], dict[tuple[str, str], str]] | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -137,6 +138,7 @@ def build_application_view_bindings(
         incidents,
         local_services,
         peer_observation,
+        remote_service_names,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -198,6 +200,7 @@ class _ApplicationViewAdapter:
         incidents: Callable[[], overview_contracts.IncidentsOverview] | None = None,
         local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
         peer_observation: StaticPeerServiceObserver | None = None,
+        remote_service_names: Callable[[], dict[tuple[str, str], str]] | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
@@ -208,6 +211,7 @@ class _ApplicationViewAdapter:
         self.incidents_provider = incidents
         self.local_services_provider = local_services
         self.peer_observation = peer_observation
+        self.remote_service_names = remote_service_names
         self.clock = clock
         self.package = package
 
@@ -517,11 +521,20 @@ class _ApplicationViewAdapter:
                 for service in snapshot.services
             )
         cached = self.cache()
+        names = self.remote_service_names() if self.remote_service_names is not None else {}
         if cached is not None:
             for node in cached.nodes:
                 if node.identity.node_id != self.node_id:
                     items.extend(
-                        self.service_view(service, node.identity.node_id, _NODE_STATES[node.status])
+                        self.service_view(
+                            service, node.identity.node_id, _NODE_STATES[node.status]
+                        ).model_copy(
+                            update={
+                                "display_name": names.get(
+                                    (str(node.identity.node_id), str(service.service_id))
+                                )
+                            }
+                        )
                         for service in node.services
                     )
         if self.peer_observation is not None:

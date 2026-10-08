@@ -10,7 +10,7 @@ import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -516,7 +516,17 @@ def test_windows_managed_runtime_does_not_build_second_service_observer(
     monkeypatch.setattr("tunnelminion.app.build_managed_node_application", fake_managed)
     monkeypatch.setattr("tunnelminion.app.DeterministicServiceObserver", fail_observer)
 
+    captured: list[object] = []
+
+    def capture_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        captured.append(kwargs["before_snapshot"])
+        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("tunnelminion.app.IncidentObservationService", capture_observer)
     assert build_windows_application(tmp_path / "managed-observation").managed_node.coordinator
+    from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
+
+    assert cast(MethodType, captured[0]).__func__ is RemoteServicePresentationObserver.refresh
 
 
 def test_windows_factory_prefers_managed_path_status_in_overview(
