@@ -24,7 +24,7 @@ interface ActionConfirmationDialogProps {
 
 function localDateTimeValue(date: Date): string {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  return local.toISOString().slice(0, 19);
 }
 
 export function ActionConfirmationDialog({
@@ -47,11 +47,8 @@ export function ActionConfirmationDialog({
   });
   const [reason, setReason] = useState("");
   const defaultExpiry = useMemo(
-    () =>
-      localDateTimeValue(
-        new Date(Date.now() + detail.duration_seconds * 1_000),
-      ),
-    [detail.duration_seconds],
+    () => localDateTimeValue(new Date(Date.now() + 5 * 60 * 1_000)),
+    [],
   );
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
 
@@ -163,6 +160,7 @@ export function ActionConfirmationDialog({
                 批准有效期截止时间
                 <input
                   required
+                  step="1"
                   type="datetime-local"
                   value={expiresAt}
                   onInvalid={(event) => {
