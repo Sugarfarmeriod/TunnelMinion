@@ -104,7 +104,7 @@ for (const viewport of [
 test("浏览器完成请求、等待批准、执行、访问、重启降级和目标端拒绝", async ({
   context,
   page,
-}) => {
+}, testInfo) => {
   const targetOperationId = `operation_${"8".repeat(32)}`;
   let requester = makeOperationDetail({
     role: "requester",
@@ -215,6 +215,7 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   await page.getByRole("button", { name: "发送访问请求" }).click();
   await expect(page).toHaveURL(`/app/operations/${operationId}`);
   await expect(page.getByText("等待本机批准")).toBeVisible();
+  await expect(page.getByText(/请求已发出，正在等待对方同意/)).toBeVisible();
   expect(createPayloads).toEqual([
     {
       target_node_id: targetNodeId,
@@ -227,6 +228,7 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
 
   await page.getByRole("button", { name: "刷新远端状态" }).click();
   await expect(page.getByText("已授权，等待执行")).toBeVisible();
+  await expect(page.getByText(/对方已同意。请确认开始使用/)).toBeVisible();
   await page.getByRole("button", { name: "执行操作" }).click();
   const executeDialog = page.getByRole("dialog", { name: "确认执行操作" });
   await expect(executeDialog).toContainText(
@@ -234,6 +236,16 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   );
   await executeDialog.getByRole("button", { name: "确认执行操作" }).click();
   await expect(page.getByText("请求节点验证通过")).toBeVisible();
+  await expect(page.getByText(/现在可以打开临时访问/)).toBeVisible();
+  await expect(
+    page.getByText(/需要对方先同意|对方批准后，你才能开始使用/),
+  ).toHaveCount(0);
+  await expect(page.getByText("会短暂开放一个受限端口")).toBeHidden();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("access-state-clarity.png"),
+  });
   expect(executeCalls).toBe(1);
 
   const accessPagePromise = context.waitForEvent("page");
@@ -244,6 +256,16 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   ).toBeVisible();
   expect(accessPage.url()).not.toMatch(/token|secret|credential/i);
   await accessPage.close();
+
+  requester = makeOperationDetail({
+    role: "requester",
+    state: "expired",
+    allowed_actions: ["refresh"],
+  });
+  await page.reload();
+  await expect(page.getByText(/这次临时访问已到期，入口已关闭/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "打开临时访问" })).toHaveCount(0);
+  await expect(page.getByText(/需要对方先同意/)).toHaveCount(0);
 
   requester = makeOperationDetail({
     role: "requester",
@@ -264,6 +286,9 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   await page.goto(`/app/operations/${targetOperationId}`);
   await page.getByRole("button", { name: "拒绝" }).click();
   const rejectDialog = page.getByRole("dialog", { name: "确认拒绝" });
+  await expect(
+    rejectDialog.getByRole("button", { name: "返回检查详情" }),
+  ).toBeFocused();
   await rejectDialog
     .getByRole("textbox", { name: "拒绝原因" })
     .fill("本机不同意开放");
