@@ -21,6 +21,7 @@ from tunnelminion.agent.managed_application import (
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer, RemoteCapabilityLoader
+from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
@@ -290,6 +291,12 @@ def build_windows_application(
     if peer_observer is not None and managed.coordinator is not None:
         raise ValueError("静态对端观察不能与目录观察同时启用")
     before_snapshot = None
+    remote_observer = None
+    if managed.coordinator is not None:
+        remote_observer = RemoteServicePresentationObserver(
+            node_id, managed.coordinator.coordinator_cache, remote_preparer
+        )
+        before_snapshot = remote_observer.refresh
     if managed.coordinator is None:
         local_observer = DeterministicServiceObserver(
             node_id,
@@ -317,6 +324,7 @@ def build_windows_application(
         incidents=lambda: incidents_overview(incident_store),
         local_services=service_cache.read,
         peer_observation=peer_observer,
+        remote_service_names=remote_observer.names if remote_observer is not None else None,
     )
     incident_observer = IncidentObservationService(
         views.overview_service.view,

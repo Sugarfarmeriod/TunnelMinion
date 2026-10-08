@@ -7,6 +7,85 @@ import {
   targetNodeId,
 } from "../src/features/operations/testFixtures";
 
+test("远端自动归属进入精选，归属失效不丢原服务", async ({
+  page,
+  request,
+}, testInfo) => {
+  const overview = (await (
+    await request.get("/api/resources/overview")
+  ).json()) as ResourceOverview;
+  overview.nodes = {
+    ...overview.nodes,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: overview.generated_at,
+  };
+  overview.services = {
+    ...overview.services,
+    source: "coordinator_directory",
+    error: null,
+    freshness: "fresh",
+    evidence_at: overview.generated_at,
+  };
+  overview.nodes.items = [
+    {
+      node_id: targetNodeId,
+      display_name: "客厅电脑",
+      platform: "macos",
+      state: "online",
+      source: "coordinator_directory",
+      freshness: "fresh",
+      evidence_at: overview.generated_at,
+      service_count: 3,
+    },
+  ];
+  overview.services.items = [
+    "Python 服务 · 43123",
+    "Docker · my-app · 8088",
+    null,
+  ].map((display_name, index) => ({
+    service_id: `service_${index.toString(16).padStart(32, "0")}`,
+    node_id: targetNodeId,
+    display_name,
+    protocol: "tcp" as const,
+    port: [43123, 8088, 9000][index],
+    access_address: null,
+    accessibility: "loopback" as const,
+    lifecycle: "active" as const,
+    state: "available" as const,
+    source: "coordinator_directory" as const,
+    freshness: "fresh" as const,
+    evidence_at: overview.generated_at,
+  }));
+  await page.route("**/api/resources/overview", (route) =>
+    route.fulfill({ json: overview }),
+  );
+  await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
+  await page.goto("/app/overview");
+  await page.getByText("客厅电脑", { exact: true }).click();
+  const device = page
+    .locator(".overview-device")
+    .filter({ hasText: "客厅电脑" });
+  const selected = device.getByRole("list", { name: "有名称的服务" });
+  await expect(selected).toContainText("Python 服务 · 43123");
+  await expect(selected).toContainText("Docker · my-app · 8088");
+  await expect(selected.getByRole("listitem")).toHaveCount(2);
+  await expect(device).toContainText("1 个后台项目用途未识别");
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("remote-service-selection.png"),
+  });
+  for (const service of overview.services.items) service.display_name = null;
+  await page.reload();
+  await page.getByText("客厅电脑", { exact: true }).click();
+  await expect(selected).toHaveCount(0);
+  await device.getByText("查看全部 3 个检测项目（技术清单）").click();
+  await expect(
+    device.getByRole("list", { name: "完整检测清单" }).getByRole("listitem"),
+  ).toHaveCount(3);
+});
+
 test("三百个后台项目不淹没有名称的服务，完整清单可搜索到末项", async ({
   page,
   request,
