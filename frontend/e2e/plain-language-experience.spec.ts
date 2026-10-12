@@ -66,7 +66,6 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   });
   await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
   await page.goto("/app/overview");
-  await page.getByText("客厅电脑", { exact: true }).click();
   const device = page
     .locator(".overview-device")
     .filter({ hasText: "客厅电脑" });
@@ -75,11 +74,27 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   await expect(selected).toContainText("Docker · my-app · 8088");
   await expect(selected).toContainText("模型服务 · llama.cpp · 8080");
   await expect(selected.getByRole("listitem")).toHaveCount(3);
-  await expect(device).toContainText("1 个后台项目用途未识别");
+  await expect(device.getByText("1 个后台项目用途未识别")).toBeHidden();
+  const status = selected
+    .locator("summary")
+    .first()
+    .locator(".overview-status");
+  const name = selected.locator("summary").first().locator("strong");
+  expect(
+    (await status.boundingBox())!.x -
+      ((await name.boundingBox())!.x + (await name.boundingBox())!.width),
+  ).toBeLessThanOrEqual(16);
   await page.screenshot({
     fullPage: true,
     path: testInfo.outputPath("remote-service-selection.png"),
   });
+  await page.setViewportSize({ width: 320, height: 760 });
+  await expect(selected.locator("summary").last()).toBeInViewport();
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("home-services-320.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
   const model = selected.locator("details").filter({ hasText: "模型服务" });
   const modelSummary = model.locator("summary");
   await expect(model.getByText("访问地址未知")).toBeHidden();
@@ -132,7 +147,15 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     path: testInfo.outputPath("service-interaction-320.png"),
   });
   for (const service of overview.services.items) service.display_name = null;
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(selected).toHaveCount(0);
+  await expect(device).toHaveAttribute("open", "");
+  await device.getByText("查看全部 4 个检测项目（技术清单）").click();
+  await expect(
+    device.getByRole("list", { name: "完整检测清单" }).getByRole("listitem"),
+  ).toHaveCount(4);
   await page.reload();
+  await expect(device).not.toHaveAttribute("open");
   await page.getByText("客厅电脑", { exact: true }).click();
   await expect(selected).toHaveCount(0);
   await device.getByText("查看全部 4 个检测项目（技术清单）").click();
@@ -198,16 +221,15 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
   await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/app/overview");
-  await page.getByText("客厅电脑", { exact: true }).click();
   const device = page
     .locator(".overview-device")
     .filter({ hasText: "客厅电脑" });
   await expect(
     device.getByRole("list", { name: "有名称的服务" }),
   ).toContainText("照片备份");
-  await expect(device).toContainText(
-    "299 个后台项目用途未识别 · 1 项状态需要确认",
-  );
+  await expect(
+    device.getByText("299 个后台项目用途未识别 · 1 项状态需要确认"),
+  ).toBeHidden();
   await expect(device.getByText("tcp://10.77.0.1:9299")).toBeHidden();
   await expect(device.getByText("tcp://10.77.0.1:9000").first()).toBeHidden();
   await expect(device.getByText("Coordinator 目录")).toHaveCount(0);
@@ -223,6 +245,9 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
     path: testInfo.outputPath("services-300-summary.png"),
   });
   await device.getByText("查看全部 300 个检测项目（技术清单）").click();
+  await expect(
+    device.getByText("299 个后台项目用途未识别 · 1 项状态需要确认"),
+  ).toBeVisible();
   const list = device.getByRole("list", { name: "完整检测清单" });
   await expect(list.getByRole("listitem")).toHaveCount(300);
   expect((await list.boundingBox())!.height).toBeLessThanOrEqual(321);

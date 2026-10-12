@@ -17,6 +17,20 @@ async function expectOperable(page: import("@playwright/test").Page) {
     await expect(
       page.getByRole("navigation", { name: "主要导航" }),
     ).toBeVisible();
+    const navigation = page.getByRole("navigation", { name: "主要导航" });
+    const links = await navigation.getByRole("link").all();
+    expect(links).toHaveLength(5);
+    const positions = await Promise.all(
+      links.map((link) => link.boundingBox()),
+    );
+    expect(new Set(positions.map((box) => Math.round(box!.y))).size).toBe(1);
+    for (const box of positions) {
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      (await page.locator(".product-chrome").boundingBox())!.height,
+    ).toBeLessThanOrEqual(140);
     const overflowing = await page.locator("body *").evaluateAll((elements) => {
       const viewportWidth = document.documentElement.clientWidth;
       return elements

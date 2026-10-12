@@ -208,10 +208,6 @@ test("调查与申请可以返回原服务，并把键盘位置带回来", async
     fulfillJson(route, []),
   );
   await page.goto("/app/overview");
-  await page
-    .getByLabel("设备与服务")
-    .getByText("远端 Mac", { exact: true })
-    .click();
   const services = page.getByRole("list", { name: "有名称的服务" });
   await services.getByRole("link", { name: "查看这项服务的变化" }).click();
   const detail = page.locator(".incident-detail");
@@ -415,10 +411,6 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
     4,
   );
 
-  await page
-    .getByLabel("设备与服务")
-    .getByText("远端 Mac", { exact: true })
-    .click();
   await page
     .getByRole("list", { name: "有名称的服务" })
     .getByRole("link", { name: "查看这项服务的变化" })
@@ -637,10 +629,6 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   await expect(page.getByRole("button", { name: "查看调查详情" })).toHaveCount(
     2,
   );
-  await page
-    .getByLabel("设备与服务")
-    .getByText("远端 Mac", { exact: true })
-    .click();
   await page
     .getByRole("list", { name: "有名称的服务" })
     .getByRole("link", { name: "查看这项服务的变化" })

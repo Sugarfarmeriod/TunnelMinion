@@ -25,10 +25,7 @@ function ProductShell() {
     <div className="product-shell">
       <div className="product-chrome">
         <header className="product-header">
-          <div>
-            <p className="eyebrow">设备工作台</p>
-            <h1>TunnelMinion</h1>
-          </div>
+          <h1>TunnelMinion</h1>
           <p className="privacy-note">只连接这台电脑上的 TunnelMinion</p>
         </header>
         <nav aria-label="主要导航" className="primary-navigation">
