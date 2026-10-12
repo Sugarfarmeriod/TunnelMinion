@@ -15,14 +15,14 @@ const operationStatusLabels: Record<OperationStatus, string> = {
   executing: "正在创建临时入口",
   verifying: "正在检查能否访问",
   succeeded: "访问检查通过",
-  expiring: "正在到期清理",
-  expired: "已到期并清理",
-  rolling_back: "正在回滚",
-  rolled_back: "已回滚",
-  cleanup_failed: "清理失败，需要人工处理",
+  expiring: "正在关闭临时入口",
+  expired: "已到期，入口已关闭",
+  rolling_back: "正在结束临时访问",
+  rolled_back: "已结束，入口已关闭",
+  cleanup_failed: "入口关闭失败，需要处理",
   rejected: "已拒绝",
   cancelled: "已取消",
-  authorization_expired: "批准有效期已过",
+  authorization_expired: "开始期限已过",
 };
 
 export const operationActionLabels: Record<OperationAction, string> = {

@@ -435,7 +435,6 @@
   padding-top: var(--space-4);
 }
 
-.operation-actions h3,
 .operation-actions p {
   margin: 0 0 var(--space-2);
 }

@@ -143,7 +143,7 @@ describe("OperationDetailPage", () => {
     ).toBeVisible();
     await userEvent.setup().click(screen.getByText("查看技术详情与记录"));
     expect(screen.getByText(maliciousService)).toBeVisible();
-    expect(screen.getByText("清理失败，需要人工处理")).toBeVisible();
+    expect(screen.getByText("入口关闭失败，需要处理")).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "验证、资源与清理" }),
     ).toBeVisible();
