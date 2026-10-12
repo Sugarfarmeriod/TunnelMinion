@@ -187,6 +187,150 @@ function incidentDetail() {
   };
 }
 
+test("调查与申请可以返回原服务，并把键盘位置带回来", async ({
+  page,
+  context,
+  request,
+}, testInfo) => {
+  const overview = await remoteIncidentOverview(request);
+  let writes = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes++;
+  });
+  await context.route("**/api/resources/overview", (route) =>
+    fulfillJson(route, overview),
+  );
+  await context.route(`**/api/incidents/${incidentId}`, (route) =>
+    fulfillJson(route, incidentDetail()),
+  );
+  await context.route("**/api/operations", (route) => fulfillJson(route, []));
+  await context.route("**/api/operations/eligible-peers", (route) =>
+    fulfillJson(route, []),
+  );
+  await page.goto("/app/overview");
+  await page
+    .getByLabel("设备与服务")
+    .getByText("远端 Mac", { exact: true })
+    .click();
+  const services = page.getByRole("list", { name: "有名称的服务" });
+  await services.getByRole("link", { name: "查看这项服务的变化" }).click();
+  const detail = page.locator(".incident-detail");
+  await expect(
+    detail.getByRole("heading", { name: "调查结果", exact: true }),
+  ).toBeFocused();
+  await expect(detail.getByLabel("正在查看的服务")).toHaveText(
+    "远端 Mac · 远端管理面板",
+  );
+  await detail.getByRole("link", { name: "查看临时访问方案" }).click();
+  await expect(
+    page.getByText("这台电脑当前不可申请，本次不会发送请求。"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "申请临时访问", exact: true }),
+  ).toBeFocused();
+  await page.getByRole("link", { name: "返回调查结果", exact: true }).click();
+  await expect(
+    detail.getByRole("heading", { name: "调查结果", exact: true }),
+  ).toBeFocused();
+  await page.setViewportSize({ width: 320, height: 760 });
+  await detail.screenshot({
+    animations: "disabled",
+    path: testInfo.outputPath("investigation-context-320.png"),
+  });
+  await detail.getByRole("link", { name: "返回这项服务", exact: true }).click();
+  await expect(services.locator("summary")).toBeFocused();
+  await expect(services.locator("summary")).toBeInViewport();
+  await expect(
+    page.locator(".overview-device").filter({ hasText: "远端 Mac" }),
+  ).toHaveAttribute("open", "");
+  await page.reload();
+  await expect(services.locator("summary")).toBeFocused();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.screenshot({
+    fullPage: true,
+    animations: "disabled",
+    path: testInfo.outputPath("returned-service-320.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await services.getByRole("link", { name: "查看这项服务的变化" }).click();
+  await detail.getByRole("button", { name: "返回最近变化" }).click();
+  await expect(
+    page.getByRole("button", { name: "查看调查详情" }),
+  ).toBeFocused();
+  await page.goBack();
+  await expect(
+    detail.getByRole("heading", { name: "调查结果", exact: true }),
+  ).toBeFocused();
+  expect(writes).toBe(0);
+});
+
+for (const identity of [
+  "unnamed",
+  "stale",
+  "missing",
+  "duplicate",
+  "other-node",
+] as const) {
+  test(`调查返回遵守 ${identity} 服务归属`, async ({
+    page,
+    context,
+    request,
+  }) => {
+    const overview = await remoteIncidentOverview(request);
+    if (identity === "unnamed") overview.services.items[0].display_name = null;
+    if (identity === "stale") overview.services.items[0].freshness = "stale";
+    if (identity === "missing") overview.services.items = [];
+    if (identity === "duplicate")
+      overview.services.items.push({ ...overview.services.items[0] });
+    if (identity === "other-node")
+      overview.services.items[0].node_id = localNodeId;
+    await context.route("**/api/resources/overview", (route) =>
+      fulfillJson(route, overview),
+    );
+    await context.route(`**/api/incidents/${incidentId}`, (route) =>
+      fulfillJson(route, incidentDetail()),
+    );
+    await context.route("**/api/operations", (route) => fulfillJson(route, []));
+    await page.goto(
+      `/app/overview?incident_id=${incidentId}#overview-incidents`,
+    );
+    const detail = page.locator(".incident-detail");
+    const returnLink = detail.getByRole("link", {
+      name: "返回这项服务",
+      exact: true,
+    });
+    if (identity === "unnamed" || identity === "stale") {
+      await expect(detail.getByLabel("正在查看的服务")).toContainText(
+        "服务名称待确认",
+      );
+      await returnLink.click();
+      const row = page.locator(
+        `#${identity === "unnamed" ? "technical-" : ""}${serviceId}`,
+      );
+      if (identity === "unnamed") {
+        await expect(row).toBeFocused();
+        await expect(row).toContainText("用途未识别的后台项目");
+      } else {
+        await expect(row.locator("summary")).toBeFocused();
+        await expect(row).toContainText("记录已过时");
+      }
+      await expect(row).toBeInViewport();
+    } else {
+      await expect(
+        detail.getByText(
+          "当前清单中找不到唯一的同一服务；下面保留此前的调查记录。",
+        ),
+      ).toBeVisible();
+      await expect(returnLink).toHaveCount(0);
+      await expect(
+        detail.getByRole("link", { name: "查看临时访问方案" }),
+      ).toHaveCount(0);
+    }
+  });
+}
+
 test("从 Overview incident 进入预填计划并只创建一次 Operation", async ({
   context,
   page,
@@ -195,6 +339,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   const overview = await remoteIncidentOverview(request);
   const created = makeOperationDetail({
     role: "requester",
+    source_incident_id: incidentId,
     summary: makeOperationSummary({ operation_id: createdOperationId }),
     allowed_actions: ["refresh"],
   });
@@ -376,6 +521,15 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
       confirmed: true,
     },
   ]);
+  await page.getByRole("link", { name: "返回调查结果", exact: true }).click();
+  await expect(
+    detail.getByRole("heading", { name: "调查结果", exact: true }),
+  ).toBeFocused();
+  await detail.getByRole("link", { name: "返回这项服务", exact: true }).click();
+  await expect(
+    page.getByRole("list", { name: "有名称的服务" }).locator("summary"),
+  ).toBeFocused();
+  expect(writes).toHaveLength(1);
 });
 
 for (const mismatch of [

@@ -449,9 +449,19 @@ export function OperationDetailPage() {
       aria-labelledby="operation-detail-title"
       className="operations-page surface"
     >
-      <Link className="operation-back-link" to="/app/operations">
-        ← 返回操作列表
-      </Link>
+      <nav className="operation-back-links" aria-label="返回相关页面">
+        <Link className="operation-back-link" to="/app/operations">
+          ← 返回操作列表
+        </Link>
+        {detail.source_incident_id !== null ? (
+          <Link
+            className="operation-back-link"
+            to={`/app/overview?incident_id=${detail.source_incident_id}#overview-incidents`}
+          >
+            返回调查结果
+          </Link>
+        ) : null}
+      </nav>
       <header className="operation-detail-header">
         <div>
           <p className="eyebrow">
