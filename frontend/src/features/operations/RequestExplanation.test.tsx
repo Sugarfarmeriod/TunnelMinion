@@ -104,8 +104,9 @@ describe("RequestExplanation", () => {
         compact
       />,
     );
-    expect(screen.getByText(/能否修改内容或是否需要登录/)).toBeVisible();
-    expect(screen.getByText(/不代表这些风险已确认安全/)).toBeVisible();
+    expect(screen.getByText(/使用者可能查看或修改内容/)).toBeVisible();
+    expect(screen.getByText(/是否需要登录、能做什么由服务决定/)).toBeVisible();
+    expect(screen.getByText(/能打开不代表安全/)).toBeVisible();
     expect(screen.queryByText(/accessibility=/)).not.toBeInTheDocument();
   });
 });

@@ -9,7 +9,7 @@ import { RequestExplanation } from "./RequestExplanation";
 import {
   formatOperationTime,
   operationActionLabels,
-  operationStatusLabels,
+  operationStatusLabel,
   operationTone,
   readableOperationError,
 } from "./operationPresentation";
@@ -255,7 +255,7 @@ export function OperationDetailPage() {
       const latest = await readLatest();
       if (!serverAllowsAction(latest, action)) {
         setActionMessage(
-          `服务器最新状态是“${operationStatusLabels[latest.state]}”，现在不允许${operationActionLabels[action]}。本次未提交。`,
+          `服务器最新状态是“${operationStatusLabel(latest.state, latest.role)}”，现在不允许${operationActionLabels[action]}。本次未提交。`,
         );
         return;
       }
@@ -300,7 +300,7 @@ export function OperationDetailPage() {
         return;
       }
       setActionMessage(
-        `已只查询服务端最新详情，但 state 仍是“${operationStatusLabels[latest.state]}”且仍允许${operationActionLabels[pending.action]}。写入结果继续未知，页面只允许继续查询。`,
+        `已只查询服务端最新详情，但 state 仍是“${operationStatusLabel(latest.state, latest.role)}”且仍允许${operationActionLabels[pending.action]}。写入结果继续未知，页面只允许继续查询。`,
       );
     } catch (error) {
       setActionMessage(null);
@@ -477,7 +477,7 @@ export function OperationDetailPage() {
           <span
             className={`operation-status operation-status--${operationTone(detail.state)}`}
           >
-            {operationStatusLabels[detail.state]}
+            {operationStatusLabel(detail.state, detail.role)}
           </span>
           <button
             disabled={
@@ -489,7 +489,7 @@ export function OperationDetailPage() {
             {query.isFetching || preparingAction === "refresh"
               ? "正在刷新……"
               : detail.role === "requester"
-                ? "刷新远端状态"
+                ? operationActionLabels.refresh
                 : "刷新详情"}
           </button>
         </div>
@@ -703,13 +703,7 @@ export function OperationDetailPage() {
         </div>
       </details>
 
-      <section
-        aria-labelledby="operation-actions-title"
-        className="operation-actions"
-      >
-        <div>
-          <h3 id="operation-actions-title">你可以做什么</h3>
-        </div>
+      <section aria-label="处理请求" className="operation-actions">
         <div className="operation-actions__buttons">
           {unknownResult !== null || serverResultUnknown ? (
             <span>写入结果未知期间只允许查询最新状态，不提供写动作。</span>
@@ -737,7 +731,7 @@ export function OperationDetailPage() {
                   }
                 >
                   {preparingAction === action
-                    ? "正在复读详情……"
+                    ? "正在确认最新状态……"
                     : operationActionLabels[action]}
                 </button>
               ))}

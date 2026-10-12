@@ -1,9 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import type { ResourceOverview } from "../src/api/schemas/overview";
 
 import {
   makeOperationDetail,
   makeOperationSummary,
+  requestNodeId,
   targetNodeId,
 } from "../src/features/operations/testFixtures";
 import type { OperationDetail } from "../src/features/operations/schemas";
@@ -64,14 +66,18 @@ for (const viewport of [
       page.getByRole("heading", { name: "临时访问请求" }),
     ).toBeVisible();
     await expect(page.getByText(`operation ${operationId}`)).toBeHidden();
-    await expect(page.getByText("等待本机批准")).toBeVisible();
+    await expect(page.getByText("等待你决定")).toBeVisible();
+    const approve = page.getByRole("button", { name: "批准一次" });
+    await expect(approve).toBeInViewport();
     await expectNoHorizontalOverflow(page);
     await page.screenshot({
       fullPage: true,
       path: testInfo.outputPath("request-page.png"),
     });
+    await page.screenshot({
+      path: testInfo.outputPath("request-first-screen.png"),
+    });
 
-    const approve = page.getByRole("button", { name: "批准一次" });
     await approve.click();
     const dialog = page.getByRole("dialog", { name: "确认批准一次" });
     await expect(dialog).toBeVisible();
@@ -81,6 +87,9 @@ for (const viewport of [
     await page.screenshot({
       fullPage: true,
       path: testInfo.outputPath("request-confirmation.png"),
+    });
+    await page.screenshot({
+      path: testInfo.outputPath("confirmation-first-screen.png"),
     });
     await dialog.getByText("调整批准有效期").click();
     await expect(dialog.getByLabel("批准有效期截止时间")).toBeVisible();
@@ -104,6 +113,7 @@ for (const viewport of [
 test("浏览器完成请求、等待批准、执行、访问、重启降级和目标端拒绝", async ({
   context,
   page,
+  request,
 }, testInfo) => {
   const targetOperationId = `operation_${"8".repeat(32)}`;
   let requester = makeOperationDetail({
@@ -116,6 +126,24 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   const createPayloads: unknown[] = [];
   let executeCalls = 0;
   let rejectCalls = 0;
+  const overview = (await (
+    await request.get("/api/resources/overview")
+  ).json()) as ResourceOverview;
+  overview.nodes.items = [requestNodeId, targetNodeId].map(
+    (node_id, index) => ({
+      node_id,
+      display_name: ["书房电脑", "客厅电脑"][index],
+      platform: index === 0 ? "windows" : "macos",
+      state: "online",
+      source: "coordinator_directory",
+      freshness: "fresh",
+      evidence_at: overview.generated_at,
+      service_count: 0,
+    }),
+  );
+  await context.route("**/api/resources/overview", (route) =>
+    fulfillJson(route, overview),
+  );
 
   await context.route("**/api/operations**", async (route) => {
     const request = route.request();
@@ -211,10 +239,34 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   });
 
   await page.goto("/app/operations");
+  await expect(page.getByRole("link", { name: "查看请求" })).toBeInViewport();
+  await expect(page.getByText("申请使用：客厅电脑上的服务")).toBeVisible();
+  await expect(page.getByText(requestNodeId, { exact: true })).toBeHidden();
+  await expect(page.getByText(targetNodeId, { exact: true })).toBeHidden();
+  await expect(page.getByRole("checkbox", { name: /我了解风险/ })).toBeHidden();
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("requests-list.png"),
+  });
+  overview.nodes.items[1].freshness = "stale";
+  await page.reload();
+  await expect(
+    page.getByText("申请使用：名称未知的电脑上的服务"),
+  ).toBeVisible();
+  overview.nodes.items[1].freshness = "fresh";
+  overview.nodes.items[0].display_name = "客厅电脑";
+  await page.reload();
+  await expect(
+    page.getByText(`申请使用：客厅电脑 · ${targetNodeId.slice(-8)}上的服务`),
+  ).toBeVisible();
+  overview.nodes.items[0].display_name = "书房电脑";
+  await page.reload();
+  await expect(page.getByText("申请使用：客厅电脑上的服务")).toBeVisible();
+  await page.getByText("发起新的访问请求", { exact: true }).click();
   await page.getByRole("checkbox", { name: /我了解风险/ }).check();
   await page.getByRole("button", { name: "发送访问请求" }).click();
   await expect(page).toHaveURL(`/app/operations/${operationId}`);
-  await expect(page.getByText("等待本机批准")).toBeVisible();
+  await expect(page.getByText("等待对方同意", { exact: true })).toBeVisible();
   await expect(page.getByText(/请求已发出，正在等待对方同意/)).toBeVisible();
   expect(createPayloads).toEqual([
     {
@@ -226,16 +278,16 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
     },
   ]);
 
-  await page.getByRole("button", { name: "刷新远端状态" }).click();
-  await expect(page.getByText("已授权，等待执行")).toBeVisible();
+  await page.getByRole("button", { name: "查看对方状态" }).click();
+  await expect(page.getByText("对方已同意", { exact: true })).toBeVisible();
   await expect(page.getByText(/对方已同意。请确认开始使用/)).toBeVisible();
-  await page.getByRole("button", { name: "执行操作" }).click();
-  const executeDialog = page.getByRole("dialog", { name: "确认执行操作" });
+  await page.getByRole("button", { name: "开始临时访问" }).click();
+  const executeDialog = page.getByRole("dialog", { name: "确认开始临时访问" });
   await expect(executeDialog).toContainText(
     "结果不明确时，请先刷新，不要重复开始",
   );
-  await executeDialog.getByRole("button", { name: "确认执行操作" }).click();
-  await expect(page.getByText("请求节点验证通过")).toBeVisible();
+  await executeDialog.getByRole("button", { name: "确认开始临时访问" }).click();
+  await expect(page.getByText("访问检查通过", { exact: true })).toBeVisible();
   await expect(page.getByText(/现在可以打开临时访问/)).toBeVisible();
   await expect(
     page.getByText(/需要对方先同意|对方批准后，你才能开始使用/),

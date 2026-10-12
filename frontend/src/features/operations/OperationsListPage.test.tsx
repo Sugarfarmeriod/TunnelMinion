@@ -79,9 +79,7 @@ describe("OperationsListPage", () => {
       await screen.findByRole("heading", { name: "当前没有操作记录" }),
     ).toBeVisible();
     expect(
-      screen.getByText(
-        "聊天、模型或 Coordinator 不可用时，这里仍会保留已有操作。",
-      ),
+      screen.getByText("想使用另一台电脑的服务？展开上方的新申请。"),
     ).toBeVisible();
   });
 
@@ -91,16 +89,20 @@ describe("OperationsListPage", () => {
 
     renderList();
 
-    expect(await screen.findByText("等待本机批准")).toBeVisible();
-    expect(screen.getByText(summary.request_node_id)).toBeVisible();
-    expect(screen.getByText(summary.target_node_id)).toBeVisible();
-    expect(
-      screen.getByRole("link", { name: "查看操作最新详情" }),
-    ).toHaveAttribute("href", `/app/operations/${summary.operation_id}`);
+    expect(await screen.findByText("等待你决定")).toBeVisible();
+    expect(screen.getByText(summary.request_node_id)).not.toBeVisible();
+    expect(screen.getByText(summary.target_node_id)).not.toBeVisible();
+    expect(screen.getByRole("link", { name: "查看请求" })).toHaveAttribute(
+      "href",
+      `/app/operations/${summary.operation_id}`,
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/operations",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+    await userEvent.click(screen.getByText("查看编号与连接记录"));
+    expect(screen.getByText(summary.request_node_id)).toBeVisible();
+    expect(screen.getByText(summary.target_node_id)).toBeVisible();
   });
 
   it("刷新失败时保留并明确标记陈旧列表", async () => {
@@ -126,6 +128,8 @@ describe("OperationsListPage", () => {
     expect(
       await screen.findByText("刷新失败，下面是上一次成功读取的陈旧列表。"),
     ).toBeVisible();
+    expect(screen.getByText(/旧列表里的工具/)).not.toBeVisible();
+    await user.click(screen.getByText("查看编号与连接记录"));
     expect(screen.getByText(/旧列表里的工具/)).toBeVisible();
     expect(screen.getByText(/按 operation ID 单独读取/)).toBeVisible();
   });
@@ -172,6 +176,7 @@ describe("OperationsListPage", () => {
     const user = userEvent.setup();
 
     renderList();
+    await user.click(await screen.findByText("发起新的访问请求"));
     await screen.findByRole("option", { name: /名称未知/ });
     await user.click(screen.getByRole("checkbox", { name: /我了解风险/ }));
     const submit = screen.getByRole("button", { name: "发送访问请求" });
@@ -309,11 +314,12 @@ describe("OperationsListPage", () => {
 
     renderList();
 
-    expect(await screen.findByText(/还没有允许临时访问的电脑/)).toBeVisible();
+    expect(await screen.findByRole("link", { name: "查看请求" })).toBeVisible();
+    expect(screen.getByText(/还没有允许临时访问的电脑/)).not.toBeVisible();
+    expect(screen.getByRole("checkbox")).not.toBeVisible();
+    await userEvent.click(screen.getByText("发起新的访问请求"));
+    expect(screen.getByText(/还没有允许临时访问的电脑/)).toBeVisible();
     expect(screen.getByRole("button", { name: "发送访问请求" })).toBeDisabled();
-    expect(
-      screen.getByRole("link", { name: "查看操作最新详情" }),
-    ).toBeVisible();
   });
 
   it.each([
@@ -343,6 +349,7 @@ describe("OperationsListPage", () => {
     });
     const user = userEvent.setup();
     renderList();
+    await user.click(await screen.findByText("发起新的访问请求"));
     await screen.findByRole("option", { name: /名称未知/ });
     expect(screen.getByLabelText("临时共享端口")).not.toBeVisible();
     await user.click(screen.getByText("技术设置（通常不用改）"));
