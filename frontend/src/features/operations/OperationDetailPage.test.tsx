@@ -259,8 +259,8 @@ describe("OperationDetailPage", () => {
     fireEvent.click(confirm);
 
     expect(await screen.findByText(/服务器已回应批准一次请求/)).toBeVisible();
-    expect(screen.getByText("已授权，等待执行")).toBeVisible();
-    expect(screen.getByRole("button", { name: "取消操作" })).toBeVisible();
+    expect(screen.getByText("等待对方开始")).toBeVisible();
+    expect(screen.getByRole("button", { name: "取消请求" })).toBeVisible();
     const writes = postCalls(fetchMock);
     expect(writes).toHaveLength(1);
     const [path, init] = writes[0];
@@ -351,7 +351,7 @@ describe("OperationDetailPage", () => {
     ).toBeVisible();
     expect(screen.getByText(/页面没有重放该请求/)).toBeVisible();
     expect(
-      screen.getByText(/state 仍是.*等待本机批准.*且仍允许批准一次/),
+      screen.getByText(/state 仍是.*等待你决定.*且仍允许批准一次/),
     ).toBeVisible();
     expect(screen.getByText(/写入结果未知期间只允许查询/)).toBeVisible();
     expect(postCalls(fetchMock)).toHaveLength(1);
@@ -401,7 +401,7 @@ describe("OperationDetailPage", () => {
     expect(
       screen.queryByText("批准一次请求的写入结果未知。"),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "取消操作" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "取消请求" })).toBeVisible();
     expect(postCalls(fetchMock)).toHaveLength(1);
   });
 
@@ -457,7 +457,7 @@ describe("OperationDetailPage", () => {
     renderDetail();
 
     expect(
-      await screen.findByRole("button", { name: "主动撤销" }),
+      await screen.findByRole("button", { name: "结束临时访问" }),
     ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "批准一次" }),
@@ -487,11 +487,13 @@ describe("OperationDetailPage", () => {
     const user = userEvent.setup();
 
     renderDetail();
-    await user.click(await screen.findByRole("button", { name: "执行操作" }));
+    await user.click(
+      await screen.findByRole("button", { name: "开始临时访问" }),
+    );
     expect(
-      await screen.findByRole("dialog", { name: "确认执行操作" }),
+      await screen.findByRole("dialog", { name: "确认开始临时访问" }),
     ).toHaveTextContent("结果不明确时，请先刷新，不要重复开始");
-    const confirm = screen.getByRole("button", { name: "确认执行操作" });
+    const confirm = screen.getByRole("button", { name: "确认开始临时访问" });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
 
@@ -533,9 +535,9 @@ describe("OperationDetailPage", () => {
       await screen.findByText("这条操作的写入结果尚未确认。"),
     ).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "执行操作" }),
+      screen.queryByRole("button", { name: "开始临时访问" }),
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "刷新远端状态" }));
+    await user.click(screen.getByRole("button", { name: "查看对方状态" }));
 
     await waitFor(() => expect(postCalls(fetchMock)).toHaveLength(1));
     expect(postCalls(fetchMock)[0]?.[0]).toBe(

@@ -85,26 +85,25 @@ export function RequestExplanation({
               detail.service_process_or_container ||
               "程序名称未知"}
           </dd>
-          <dd className="operation-muted">{detail.service_endpoint}</dd>
         </div>
         <div>
           <dt>谁来使用</dt>
           <dd>{requester?.display_name || "访问者名称未知"}</dd>
           <dd className="operation-muted">
             {isTarget
-              ? "请与发起请求的人确认身份，不要只凭设备名称判断。"
-              : "这是发起请求的设备；对方电脑决定是否允许。"}
+              ? "请向发起人确认身份，不能只看设备名。"
+              : "这是发出请求的电脑。"}
           </dd>
         </div>
         <div>
-          <dt>开放多久</dt>
-          <dd>开始使用后，最多 {duration}</dd>
+          <dt>使用多久</dt>
+          <dd>开始后最多 {duration}</dd>
           <dd className="operation-muted">
             {detail.state === "expired" || detail.state === "rolled_back"
               ? "这次临时访问已结束。"
               : (detail.access_expires_at ??
                     detail.summary.absolute_expires_at) === null
-                ? "从开始使用时计时，到期自动关闭临时入口。"
+                ? "开始后计时，到期自动关闭。"
                 : `访问结束时间：${formatOperationTime(detail.access_expires_at ?? detail.summary.absolute_expires_at)}`}
           </dd>
         </div>
@@ -113,7 +112,7 @@ export function RequestExplanation({
         <strong>访问风险</strong>
         {isTemporaryAccess ? (
           <p>
-            临时入口会让请求设备访问这个服务。能看到什么、能否修改内容或是否需要登录，取决于服务本身；访问检查通过不代表这些风险已确认安全。
+            使用者可能查看或修改内容。是否需要登录、能做什么由服务决定；能打开不代表安全。
           </p>
         ) : (
           <p>{detail.risk_summary}</p>

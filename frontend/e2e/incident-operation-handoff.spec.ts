@@ -502,7 +502,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   await page.getByRole("checkbox", { name: /我了解风险/ }).check();
   await page.getByRole("button", { name: "发送访问请求" }).click();
   await expect(page).toHaveURL(`/app/operations/${createdOperationId}`);
-  await expect(page.getByText("等待本机批准").first()).toBeVisible();
+  await expect(page.getByText("等待对方同意").first()).toBeVisible();
   expect(writes).toEqual([
     {
       source_incident_id: incidentId,

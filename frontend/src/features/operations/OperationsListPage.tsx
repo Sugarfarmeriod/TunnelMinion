@@ -6,7 +6,7 @@ import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
 import {
   formatOperationTime,
-  operationStatusLabels,
+  operationStatusLabel,
   operationTone,
   readableOperationError,
 } from "./operationPresentation";
@@ -111,7 +111,7 @@ export function OperationsListPage() {
     selectedPort ??
     (incidentPrefill.kind === "valid" ? incidentPrefill.servicePort : 8080);
   const overview = overviewQuery.isError ? undefined : overviewQuery.data;
-  function computerName(nodeId: string, host: string) {
+  function computerName(nodeId: string, host?: string) {
     const nodes = overview?.nodes.items.filter(
       (node) => node.node_id === nodeId,
     );
@@ -128,6 +128,9 @@ export function OperationsListPage() {
         .length === 1
     ) {
       return name;
+    }
+    if (!host) {
+      return name ? `${name} · ${nodeId.slice(-8)}` : "名称未知的电脑";
     }
     const duplicateHost =
       (peersQuery.data ?? []).filter((peer) => peer.host === host).length > 1;
@@ -254,11 +257,8 @@ export function OperationsListPage() {
     >
       <header className="operations-page__header">
         <div>
-          <p className="eyebrow">访问请求与处理记录</p>
           <h2 id="operations-title">操作</h2>
-          <p>
-            发出请求、等待对方批准，再由你确认开始。已有请求可以在下方继续查看。
-          </p>
+          <p>先处理已有请求。想使用另一台电脑的服务时，再发起新申请。</p>
         </div>
 
         {incidentPrefill.kind === "valid" ? (
@@ -312,10 +312,11 @@ export function OperationsListPage() {
         </div>
       ) : null}
 
-      <section
-        aria-labelledby="request-operation-title"
+      <details
         className="operation-request-card"
+        open={incidentPrefill.kind !== "none"}
       >
+        <summary>发起新的访问请求</summary>
         <div>
           <h3 id="request-operation-title" ref={requestTitleRef} tabIndex={-1}>
             申请临时访问
@@ -482,12 +483,12 @@ export function OperationsListPage() {
             {createMessage}
           </div>
         )}
-      </section>
+      </details>
 
       {operations.length === 0 ? (
         <div className="operations-empty">
           <h3>当前没有操作记录</h3>
-          <p>聊天、模型或 Coordinator 不可用时，这里仍会保留已有操作。</p>
+          <p>想使用另一台电脑的服务？展开上方的新申请。</p>
         </div>
       ) : (
         <ul aria-label="操作记录" className="operations-list">
@@ -497,36 +498,59 @@ export function OperationsListPage() {
                 <div className="operation-summary-card__heading">
                   <div>
                     <p className="operation-summary-card__tool">
-                      {`${operation.role === "target" ? "目标端审批" : "请求端跟进"} · ${operation.tool_name}`}
+                      {operation.role === "target"
+                        ? "收到的请求"
+                        : "我发出的请求"}
                     </p>
-                    <h3>L{operation.level} 操作</h3>
+                    <h3>
+                      {operation.tool_name === "share_local_http_service"
+                        ? "临时访问请求"
+                        : "操作请求"}
+                    </h3>
                   </div>
                   <span
                     className={`operation-status operation-status--${operationTone(operation.status)}`}
                   >
-                    {operationStatusLabels[operation.status]}
+                    {operationStatusLabel(operation.status, operation.role)}
                   </span>
                 </div>
-                <dl className="operation-summary-grid">
-                  <div>
-                    <dt>请求节点</dt>
-                    <dd>{operation.request_node_id}</dd>
-                  </div>
-                  <div>
-                    <dt>目标节点</dt>
-                    <dd>{operation.target_node_id}</dd>
-                  </div>
-                  <div>
-                    <dt>计划端口</dt>
-                    <dd>
-                      {operation.bind_host}:{operation.bind_port}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>最后更新</dt>
-                    <dd>{formatOperationTime(operation.updated_at)}</dd>
-                  </div>
-                </dl>
+                <p>
+                  {operation.role === "target"
+                    ? `来自：${computerName(operation.request_node_id)}`
+                    : `申请使用：${computerName(operation.target_node_id)}上的服务`}
+                </p>
+                <p className="operation-muted">
+                  更新于 {formatOperationTime(operation.updated_at)}
+                </p>
+                <details className="operation-technical-details">
+                  <summary>查看编号与连接记录</summary>
+                  <dl className="operation-summary-grid">
+                    <div>
+                      <dt>操作等级与工具</dt>
+                      <dd>
+                        L{operation.level} · {operation.tool_name}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>请求节点</dt>
+                      <dd>{operation.request_node_id}</dd>
+                    </div>
+                    <div>
+                      <dt>目标节点</dt>
+                      <dd>{operation.target_node_id}</dd>
+                    </div>
+                    <div>
+                      <dt>计划端口</dt>
+                      <dd>
+                        {operation.bind_host}:{operation.bind_port}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>最后更新</dt>
+                      <dd>{formatOperationTime(operation.updated_at)}</dd>
+                    </div>
+                  </dl>
+                </details>
                 {operation.error === null ? null : (
                   <p className="operation-summary-card__error">
                     <strong>{operation.error.code}</strong>：
@@ -547,7 +571,7 @@ export function OperationsListPage() {
                   className="operation-link"
                   to={`/app/operations/${encodeURIComponent(operation.operation_id)}`}
                 >
-                  查看操作最新详情
+                  查看请求
                 </Link>
               </article>
             </li>
