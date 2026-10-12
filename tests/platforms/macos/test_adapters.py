@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from collections.abc import Coroutine
 from typing import Any, TypeVar, cast
 
+import psutil
 import pytest
 from pydantic import JsonValue
 
@@ -15,6 +17,7 @@ from tunnelminion.platforms.macos.adapters import (
     MacOSWireGuardStatusAdapter,
     NetworkListenersAdapter,
 )
+from tunnelminion.platforms.macos.system import MacOSSystemReader
 from tunnelminion.platforms.windows.models import InterfaceSnapshot, NetworkListener, ProcessInfo
 from tunnelminion.platforms.windows.system import CommandResult
 from tunnelminion.tools.contracts import ToolCancellationToken
@@ -57,6 +60,42 @@ class FakeRunner:
         assert timeout_seconds > 0
         self.commands.append(command)
         return self.results[command[-1]]
+
+
+def test_python_module_entry_uses_macos_lsof_pid_without_exporting_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def denied(**kwargs: object) -> object:
+        del kwargs
+        raise psutil.AccessDenied()
+
+    def completed(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n"
+            "Python 101 mac 4u IPv4 0x1 0t0 TCP 127.0.0.1:43123 (LISTEN)\n",
+            "",
+        )
+
+    class Process:
+        def __init__(self, pid: int) -> None:
+            assert pid == 101
+
+        def name(self) -> str:
+            return "Python"
+
+        def cmdline(self) -> list[str]:
+            return ["/private/python", "-m", "http.server", "--secret=fixture-secret"]
+
+    monkeypatch.setattr(psutil, "net_connections", denied)
+    monkeypatch.setattr(subprocess, "run", completed)
+    monkeypatch.setattr(psutil, "Process", Process)
+    adapter = NetworkListenersAdapter(MacOSSystemReader("/usr/sbin/lsof"))
+    value = run(adapter.execute({"include_python_entrypoint": True}, ToolCancellationToken()))
+    assert "http.server" in str(value)
+    assert "fixture-secret" not in str(value) and "private" not in str(value)
 
 
 def result(stdout: str = "", stderr: str = "", returncode: int = 0) -> CommandResult:

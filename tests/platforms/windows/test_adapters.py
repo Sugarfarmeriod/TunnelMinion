@@ -7,6 +7,7 @@ from collections.abc import Coroutine
 from threading import get_ident
 from typing import Any, TypeVar, cast
 
+import psutil
 import pytest
 from pydantic import JsonValue
 
@@ -21,6 +22,7 @@ from tunnelminion.platforms.windows.adapters import (
 )
 from tunnelminion.platforms.windows.models import (
     Availability,
+    CollectionResult,
     DockerService,
     InterfaceSnapshot,
     NetworkListener,
@@ -185,6 +187,54 @@ def test_windows_collection_adapters_succeed_and_degrade() -> None:
         run(listeners.execute({}, token(True)))
     with pytest.raises(asyncio.CancelledError):
         run(processes.execute({}, token(True)))
+
+
+def test_listener_entry_names_are_opt_in_local_and_deduplicated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return (
+                *(
+                    NetworkListener(
+                        protocol=protocol, address=host, port=43123, pid=101, process_name="python"
+                    )
+                    for protocol, host in (("tcp", "0.0.0.0"), ("tcp", "::"), ("udp", "0.0.0.0"))
+                ),
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=43124),
+            )
+
+    class Process:
+        def __init__(self, pid: int) -> None:
+            assert pid == 101
+
+        def name(self) -> str:
+            return "python"
+
+        def cmdline(self) -> list[str]:
+            calls.append(101)
+            return ["python", "/private/相册.py", "--token", "fixture-secret"]
+
+    monkeypatch.setattr(psutil, "Process", Process)
+    adapter = NetworkListenersAdapter(Reader())
+    default = CollectionResult.model_validate(run(adapter.execute({}, token())))
+    assert calls == []
+    assert all("python_entrypoint" not in item for item in default.items)
+    named = CollectionResult.model_validate(
+        run(adapter.execute({"include_python_entrypoint": True}, token()))
+    )
+    assert calls == [101]
+    assert [item.get("python_entrypoint") for item in named.items] == [
+        "相册.py",
+        "相册.py",
+        None,
+        None,
+    ]
+    assert "fixture-secret" not in named.model_dump_json()
+    assert "private" not in named.model_dump_json()
+    assert "cmdline" not in named.model_dump_json()
 
 
 def test_docker_adapter_only_returns_allowed_fields_and_handles_offline() -> None:

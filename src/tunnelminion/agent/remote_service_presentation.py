@@ -139,8 +139,22 @@ class RemoteServicePresentationObserver:
                     collection = CollectionResult(availability=Availability.UNAVAILABLE)
                     tool_run_id = ToolRunId.new()
                     if name in prepared.tool_names:
+                        arguments: dict[str, JsonValue] = {}
+                        entry = prepared.registry.lookup(name)
+                        properties = (
+                            entry.definition.input_schema.get("properties") if entry else None
+                        )
+                        if (
+                            name == "list_network_listeners"
+                            and isinstance(properties, dict)
+                            and "include_python_entrypoint" in properties
+                        ):
+                            arguments["include_python_entrypoint"] = True
                         result = await prepared.executor.execute(
-                            ToolExecutionRequest(context=context, tool_name=name), cancellation
+                            ToolExecutionRequest(
+                                context=context, tool_name=name, arguments=arguments
+                            ),
+                            cancellation,
                         )
                         if result.status is not ToolExecutionStatus.SUCCESS or result.truncated:
                             raise ValueError("远端归属证据不完整")
@@ -159,7 +173,7 @@ class RemoteServicePresentationObserver:
                         status=ToolExecutionStatus.SUCCESS,
                         output=cast(JsonValue, collection.model_dump(mode="json")),
                     )
-                # 监听结果已经携带进程归属，不额外调用进程列表或读取启动参数。
+                # 入口名由目标电脑本机提取，不传完整参数，也不额外调用进程列表。
                 processes = ToolObservation(
                     tool_name="get_process_summary",
                     tool_run_id=ToolRunId.new(),

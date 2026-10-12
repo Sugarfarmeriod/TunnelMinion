@@ -51,6 +51,10 @@ def test_registers_exact_macos_read_only_tool_set() -> None:
     ]
     assert all(item.risk_level is RiskLevel.READ_ONLY for item in definitions)
     assert all(item.platforms == {Platform.MACOS} for item in definitions)
+    assert definitions[1].version.minor == 1
+    assert definitions[1].input_schema["properties"] == {
+        "include_python_entrypoint": {"type": "boolean"}
+    }
     assert registry.model_tools(Platform.MACOS) == definitions
     registered = tuple(registry.lookup(item.name) for item in definitions)
     assert all(item is not None for item in registered)

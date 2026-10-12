@@ -64,6 +64,12 @@ EXE="./package/tunnelminion"
 SecretStore 配置，把其中的 `uv run tunnelminion` 替换为包内可执行文件，再在 `runtime configure`
 后加 `--enable-gateway`。这不会修改 WireGuard、防火墙、路由或 DNS。
 
+首页会按需为 Python 服务显示启动入口，例如 `相册.py` 或 `http.server`。VS Code 等软件的终端
+直接启动脚本时也适用；文件名只说明入口，不代表已经识别业务用途。服务所在电脑临时读取启动参数，
+只返回最多 80 字符的脚本 basename 或模块名，完整参数和路径不保存、不外传、不交给模型；不读取
+环境变量或文件内容。普通监听查询不读取启动参数，旧版电脑、无权读取、内联代码和不支持的调试包装
+仍显示原来的 Python 归属，不影响服务记录及访问状态。
+
 ## 开发环境
 
 依赖条件：

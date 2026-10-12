@@ -30,6 +30,7 @@ from tunnelminion.coordinator.contracts import (
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import NodeId, ServiceId, ToolRunId
 from tunnelminion.incident.investigation import InvestigationRemoteToolPreparer
+from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.platforms.windows.models import NodeSummary
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -38,6 +39,7 @@ from tunnelminion.tools.contracts import (
     ToolExecutionResult,
     ToolExecutionStatus,
 )
+from tunnelminion.tools.fakes import FakeToolAdapter
 from tunnelminion.tools.registry import ToolRegistry
 
 LOCAL = NodeId("node_" + "1" * 32)
@@ -93,6 +95,7 @@ class Remote:
         self.wrong_identity = False
         self.truncated = False
         self.failed = False
+        self.supports_entrypoint = False
         self.prepared: list[str] = []
         self.executed: list[str] = []
         self.outputs: dict[str, JsonValue] = {
@@ -142,6 +145,9 @@ class Remote:
         self.prepared.append(str(target_node_id))
         if self.error is not None:
             raise self.error
+        registry = ToolRegistry()
+        if self.supports_entrypoint:
+            registry.register(windows_tool_definitions()[1], FakeToolAdapter())
         return PreparedRemoteAgentTools(
             node_summary=NodeSummary.model_validate(
                 {
@@ -158,7 +164,7 @@ class Remote:
                 }
             ),
             summary_tool_run_id=ToolRunId.new(),
-            registry=ToolRegistry(),
+            registry=registry,
             executor=cast(RemoteToolExecutor, self),
             tool_names=self.tools,
         )
@@ -168,7 +174,12 @@ class Remote:
         request: ToolExecutionRequest,
         cancellation: ToolCancellationToken | None = None,
     ) -> ToolExecutionResult:
-        assert request.arguments == {} and request.tool_name in self.tools
+        expected = (
+            {"include_python_entrypoint": True}
+            if self.supports_entrypoint and request.tool_name == TOOLS[0]
+            else {}
+        )
+        assert request.arguments == expected and request.tool_name in self.tools
         self.executed.append(request.tool_name)
         if self.failed:
             return ToolExecutionResult(
@@ -228,6 +239,44 @@ def test_remote_model_identity_uses_existing_listener_permission_only() -> None:
     remote.outputs[TOOLS[0]] = {"availability": "available", "items": []}
     asyncio.run(view.refresh())
     assert view.names() == {}
+
+
+def test_remote_python_entry_is_requested_only_when_supported_and_expires_to_generic() -> None:
+    remote = Remote()
+    remote.supports_entrypoint = True
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [
+            {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 101,
+                "process_name": "python",
+                "python_entrypoint": "相册.py",
+            }
+        ],
+    }
+    target = node()
+    view = observer(remote, cache(target))
+    asyncio.run(view.refresh())
+    key = (str(REMOTE), str(target.services[0].service_id))
+    assert view.names()[key] == "Python · 相册.py · 43123"
+    remote.supports_entrypoint = False
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [
+            {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 101,
+                "process_name": "python",
+            }
+        ],
+    }
+    asyncio.run(view.refresh())
+    assert view.names()[key] == "Python 服务 · 43123"
 
 
 @pytest.mark.parametrize(

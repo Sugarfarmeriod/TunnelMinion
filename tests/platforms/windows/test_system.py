@@ -172,6 +172,7 @@ def test_process_reader_sorts_limits_and_skips_denied(
 
     def process_iter(attrs: tuple[str, ...]) -> list[Process]:
         assert "pid" in attrs
+        assert "cmdline" not in attrs and "environ" not in attrs
         return processes
 
     monkeypatch.setattr(psutil, "process_iter", process_iter)
