@@ -6,7 +6,7 @@ import type { ResourceOverview } from "../src/api/schemas/overview";
 const nodeA = `node_${"1".repeat(32)}`;
 const nodeB = `node_${"2".repeat(32)}`;
 
-test("没有请求时首页只呈现设备，其他信息按需打开", async ({
+test("首页直接展示有名称的服务，后台记录与技术信息按需打开", async ({
   page,
   request,
 }, testInfo) => {
@@ -88,6 +88,13 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
   await expect(page.getByText("客厅电脑", { exact: true })).toBeVisible();
   await expect(page.getByText("更多信息", { exact: true })).toBeVisible();
   await expect(page.getByText("本机程序正在运行")).toBeHidden();
+  await expect(page.getByText("6 个后台项目用途未识别").first()).toBeHidden();
+  await expect(
+    page.getByRole("list", { name: "有名称的服务" }).getByText("照片备份"),
+  ).toBeVisible();
+  await expect(
+    page.locator(".overview-device").filter({ hasText: "客厅电脑" }),
+  ).not.toHaveAttribute("open");
   await expect(page.getByText(/第 \d+ \/ \d+ 页/)).toHaveCount(0);
   await expect(page.getByText(nodeA.slice(0, 8))).toHaveCount(0);
   expect(
@@ -100,7 +107,6 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
     path: testInfo.outputPath("overview-single-view-1280.png"),
   });
 
-  await page.getByText("工作室 Mac", { exact: true }).click();
   const device = page
     .locator(".overview-device")
     .filter({ hasText: "工作室 Mac" });
@@ -141,6 +147,12 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
   });
 
   await page.setViewportSize({ width: 320, height: 760 });
+  await device.getByText("查看全部 7 个检测项目（技术清单）").click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.mouse.move(0, 0);
+  await expect(
+    device.getByRole("list", { name: "有名称的服务" }).locator("summary"),
+  ).toBeInViewport();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(320);
@@ -149,4 +161,17 @@ test("没有请求时首页只呈现设备，其他信息按需打开", async ({
     fullPage: true,
     path: testInfo.outputPath("overview-product-experience-320.png"),
   });
+  await device.locator(":scope > summary").click();
+  await expect(device).not.toHaveAttribute("open");
+  overview.services.items[7].display_name = "Python 服务 · 9007";
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(
+    page.getByText("记录已重新读取；检测到服务不代表已确认能连接。"),
+  ).toBeVisible();
+  await expect(device).not.toHaveAttribute("open");
+  await expect(
+    page
+      .getByRole("list", { name: "有名称的服务" })
+      .getByText("Python 服务 · 9007"),
+  ).toBeVisible();
 });

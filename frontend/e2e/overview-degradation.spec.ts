@@ -297,8 +297,10 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     await expect(nodesCard).toContainText(
       "设备清单还不能确认最新状态，请刷新后再判断。",
     );
-    await nodesCard.getByText("缓存中的实验节点", { exact: true }).click();
-    await expect(nodesCard).toContainText("缓存中的只读服务");
+    await expect(nodesCard.getByText("缓存中的只读服务").first()).toBeVisible();
+    await expect(
+      nodesCard.getByText("已发现，访问待确认（记录已过时）").first(),
+    ).toBeVisible();
   });
 
   test("刷新失败后保留旧数据，再次刷新恢复新证据", async ({ page }) => {

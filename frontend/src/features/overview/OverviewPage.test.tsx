@@ -291,7 +291,7 @@ describe("OverviewPage", () => {
 
     const { container } = renderOverview();
 
-    await user.click(await screen.findByText(maliciousNode));
+    expect(await screen.findByText(maliciousNode)).toBeVisible();
     expect(screen.getAllByText(maliciousService)[0]).toBeVisible();
     expect(
       screen.getAllByText(/https:\/\/service\.example:443/)[0],
@@ -369,6 +369,66 @@ describe("OverviewPage", () => {
     ).toHaveLength(7);
     expect(screen.getByText("tcp://10.77.0.1:9006")).toBeVisible();
     expect(screen.queryByText(nodeA.slice(0, 8))).not.toBeInTheDocument();
+  });
+
+  it("有名称的服务默认显示，刷新发现新名称不覆盖用户收起的设备", async () => {
+    const payload = makeOverview();
+    payload.nodes.items = [nodeA, nodeB].map((node_id, index) => ({
+      node_id,
+      display_name: index === 0 ? "书房电脑" : "客厅电脑",
+      platform: "macos",
+      state: "online",
+      source: "coordinator_directory",
+      evidence_at: evidenceAt,
+      freshness: "fresh",
+      service_count: 1,
+    }));
+    payload.services.items = [nodeA, nodeB, `node_${"9".repeat(32)}`].map(
+      (node_id, index) => ({
+        service_id: `service_${index.toString(16).padStart(32, "0")}`,
+        node_id,
+        display_name: ["照片备份", null, "归属待确认的服务"][index],
+        protocol: "tcp",
+        port: 9000 + index,
+        access_address: null,
+        accessibility: "unknown",
+        lifecycle: "active",
+        state: "unknown",
+        source: "coordinator_directory",
+        evidence_at: evidenceAt,
+        freshness: "fresh",
+      }),
+    );
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/resources/overview" ? payload : []),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+
+    const bedroom = (await screen.findByText("书房电脑")).closest("details")!;
+    const livingRoom = screen.getByText("客厅电脑").closest("details")!;
+    expect(bedroom.open).toBe(true);
+    expect(livingRoom.open).toBe(false);
+    expect(screen.getAllByText("照片备份")[0]).toBeVisible();
+    expect(screen.getAllByText("归属待确认的服务")[0]).toBeVisible();
+    expect(screen.getByText("归属未知")).toBeVisible();
+    for (const explanation of screen.getAllByText("1 项状态需要确认")) {
+      expect(explanation).not.toBeVisible();
+    }
+
+    await user.click(screen.getByText("书房电脑"));
+    payload.services.items[1].display_name = "Python 服务 · 9001";
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("Python 服务 · 9001")[0]).toBeVisible();
+      expect(bedroom.open).toBe(false);
+    });
+    await user.click(screen.getByText("客厅电脑"));
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled(),
+    );
+    expect(livingRoom.open).toBe(false);
   });
 
   it("展示 incident 详情、未知项和建议追问，并把不可信轨迹只当文本", async () => {

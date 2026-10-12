@@ -387,7 +387,6 @@
 }
 
 .overview-service > summary strong {
-  flex: 1;
   min-width: 0;
 }
 
@@ -397,6 +396,7 @@
   content: "";
   flex: 0 0 0.4rem;
   height: 0.4rem;
+  margin-left: auto;
   transform: rotate(-45deg);
   transition: transform 140ms ease;
 }
@@ -669,15 +669,6 @@
 
   .overview-service-rows:has(.overview-service) {
     max-height: 28rem;
-  }
-
-  .overview-page__header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .overview-page__header button {
-    align-self: flex-start;
   }
 
   .overview-details,

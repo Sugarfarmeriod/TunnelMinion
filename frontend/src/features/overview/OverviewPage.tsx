@@ -501,6 +501,9 @@ function DeviceServiceOverview({
   services: ResourceOverview["services"];
   incidents: ResourceOverview["incidents"];
 }) {
+  const [deviceExpansion, setDeviceExpansion] = useState<
+    Record<string, boolean>
+  >({});
   const incidentLinks = serviceIncidentLinks(services.items, incidents.items);
   const knownNodeIds = new Set(nodes.items.map((node) => node.node_id));
   const groups = nodes.items.map((node) => ({
@@ -530,7 +533,21 @@ function DeviceServiceOverview({
       ) : (
         <div className="overview-device-list">
           {groups.map(({ node, services: nodeServices }) => (
-            <details className="overview-device" key={node.node_id}>
+            <details
+              className="overview-device"
+              key={node.node_id}
+              open={
+                deviceExpansion[node.node_id] ??
+                nodeServices.some((service) => service.display_name?.trim())
+              }
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setDeviceExpansion((previous) => ({
+                  ...previous,
+                  [node.node_id]: open,
+                }));
+              }}
+            >
               <summary>
                 <span>
                   <strong>{node.display_name}</strong>
@@ -560,7 +577,20 @@ function DeviceServiceOverview({
             </details>
           ))}
           {unassigned.length > 0 ? (
-            <details className="overview-device">
+            <details
+              className="overview-device"
+              open={
+                deviceExpansion.unassigned ??
+                unassigned.some((service) => service.display_name?.trim())
+              }
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setDeviceExpansion((previous) => ({
+                  ...previous,
+                  unassigned: open,
+                }));
+              }}
+            >
               <summary>
                 <span>
                   <strong>所属设备未识别</strong>
@@ -604,16 +634,6 @@ function ServiceRows({
   }
   return (
     <div className="overview-service-browser">
-      {services.length > named.length || uncertain > 0 ? (
-        <p className="overview-explanation">
-          {services.length > named.length
-            ? `${services.length - named.length} 个后台项目用途未识别`
-            : ""}
-          {uncertain > 0
-            ? `${services.length > named.length ? " · " : ""}${uncertain} 项状态需要确认`
-            : ""}
-        </p>
-      ) : null}
       {named.length === 0 ? (
         <p className="overview-empty">
           还不能确定哪些是你想用的服务；后台记录可以在下面查看。
@@ -623,6 +643,16 @@ function ServiceRows({
       )}
       <details className="overview-connections">
         <summary>查看全部 {services.length} 个检测项目（技术清单）</summary>
+        {services.length > named.length || uncertain > 0 ? (
+          <p className="overview-explanation">
+            {services.length > named.length
+              ? `${services.length - named.length} 个后台项目用途未识别`
+              : ""}
+            {uncertain > 0
+              ? `${services.length > named.length ? " · " : ""}${uncertain} 项状态需要确认`
+              : ""}
+          </p>
+        ) : null}
         <label className="overview-service-search">
           查找名称或地址
           <input
