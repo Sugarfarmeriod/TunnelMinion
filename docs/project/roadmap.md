@@ -42,6 +42,9 @@ flowchart TB
     Q10 -.用户实际查看反馈.-> Q11["服务浏览的交互节奏"]
     Q11 --> Q12["调查与处理的定位、返回和反馈"]
     Q12 --> Q13["首页日常入口与信息层级复核"]
+    Q11 --> Q14["完整新版实机使用验收"]
+    Q12 --> Q14
+    Q13 -.明确现场范围.-> Q14
 
     classDef done fill:#bbf7d0,stroke:#15803d,stroke-width:4px,color:#14532d;
     classDef current fill:#fde68a,stroke:#b45309,stroke-width:5px,color:#78350f;
@@ -60,12 +63,13 @@ flowchart TB
     class Q5 done;
     class Q6 done;
     class Q7 done;
-    class Q8 next;
+    class Q8 done;
     class Q9 done;
     class Q10 done;
     class Q11 done;
     class Q12 done;
-    class Q13 current;
+    class Q13 done;
+    class Q14 later;
 ```
 
 ## 当前状态
@@ -96,7 +100,8 @@ flowchart TB
 | 自建模型服务自动精选                | 已完成   | [阶段记录](stages/2026-10-08-local-model-service-identity.md)：实际 llama-server 归属精选、Mac 完整进程名；96 定向及6浏览器检查通过，不猜型号、不探测模型 API；完成状态仅在本阶段最终全量门禁通过并合并后生效 |
 | 服务浏览的交互节奏                  | 已完成   | [阶段结果](stages/2026-10-09-interaction-rhythm.md)：服务就地展开、轻量选中反馈、刷新保留内容，142 组件及68双浏览器检查通过；仅在本阶段最新 CI 通过并合并后生效，不扩大实机部署授权 |
 | 调查与处理的定位、返回和反馈        | 已完成   | [阶段结果](stages/2026-10-12-service-return-path.md)：调查对象可辨认，申请及请求可回调查，返回原服务时展开设备并定位；142组件及80双浏览器检查通过，本阶段最新完整 CI 通过并合并后生效 |
-| 首页日常入口与信息层级复核          | 进行中   | [阶段范围](stages/2026-10-12-home-service-entry.md)：紧凑导航、默认展示有名称服务、保留用户展开选择与原有调查路径，不增加栏目或探测权限 |
+| 首页日常入口与信息层级复核          | 已完成   | [阶段结果](stages/2026-10-12-home-service-entry.md)：导航一行、有名称服务默认可见、后台说明下沉技术清单、刷新保留用户选择；143组件及完整浏览器路径已检查，完成状态以 PR #119 最新完整 CI 通过并合并为准 |
+| 完整新版实机使用验收                | 条件触发 | 将服务浏览、调查返回和新首页作为同一套体验验收；Mac 测试页升级需明确现场范围，不默认发推理、临时访问或批准请求，也不修改网络配置 |
 | 单案例讲解                          | 已完成   | PR #104 合并生效；复核真实模型固定环境记录，区分预检、模型选择、程序证据门与处理交接 |
 
 最近完成阶段文档：
