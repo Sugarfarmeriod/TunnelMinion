@@ -41,7 +41,7 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     },
   ];
   overview.services.items = [
-    "Python 服务 · 43123",
+    "Python · 相册.py · 43123",
     "Docker · my-app · 8088",
     "模型服务 · llama.cpp · 8080",
     null,
@@ -70,7 +70,7 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     .locator(".overview-device")
     .filter({ hasText: "客厅电脑" });
   const selected = device.getByRole("list", { name: "有名称的服务" });
-  await expect(selected).toContainText("Python 服务 · 43123");
+  await expect(selected).toContainText("Python · 相册.py · 43123");
   await expect(selected).toContainText("Docker · my-app · 8088");
   await expect(selected).toContainText("模型服务 · llama.cpp · 8080");
   await expect(selected.getByRole("listitem")).toHaveCount(3);
@@ -114,11 +114,14 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
   ).toBeVisible();
   await expect(model.getByText("访问地址未知")).toBeVisible();
   overview.services.items[2].state = "unknown";
+  overview.services.items[0].display_name = "Python 服务 · 43123";
   releaseRefresh();
   await expect(
     page.getByText("记录已重新读取；检测到服务不代表已确认能连接。"),
   ).toBeVisible();
   await expect(model).toHaveAttribute("open", "");
+  await expect(selected).toContainText("Python 服务 · 43123");
+  await expect(selected).not.toContainText("相册.py");
   await expect(modelSummary).toContainText("状态未知");
   await page.screenshot({
     fullPage: true,

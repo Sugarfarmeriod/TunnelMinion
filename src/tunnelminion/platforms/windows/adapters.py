@@ -13,6 +13,7 @@ from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.platforms.python_entrypoint import read_python_entrypoint
 from tunnelminion.platforms.windows.models import (
     Availability,
     CollectionResult,
@@ -150,7 +151,7 @@ class WireGuardStatusAdapter:
 
 
 class NetworkListenersAdapter:
-    """读取 TCP/UDP 监听端点并支持权限不足降级。"""
+    """读取监听端点，按需在本机提取 Python 入口名。"""
 
     def __init__(self, reader: SystemReader) -> None:
         self._reader = reader
@@ -160,11 +161,12 @@ class NetworkListenersAdapter:
         arguments: dict[str, JsonValue],
         cancellation: ToolCancellationToken,
     ) -> JsonValue:
-        del arguments
         if cancellation.cancelled:
             raise asyncio.CancelledError
         try:
-            items = tuple(item.model_dump(mode="json") for item in self._reader.listeners())
+            items = await asyncio.to_thread(
+                self._items, arguments.get("include_python_entrypoint") is True
+            )
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
             result = CollectionResult(
@@ -173,6 +175,20 @@ class NetworkListenersAdapter:
                 error_message="当前账户无法读取全部监听端点",
             )
         return _json_value(result.model_dump(mode="json"))
+
+    def _items(self, include_python_entrypoint: bool) -> tuple[dict[str, object], ...]:
+        items: list[dict[str, object]] = []
+        entrypoints: dict[tuple[int | None, str | None], str | None] = {}
+        for listener in self._reader.listeners():
+            item = listener.model_dump(mode="json", exclude={"python_entrypoint"})
+            if include_python_entrypoint and listener.protocol == "tcp":
+                key = (listener.pid, listener.process_name)
+                if key not in entrypoints:
+                    entrypoints[key] = read_python_entrypoint(listener)
+                if entrypoints[key] is not None:
+                    item["python_entrypoint"] = entrypoints[key]
+            items.append(item)
+        return tuple(items)
 
 
 class ProcessSummaryAdapter:

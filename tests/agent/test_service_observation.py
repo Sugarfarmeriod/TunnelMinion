@@ -228,6 +228,46 @@ def test_names_keep_unknown_container_labels_out_and_merge_python_dual_stack() -
     assert set(snapshot.display_names.values()) == {"Python 服务 · 43123"}
 
 
+def test_python_entry_names_do_not_change_service_identity_or_leave_snapshot() -> None:
+    listener = NetworkListener(
+        protocol="tcp", address="127.0.0.1", port=43123, pid=101, process_name="python"
+    )
+    adapter = FakeAdapter(collection(listener))
+    original = asyncio.run(
+        observer(adapter, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    adapter.value = collection(listener.model_copy(update={"python_entrypoint": "相册.py"}))
+    named = asyncio.run(
+        observer(adapter, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    assert original.services == named.services
+    assert set(named.display_names.values()) == {"Python · 相册.py · 43123"}
+    assert "相册.py" not in named.model_dump_json()
+    assert adapter.calls == [{"include_python_entrypoint": True}] * 2
+
+
+def test_conflicting_python_entries_are_not_presented_as_one_application() -> None:
+    listeners = FakeAdapter(
+        collection(
+            *(
+                NetworkListener(
+                    protocol="tcp",
+                    address=host,
+                    port=43123,
+                    pid=101,
+                    process_name="python",
+                    python_entrypoint=entry,
+                )
+                for host, entry in (("0.0.0.0", "first.py"), ("::", "second.py"))
+            )
+        )
+    )
+    snapshot = asyncio.run(
+        observer(listeners, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    assert len(snapshot.services) == 1 and snapshot.display_names == {}
+
+
 @pytest.mark.parametrize(
     "process_name,pid,protocol,selected",
     [

@@ -47,7 +47,7 @@ def _definition(
     return ToolDefinition.model_validate(
         {
             "name": name,
-            "version": ProtocolVersion(major=1, minor=0),
+            "version": ProtocolVersion(major=1, minor=1 if name == "list_network_listeners" else 0),
             "description": description,
             "input_schema": input_schema,
             "output_schema": {"type": "object"},
@@ -77,8 +77,12 @@ def windows_tool_definitions() -> tuple[ToolDefinition, ...]:
         ),
         _definition(
             "list_network_listeners",
-            "列出 TCP 和 UDP 本机监听端点。",
-            empty,
+            "列出 TCP/UDP 监听端点；可在本机临时读取 Python 参数，仅返回入口名。",
+            {
+                "type": "object",
+                "properties": {"include_python_entrypoint": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
             timeout=10,
             max_bytes=256_000,
         ),

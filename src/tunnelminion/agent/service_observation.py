@@ -29,6 +29,7 @@ from tunnelminion.coordinator.contracts import (
     ServiceSummary,
 )
 from tunnelminion.domain.identifiers import NodeId, ServiceId, ToolRunId
+from tunnelminion.platforms.python_entrypoint import is_python_process
 from tunnelminion.platforms.windows.models import Availability, CollectionResult
 from tunnelminion.tools.contracts import ToolCancellationToken, ToolExecutionStatus
 
@@ -112,10 +113,12 @@ def select_service_display_names(
         name = None
         if item.container_name and item.container_name.strip():
             name = f"Docker · {item.container_name.strip()[:55]} · {item.port}"
-        elif item.process_pid is not None and re.fullmatch(
-            r"pythonw?(?:\d+(?:\.\d+)*)?(?:\.exe)?", item.process_name or "", re.I
-        ):
-            name = f"Python 服务 · {item.port}"
+        elif item.process_pid is not None and is_python_process(item.process_name):
+            name = (
+                f"Python · {item.python_entrypoint} · {item.port}"
+                if item.python_entrypoint
+                else f"Python 服务 · {item.port}"
+            )
         elif item.process_pid is not None and re.fullmatch(
             r"llama-server(?:\.exe)?", item.process_name or "", re.I
         ):
@@ -182,6 +185,7 @@ class DeterministicServiceObserver:
                         "list_network_listeners",
                         self._listeners,
                         self._config.listeners_enabled,
+                        arguments={"include_python_entrypoint": True},
                     )
                     process = await self._collect(
                         "get_process_summary",

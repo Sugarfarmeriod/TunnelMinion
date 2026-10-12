@@ -15,6 +15,7 @@ from scripts import run_real_incident_evaluation as real_cli
 from tunnelminion.evaluation.incidents import (
     IncidentEvaluationDataset,
     IncidentEvaluationScenario,
+    incident_dataset_content_hash,
     run_incident_dataset,
     run_incident_scenario,
 )
@@ -28,6 +29,7 @@ from tunnelminion.model.contracts import (
     ToolCall,
 )
 from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
+from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 
 V2_DATASET = Path("evaluations/datasets/autonomous-incidents-v2.json")
 V3_DATASET = Path("evaluations/datasets/autonomous-incidents-v3.json")
@@ -231,7 +233,16 @@ def _v3_dataset() -> IncidentEvaluationDataset:
 
 
 def _v4_dataset() -> IncidentEvaluationDataset:
-    return IncidentEvaluationDataset.model_validate_json(V4_DATASET.read_text(encoding="utf-8"))
+    dataset = IncidentEvaluationDataset.model_validate_json(V4_DATASET.read_text(encoding="utf-8"))
+    # 当前运行时的单元测试声明当前工具版本，历史数据集文件保持冻结。
+    return dataset.model_copy(
+        update={
+            "tool_versions": {
+                item.name: f"{item.version.major}.{item.version.minor}"
+                for item in windows_tool_definitions()
+            }
+        }
+    )
 
 
 def _serialized_requests(provider: _CapturingProvider) -> str:
@@ -418,9 +429,7 @@ def test_real_dataset_preserves_honest_quality_failure_and_safety_pass(tmp_path:
 
     assert report.scope == "isolated-real-model-local-runtime"
     assert report.source_revision == REVISION
-    assert report.dataset_content_hash == (
-        "sha256:c90c9c9d72e0002656f392f67a3577e7dcc42a679142b3b5568bd14675e918c1"
-    )
+    assert report.dataset_content_hash == incident_dataset_content_hash(_v4_dataset())
     assert report.safety_gate_violations == ()
     assert report.quality_target_violations
     assert report.ready_for_operation_stage is False
@@ -590,6 +599,24 @@ def test_real_dataset_requires_v3_and_version_metadata(tmp_path: Path) -> None:
         )
 
 
+def test_historical_dataset_is_frozen_and_cannot_run_with_new_tool_versions(tmp_path: Path) -> None:
+    dataset = IncidentEvaluationDataset.model_validate_json(V4_DATASET.read_text(encoding="utf-8"))
+    assert incident_dataset_content_hash(dataset) == (
+        "sha256:c90c9c9d72e0002656f392f67a3577e7dcc42a679142b3b5568bd14675e918c1"
+    )
+    with pytest.raises(ValueError, match="工具版本"):
+        asyncio.run(
+            run_incident_dataset(
+                dataset,
+                SQLiteIncidentStore(tmp_path / "historical.sqlite3"),
+                provider=_CapturingProvider(None),
+                provider_name="test-provider",
+                model_name="test-model",
+                source_revision=REVISION,
+            )
+        )
+
+
 def test_v3_contract_rejects_leaky_or_incomplete_fixture_fields() -> None:
     dataset = _v4_dataset()
     scenario = dataset.scenarios[1]
@@ -707,11 +734,13 @@ def test_real_cli_writes_report_without_endpoint(
 
     monkeypatch.setattr(real_cli, "_configured_api_key", configured_api_key)
     output = tmp_path / "real-report.json"
+    dataset_path = tmp_path / "current-runtime-fixture.json"
+    dataset_path.write_text(_v4_dataset().model_dump_json(), encoding="utf-8")
 
     assert (
         real_cli.main(
             [
-                str(V4_DATASET),
+                str(dataset_path),
                 "--endpoint",
                 "http://127.0.0.1:9999/v1",
                 "--configured-api-key",
@@ -750,7 +779,7 @@ def test_real_cli_writes_report_without_endpoint(
     with pytest.raises(RuntimeError, match="同配置最终评测只能登记一次"):
         real_cli.main(
             [
-                str(V4_DATASET),
+                str(dataset_path),
                 "--endpoint",
                 "http://127.0.0.1:9999/v1",
                 "--health-endpoint",

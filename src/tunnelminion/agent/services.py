@@ -77,6 +77,7 @@ class RemoteServiceSummary(BaseModel):
     port: int
     process_pid: int | None = None
     process_name: str | None = None
+    python_entrypoint: str | None = None
     container_id: str | None = None
     container_name: str | None = None
     image: str | None = None
@@ -300,6 +301,7 @@ class RemoteServiceInventoryBuilder:
             port=listener.port,
             process_pid=listener.pid,
             process_name=(process.name if process is not None else listener.process_name),
+            python_entrypoint=listener.python_entrypoint,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,
             image=docker.image if docker is not None else None,
