@@ -120,6 +120,10 @@ describe("OverviewPage", () => {
   let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
   beforeEach(() => {
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
     fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockImplementation((input) =>
       input === "/api/operations"

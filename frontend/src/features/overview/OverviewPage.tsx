@@ -1,6 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 import { requestJson } from "../../api/client";
 import {
@@ -659,7 +664,11 @@ function ServiceList({
       aria-label={technical ? "完整检测清单" : "有名称的服务"}
     >
       {services.map((service) => (
-        <li key={service.service_id}>
+        <li
+          key={service.service_id}
+          id={`${technical ? "technical-" : ""}${service.service_id}`}
+          tabIndex={-1}
+        >
           {technical ? (
             <div>
               <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
@@ -784,6 +793,8 @@ function IncidentList({
   nodes: ResourceOverview["nodes"]["items"];
   services: ResourceOverview["services"]["items"];
 }) {
+  const navigate = useNavigate();
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedIncidentId = searchParams.get("incident_id");
   const selectedId =
@@ -792,6 +803,9 @@ function IncidentList({
       ? linkedIncidentId
       : null;
   const [question, setQuestion] = useState("");
+  useEffect(() => {
+    if (selectedId !== null) titleRef.current?.focus();
+  }, [selectedId]);
   const detail = useQuery({
     queryKey: ["incident", selectedId],
     queryFn: () =>
@@ -848,6 +862,21 @@ function IncidentList({
           services,
         );
 
+  const event = detail.data?.incident.event;
+  const matchingServices =
+    event?.object_kind === "service"
+      ? services.filter((service) => service.service_id === event.object_id)
+      : [];
+  const service =
+    matchingServices.length === 1 &&
+    matchingServices[0]?.node_id === event?.target_node_id
+      ? matchingServices[0]
+      : undefined;
+  const matchingNodes = nodes.filter(
+    (node) => node.node_id === event?.target_node_id,
+  );
+  const node = matchingNodes.length === 1 ? matchingNodes[0] : undefined;
+
   return (
     <SectionCard
       id="overview-incidents"
@@ -892,6 +921,7 @@ function IncidentList({
               <p>{incident.conclusion ?? "尚无证据充分的结论"}</p>
               <p>最后观测：{formatTimestamp(incident.last_observed_at)}</p>
               <button
+                id={incident.incident_id}
                 aria-expanded={selectedId === incident.incident_id}
                 type="button"
                 onClick={() => openIncident(incident.incident_id)}
@@ -908,21 +938,40 @@ function IncidentList({
           <button
             className="incident-back"
             type="button"
-            onClick={() =>
-              setSearchParams((previous) => {
-                const next = new URLSearchParams(previous);
-                next.delete("incident_id");
-                return next;
-              })
-            }
+            onClick={() => navigate(`/app/overview#${selectedId}`)}
           >
             返回最近变化
           </button>
+          <h4 ref={titleRef} tabIndex={-1}>
+            调查结果
+          </h4>
           {detail.isPending ? <p>正在读取调查详情……</p> : null}
           {detail.isError ? <p role="alert">调查详情暂时无法读取。</p> : null}
           {detail.data !== undefined ? (
             <>
-              <h4>调查结果</h4>
+              <p className="incident-context" aria-label="正在查看的服务">
+                {node && ["live", "fresh"].includes(node.freshness)
+                  ? node.display_name
+                  : "设备名称待确认"}{" "}
+                ·{" "}
+                {event?.object_kind === "service"
+                  ? service && ["live", "fresh"].includes(service.freshness)
+                    ? service.display_name?.trim() || "服务名称待确认"
+                    : "服务名称待确认"
+                  : "设备变化"}
+              </p>
+              {service ? (
+                <Link
+                  className="incident-service-return"
+                  to={`/app/overview#${service.service_id}`}
+                >
+                  返回这项服务
+                </Link>
+              ) : event?.object_kind === "service" ? (
+                <p className="overview-empty">
+                  当前清单中找不到唯一的同一服务；下面保留此前的调查记录。
+                </p>
+              ) : null}
               <StatusBadge
                 tone={stateTone(detail.data.incident.status, data.freshness)}
               >
@@ -1015,6 +1064,7 @@ function readableRequestError(error: Error): string {
 }
 
 export function OverviewPage() {
+  const location = useLocation();
   const [refreshRequested, setRefreshRequested] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedIncident = /^incident_[0-9a-f]{32}$/.test(
@@ -1026,6 +1076,27 @@ export function OverviewPage() {
     queryFn: () =>
       requestJson("/api/resources/overview", resourceOverviewSchema),
   });
+  const hasOverview = query.data !== undefined;
+  useEffect(() => {
+    if (
+      !hasOverview ||
+      !/^#(?:service|incident)_[0-9a-f]{32}$/.test(location.hash)
+    )
+      return;
+    const id = location.hash.slice(1);
+    const target =
+      document.getElementById(id) ?? document.getElementById(`technical-${id}`);
+    if (target === null) return;
+    for (
+      let parent = target.parentElement;
+      parent !== null;
+      parent = parent.parentElement
+    ) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    (target.querySelector<HTMLElement>("summary") ?? target).focus();
+    target.scrollIntoView({ block: "center" });
+  }, [hasOverview, location.hash, location.key]);
 
   if (query.isPending) {
     return (

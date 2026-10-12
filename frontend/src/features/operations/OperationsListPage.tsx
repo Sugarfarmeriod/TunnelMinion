@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { requestJson } from "../../api/client";
@@ -58,6 +58,7 @@ export function parseIncidentOperationPrefill(
 }
 
 export function OperationsListPage() {
+  const requestTitleRef = useRef<HTMLHeadingElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -82,6 +83,13 @@ export function OperationsListPage() {
     retry: false,
   });
   const incidentPrefill = parseIncidentOperationPrefill(searchParams);
+  const sourceIncidentId =
+    incidentPrefill.kind === "valid" ? incidentPrefill.incidentId : null;
+  const hasOperations = query.data !== undefined;
+  useEffect(() => {
+    if (sourceIncidentId !== null && hasOperations)
+      requestTitleRef.current?.focus();
+  }, [sourceIncidentId, hasOperations]);
   const prefillTargetAvailable =
     incidentPrefill.kind === "valid" &&
     peersQuery.data?.some(
@@ -267,13 +275,12 @@ export function OperationsListPage() {
                 <span>这台电脑当前不可申请，本次不会发送请求。</span>
                 <Link to="/app/operations">打开普通新建入口</Link>
               </>
-            ) : (
-              <Link
-                to={`/app/overview?incident_id=${incidentPrefill.incidentId}#overview-incidents`}
-              >
-                返回调查结果
-              </Link>
-            )}
+            ) : null}
+            <Link
+              to={`/app/overview?incident_id=${incidentPrefill.incidentId}#overview-incidents`}
+            >
+              返回调查结果
+            </Link>
           </div>
         ) : incidentPrefill.kind === "invalid" ? (
           <div
@@ -310,7 +317,9 @@ export function OperationsListPage() {
         className="operation-request-card"
       >
         <div>
-          <h3 id="request-operation-title">申请临时访问</h3>
+          <h3 id="request-operation-title" ref={requestTitleRef} tabIndex={-1}>
+            申请临时访问
+          </h3>
           <p>
             临时使用另一台电脑上的网页服务。对方可以拒绝、随时停止，到期后会自动关闭。
           </p>

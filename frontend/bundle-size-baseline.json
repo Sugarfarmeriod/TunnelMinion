@@ -1,6 +1,6 @@
 {
   "schema": "tunnelminion/frontend-bundle-baseline/v1",
-  "acceptedBytes": 144987,
-  "acceptedCommit": "ecfd0a4",
-  "reviewNote": "真实 FastAPI 浏览器门禁落地后的首个已接受生产构建基线。"
+  "acceptedBytes": 159331,
+  "acceptedCommit": "8bfafad285fe5b556b56176dcb68b018332656a5",
+  "reviewNote": "PR #116 已合并且完整 CI 8/8 通过，运行 37832087972 的 supply-chain-frontend/frontend-bundle.json 记录 159331 字节；以已接受主线为增长比较基线，保留 10% 相对和 300 KiB 绝对门禁。"
 }

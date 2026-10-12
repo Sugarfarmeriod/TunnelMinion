@@ -3,6 +3,12 @@
   overflow-wrap: anywhere;
 }
 
+.operation-back-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
 .operations-page__header,
 .operation-detail-header,
 .operation-summary-card__heading,

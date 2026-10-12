@@ -410,6 +410,11 @@
   background: var(--color-accent-soft);
 }
 
+.overview-service > summary:focus-visible,
+.overview-service-rows > li:focus-visible {
+  outline-offset: -3px;
+}
+
 .overview-service__body {
   border-left: 2px solid var(--color-accent-strong);
   margin: 0 var(--space-3) var(--space-3);
@@ -497,6 +502,16 @@
 .incident-detail h5,
 .incident-detail p {
   margin: 0;
+}
+
+.incident-context {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.incident-service-return {
+  justify-self: start;
+  padding: var(--space-2) 0;
 }
 
 .incident-detail > .overview-status {

@@ -167,6 +167,9 @@ describe("OperationDetailPage", () => {
 
     renderDetail();
 
+    expect(
+      await screen.findByRole("link", { name: "返回调查结果" }),
+    ).toBeVisible();
     expect(await screen.findByText(incidentId)).toHaveAttribute(
       "href",
       `/app/overview?incident_id=${incidentId}#overview-incidents`,
