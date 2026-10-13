@@ -430,6 +430,44 @@
   overflow-wrap: anywhere;
 }
 
+.overview-service-rows.overview-service-rows--applications:has(
+    .overview-application
+  ) {
+  max-height: 34rem;
+  scrollbar-gutter: stable;
+}
+
+.overview-application__identity {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.overview-application__identity strong {
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.overview-application__identity small {
+  color: var(--color-muted);
+}
+
+.overview-application .overview-service-rows {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 32rem) {
+  .overview-service-rows.overview-service-rows--applications:has(
+      .overview-application
+    ) {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 .overview-service__action {
   display: block;
   padding: var(--space-2) var(--space-3);

@@ -246,7 +246,12 @@ def test_python_entry_names_do_not_change_service_identity_or_leave_snapshot() -
     assert adapter.calls == [{"include_python_entrypoint": True}] * 2
 
 
-def test_conflicting_python_entries_are_not_presented_as_one_application() -> None:
+@pytest.mark.parametrize(
+    "entries", (("first.py", "second.py"), ("x" * 60 + "a.py", "x" * 60 + "b.py"))
+)
+def test_conflicting_python_entries_are_not_presented_as_one_application(
+    entries: tuple[str, str],
+) -> None:
     listeners = FakeAdapter(
         collection(
             *(
@@ -258,7 +263,7 @@ def test_conflicting_python_entries_are_not_presented_as_one_application() -> No
                     process_name="python",
                     python_entrypoint=entry,
                 )
-                for host, entry in (("0.0.0.0", "first.py"), ("::", "second.py"))
+                for host, entry in zip(("0.0.0.0", "::"), entries, strict=True)
             )
         )
     )
@@ -266,6 +271,126 @@ def test_conflicting_python_entries_are_not_presented_as_one_application() -> No
         observer(listeners, FakeAdapter(collection()), FakeAdapter(collection())).observe()
     )
     assert len(snapshot.services) == 1 and snapshot.display_names == {}
+
+
+@pytest.mark.parametrize("container_id", ("", " "))
+def test_container_without_identity_keeps_name_without_merging(container_id: str) -> None:
+    snapshot = asyncio.run(
+        observer(
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+            FakeAdapter(
+                collection(
+                    DockerService(
+                        container_id=container_id,
+                        name="web",
+                        image="image",
+                        ports="0.0.0.0:8080->80/tcp",
+                        status="Up",
+                    )
+                )
+            ),
+        ).observe()
+    )
+    assert set(snapshot.display_names.values()) == {"Docker · web · 8080"}
+    assert snapshot.applications == {}
+
+
+def test_application_groups_use_process_and_container_identity_not_entry_name() -> None:
+    listeners = FakeAdapter(
+        collection(
+            *(
+                NetworkListener(
+                    protocol="tcp",
+                    address="127.0.0.1",
+                    port=port,
+                    pid=pid,
+                    process_name="python",
+                    python_entrypoint="app.py",
+                )
+                for port, pid in ((43123, 101), (43124, 101), (43125, 102))
+            )
+        )
+    )
+    docker = FakeAdapter(
+        collection(
+            DockerService(
+                container_id="container-one",
+                name="web",
+                image="image",
+                ports="0.0.0.0:8080->80/tcp, 0.0.0.0:8443->443/tcp",
+                status="Up",
+            )
+        )
+    )
+    snapshot = asyncio.run(observer(listeners, FakeAdapter(collection()), docker).observe())
+    groups = {
+        service.port: snapshot.applications[str(service.service_id)]
+        for service in snapshot.services
+    }
+    assert groups[43123] == groups[43124]
+    assert groups[43123].group_id != groups[43125].group_id
+    assert groups[8080] == groups[8443]
+    assert groups[43123].name == "app.py" and groups[43123].kind == "python"
+    assert groups[8080].name == "web" and groups[8080].kind == "docker"
+    assert set(groups[43123].model_dump()) == {"group_id", "name", "kind"}
+    assert "applications" not in snapshot.model_dump_json()
+    assert "app.py" not in snapshot.model_dump_json()
+    assert listeners.calls == [{"include_python_entrypoint": True}]
+
+
+def test_ambiguous_process_identity_keeps_known_name_without_application_group() -> None:
+    listeners = FakeAdapter(
+        collection(
+            *(
+                NetworkListener(
+                    protocol="tcp",
+                    address=address,
+                    port=43123,
+                    pid=pid,
+                    process_name="python",
+                    python_entrypoint="app.py",
+                )
+                for address, pid in (("0.0.0.0", 101), ("::", 102))
+            )
+        )
+    )
+    snapshot = asyncio.run(
+        observer(
+            listeners,
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    assert len(snapshot.services) == 1
+    assert set(snapshot.display_names.values()) == {"Python · app.py · 43123"}
+    assert snapshot.applications == {}
+
+
+def test_long_entry_name_preserves_application_name_and_bounds_endpoint_label() -> None:
+    entry = "项目" * 40
+    listeners = FakeAdapter(
+        collection(
+            NetworkListener(
+                protocol="tcp",
+                address="127.0.0.1",
+                port=43123,
+                pid=101,
+                process_name="python",
+                python_entrypoint=entry,
+            )
+        )
+    )
+    snapshot = asyncio.run(
+        observer(
+            listeners,
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    assert next(iter(snapshot.applications.values())).name == entry
+    assert all(len(name) <= 80 for name in snapshot.display_names.values())
+    assert "…" in next(iter(snapshot.display_names.values()))
 
 
 @pytest.mark.parametrize(

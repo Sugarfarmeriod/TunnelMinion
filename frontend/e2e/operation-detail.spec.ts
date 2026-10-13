@@ -141,7 +141,7 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
       service_count: 0,
     }),
   );
-  await context.route("**/api/resources/overview", (route) =>
+  await context.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     fulfillJson(route, overview),
   );
 

@@ -115,4 +115,54 @@ describe("overview 运行时契约", () => {
     invalid.network_path.state = "healthy";
     expect(() => resourceOverviewSchema.parse(invalid)).toThrow();
   });
+
+  it("兼容旧服务字段，程序信息只接受受限的显示归属", () => {
+    const row = {
+      service_id: `service_${"1".repeat(32)}`,
+      node_id: `node_${"2".repeat(32)}`,
+      display_name: "Python · app.py · 43123",
+      protocol: "tcp",
+      port: 43123,
+      access_address: "tcp://127.0.0.1:43123",
+      accessibility: "loopback",
+      lifecycle: "active",
+      state: "available",
+      source: "local_observation",
+      evidence_at: null,
+      freshness: "fresh",
+    };
+    const payload = {
+      ...validOverview(),
+      services: { ...section, items: [row] },
+    };
+    expect(
+      resourceOverviewSchema.parse(payload).services.items[0]?.application,
+    ).toBeUndefined();
+    const app = {
+      group_id: `application_${"a".repeat(32)}`,
+      name: "app.py",
+      kind: "python",
+    };
+    const enriched = (application: unknown) => ({
+      ...payload,
+      services: { ...payload.services, items: [{ ...row, application }] },
+    });
+    expect(
+      resourceOverviewSchema.parse(enriched(app)).services.items[0]
+        ?.application,
+    ).toEqual(app);
+    expect(
+      resourceOverviewSchema.parse(
+        enriched({ ...app, name: "😀".repeat(50) + ".py" }),
+      ).services.items[0]?.application?.name,
+    ).toBe("😀".repeat(50) + ".py");
+    for (const invalid of [
+      { ...app, group_id: "same-name" },
+      { ...app, kind: "system" },
+      { ...app, name: "a".repeat(81) },
+      { ...app, raw_arguments: ["not-allowed"] },
+    ]) {
+      expect(() => resourceOverviewSchema.parse(enriched(invalid))).toThrow();
+    }
+  });
 });

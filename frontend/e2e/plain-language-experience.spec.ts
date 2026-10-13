@@ -60,10 +60,13 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     evidence_at: overview.generated_at,
   }));
   let pendingRefresh: Promise<void> | undefined;
-  await page.route("**/api/resources/overview", async (route) => {
-    await pendingRefresh;
-    await route.fulfill({ json: overview });
-  });
+  await page.route(
+    /\/api\/(?:resources\/overview|ui\/overview)$/,
+    async (route) => {
+      await pendingRefresh;
+      await route.fulfill({ json: overview });
+    },
+  );
   await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
   await page.goto("/app/overview");
   const device = page
@@ -218,7 +221,7 @@ test("三百个后台项目不淹没有名称的服务，完整清单可搜索�
   page.on("request", (request) => {
     if (request.method() !== "GET") writes++;
   });
-  await page.route("**/api/resources/overview", (route) =>
+  await page.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     route.fulfill({ json: overview }),
   );
   await page.route("**/api/operations", (route) => route.fulfill({ json: [] }));
@@ -298,7 +301,7 @@ test("批准摘要按精确身份匹配名称，陈旧名称不冒充访问者",
       service_count: 0,
     },
   ];
-  await page.route("**/api/resources/overview", (route) =>
+  await page.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     route.fulfill({ json: overview }),
   );
   await page.route(

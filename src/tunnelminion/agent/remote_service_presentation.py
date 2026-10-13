@@ -13,9 +13,14 @@ from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.service_observation import (
     compute_observed_service_id,
-    select_service_display_names,
+    select_service_presentations,
 )
-from tunnelminion.agent.services import RemoteServiceInventoryBuilder, ToolObservation
+from tunnelminion.agent.services import (
+    RemoteServiceInventoryBuilder,
+    ServiceApplication,
+    ServicePresentation,
+    ToolObservation,
+)
 from tunnelminion.coordinator.contracts import (
     DirectoryFreshness,
     DirectoryNodeSummary,
@@ -50,7 +55,9 @@ class RemoteServicePresentationObserver:
         self._cache = cache
         self._preparer = preparer
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._observations: dict[str, tuple[datetime, dict[str, str]]] = {}
+        self._observations: dict[
+            str, tuple[datetime, dict[str, str], dict[str, ServiceApplication]]
+        ] = {}
         self._offset = 0
 
     def _nodes(self) -> tuple[DirectoryNodeSummary, ...]:
@@ -81,8 +88,12 @@ class RemoteServicePresentationObserver:
 
     def names(self) -> dict[tuple[str, str], str]:
         """离线、过期、停止或身份不符时立即撤掉名称，不升级服务状态。"""
+        return {key: value[0] for key, value in self.presentations().items()}
+
+    def presentations(self) -> dict[tuple[str, str], ServicePresentation]:
+        """同次读取名称和程序归属，共用有效期及服务身份检查。"""
         now = self._clock()
-        names: dict[tuple[str, str], str] = {}
+        names: dict[tuple[str, str], ServicePresentation] = {}
         for node in self._nodes():
             node_id = str(node.identity.node_id)
             observation = self._observations.get(node_id)
@@ -90,7 +101,7 @@ class RemoteServicePresentationObserver:
                 continue
             allowed = self._service_ids(node)
             names.update(
-                ((node_id, service_id), name)
+                ((node_id, service_id), (name, observation[2].get(service_id)))
                 for service_id, name in observation[1].items()
                 if service_id in allowed
             )
@@ -193,10 +204,11 @@ class RemoteServicePresentationObserver:
                     observations["list_docker_services"],
                 )
                 allowed = self._service_ids(node)
-                names = select_service_display_names(node_id, inventory.services)
+                names, applications = select_service_presentations(node_id, inventory.services)
                 self._observations[str(node_id)] = (
                     self._clock(),
                     {key: value for key, value in names.items() if key in allowed},
+                    {key: value for key, value in applications.items() if key in allowed},
                 )
         except (RemotePreparationError, RemoteGatewayError, OSError, ValueError, TimeoutError):
             self._observations.pop(str(node_id), None)

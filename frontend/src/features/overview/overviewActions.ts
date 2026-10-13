@@ -4,6 +4,66 @@ import type { OperationListItem } from "../operations/schemas";
 type NodeItem = ResourceOverview["nodes"]["items"][number];
 type ServiceItem = ResourceOverview["services"]["items"][number];
 
+export interface ServiceApplicationGroup {
+  key: string;
+  application: NonNullable<ServiceItem["application"]> | null;
+  services: ServiceItem[];
+}
+
+export function groupServiceApplications(
+  services: readonly ServiceItem[],
+): ServiceApplicationGroup[] {
+  const identities = new Map<string, string>();
+  const conflicts = new Set<string>();
+  for (const service of services) {
+    const app = service.application;
+    if (!app) continue;
+    const key = `${service.node_id}:${app.group_id}`;
+    const identity = JSON.stringify([app.name, app.kind]);
+    if (identities.has(key) && identities.get(key) !== identity)
+      conflicts.add(key);
+    identities.set(key, identity);
+  }
+  const groups: ServiceApplicationGroup[] = [];
+  const seen = new Map<string, ServiceApplicationGroup>();
+  services.forEach((service, index) => {
+    const app = service.application;
+    const key = `${service.node_id}:${app?.group_id}`;
+    if (
+      !app?.name.trim() ||
+      !["fresh", "live"].includes(service.freshness) ||
+      conflicts.has(key)
+    ) {
+      groups.push({
+        key: `${service.service_id}:${index}`,
+        application: null,
+        services: [service],
+      });
+      return;
+    }
+    const group = seen.get(key);
+    if (group) group.services.push(service);
+    else {
+      const created = { key, application: app, services: [service] };
+      seen.set(key, created);
+      groups.push(created);
+    }
+  });
+  return groups.some((group) => group.application)
+    ? groups.sort((a, b) =>
+        (
+          a.application?.name ??
+          a.services[0]!.display_name ??
+          ""
+        ).localeCompare(
+          b.application?.name ?? b.services[0]!.display_name ?? "",
+          "zh-CN",
+          { numeric: true },
+        ),
+      )
+    : groups;
+}
+
 export function serviceIncidentLinks(
   services: readonly ServiceItem[],
   incidents: ResourceOverview["incidents"]["items"],

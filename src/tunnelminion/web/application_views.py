@@ -22,6 +22,7 @@ from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.managed_node import ManagedNodeState
 from tunnelminion.agent.network_sync import ManagedNetworkSyncPhase
 from tunnelminion.agent.service_observation import ServiceObservationSnapshot
+from tunnelminion.agent.services import ServicePresentation
 from tunnelminion.coordinator import contracts as coordinator_contracts
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
@@ -122,6 +123,8 @@ def build_application_view_bindings(
     local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
     peer_observation: StaticPeerServiceObserver | None = None,
     remote_service_names: Callable[[], dict[tuple[str, str], str]] | None = None,
+    remote_service_presentations: Callable[[], dict[tuple[str, str], ServicePresentation]]
+    | None = None,
     clock: Clock | None = None,
     runtime_package: overview_contracts.RuntimePackageOverview | None = None,
 ) -> ApplicationViewBindings:
@@ -139,6 +142,7 @@ def build_application_view_bindings(
         local_services,
         peer_observation,
         remote_service_names,
+        remote_service_presentations,
     )
     return ApplicationViewBindings(adapter.overview_service(), adapter.resource_bindings())
 
@@ -201,6 +205,8 @@ class _ApplicationViewAdapter:
         local_services: Callable[[], ServiceObservationSnapshot | None] | None = None,
         peer_observation: StaticPeerServiceObserver | None = None,
         remote_service_names: Callable[[], dict[tuple[str, str], str]] | None = None,
+        remote_service_presentations: Callable[[], dict[tuple[str, str], ServicePresentation]]
+        | None = None,
     ) -> None:
         self.node_id = node_id
         self.platform = platform
@@ -212,6 +218,7 @@ class _ApplicationViewAdapter:
         self.local_services_provider = local_services
         self.peer_observation = peer_observation
         self.remote_service_names = remote_service_names
+        self.remote_service_presentations = remote_service_presentations
         self.clock = clock
         self.package = package
 
@@ -513,26 +520,50 @@ class _ApplicationViewAdapter:
         snapshot = self.local_service_snapshot()
         if snapshot is not None:
             items.extend(
-                self.service_view(
-                    service, self.node_id, overview_contracts.KnownNodeState.LOCAL
+                overview_contracts.ProgramKnownServiceOverview.model_validate(
+                    self.service_view(
+                        service, self.node_id, overview_contracts.KnownNodeState.LOCAL
+                    ),
+                    from_attributes=True,
                 ).model_copy(
-                    update={"display_name": snapshot.display_names.get(str(service.service_id))}
+                    update={
+                        "display_name": snapshot.display_names.get(str(service.service_id)),
+                        "application": snapshot.applications.get(str(service.service_id)),
+                    }
                 )
                 for service in snapshot.services
             )
         cached = self.cache()
-        names = self.remote_service_names() if self.remote_service_names is not None else {}
+        presentations = (
+            self.remote_service_presentations()
+            if self.remote_service_presentations is not None
+            else {}
+        )
+        names = (
+            {key: value[0] for key, value in presentations.items()}
+            if self.remote_service_presentations is not None
+            else self.remote_service_names()
+            if self.remote_service_names is not None
+            else {}
+        )
+        applications = {key: value[1] for key, value in presentations.items()}
         if cached is not None:
             for node in cached.nodes:
                 if node.identity.node_id != self.node_id:
                     items.extend(
-                        self.service_view(
-                            service, node.identity.node_id, _NODE_STATES[node.status]
+                        overview_contracts.ProgramKnownServiceOverview.model_validate(
+                            self.service_view(
+                                service, node.identity.node_id, _NODE_STATES[node.status]
+                            ),
+                            from_attributes=True,
                         ).model_copy(
                             update={
                                 "display_name": names.get(
                                     (str(node.identity.node_id), str(service.service_id))
-                                )
+                                ),
+                                "application": applications.get(
+                                    (str(node.identity.node_id), str(service.service_id))
+                                ),
                             }
                         )
                         for service in node.services

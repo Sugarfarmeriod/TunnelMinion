@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -116,6 +122,55 @@ function renderOverview(entry = "/app/overview") {
   return render(<OverviewPage />, { wrapper: Wrapper });
 }
 
+function groupedOverview(): ResourceOverview {
+  const payload = makeOverview();
+  payload.nodes.items = [
+    {
+      node_id: nodeA,
+      display_name: "工作室 Mac",
+      platform: "macos",
+      state: "local",
+      source: "local_observation",
+      evidence_at: evidenceAt,
+      freshness: "fresh",
+      service_count: 3,
+    },
+  ];
+  payload.services.items = [8765, 18790, 8787].map((port, index) => ({
+    service_id: `service_${String(index + 1).repeat(32)}`,
+    node_id: nodeA,
+    display_name: `Python · ${index < 2 ? "nanobot" : "app.py"} · ${port}`,
+    application: {
+      group_id: `application_${index < 2 ? "a".repeat(32) : "b".repeat(32)}`,
+      name: index < 2 ? "nanobot" : "app.py",
+      kind: "python",
+    },
+    protocol: "tcp",
+    port,
+    access_address: `tcp://127.0.0.1:${port}`,
+    accessibility: "loopback",
+    lifecycle: "active",
+    state: index === 1 ? "unavailable" : "available",
+    source: "local_observation",
+    evidence_at: evidenceAt,
+    freshness: "fresh",
+  }));
+  payload.incidents.items = [
+    {
+      incident_id: `incident_${"4".repeat(32)}`,
+      event_type: "local_only",
+      object_kind: "service",
+      object_id: payload.services.items[1]!.service_id,
+      severity: "warning",
+      status: "confirmed",
+      first_observed_at: evidenceAt,
+      last_observed_at: evidenceAt,
+      conclusion: null,
+    },
+  ];
+  return payload;
+}
+
 describe("OverviewPage", () => {
   let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
@@ -136,6 +191,90 @@ describe("OverviewPage", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("程序优先显示，展开保留各入口状态与准确变化链接，刷新保留展开", async () => {
+    const payload = groupedOverview();
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+    expect(await screen.findByText("nanobot", { exact: true })).toBeVisible();
+    expect(screen.getByText(/2 个程序/)).toBeVisible();
+    const row = document.getElementById(`application_${"a".repeat(32)}`)!;
+    const details = row.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(within(row).getByText("部分入口需确认")).toBeVisible();
+    expect(
+      within(row).getByRole("link", { name: "查看这项程序的变化" }),
+    ).toHaveAttribute(
+      "href",
+      `/app/overview?incident_id=incident_${"4".repeat(32)}#overview-incidents`,
+    );
+    await user.click(within(row).getByText("nanobot", { exact: true }));
+    const entries = screen.getByRole("list", { name: "nanobot 的入口" });
+    expect(within(entries).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(entries).getByText("当前不可用")).toBeVisible();
+    expect(
+      document.getElementById(payload.services.items[1]!.service_id),
+    ).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled(),
+    );
+    expect(details.open).toBe(true);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/ui/overview");
+  });
+
+  it("返回入口的原身份时打开所属程序并定位，不靠程序名称选目标", async () => {
+    const payload = groupedOverview();
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
+    );
+    const targetId = payload.services.items[1]!.service_id;
+    renderOverview(`/app/overview#${targetId}`);
+    await waitFor(() =>
+      expect(document.getElementById(targetId)).toHaveFocus(),
+    );
+    expect(
+      document.querySelector(`#application_${"a".repeat(32)} > details`),
+    ).toHaveAttribute("open");
+    expect(
+      document.querySelector(`#application_${"b".repeat(32)} > details`),
+    ).not.toHaveAttribute("open");
+  });
+
+  it("旧服务端没有页面专用视图时，保持旧服务显示", async () => {
+    const payload = groupedOverview();
+    payload.services.items = payload.services.items.map(
+      ({ application: _application, ...service }) => service,
+    );
+    fetchMock.mockImplementation((input) =>
+      input === "/api/ui/overview"
+        ? Promise.resolve(
+            new Response(JSON.stringify({ detail: "Not Found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            }),
+          )
+        : jsonResponse(input === "/api/resources/overview" ? payload : []),
+    );
+    renderOverview();
+    const named = await screen.findByRole("list", {
+      name: "有名称的服务",
+    });
+    expect(
+      within(named).getByText("Python · nanobot · 8765", { exact: true }),
+    ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => input === "/api/resources/overview",
+      ),
+    ).toBe(true);
+    expect(
+      screen.queryByText("nanobot", { exact: true }),
+    ).not.toBeInTheDocument();
   });
 
   it("首页没有空栏目，技术状态从更多信息打开", async () => {
@@ -162,7 +301,7 @@ describe("OverviewPage", () => {
     expect(screen.getByText("Coordinator 目录已同步")).toBeVisible();
     expect(screen.getByText("当前选择了直连路径")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/resources/overview",
+      "/api/ui/overview",
       expect.objectContaining({ credentials: "same-origin" }),
     );
   });
@@ -400,7 +539,7 @@ describe("OverviewPage", () => {
       }),
     );
     fetchMock.mockImplementation((input) =>
-      jsonResponse(input === "/api/resources/overview" ? payload : []),
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
     );
     const user = userEvent.setup();
     renderOverview();
@@ -572,7 +711,7 @@ describe("OverviewPage", () => {
       thread_id: null,
     };
     fetchMock.mockImplementation((input, init) => {
-      if (input === "/api/resources/overview") {
+      if (input === "/api/ui/overview") {
         return jsonResponse(payload);
       }
       if (input === "/api/operations") {
@@ -755,7 +894,7 @@ describe("OverviewPage", () => {
       thread_id: null,
     };
     fetchMock.mockImplementation((input) => {
-      if (input === "/api/resources/overview") {
+      if (input === "/api/ui/overview") {
         return jsonResponse(payload);
       }
       if (input === "/api/operations") {
@@ -823,7 +962,7 @@ describe("OverviewPage", () => {
       }),
     ];
     fetchMock.mockImplementation((input) =>
-      input === "/api/resources/overview"
+      input === "/api/ui/overview"
         ? jsonResponse(payload)
         : input === "/api/operations"
           ? jsonResponse(operations)
@@ -842,7 +981,7 @@ describe("OverviewPage", () => {
 
     cleanup();
     fetchMock.mockImplementation((input) =>
-      input === "/api/resources/overview"
+      input === "/api/ui/overview"
         ? jsonResponse(payload)
         : Promise.reject(new TypeError("operations offline")),
     );
@@ -881,7 +1020,7 @@ describe("OverviewPage", () => {
       if (input === "/api/operations") {
         return jsonResponse([]);
       }
-      if (input === "/api/resources/overview") {
+      if (input === "/api/ui/overview") {
         overviewCalls += 1;
         if (overviewCalls === 1) {
           return jsonResponse(first);
