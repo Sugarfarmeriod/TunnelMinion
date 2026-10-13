@@ -1,0 +1,140 @@
+{
+  "schema_version": "mac-isolated-product-view-evidence/v1",
+  "observed_at": "2026-10-13T17:20:57.618470Z",
+  "implementation_head": "3a3d2512a9bfd910411e8c3bab34d199801371de",
+  "merged_main": "6aa9ade6cd7f4f28ebf8c9c0e57d7ac5fb1fdb22",
+  "ci_run": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38280651082",
+  "package": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "build_source_revision": "68a04c566a1ada1169dc8413e8b4404ba10ece29",
+    "source_tree_sha256": "d1cd6c530c5168ce80b5822f68005e925d717c69e95baf232b586c33481b3ea4",
+    "archive_sha256": "398883f592e7abadcf3404f846e96bea006e8bcc0dbbc750fcbc8dc1b0859455",
+    "checked_files": 143,
+    "native_checks": {
+      "package": "passed",
+      "profile": "passed",
+      "data-dir": "passed"
+    },
+    "prestart_deterministic_ready": false,
+    "prestart_instance_code": "existing_instance_record",
+    "runtime_state": "running",
+    "runtime_exit_code": 0
+  },
+  "retained": {
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "data_dir_sha256": "ccb2b1d1cdeb9d63ca90b2db11eea96f90772d0a4c5621ae8b9acd9db99bde73",
+    "qwen_pid": 33870,
+    "old_page_pid": 95881,
+    "existing_8787_pid": 79774,
+    "old_test_page_pid": 31603,
+    "new_test_page_pid": 57426
+  },
+  "overview": {
+    "http_status": 200,
+    "html_status": 200,
+    "evidence_at": "2026-10-13T17:20:43.987507Z",
+    "freshness": "fresh",
+    "before_service_count": 33,
+    "after_service_count": 33,
+    "before_named_count": 10,
+    "after_named_count": 10,
+    "unnamed_count": 23,
+    "model_status": "unconfigured",
+    "coordinator_state": "unconfigured",
+    "javascript_asset": "index-CaApMMgr.js",
+    "stylesheet_asset": "index-CDk2kMGx.css"
+  },
+  "python_services": [
+    {
+      "service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+      "port": 8787,
+      "before_name": "Python 服务 · 8787",
+      "after_name": "Python · app.py · 8787",
+      "identity_unchanged": true,
+      "state": "available",
+      "freshness": "fresh",
+      "accessibility": "loopback"
+    },
+    {
+      "service_id": "service_676ab4650bf1596975b3288d45765bc8",
+      "port": 8765,
+      "before_name": "Python 服务 · 8765",
+      "after_name": "Python · nanobot · 8765",
+      "identity_unchanged": true,
+      "state": "available",
+      "freshness": "fresh",
+      "accessibility": "loopback"
+    },
+    {
+      "service_id": "service_fde85872ce80d9ea9a1302892bcd9620",
+      "port": 18790,
+      "before_name": "Python 服务 · 18790",
+      "after_name": "Python · nanobot · 18790",
+      "identity_unchanged": true,
+      "state": "available",
+      "freshness": "fresh",
+      "accessibility": "loopback"
+    }
+  ],
+  "browser_checks": [
+    {
+      "browser": "chromium",
+      "width": 1280,
+      "passed": true,
+      "named": 10,
+      "total": 33,
+      "requests": 5,
+      "write_requests": 0,
+      "external_requests": 0,
+      "horizontal_overflow": false
+    },
+    {
+      "browser": "chromium",
+      "width": 320,
+      "passed": true,
+      "named": 10,
+      "total": 33,
+      "requests": 5,
+      "write_requests": 0,
+      "external_requests": 0,
+      "horizontal_overflow": false
+    },
+    {
+      "browser": "webkit",
+      "width": 1280,
+      "passed": true,
+      "named": 10,
+      "total": 33,
+      "requests": 5,
+      "write_requests": 0,
+      "external_requests": 0,
+      "horizontal_overflow": false
+    },
+    {
+      "browser": "webkit",
+      "width": 320,
+      "passed": true,
+      "named": 10,
+      "total": 33,
+      "requests": 5,
+      "write_requests": 0,
+      "external_requests": 0,
+      "horizontal_overflow": false
+    }
+  ],
+  "boundaries": {
+    "scope": "本次更新与只读验收",
+    "model_requests": 0,
+    "temporary_access_requests": 0,
+    "approval_requests": 0,
+    "network_configuration_changes": 0,
+    "raw_python_arguments_persisted": false,
+    "temporary_local_view_channel_closed": true,
+    "mac_browser_open_command_succeeded": true,
+    "screenshot_source": "Windows 测试浏览器通过本机环回 SSH 通道读取真实 Mac 应用",
+    "fixture": false,
+    "full_interactive_workflow_verified": false,
+    "human_usability_accepted": false
+  }
+}
