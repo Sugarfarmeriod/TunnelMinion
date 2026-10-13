@@ -262,6 +262,155 @@ test("调查与申请可以返回原服务，并把键盘位置带回来", async
   expect(writes).toBe(0);
 });
 
+test("同一程序名称贯穿调查、申请与批准确认，各入口不混淆", async ({
+  page,
+  context,
+  request,
+}, testInfo) => {
+  const overview = await remoteIncidentOverview(request);
+  overview.schema_version = "resource-overview-programs/v1";
+  const service = overview.services.items[0]!;
+  service.display_name = "Python · nanobot · 4312";
+  service.application = {
+    group_id: `application_${"b".repeat(32)}`,
+    name: "nanobot",
+    kind: "python",
+  };
+  overview.services.items.push({
+    ...service,
+    service_id: `service_${"c".repeat(32)}`,
+    display_name: "Python · nanobot · 18790",
+    port: 18790,
+    access_address: "tcp://127.0.0.1:18790",
+  });
+  overview.nodes.items[1]!.service_count = 2;
+  const legacy = {
+    ...overview,
+    schema_version: "resource-overview/v1",
+    services: {
+      ...overview.services,
+      items: overview.services.items.map(
+        ({ application: _app, ...item }) => item,
+      ),
+    },
+  };
+  const operation = makeOperationDetail({
+    role: "target",
+    service_id: serviceId,
+    service_endpoint: "http://127.0.0.1:4312",
+    service_process_or_container: "python3",
+    source_incident_id: incidentId,
+    summary: makeOperationSummary({
+      operation_id: createdOperationId,
+      request_node_id: localNodeId,
+      target_node_id: remoteNodeId,
+    }),
+  });
+  let writes = 0;
+  page.on("request", (req) => {
+    if (req.method() !== "GET") writes++;
+  });
+  await context.route("**/api/ui/overview", (route) =>
+    fulfillJson(route, overview),
+  );
+  await context.route("**/api/resources/overview", (route) =>
+    fulfillJson(route, legacy),
+  );
+  await context.route(`**/api/incidents/${incidentId}`, (route) =>
+    fulfillJson(route, incidentDetail()),
+  );
+  await context.route("**/api/operations", (route) => fulfillJson(route, []));
+  await context.route("**/api/operations/eligible-peers", (route) =>
+    fulfillJson(route, [
+      {
+        node_id: remoteNodeId,
+        platform: "macos",
+        host: "10.77.0.1",
+        port: 8787,
+        allowed_tools: ["get_node_summary"],
+        allowed_operations: ["share_local_http_service"],
+        credential_configured: true,
+      },
+    ]),
+  );
+  await context.route(`**/api/operations/${createdOperationId}`, (route) =>
+    fulfillJson(route, operation),
+  );
+  await page.goto("/app/overview");
+  const programs = page.getByRole("list", {
+    name: "有名称的服务",
+    exact: true,
+  });
+  await expect(programs.locator(":scope > li")).toHaveCount(1);
+  await programs.getByRole("link", { name: "查看这项程序的变化" }).click();
+  const investigation = page.locator(".incident-detail");
+  await investigation.screenshot({
+    path: testInfo.outputPath("program-context-investigation.png"),
+  });
+  await expect(investigation.getByLabel("正在查看的服务")).toHaveText(
+    "远端 Mac · nanobot",
+  );
+  await expect(
+    investigation.getByText("连接入口 4312", { exact: true }),
+  ).toBeVisible();
+  await investigation.getByRole("link", { name: "查看临时访问方案" }).click();
+  const application = page.locator(".operation-request-card");
+  await expect(application.getByText("nanobot", { exact: true })).toBeVisible();
+  await expect(
+    application.getByText("连接入口 4312", { exact: true }),
+  ).toBeVisible();
+  await expect(application.locator('[name="service_port"]')).toHaveValue(
+    "4312",
+  );
+  await expect(
+    application.getByText("Python · nanobot · 4312", { exact: true }),
+  ).toHaveCount(0);
+  await page.goto(`/app/operations/${createdOperationId}`);
+  const explanation = page.getByRole("region", { name: "这次请求会做什么" });
+  await expect(explanation.getByText("nanobot", { exact: true })).toBeVisible();
+  await expect(
+    explanation.getByText("远端 Mac · 连接入口 4312", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "批准一次", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "确认批准一次" });
+  await expect(dialog.getByText("nanobot", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("远端 Mac · 连接入口 4312", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "返回检查详情", exact: true }),
+  ).toBeFocused();
+  await page.setViewportSize({ width: 320, height: 760 });
+  await dialog.screenshot({
+    path: testInfo.outputPath("program-context-approval-320.png"),
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "批准一次", exact: true }),
+  ).toBeFocused();
+  const otherEntry = overview.services.items[1]!;
+  for (const mismatch of ["stale", "duplicate", "other-node"] as const) {
+    const current = { ...service };
+    if (mismatch === "stale") current.freshness = "stale";
+    if (mismatch === "other-node") current.node_id = localNodeId;
+    overview.services.items = [current, otherEntry];
+    if (mismatch === "duplicate") overview.services.items.push({ ...current });
+    await page.reload();
+    await expect(
+      explanation.getByText("python3", { exact: true }),
+    ).toBeVisible();
+    await expect(explanation.getByText("nanobot", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(explanation.getByText(/连接入口/)).toHaveCount(0);
+  }
+  expect(writes).toBe(0);
+});
+
 for (const identity of [
   "unnamed",
   "stale",
@@ -275,6 +424,11 @@ for (const identity of [
     request,
   }) => {
     const overview = await remoteIncidentOverview(request);
+    overview.services.items[0]!.application = {
+      group_id: `application_${"a".repeat(32)}`,
+      name: "不应采用的程序名",
+      kind: "python",
+    };
     if (identity === "unnamed") overview.services.items[0].display_name = null;
     if (identity === "stale") overview.services.items[0].freshness = "stale";
     if (identity === "missing") overview.services.items = [];
@@ -540,6 +694,11 @@ for (const mismatch of [
   }) => {
     const overview = await remoteIncidentOverview(request);
     const service = overview.services.items[0]!;
+    service.application = {
+      group_id: `application_${"a".repeat(32)}`,
+      name: "不应采用的程序名",
+      kind: "python",
+    };
     if (mismatch === "stale") service.freshness = "stale";
     if (mismatch === "stopped") service.lifecycle = "stopped";
     if (mismatch === "duplicate") overview.services.items.push({ ...service });
@@ -581,6 +740,9 @@ for (const mismatch of [
     ).toBeVisible();
     await expect(
       application.getByText("远端管理面板", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      application.getByText("不应采用的程序名", { exact: true }),
     ).toHaveCount(0);
     await expect(application.getByLabel("服务的端口号码")).toHaveValue("4312");
     await application.getByText("技术设置（通常不用改）").click();

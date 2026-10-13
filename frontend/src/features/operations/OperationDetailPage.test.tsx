@@ -64,7 +64,7 @@ describe("OperationDetailPage", () => {
   beforeEach(() => {
     fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", (path: string, init: RequestInit) =>
-      path === "/api/resources/overview"
+      path === "/api/ui/overview"
         ? jsonResponse(
             { detail: { code: "unavailable", message: "名称暂不可用" } },
             503,

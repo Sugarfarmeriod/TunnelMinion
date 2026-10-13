@@ -2,8 +2,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { requestJson } from "../../api/client";
-import { resourceOverviewSchema } from "../../api/schemas/overview";
+import {
+  loadProgramOverview,
+  programOverviewQueryKey,
+} from "../../api/overview";
+import { serviceDisplayName } from "../overview/overviewActions";
 import {
   formatOperationTime,
   operationStatusLabel,
@@ -77,9 +80,8 @@ export function OperationsListPage() {
     queryFn: listEligibleOperationPeers,
   });
   const overviewQuery = useQuery({
-    queryKey: ["resource-overview"],
-    queryFn: () =>
-      requestJson("/api/resources/overview", resourceOverviewSchema),
+    queryKey: programOverviewQueryKey,
+    queryFn: loadProgramOverview,
     retry: false,
   });
   const incidentPrefill = parseIncidentOperationPrefill(searchParams);
@@ -159,7 +161,7 @@ export function OperationsListPage() {
     ["live", "fresh"].includes(sourceService.freshness) &&
     sourceService.lifecycle === "active" &&
     sourceService.state === "available"
-      ? sourceService.display_name?.trim()
+      ? serviceDisplayName(sourceService)
       : undefined;
 
   async function createOperation(event: React.FormEvent<HTMLFormElement>) {
@@ -377,6 +379,9 @@ export function OperationsListPage() {
               <strong>什么服务</strong>
             </p>
             <p>{serviceName || "还不能确认服务名称"}</p>
+            {serviceName && sourceService?.application ? (
+              <p className="operation-muted">连接入口 {servicePort}</p>
+            ) : null}
             {!serviceName ? (
               <p className="operation-muted">
                 请向服务的主人确认下面的端口号码，不要凭号码猜服务用途。

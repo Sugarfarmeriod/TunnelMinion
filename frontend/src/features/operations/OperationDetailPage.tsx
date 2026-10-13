@@ -2,8 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { requestJson } from "../../api/client";
-import { resourceOverviewSchema } from "../../api/schemas/overview";
+import {
+  loadProgramOverview,
+  programOverviewQueryKey,
+} from "../../api/overview";
 import { ActionConfirmationDialog } from "./ActionConfirmationDialog";
 import { RequestExplanation } from "./RequestExplanation";
 import {
@@ -185,9 +187,8 @@ export function OperationDetailPage() {
     enabled: operationId !== undefined && operationId.length > 0,
   });
   const overviewQuery = useQuery({
-    queryKey: ["resource-overview"],
-    queryFn: () =>
-      requestJson("/api/resources/overview", resourceOverviewSchema),
+    queryKey: programOverviewQueryKey,
+    queryFn: loadProgramOverview,
     enabled: operationId !== undefined && operationId.length > 0,
     retry: false,
   });
