@@ -7,10 +7,13 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
-import { ApiError, requestJson } from "../../api/client";
+import { requestJson } from "../../api/client";
+import {
+  loadProgramOverview,
+  programOverviewQueryKey,
+} from "../../api/overview";
 import {
   incidentDetailSchema,
-  resourceOverviewSchema,
   type ResourceOverview,
 } from "../../api/schemas/overview";
 import { runSchema } from "../chat/contracts";
@@ -24,6 +27,7 @@ import {
   serviceIncidentLinks,
   operationsRequiringAttention,
   groupServiceApplications,
+  serviceDisplayName,
 } from "./overviewActions";
 import { InvestigationDetails } from "./InvestigationDetails";
 
@@ -1079,11 +1083,14 @@ function IncidentList({
                   : "设备名称待确认"}{" "}
                 ·{" "}
                 {event?.object_kind === "service"
-                  ? service && ["live", "fresh"].includes(service.freshness)
-                    ? service.display_name?.trim() || "服务名称待确认"
-                    : "服务名称待确认"
+                  ? serviceDisplayName(service) || "服务名称待确认"
                   : "设备变化"}
               </p>
+              {service?.application &&
+              serviceDisplayName(service) &&
+              service.port !== null ? (
+                <p className="overview-empty">连接入口 {service.port}</p>
+              ) : null}
               {service ? (
                 <Link
                   className="incident-service-return"
@@ -1196,17 +1203,8 @@ export function OverviewPage() {
   );
   const [showMore, setShowMore] = useState(false);
   const query = useQuery({
-    queryKey: ["resource-overview", "applications"],
-    queryFn: async () => {
-      try {
-        return await requestJson("/api/ui/overview", resourceOverviewSchema);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) {
-          return requestJson("/api/resources/overview", resourceOverviewSchema);
-        }
-        throw error;
-      }
-    },
+    queryKey: programOverviewQueryKey,
+    queryFn: loadProgramOverview,
   });
   const hasOverview = query.data !== undefined;
   useEffect(() => {

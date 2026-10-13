@@ -9,6 +9,7 @@ import {
   serviceIncidentLinks,
   type IncidentHandoffInput,
   groupServiceApplications,
+  serviceDisplayName,
 } from "./overviewActions";
 
 const localNodeId = `node_${"1".repeat(32)}`;
@@ -65,6 +66,47 @@ const incident: IncidentHandoffInput = {
   objectId: serviceId,
   targetNodeId: remoteNodeId,
 };
+
+describe("serviceDisplayName", () => {
+  const service = {
+    ...services[0]!,
+    display_name: "Python · nanobot · 8080",
+    application: {
+      group_id: `application_${"a".repeat(32)}`,
+      name: "nanobot",
+      kind: "python" as const,
+    },
+  };
+  it("程序名优先，旧端仍用原名称，不修改服务或入口身份", () => {
+    expect(serviceDisplayName(service)).toBe("nanobot");
+    expect(serviceDisplayName({ ...service, application: null })).toBe(
+      service.display_name,
+    );
+    expect(
+      serviceDisplayName({
+        ...service,
+        application: { ...service.application, name: " " },
+      }),
+    ).toBe(service.display_name);
+    expect(service.service_id).toBe(serviceId);
+    expect(service.port).toBe(8080);
+  });
+  it.each(["stale", "expired", "unknown", "unavailable"] as const)(
+    "%s 的名称不冒充当前程序",
+    (freshness) => {
+      expect(serviceDisplayName({ ...service, freshness })).toBeUndefined();
+    },
+  );
+  it("没有已识别名称或服务记录时仍保持未知", () => {
+    expect(serviceDisplayName(undefined)).toBeUndefined();
+    expect(
+      serviceDisplayName({ ...service, display_name: null }),
+    ).toBeUndefined();
+    expect(
+      serviceDisplayName({ ...service, display_name: " " }),
+    ).toBeUndefined();
+  });
+});
 
 describe("groupServiceApplications", () => {
   const app = {

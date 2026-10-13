@@ -1,4 +1,5 @@
 import type { ResourceOverview } from "../../api/schemas/overview";
+import { serviceDisplayName } from "../overview/overviewActions";
 import { formatOperationTime } from "./operationPresentation";
 import { serverAllowsAction } from "./operationsApi";
 import type { OperationDetail, OperationStatus } from "./schemas";
@@ -56,12 +57,22 @@ export function RequestExplanation({
       node.node_id === detail.summary.request_node_id &&
       ["fresh", "live"].includes(node.freshness),
   );
-  const service = overview?.services.items.find(
-    (item) =>
-      item.service_id === detail.service_id &&
-      item.node_id === detail.summary.target_node_id &&
-      ["fresh", "live"].includes(item.freshness),
+  const matches = overview?.services.items.filter(
+    (item) => item.service_id === detail.service_id,
   );
+  const service =
+    matches?.length === 1 &&
+    matches[0]?.node_id === detail.summary.target_node_id &&
+    ["fresh", "live"].includes(matches[0].freshness)
+      ? matches[0]
+      : undefined;
+  const targets = overview?.nodes.items.filter(
+    (node) => node.node_id === detail.summary.target_node_id,
+  );
+  const target =
+    targets?.length === 1 && ["fresh", "live"].includes(targets[0]!.freshness)
+      ? targets[0]
+      : undefined;
 
   return (
     <section
@@ -81,10 +92,18 @@ export function RequestExplanation({
         <div>
           <dt>使用什么</dt>
           <dd>
-            {service?.display_name ||
+            {serviceDisplayName(service) ||
               detail.service_process_or_container ||
               "程序名称未知"}
           </dd>
+          {service?.application &&
+          serviceDisplayName(service) &&
+          service.port !== null ? (
+            <dd className="operation-muted">
+              {target?.display_name || "设备名称待确认"} · 连接入口{" "}
+              {service.port}
+            </dd>
+          ) : null}
         </div>
         <div>
           <dt>谁来使用</dt>

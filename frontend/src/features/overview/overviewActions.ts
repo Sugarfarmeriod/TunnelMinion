@@ -4,6 +4,15 @@ import type { OperationListItem } from "../operations/schemas";
 type NodeItem = ResourceOverview["nodes"]["items"][number];
 type ServiceItem = ResourceOverview["services"]["items"][number];
 
+export function serviceDisplayName(
+  service: ServiceItem | undefined,
+): string | undefined {
+  const name = service?.display_name?.trim();
+  if (!name || !service || !["fresh", "live"].includes(service.freshness))
+    return undefined;
+  return service.application?.name.trim() || name;
+}
+
 export interface ServiceApplicationGroup {
   key: string;
   application: NonNullable<ServiceItem["application"]> | null;
