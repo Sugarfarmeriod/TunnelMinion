@@ -197,7 +197,7 @@ test("调查与申请可以返回原服务，并把键盘位置带回来", async
   page.on("request", (request) => {
     if (request.method() !== "GET") writes++;
   });
-  await context.route("**/api/resources/overview", (route) =>
+  await context.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     fulfillJson(route, overview),
   );
   await context.route(`**/api/incidents/${incidentId}`, (route) =>
@@ -282,8 +282,9 @@ for (const identity of [
       overview.services.items.push({ ...overview.services.items[0] });
     if (identity === "other-node")
       overview.services.items[0].node_id = localNodeId;
-    await context.route("**/api/resources/overview", (route) =>
-      fulfillJson(route, overview),
+    await context.route(
+      /\/api\/(?:resources\/overview|ui\/overview)$/,
+      (route) => fulfillJson(route, overview),
     );
     await context.route(`**/api/incidents/${incidentId}`, (route) =>
       fulfillJson(route, incidentDetail()),
@@ -367,7 +368,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   const writes: unknown[] = [];
   const incidentRequests: string[] = [];
 
-  await context.route("**/api/resources/overview", (route) =>
+  await context.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     fulfillJson(route, overview),
   );
   await context.route(`**/api/incidents/${incidentId}`, (route) => {
@@ -544,10 +545,12 @@ for (const mismatch of [
     if (mismatch === "duplicate") overview.services.items.push({ ...service });
     if (mismatch === "other-node") service.node_id = localNodeId;
     if (mismatch === "other-port") service.port = 4313;
-    await context.route("**/api/resources/overview", (route) =>
-      mismatch === "unavailable"
-        ? fulfillJson(route, { error: "unavailable" }, 503)
-        : fulfillJson(route, overview),
+    await context.route(
+      /\/api\/(?:resources\/overview|ui\/overview)$/,
+      (route) =>
+        mismatch === "unavailable"
+          ? fulfillJson(route, { error: "unavailable" }, 503)
+          : fulfillJson(route, overview),
     );
     const writes: string[] = [];
     await context.route("**/api/operations**", (route) => {
@@ -608,7 +611,7 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   page.on("request", (request) => {
     if (request.method() !== "GET") writes++;
   });
-  await context.route("**/api/resources/overview", (route) =>
+  await context.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     fulfillJson(route, overview),
   );
   await context.route("**/api/operations", (route) => fulfillJson(route, []));
@@ -663,7 +666,7 @@ test("请求读取失败只显示提示，不阻断设备和调查且不产生�
 }) => {
   const overview = await remoteIncidentOverview(request);
   let writes = 0;
-  await context.route("**/api/resources/overview", (route) =>
+  await context.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     fulfillJson(route, overview),
   );
   await context.route("**/api/operations", async (route) => {

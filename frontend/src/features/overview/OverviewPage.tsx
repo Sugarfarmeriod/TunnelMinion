@@ -7,7 +7,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
-import { requestJson } from "../../api/client";
+import { ApiError, requestJson } from "../../api/client";
 import {
   incidentDetailSchema,
   resourceOverviewSchema,
@@ -23,6 +23,7 @@ import {
   incidentOperationHandoff,
   serviceIncidentLinks,
   operationsRequiringAttention,
+  groupServiceApplications,
 } from "./overviewActions";
 import { InvestigationDetails } from "./InvestigationDetails";
 
@@ -506,12 +507,18 @@ function DeviceServiceOverview({
   >({});
   const incidentLinks = serviceIncidentLinks(services.items, incidents.items);
   const knownNodeIds = new Set(nodes.items.map((node) => node.node_id));
-  const groups = nodes.items.map((node) => ({
-    node,
-    services: services.items.filter(
+  const groups = nodes.items.map((node) => {
+    const items = services.items.filter(
       (service) => service.node_id === node.node_id,
-    ),
-  }));
+    );
+    return {
+      node,
+      services: items,
+      applications: groupServiceApplications(
+        items.filter((service) => service.display_name?.trim()),
+      ),
+    };
+  });
   const unassigned = services.items.filter(
     (service) => !knownNodeIds.has(service.node_id),
   );
@@ -532,7 +539,7 @@ function DeviceServiceOverview({
         <p className="overview-empty">还没有发现设备或服务。</p>
       ) : (
         <div className="overview-device-list">
-          {groups.map(({ node, services: nodeServices }) => (
+          {groups.map(({ node, services: nodeServices, applications }) => (
             <details
               className="overview-device"
               key={node.node_id}
@@ -558,7 +565,7 @@ function DeviceServiceOverview({
                     {nodeServices.some((service) =>
                       service.display_name?.trim(),
                     )
-                      ? ` · ${nodeServices.filter((service) => service.display_name?.trim()).length} 个有名称的服务`
+                      ? ` · ${applications.length} ${applications.every((group) => group.application) ? "个程序" : "个有名称的服务"}`
                       : nodeServices.length > 0
                         ? " · 服务名称还不清楚"
                         : " · 暂无服务记录"}
@@ -682,71 +689,158 @@ function ServiceList({
   services,
   incidentLinks,
   technical = false,
+  applicationName,
 }: {
   services: ResourceOverview["services"]["items"];
   incidentLinks: Map<string, string | null>;
   technical?: boolean;
+  applicationName?: string;
 }) {
+  const groups = technical
+    ? services.map((service, index) => ({
+        key: `${service.service_id}:${index}`,
+        application: null,
+        services: [service],
+      }))
+    : groupServiceApplications(services);
   return (
     <ul
-      className="overview-service-rows"
+      className={`overview-service-rows${groups.some((group) => group.application) ? " overview-service-rows--applications" : ""}`}
       tabIndex={0}
-      aria-label={technical ? "完整检测清单" : "有名称的服务"}
+      aria-label={
+        applicationName
+          ? `${applicationName} 的入口`
+          : technical
+            ? "完整检测清单"
+            : "有名称的服务"
+      }
     >
-      {services.map((service) => (
-        <li
-          key={service.service_id}
-          id={`${technical ? "technical-" : ""}${service.service_id}`}
-          tabIndex={-1}
-        >
-          {technical ? (
-            <div>
-              <strong>{service.display_name ?? "用途未识别的后台项目"}</strong>
-              <span>{service.access_address ?? "访问地址未知"}</span>
-            </div>
-          ) : (
-            <details className="overview-service">
-              <summary>
-                <strong>{service.display_name}</strong>
-                <StatusBadge tone={stateTone(service.state, service.freshness)}>
-                  {service.freshness === "stale" ||
-                  service.freshness === "expired"
-                    ? `${serviceStateLabels[service.state]}（记录已过时）`
-                    : serviceStateLabels[service.state]}
-                </StatusBadge>
-              </summary>
-              <div className="overview-service__body">
-                <p>
-                  {service.accessibility === "loopback"
-                    ? "只接受所属电脑的连接，其他电脑不能直接打开。"
-                    : service.accessibility === "network"
-                      ? "已发现服务，还没有确认其他电脑能否使用。"
-                      : "连接方式还不清楚，请先确认服务的监听设置。"}
-                </p>
-                <p>
-                  <span>检测到的地址</span>
-                  <code>{service.access_address ?? "访问地址未知"}</code>
-                </p>
+      {groups.map((group) => {
+        const service = group.services[0]!;
+        if (group.application) {
+          const app = group.application;
+          const sameState = group.services.every(
+            (item) => item.state === service.state,
+          );
+          const incidents = [
+            ...new Set(
+              group.services
+                .map((item) => incidentLinks.get(item.service_id))
+                .filter((id) => id != null),
+            ),
+          ];
+          return (
+            <li key={group.key} id={app.group_id} tabIndex={-1}>
+              <details className="overview-service overview-application">
+                <summary>
+                  <span className="overview-application__identity">
+                    <strong>{app.name}</strong>
+                    <small>
+                      {
+                        {
+                          python: "Python 程序",
+                          docker: "Docker 容器",
+                          model: "模型服务",
+                        }[app.kind]
+                      }
+                      {group.services.length > 1
+                        ? ` · ${group.services.length} 个入口`
+                        : ""}
+                    </small>
+                  </span>
+                  <StatusBadge
+                    tone={collectionTone(
+                      { ...service, error: null },
+                      group.services.map((item) =>
+                        stateTone(item.state, item.freshness),
+                      ),
+                    )}
+                  >
+                    {sameState
+                      ? serviceStateLabels[service.state]
+                      : "部分入口需确认"}
+                  </StatusBadge>
+                </summary>
+                <div className="overview-service__body">
+                  <ServiceList
+                    services={group.services}
+                    incidentLinks={incidentLinks}
+                    technical
+                    applicationName={app.name}
+                  />
+                </div>
+              </details>
+              {incidents.length === 1 ? (
+                <Link
+                  className="overview-service__action"
+                  to={`/app/overview?incident_id=${incidents[0]}#overview-incidents`}
+                >
+                  查看这项程序的变化
+                </Link>
+              ) : null}
+            </li>
+          );
+        }
+        return (
+          <li
+            key={group.key}
+            id={`${technical && !applicationName ? "technical-" : ""}${service.service_id}`}
+            tabIndex={-1}
+          >
+            {technical ? (
+              <div>
+                <strong>
+                  {service.display_name ?? "用途未识别的后台项目"}
+                </strong>
+                <span>{service.access_address ?? "访问地址未知"}</span>
               </div>
-            </details>
-          )}
-          {incidentLinks.get(service.service_id) ? (
-            <Link
-              className="overview-service__action"
-              to={`/app/overview?incident_id=${incidentLinks.get(service.service_id)}#overview-incidents`}
-            >
-              查看这项服务的变化
-            </Link>
-          ) : null}
-          {technical ? (
-            <StatusBadge tone={stateTone(service.state, service.freshness)}>
-              {service.freshness === "stale" || service.freshness === "expired"
-                ? `${serviceStateLabels[service.state]}（记录已过时）`
-                : serviceStateLabels[service.state]}
-            </StatusBadge>
-          ) : null}
-        </li>
-      ))}
+            ) : (
+              <details className="overview-service">
+                <summary>
+                  <strong>{service.display_name}</strong>
+                  <StatusBadge
+                    tone={stateTone(service.state, service.freshness)}
+                  >
+                    {service.freshness === "stale" ||
+                    service.freshness === "expired"
+                      ? `${serviceStateLabels[service.state]}（记录已过时）`
+                      : serviceStateLabels[service.state]}
+                  </StatusBadge>
+                </summary>
+                <div className="overview-service__body">
+                  <p>
+                    {service.accessibility === "loopback"
+                      ? "只接受所属电脑的连接，其他电脑不能直接打开。"
+                      : service.accessibility === "network"
+                        ? "已发现服务，还没有确认其他电脑能否使用。"
+                        : "连接方式还不清楚，请先确认服务的监听设置。"}
+                  </p>
+                  <p>
+                    <span>检测到的地址</span>
+                    <code>{service.access_address ?? "访问地址未知"}</code>
+                  </p>
+                </div>
+              </details>
+            )}
+            {incidentLinks.get(service.service_id) ? (
+              <Link
+                className="overview-service__action"
+                to={`/app/overview?incident_id=${incidentLinks.get(service.service_id)}#overview-incidents`}
+              >
+                查看这项服务的变化
+              </Link>
+            ) : null}
+            {technical ? (
+              <StatusBadge tone={stateTone(service.state, service.freshness)}>
+                {service.freshness === "stale" ||
+                service.freshness === "expired"
+                  ? `${serviceStateLabels[service.state]}（记录已过时）`
+                  : serviceStateLabels[service.state]}
+              </StatusBadge>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -1102,9 +1196,17 @@ export function OverviewPage() {
   );
   const [showMore, setShowMore] = useState(false);
   const query = useQuery({
-    queryKey: ["resource-overview"],
-    queryFn: () =>
-      requestJson("/api/resources/overview", resourceOverviewSchema),
+    queryKey: ["resource-overview", "applications"],
+    queryFn: async () => {
+      try {
+        return await requestJson("/api/ui/overview", resourceOverviewSchema);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return requestJson("/api/resources/overview", resourceOverviewSchema);
+        }
+        throw error;
+      }
+    },
   });
   const hasOverview = query.data !== undefined;
   useEffect(() => {

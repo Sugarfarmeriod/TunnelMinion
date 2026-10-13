@@ -206,12 +206,17 @@ def test_exact_endpoint_names_without_port_guessing_or_local_pid_exclusion() -> 
     target = node()
     view = observer(remote, cache(target, node(LOCAL)))
     assert view.names() == {}
+    assert view.presentations() == {}
     asyncio.run(view.refresh())
     assert view.names() == {
         (str(REMOTE), str(target.services[0].service_id)): "Python 服务 · 43123",
         (str(REMOTE), str(target.services[1].service_id)): "Docker · my-app · 8088",
     }
     assert remote.prepared == [str(REMOTE)] and remote.executed == list(TOOLS)
+    assert {value[1].kind for value in view.presentations().values() if value[1] is not None} == {
+        "python",
+        "docker",
+    }
 
 
 def test_remote_model_identity_uses_existing_listener_permission_only() -> None:
@@ -239,6 +244,28 @@ def test_remote_model_identity_uses_existing_listener_permission_only() -> None:
     remote.outputs[TOOLS[0]] = {"availability": "available", "items": []}
     asyncio.run(view.refresh())
     assert view.names() == {}
+
+
+def test_remote_container_without_identity_keeps_endpoint_without_application() -> None:
+    remote = Remote()
+    remote.outputs[TOOLS[1]] = {
+        "availability": "available",
+        "items": [
+            {
+                "container_id": "",
+                "name": "my-app",
+                "image": "image",
+                "ports": "0.0.0.0:8088->80/tcp",
+                "status": "Up",
+            }
+        ],
+    }
+    view = observer(remote, cache(node()))
+    asyncio.run(view.refresh())
+    assert len(view.names()) == 2
+    assert {value[1].kind for value in view.presentations().values() if value[1] is not None} == {
+        "python"
+    }
 
 
 def test_remote_python_entry_is_requested_only_when_supported_and_expires_to_generic() -> None:
@@ -400,8 +427,10 @@ def test_expiry_empty_cache_round_robin_and_cancellation() -> None:
     asyncio.run(view.refresh())
     assert remote.prepared[4:] == [str(n.identity.node_id) for n in nodes[4:] + nodes[:2]]
     assert len(view.names()) == 12
+    assert len(view.presentations()) == 12
     now += timedelta(seconds=90)
     assert view.names() == {}
+    assert view.presentations() == {}
     asyncio.run(view.refresh())
     assert view.names()
     now += timedelta(minutes=5)

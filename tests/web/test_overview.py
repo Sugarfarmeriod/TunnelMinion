@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from tunnelminion.agent.services import ServiceApplication
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceLifecycle,
@@ -40,6 +41,7 @@ from tunnelminion.web.overview import (
     OverviewFreshness,
     OverviewService,
     OverviewSource,
+    ProgramKnownServiceOverview,
     RuntimePackageKind,
     RuntimePackageOverview,
     RuntimeReadiness,
@@ -52,10 +54,67 @@ NODE = NodeId("node_0123456789abcdef0123456789abcdef")
 SERVICE = ServiceId("service_0123456789abcdef0123456789abcdef")
 
 
+def test_application_presentation_is_explicit_read_only_and_legacy_fields_stay_unchanged() -> None:
+    application = ServiceApplication(
+        group_id="application_" + "a" * 32, name="app.py", kind="python"
+    )
+    item = ProgramKnownServiceOverview(
+        service_id=SERVICE,
+        node_id=NODE,
+        display_name="Python · app.py · 43123",
+        application=application,
+        protocol=ServiceProtocol.TCP,
+        port=43123,
+        state=KnownServiceState.AVAILABLE,
+        source=OverviewSource.LOCAL_OBSERVATION,
+        freshness=OverviewFreshness.FRESH,
+    )
+    service = OverviewService(
+        services=lambda: KnownServicesOverview(
+            source=OverviewSource.LOCAL_OBSERVATION,
+            freshness=OverviewFreshness.FRESH,
+            items=(item,),
+        )
+    )
+    app = FastAPI()
+    app.include_router(create_overview_router(service))
+    with TestClient(app) as raw_client:
+        client = cast(ApiClient, raw_client)
+        legacy = client.get("/api/resources/overview").json()["services"]["items"][0]
+        assert "application" not in legacy
+        enriched = client.get(
+            "/api/ui/overview",
+        ).json()["services"]["items"][0]
+        assert (
+            client.get("/api/ui/overview").json()["schema_version"]
+            == "resource-overview-programs/v1"
+        )
+        assert "/api/ui/overview" not in app.openapi()["paths"]
+        assert enriched.pop("application") == application.model_dump(mode="json")
+        assert enriched == legacy
+        unknown = client.get(
+            "/api/resources/overview",
+            headers={
+                "X-TunnelMinion-Service-Presentation": "unknown",
+            },
+        ).json()["services"]["items"][0]
+        assert unknown == legacy
+
+
 class ApiClient(Protocol):
     """屏蔽 TestClient 当前缺失的严格类型标注。"""
 
-    def get(self, url: str) -> httpx.Response: ...
+    def get(self, url: str, *, headers: dict[str, str] | None = None) -> httpx.Response: ...
+
+
+def test_program_view_preserves_empty_and_unknown_sections() -> None:
+    service = OverviewService(clock=lambda: NOW)
+    legacy = service.view()
+    programs = service.view_for_programs()
+    assert programs.schema_version == "resource-overview-programs/v1"
+    assert programs.services.items == ()
+    assert programs.services.source == legacy.services.source
+    assert programs.services.error == legacy.services.error
 
 
 def _complete_service() -> OverviewService:

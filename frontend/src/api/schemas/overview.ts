@@ -80,7 +80,10 @@ const networkEvidence = z
 
 export const resourceOverviewSchema = z
   .object({
-    schema_version: z.literal("resource-overview/v1"),
+    schema_version: z.enum([
+      "resource-overview/v1",
+      "resource-overview-programs/v1",
+    ]),
     generated_at: timestamp,
     local: z
       .object({
@@ -190,6 +193,21 @@ export const resourceOverviewSchema = z
               service_id: serviceId,
               node_id: nodeId,
               display_name: z.string().nullable(),
+              application: z
+                .object({
+                  group_id: z.string().regex(/^application_[0-9a-f]{32}$/),
+                  name: z
+                    .string()
+                    .min(1)
+                    .refine(
+                      (name) => [...name].length <= 80,
+                      "程序名称不能超过 80 个字符",
+                    ),
+                  kind: z.enum(["python", "docker", "model"]),
+                })
+                .strict()
+                .nullable()
+                .optional(),
               protocol: z.enum(["tcp", "udp", "http", "https"]).nullable(),
               port: z.number().int().min(1).max(65535).nullable(),
               access_address: z.string().min(1).max(320).nullable(),

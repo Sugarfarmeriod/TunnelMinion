@@ -83,13 +83,16 @@ function makeOverview(): ResourceOverview {
 }
 
 async function serveOverview(page: Page, payload: ResourceOverview) {
-  await page.route("**/api/resources/overview", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(payload),
-    });
-  });
+  await page.route(
+    /\/api\/(?:resources\/overview|ui\/overview)$/,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+    },
+  );
   await page.goto("/app/overview");
   await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
 }
@@ -329,28 +332,31 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
 
     let allowRecovery = false;
     let requestCount = 0;
-    await page.route("**/api/resources/overview", async (route) => {
-      requestCount += 1;
-      if (requestCount === 1 || allowRecovery) {
+    await page.route(
+      /\/api\/(?:resources\/overview|ui\/overview)$/,
+      async (route) => {
+        requestCount += 1;
+        if (requestCount === 1 || allowRecovery) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(requestCount === 1 ? initial : recovered),
+          });
+          return;
+        }
         await route.fulfill({
-          status: 200,
+          status: 503,
           contentType: "application/json",
-          body: JSON.stringify(requestCount === 1 ? initial : recovered),
+          body: JSON.stringify({
+            detail: {
+              code: "overview_temporarily_unavailable",
+              retryable: true,
+              message: "总览暂时不可用",
+            },
+          }),
         });
-        return;
-      }
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({
-          detail: {
-            code: "overview_temporarily_unavailable",
-            retryable: true,
-            message: "总览暂时不可用",
-          },
-        }),
-      });
-    });
+      },
+    );
 
     await page.goto("/app/overview");
     await expect(page.getByText("刷新前的节点记录")).toBeVisible();

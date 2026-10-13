@@ -10,6 +10,7 @@ from typing import Annotated, Literal, TypeVar
 from fastapi import APIRouter
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from tunnelminion.agent.services import ServiceApplication
 from tunnelminion.coordinator.contracts import (
     ServiceAccessibility,
     ServiceLifecycle,
@@ -286,6 +287,20 @@ class KnownServicesOverview(OverviewSection):
     items: tuple[KnownServiceOverview, ...] = Field(default=(), max_length=1024)
 
 
+class ProgramKnownServiceOverview(KnownServiceOverview):
+    """页面专用的程序显示信息，不进入公开服务契约。"""
+
+    application: ServiceApplication | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class ProgramKnownServicesOverview(OverviewSection):
+    """保留同一服务集合和入口身份的页面表示。"""
+
+    items: tuple[ProgramKnownServiceOverview, ...] = Field(default=(), max_length=1024)
+
+
 class IncidentSeverity(StrEnum):
     """Overview 使用的固定重要度，不由模型自由决定。"""
 
@@ -316,6 +331,7 @@ class IncidentsOverview(OverviewSection):
     items: tuple[IncidentOverviewItem, ...] = Field(default=(), max_length=50)
 
 
+# 公开 v1 的描述与字段属于冻结契约；程序列表使用下方的页面投影。
 class ResourceOverview(BaseModel):
     """React 总览唯一消费的服务端聚合契约。"""
 
@@ -329,6 +345,21 @@ class ResourceOverview(BaseModel):
     network_path: NetworkPathOverview
     nodes: KnownNodesOverview
     services: KnownServicesOverview
+    incidents: IncidentsOverview
+
+
+class ProgramResourceOverview(BaseModel):
+    """前端专用表示，复用公开总览的各项事实。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["resource-overview-programs/v1"] = "resource-overview-programs/v1"
+    generated_at: AwareDatetime
+    local: LocalRuntimeOverview
+    model: ModelOverview
+    coordinator: CoordinatorOverview
+    network_path: NetworkPathOverview
+    nodes: KnownNodesOverview
+    services: ProgramKnownServicesOverview
     incidents: IncidentsOverview
 
 
@@ -400,6 +431,20 @@ class OverviewService:
                 self._incidents,
                 IncidentsOverview,
                 self._incidents_fallback,
+            ),
+        )
+
+    def view_for_programs(self) -> ProgramResourceOverview:
+        """一次读取同一快照，公开表示不序列化页面的附加信息。"""
+        overview = self.view()
+        return ProgramResourceOverview(
+            **overview.model_dump(exclude={"services", "schema_version"}),
+            services=ProgramKnownServicesOverview(
+                **overview.services.model_dump(exclude={"items"}),
+                items=tuple(
+                    ProgramKnownServiceOverview.model_validate(item, from_attributes=True)
+                    for item in overview.services.items
+                ),
             ),
         )
 
@@ -493,10 +538,21 @@ def create_overview_router(service: OverviewService) -> APIRouter:
     def overview() -> ResourceOverview:
         return service.view()
 
+    def program_overview() -> ProgramResourceOverview:
+        return service.view_for_programs()
+
     router.add_api_route(
         "/api/resources/overview",
         overview,
         methods=["GET"],
         response_model=ResourceOverview,
+    )
+    # 页面专用接口不加入冻结的公开 OpenAPI。
+    router.add_api_route(
+        "/api/ui/overview",
+        program_overview,
+        methods=["GET"],
+        response_model=ProgramResourceOverview,
+        include_in_schema=False,
     )
     return router

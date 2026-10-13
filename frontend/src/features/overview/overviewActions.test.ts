@@ -8,6 +8,7 @@ import {
   operationsRequiringAttention,
   serviceIncidentLinks,
   type IncidentHandoffInput,
+  groupServiceApplications,
 } from "./overviewActions";
 
 const localNodeId = `node_${"1".repeat(32)}`;
@@ -64,6 +65,57 @@ const incident: IncidentHandoffInput = {
   objectId: serviceId,
   targetNodeId: remoteNodeId,
 };
+
+describe("groupServiceApplications", () => {
+  const app = {
+    group_id: `application_${"a".repeat(32)}`,
+    name: "app.py",
+    kind: "python" as const,
+  };
+  const service = services[0]!;
+  it("同程序收拢入口，同名不同归属和不同节点仍分开", () => {
+    const items = [
+      { ...service, application: app },
+      {
+        ...service,
+        service_id: `service_${"4".repeat(32)}`,
+        port: 8081,
+        state: "unavailable" as const,
+        application: app,
+      },
+      {
+        ...service,
+        service_id: `service_${"5".repeat(32)}`,
+        application: { ...app, group_id: `application_${"b".repeat(32)}` },
+      },
+      { ...service, node_id: localNodeId, application: app },
+    ];
+    const grouped = groupServiceApplications(items);
+    expect(grouped).toHaveLength(3);
+    expect(grouped[0]?.services).toEqual(items.slice(0, 2));
+    expect(grouped.flatMap((group) => group.services)).toEqual(items);
+    expect(grouped[0]?.services[1]?.state).toBe("unavailable");
+  });
+  it("过期、没有归属或归属冲突的记录各自保留", () => {
+    const items = [
+      { ...service, application: app },
+      { ...service, application: { ...app, name: "other.py" } },
+      { ...service, freshness: "stale" as const, application: app },
+      service,
+    ];
+    const grouped = groupServiceApplications(items);
+    expect(grouped).toHaveLength(4);
+    expect(grouped.every((group) => group.application === null)).toBe(true);
+    expect(new Set(grouped.map((group) => group.key)).size).toBe(4);
+  });
+  it("归属缺少可读名称时不生成空程序行", () => {
+    expect(
+      groupServiceApplications([
+        { ...service, application: { ...app, name: " " } },
+      ])[0]?.application,
+    ).toBeNull();
+  });
+});
 
 describe("serviceIncidentLinks", () => {
   const event: ResourceOverview["incidents"]["items"][number] = {

@@ -64,7 +64,7 @@ test("首页直接展示有名称的服务，后台记录与技术信息按需�
     freshness: "fresh",
   }));
 
-  await page.route("**/api/resources/overview", (route) =>
+  await page.route(/\/api\/(?:resources\/overview|ui\/overview)$/, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",

@@ -6,9 +6,9 @@ import ipaddress
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import TypeVar
+from typing import Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.domain.identifiers import NodeId, ToolRunId
 from tunnelminion.platforms.windows.models import (
@@ -64,6 +64,19 @@ class ServiceEvidence(BaseModel):
     tool_name: str
     tool_run_id: ToolRunId
     observed_at: datetime
+
+
+class ServiceApplication(BaseModel):
+    """只用于界面收拢入口，不携带原始 PID，也不改变服务身份。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    group_id: str = Field(pattern=r"^application_[0-9a-f]{32}$")
+    name: str = Field(min_length=1, max_length=80)
+    kind: Literal["python", "docker", "model"]
+
+
+ServicePresentation: TypeAlias = tuple[str, ServiceApplication | None]
 
 
 class RemoteServiceSummary(BaseModel):

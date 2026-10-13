@@ -36,6 +36,7 @@ from tunnelminion.agent.network_sync import (
     ManagedNetworkSyncStatus,
 )
 from tunnelminion.agent.service_observation import ServiceObservationSnapshot
+from tunnelminion.agent.services import ServiceApplication, ServicePresentation
 from tunnelminion.coordinator.contracts import (
     DirectoryFreshness,
     DirectoryNodeSummary,
@@ -1027,13 +1028,23 @@ def test_helper_branch_tables_cover_all_freshness_values() -> None:
 def test_remote_names_are_node_scoped_and_do_not_change_directory_facts() -> None:
     remote = directory_node()
     service = remote.services[0]
+    local_application = ServiceApplication(
+        group_id="application_" + "a" * 32, name="app.py", kind="python"
+    )
+    remote_application = ServiceApplication(
+        group_id="application_" + "b" * 32, name="my-app", kind="docker"
+    )
     loops = coordinator_loops(CoordinatorSyncStatus(phase=SyncPhase.IDLE), nodes=(remote,))
     snapshot = ServiceObservationSnapshot(
         observed_at=NOW,
         services=(service,),
         display_names={str(service.service_id): "本机名称"},
+        applications={str(service.service_id): local_application},
     )
     names = {(str(REMOTE_NODE), str(service.service_id)): "Docker · my-app · 8088"}
+    presentations: dict[tuple[str, str], ServicePresentation] = {
+        (str(REMOTE_NODE), str(service.service_id)): ("Docker · my-app · 8088", remote_application)
+    }
     result = views.build_application_view_bindings(
         node_id=LOCAL_NODE,
         platform=Platform.WINDOWS,
@@ -1041,16 +1052,30 @@ def test_remote_names_are_node_scoped_and_do_not_change_directory_facts() -> Non
         managed=managed(config(), coordinator=loops),
         local_services=lambda: snapshot,
         remote_service_names=lambda: names,
+        remote_service_presentations=lambda: presentations,
         clock=lambda: NOW,
     )
     before = (
         bindings(managed(config(), coordinator=loops)).overview_service.view().services.items[0]
     )
-    items = {str(item.node_id): item for item in result.overview_service.view().services.items}
+    items = {
+        str(item.node_id): item
+        for item in result.overview_service.view_for_programs().services.items
+    }
     assert items[str(LOCAL_NODE)].display_name == "本机名称"
+    assert items[str(LOCAL_NODE)].application == local_application
+    assert items[str(REMOTE_NODE)].application == remote_application
     assert items[str(REMOTE_NODE)].display_name == "Docker · my-app · 8088"
-    assert items[str(REMOTE_NODE)].model_copy(update={"display_name": None}) == before
+    assert (
+        items[str(REMOTE_NODE)].model_copy(update={"display_name": None, "application": None})
+        == before
+    )
     names.clear()
-    items = {str(item.node_id): item for item in result.overview_service.view().services.items}
+    presentations.clear()
+    items = {
+        str(item.node_id): item
+        for item in result.overview_service.view_for_programs().services.items
+    }
     assert items[str(REMOTE_NODE)].display_name is None
+    assert items[str(REMOTE_NODE)].application is None
     assert items[str(LOCAL_NODE)].display_name == "本机名称"

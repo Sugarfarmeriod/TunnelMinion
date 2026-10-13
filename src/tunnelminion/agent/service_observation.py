@@ -18,6 +18,7 @@ from tunnelminion.agent.services import (
     EvidenceConfidence,
     RemoteServiceInventoryBuilder,
     RemoteServiceSummary,
+    ServiceApplication,
     ToolObservation,
 )
 from tunnelminion.agent.services import (
@@ -60,6 +61,7 @@ class ServiceObservationSnapshot(BaseModel):
     observed_at: datetime
     services: tuple[ServiceSummary, ...]
     display_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    applications: dict[str, ServiceApplication] = Field(default_factory=dict, exclude=True)
     degraded_sources: tuple[str, ...] = ()
     disabled_sources: tuple[str, ...] = ()
     complete: bool = True
@@ -97,40 +99,86 @@ def compute_static_peer_service_id(node_id: NodeId, port: int) -> ServiceId:
     return ServiceId(f"service_{digest}")
 
 
-def select_service_display_names(
+def select_service_presentations(
     node_id: NodeId,
     services: tuple[RemoteServiceSummary, ...],
     *,
     excluded_pid: int | None = None,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], dict[str, ServiceApplication]]:
     """只按实际进程或容器归属精选，不推断业务用途。"""
     names: dict[str, set[str]] = {}
+    labels: dict[str, str] = {}
+    applications: dict[str, set[ServiceApplication | None]] = {}
     for item in services:
         if item.protocol != "tcp" or (
             excluded_pid is not None and item.process_pid == excluded_pid
         ):
             continue
         name = None
+        label = None
+        application = None
         if item.container_name and item.container_name.strip():
             name = f"Docker · {item.container_name.strip()[:55]} · {item.port}"
+            if item.container_id and item.container_id.strip():
+                identity = hashlib.sha256(
+                    f"{node_id}:docker:{item.container_id}".encode()
+                ).hexdigest()[:32]
+                application = ServiceApplication(
+                    group_id=f"application_{identity}",
+                    name=item.container_name.strip()[:80],
+                    kind="docker",
+                )
         elif item.process_pid is not None and is_python_process(item.process_name):
+            label_entry = item.python_entrypoint
+            if label_entry and len(label_entry) > 55:
+                label_entry = label_entry[:54] + "…"
             name = (
                 f"Python · {item.python_entrypoint} · {item.port}"
                 if item.python_entrypoint
                 else f"Python 服务 · {item.port}"
             )
+            label = (
+                f"Python · {label_entry} · {item.port}"
+                if label_entry
+                else f"Python 服务 · {item.port}"
+            )
+            identity = hashlib.sha256(f"{node_id}:python:{item.process_pid}".encode()).hexdigest()[
+                :32
+            ]
+            application = ServiceApplication(
+                group_id=f"application_{identity}",
+                name=item.python_entrypoint or "Python 程序",
+                kind="python",
+            )
         elif item.process_pid is not None and re.fullmatch(
             r"llama-server(?:\.exe)?", item.process_name or "", re.I
         ):
             name = f"模型服务 · llama.cpp · {item.port}"
+            identity = hashlib.sha256(f"{node_id}:model:{item.process_pid}".encode()).hexdigest()[
+                :32
+            ]
+            application = ServiceApplication(
+                group_id=f"application_{identity}", name="llama.cpp", kind="model"
+            )
         if name is not None:
             service_id = compute_observed_service_id(
                 node_id, ServiceProtocol.TCP, item.address, item.port
             )
             names.setdefault(str(service_id), set()).add(name)
-    return {
-        service_id: next(iter(values)) for service_id, values in names.items() if len(values) == 1
+            # 显示裁剪不参与归属冲突判定。
+            labels[str(service_id)] = label or name
+            applications.setdefault(str(service_id), set()).add(application)
+    selected_names = {
+        service_id: labels[service_id] for service_id, values in names.items() if len(values) == 1
     }
+    selected_applications = {
+        service_id: application
+        for service_id, values in applications.items()
+        if service_id in selected_names
+        and len(values) == 1
+        and (application := next(iter(values))) is not None
+    }
+    return selected_names, selected_applications
 
 
 class DeterministicServiceObserver:
@@ -199,12 +247,14 @@ class DeterministicServiceObserver:
                 )
                 services = self._summaries(inventory.services)
                 self._validate_budget(services)
+                names, applications = select_service_presentations(
+                    self._node_id, inventory.services, excluded_pid=os.getpid()
+                )
                 snapshot = ServiceObservationSnapshot(
                     observed_at=now,
                     services=services,
-                    display_names=select_service_display_names(
-                        self._node_id, inventory.services, excluded_pid=os.getpid()
-                    ),
+                    display_names=names,
+                    applications=applications,
                     degraded_sources=inventory.unavailable_sources,
                     disabled_sources=self._disabled_sources(),
                 )

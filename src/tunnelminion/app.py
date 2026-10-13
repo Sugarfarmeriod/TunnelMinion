@@ -324,7 +324,9 @@ def build_windows_application(
         incidents=lambda: incidents_overview(incident_store),
         local_services=service_cache.read,
         peer_observation=peer_observer,
-        remote_service_names=remote_observer.names if remote_observer is not None else None,
+        remote_service_presentations=remote_observer.presentations
+        if remote_observer is not None
+        else None,
     )
     incident_observer = IncidentObservationService(
         views.overview_service.view,
