@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any, cast
 
 import httpx
@@ -229,7 +230,9 @@ class OpenAICompatibleProvider:
             reasoning_content = message.get("reasoning_content")
             structured: JsonValue | None = None
             if request.response_schema is not None and not tool_calls:
-                structured = cast(JsonValue, json.loads(str(content)))
+                serialized = str(content).strip()
+                fenced = re.fullmatch(r"```json\r?\n([\s\S]*)\r?\n```", serialized)
+                structured = cast(JsonValue, json.loads(fenced[1] if fenced else serialized))
             raw_usage = cast(dict[str, Any], data.get("usage", {}))
             usage = ModelUsage(
                 input_tokens=raw_usage.get("prompt_tokens"),
