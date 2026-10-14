@@ -1,0 +1,294 @@
+{
+  "schema_version": "mac-program-view-evidence/v1",
+  "observed_at": "2026-10-14T02:04:07Z",
+  "merged_main": "34f1589391bd54c8f2aa3b76565ff059c52b15ac",
+  "implementation_prs": [
+    123,
+    124
+  ],
+  "package_ci_run": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38464850832",
+  "package_ci_head": "6cefab7fbc0bdae39a9a480bafb81d8fff69d8ee",
+  "package": {
+    "archive_sha256": "0e96a125c5613991b2ef0bcf6c5d98401a32355eefaa1cbd3ccf8dce94d0a548",
+    "manifest_sha256": "0e7efdb55d51be00f7298ea2e494600a3785e00baa11cbe65b0e645f2580b61f",
+    "source_revision": "c377cf76fad083e3550f1580a1022b55b1d13c0a",
+    "source_tree_sha256": "bf4e394849bdf832638b4f550af51976d5bc97cfddd3e33754ec28e979346843",
+    "candidate": "tunnelminion-0-1-0-darwin-arm64-bf4e394849bd-3009a82e7107",
+    "frontend": {
+      "file_count": 3,
+      "root": "_internal/tunnelminion/web/ui",
+      "sha256": "3009a82e7107f0a5365209e62ea05d5965d76fdea07a0146277def91e6236a3a"
+    },
+    "file_count": 143,
+    "source_matches_main": true,
+    "closed_file_set_and_hashes_valid": true,
+    "native_checks": {
+      "package": {
+        "status": "passed",
+        "code": "package_valid"
+      },
+      "profile": {
+        "status": "passed",
+        "code": "profile_valid"
+      },
+      "data-dir": {
+        "status": "passed",
+        "code": "data_dir_writable"
+      },
+      "model-config": {
+        "status": "warning",
+        "code": "model_unconfigured"
+      },
+      "managed-config": {
+        "status": "warning",
+        "code": "managed_unconfigured"
+      },
+      "gateway-config": {
+        "status": "warning",
+        "code": "gateway_disabled"
+      },
+      "local-instance": {
+        "status": "failed",
+        "code": "existing_instance_record"
+      },
+      "local-port": {
+        "status": "passed",
+        "code": "port_available"
+      }
+    },
+    "prestart_deterministic_ready": false,
+    "runtime_state": "running",
+    "runtime_exit_code": 0,
+    "executable_sha256": "bdfa4a6557fe4573d21c6ce8983f6eb90201836dcdfce74557f3ba87d8ff1306"
+  },
+  "retained": {
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "data_dir_sha256": "ccb2b1d1cdeb9d63ca90b2db11eea96f90772d0a4c5621ae8b9acd9db99bde73",
+    "profile_unchanged": true,
+    "data_directory_unchanged": true,
+    "local_port": 18767,
+    "enabled_components": [
+      "local"
+    ],
+    "configuration_present": {
+      "model.json": false,
+      "managed-node.json": false,
+      "gateway.json": false
+    },
+    "qwen_pid_before": 33870,
+    "qwen_pid_after": 33870,
+    "old_page_pid_before": 95881,
+    "old_page_pid_after": 95881,
+    "existing_8787_pid_before": 79774,
+    "existing_8787_pid_after": 79774,
+    "old_test_page_pid": 57426,
+    "new_test_page_pid": 13189,
+    "old_program_retained": true
+  },
+  "overview": {
+    "schema_version": "resource-overview-programs/v1",
+    "before_service_count": 33,
+    "after_service_count": 33,
+    "named_entries": 10,
+    "program_count": 7,
+    "unnamed_count": 23,
+    "all_service_ids_names_ports_states_and_freshness_preserved": true,
+    "states": {
+      "available": 33
+    },
+    "freshness": {
+      "fresh": 33
+    },
+    "model_status": "unconfigured",
+    "groups": [
+      {
+        "name": "app.py",
+        "kind": "python",
+        "service_ids": [
+          "service_5a49c15455dfaf2f661d7c9957e6d0b8"
+        ],
+        "ports": [
+          8787
+        ]
+      },
+      {
+        "name": "baota",
+        "kind": "docker",
+        "service_ids": [
+          "service_5fbf33ec2fba867c84cd28f75585964c",
+          "service_a715c27099aa7428797107bba5410b94",
+          "service_edda0b62de18feac81ec04b492662d99"
+        ],
+        "ports": [
+          80,
+          443,
+          8888
+        ]
+      },
+      {
+        "name": "nanobot",
+        "kind": "python",
+        "service_ids": [
+          "service_676ab4650bf1596975b3288d45765bc8",
+          "service_fde85872ce80d9ea9a1302892bcd9620"
+        ],
+        "ports": [
+          8765,
+          18790
+        ]
+      },
+      {
+        "name": "obsidian-couchdb",
+        "kind": "docker",
+        "service_ids": [
+          "service_8bd518511091c6b46bb2b236ad1c5680"
+        ],
+        "ports": [
+          5984
+        ]
+      },
+      {
+        "name": "penpot-penpot-frontend-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_9b34c848771d6fc83fd777241fffd414"
+        ],
+        "ports": [
+          9001
+        ]
+      },
+      {
+        "name": "llama.cpp",
+        "kind": "model",
+        "service_ids": [
+          "service_aae8cc91b632075cfab0d49e2172301c"
+        ],
+        "ports": [
+          8080
+        ]
+      },
+      {
+        "name": "penpot-penpot-mailcatch-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_af9bd90262f7f5d3bd681249a9cddbad"
+        ],
+        "ports": [
+          1080
+        ]
+      }
+    ]
+  },
+  "browser_checks": [
+    {
+      "browser": "chromium",
+      "width": 1280,
+      "namedEntries": 10,
+      "programs": 7,
+      "total": 33,
+      "identityPreserved": true,
+      "groupEntriesVerified": true,
+      "requestedPaths": [
+        "/api/operations",
+        "/api/ui/overview",
+        "/app-assets/assets/index-DD8Yhutg.css",
+        "/app-assets/assets/index-DtSCZqUb.js",
+        "/app/overview"
+      ],
+      "writeRequests": 0,
+      "externalRequests": 0,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "width": 320,
+      "namedEntries": 10,
+      "programs": 7,
+      "total": 33,
+      "identityPreserved": true,
+      "groupEntriesVerified": true,
+      "requestedPaths": [
+        "/api/operations",
+        "/api/ui/overview",
+        "/app-assets/assets/index-DD8Yhutg.css",
+        "/app-assets/assets/index-DtSCZqUb.js",
+        "/app/overview"
+      ],
+      "writeRequests": 0,
+      "externalRequests": 0,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    {
+      "browser": "webkit",
+      "width": 1280,
+      "namedEntries": 10,
+      "programs": 7,
+      "total": 33,
+      "identityPreserved": true,
+      "groupEntriesVerified": true,
+      "requestedPaths": [
+        "/api/operations",
+        "/api/ui/overview",
+        "/app-assets/assets/index-DD8Yhutg.css",
+        "/app-assets/assets/index-DtSCZqUb.js",
+        "/app/overview"
+      ],
+      "writeRequests": 0,
+      "externalRequests": 0,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    {
+      "browser": "webkit",
+      "width": 320,
+      "namedEntries": 10,
+      "programs": 7,
+      "total": 33,
+      "identityPreserved": true,
+      "groupEntriesVerified": true,
+      "requestedPaths": [
+        "/api/operations",
+        "/api/ui/overview",
+        "/app-assets/assets/index-DD8Yhutg.css",
+        "/app-assets/assets/index-DtSCZqUb.js",
+        "/app/overview"
+      ],
+      "writeRequests": 0,
+      "externalRequests": 0,
+      "horizontalOverflow": false,
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "build/mac-program-view/chromium-1280.png",
+      "sha256": "d77b7c23a3718796c5afbeffa5c8cd0192d5c2320589ee2b1c18d8a615d86978"
+    },
+    {
+      "path": "build/mac-program-view/chromium-320.png",
+      "sha256": "8c68eb0fc4a8f27aad3fed5bd521b74f0cdd5112a8f81d1121972fc8b4a45b50"
+    },
+    {
+      "path": "build/mac-program-view/program-entries-expanded.png",
+      "sha256": "94b74edd0313b204782ad5e23538e67df334e51f0fb2aa6c8de32b5cd0a5a33a"
+    }
+  ],
+  "boundaries": {
+    "scope": "Mac 隔离测试页更新与只读验收",
+    "model_requests": 0,
+    "temporary_access_requests": 0,
+    "approval_requests": 0,
+    "network_configuration_changes": 0,
+    "raw_python_arguments_persisted": false,
+    "temporary_local_view_channel_closed": true,
+    "uploaded_archive_removed": true,
+    "mac_browser_open_command_succeeded": true,
+    "screenshot_source": "Windows 测试浏览器通过本机环回 SSH 通道读取真实 Mac 应用",
+    "fixture": false,
+    "full_interactive_workflow_verified": false,
+    "human_usability_accepted": false,
+    "unavailable_service_case_observed": false
+  }
+}
