@@ -92,8 +92,5 @@ Mac 的 `open` 已成功打开原地址。未代替用户认可易用性，不�
 本地文档定向测试 13 项通过，实机 JSON 自检、3 个 Mermaid 源和 3 个变更文件秘密扫描通过。
 证据 PR 继续执行标准完整 CI，不用本地文档检查替代实现门禁。
 
-只停止这份测试页时使用同一 profile，不按进程名或端口批量停止：
-
-```sh
-/Users/mac/Working-Env/tunnelminion-20261014-program-view/package/tunnelminion runtime stop --profile /Users/mac/Working-Env/tunnelminion-20261009-model-view/profile.json
-```
+当前测试页包含连接说明小修；其正式包、只读复核和停止命令见
+[程序入口阶段的实机结果](2026-10-14-application-service-groups.md#mac-连接说明只读复核)。

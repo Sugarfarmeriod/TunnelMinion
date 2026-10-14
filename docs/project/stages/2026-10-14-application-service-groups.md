@@ -19,7 +19,8 @@
 页面已接收基于 PID 和容器 ID 的显示分组，不按名字相似合并；不同程序都可能叫 `app.py`。
 本地固定数据将 10 个有名称入口收拢为 7 个程序，仍保留 33 项完整记录，未知及不可用状态未丢失。
 [Mac 程序分组版只读复核](2026-10-14-mac-program-view.md)已有真实 10 个入口收成 7 个程序的证据。
-连接说明与技术信息折叠的小修尚未更新 Mac；完整使用流程及普通用户易用性仍有独立范围。
+连接说明与技术信息折叠的小修已合并并更新原 Mac 隔离页，见下方实机复核及
+[脱敏证据](../../../evaluations/reports/mac-connection-view-2026-10-14.json)。完整使用流程及普通用户易用性仍有独立范围。
 
 ## 范围
 
@@ -31,7 +32,8 @@
   `GET /api/ui/overview`（`resource-overview-programs/v1`），读取同一份快照，不加入公开 OpenAPI。
   旧服务端没有该视图时回到原总览，远端缺少归属时保留原显示。
 - 不新增模型调用、采集权限、后台分类、服务目录或依赖；不改服务 ID、批准指纹和写操作。
-- 连接说明的小修只做本地实现及验证，不再次部署或改动 Mac、Qwen、网络、凭据和现有进程。
+- 连接说明的小修仅更新已获准的 Mac 隔离测试程序，保持原 profile、数据目录和本机 18767；
+  保留 Qwen、旧页及既有 8787，不改网络或凭据，不发模型对话、临时访问或批准请求。
 
 ## 依赖与顺序
 
@@ -66,7 +68,7 @@ flowchart TB
 
 固定数据示例将 10 个有名称入口收拢为 7 个程序，完整清单仍为 33 项。
 固定数据不代替 Mac 现场验收，真实程序分组证据见上方实机记录。程序入口名仍不代表业务用途。
-Mac 保持已授权更新的程序分组版；连接说明的小修没有新增真实推理、访问申请或批准。
+Mac 已运行包含连接说明小修的正式包；没有新增真实推理、访问申请或批准。
 
 ## 验证证据
 
@@ -79,7 +81,41 @@ Mac 保持已授权更新的程序分组版；连接说明的小修没有新增�
 - PR #123 截图及预览副本保存在忽略目录 `build/application-service-groups/`，不把运行产物加入提交。
 - 连接说明小修：179 项组件检查、2 项双浏览器定向检查、类型、构建、格式、体积及 5 项构建脚本测试通过；
   覆盖连接限制去重与刷新后的区别、陈旧/未知/停止/不可用、缺失端口、键盘操作、返回身份、完整清单及严重无障碍问题。
-  最新完整 CI 以修复 PR 为准，不用本地定向检查替代。
+  [PR #127](https://github.com/Sugarfarmeriod/TunnelMinion/pull/127) 已合并为 `52484ae`，
+  [最终完整 CI](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38504823941) 8/8 通过，
+  绑定实现提交 `5163c2d`，不用本地定向检查替代。
 - 当前截图由 `frontend/e2e/overview-program-groups.spec.ts` 生成：`program-groups-desktop.png`、
   `program-connection-desktop.png`、`program-connection-narrow.png` 和 `program-entry-return.png`；
   小修预览副本保存在忽略目录 `build/program-entry-experience/`，是固定数据而非实机截图。
+
+### Mac 连接说明只读复核
+
+北京时间 2026-10-14 11:33，正式包在原 profile 和数据目录启动，仍仅监听 Mac 本机 18767。
+点开 `nanobot` 后，先说明其他电脑不能直接打开；两个连接入口分别保留，地址和原名在“技术信息”中查看。
+`baota` 三个入口共用的一句连接说明只出现一次，没有据此宣称其他电脑已经能用。
+
+本次实际快照为 34 项记录，其中 10 个有名称入口收成 7 个程序，24 项用途未知的后台记录仍在完整清单中。
+更新前后全部服务的 ID、名称、端口、状态、新鲜度、程序归属及连接范围相同。记录均为 `available`、`fresh`，
+不将本次检查当作实机不可用状态验收。
+
+使用 PR #127 的正式 macOS arm64 归档，143 个文件的闭合集合与逐文件摘要通过，源输入摘要与主线 `52484ae` 一致。
+原生 `package`、`profile`、`data-dir` 和空闲端口校验通过；启动前仍有停止实例记录
+（`existing_instance_record`，`deterministic_ready=false`），既有启动器恢复记录后启动和状态均为 `running`、退出码 0。
+没有删除记录或将启动前报告写成全项通过。测试进程由 `13189` 更新为 `24033`；Qwen `33870`、旧页 `95881`、
+8787 `79774` 保持原进程与监听。原 profile 摘要及声明数据目录摘要不变，旧程序目录保留。
+
+Chromium/WebKit 在 1280px 和 320px 四项实机只读检查通过：连接说明及去重、默认收起的技术信息、键盘展开、
+刷新保留程序展开、完整 34 项准确身份、搜索与无结果提示均有核对；无内部裁切、横向溢出或脚本错误。
+浏览器仅发同源 GET；配置仍未启用模型、托管节点和网关，没有凭据读取或复制。
+
+截图来自 Windows 测试浏览器通过自有 SSH 转发读取真实 Mac 页面，不是 Mac 屏幕截图或 fixture。
+忽略目录 `build/mac-connection-view/` 保存 `nanobot-expanded-1280.png`、`baota-expanded-320.png`、
+首页桌面/窄屏截图及 `browser-receipt.json`，摘要保存在上方脱敏证据。
+临时验证连接及 Windows 18767 监听已关闭，Mac 上传归档已移除；测试程序及旧程序目录继续保留。
+本次仅为更新与只读检查，不代替完整操作链或普通用户易用性验收。
+
+仅停止当前测试页时使用同一 profile，不按进程名或端口批量停止：
+
+```sh
+/Users/mac/Working-Env/tunnelminion-20261014-connection-view/package/tunnelminion runtime stop --profile /Users/mac/Working-Env/tunnelminion-20261009-model-view/profile.json
+```
