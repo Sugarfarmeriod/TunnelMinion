@@ -245,6 +245,142 @@ describe("OverviewPage", () => {
     ).not.toHaveAttribute("open");
   });
 
+  it("程序展开先说明连接范围，技术原名和地址按需查看", async () => {
+    const payload = groupedOverview();
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+    await user.click(await screen.findByText("nanobot", { exact: true }));
+    const entry = document.getElementById(
+      payload.services.items[0]!.service_id,
+    )!;
+    expect(within(entry).getByText("连接入口 8765")).toBeVisible();
+    expect(
+      within(entry).getByText("只接受所属电脑的连接，其他电脑不能直接打开。"),
+    ).toBeVisible();
+    expect(
+      within(entry).getByText("Python · nanobot · 8765"),
+    ).not.toBeVisible();
+    expect(within(entry).getByText("tcp://127.0.0.1:8765")).not.toBeVisible();
+    await user.click(within(entry).getByText("技术信息", { exact: true }));
+    expect(within(entry).getByText("Python · nanobot · 8765")).toBeVisible();
+    expect(within(entry).getByText("tcp://127.0.0.1:8765")).toBeVisible();
+    expect(within(entry).queryByRole("link")).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "fresh",
+      "available",
+      "network",
+      "已发现服务，还没有确认其他电脑能否使用。",
+    ],
+    ["fresh", "available", null, "连接方式还不清楚，目前不能确认怎么使用。"],
+    ["fresh", "unknown", "loopback", "还不能确认这个连接是否可用。"],
+    ["fresh", "unavailable", "loopback", "这个连接当前不可用。"],
+    ["live", "stopped", "loopback", "这个连接已停止。"],
+    [
+      "stale",
+      "available",
+      "loopback",
+      "连接记录需要重新确认，暂时不能判断怎么使用。",
+    ],
+    [
+      "expired",
+      "unavailable",
+      "network",
+      "连接记录需要重新确认，暂时不能判断怎么使用。",
+    ],
+    [
+      "unknown",
+      "available",
+      "loopback",
+      "连接记录需要重新确认，暂时不能判断怎么使用。",
+    ],
+  ] as const)(
+    "连接说明保留 %s/%s/%s 的证据边界",
+    async (freshness, state, accessibility, message) => {
+      const payload = groupedOverview();
+      const service = payload.services.items[2]!;
+      Object.assign(service, { freshness, state, accessibility });
+      fetchMock.mockImplementation((input) =>
+        jsonResponse(input === "/api/ui/overview" ? payload : []),
+      );
+      const user = userEvent.setup();
+      renderOverview();
+      const named = await screen.findByRole("list", {
+        name: "有名称的服务",
+      });
+      const entry = document.getElementById(service.service_id)!;
+      await user.click(
+        ["fresh", "live"].includes(freshness)
+          ? within(named).getByText("app.py", { exact: true })
+          : within(entry).getByText(service.display_name!, { exact: true }),
+      );
+      const content = ["fresh", "live"].includes(freshness)
+        ? entry.closest<HTMLDetailsElement>(".overview-application")!
+        : entry;
+      expect(within(content).getByText(message)).toBeVisible();
+    },
+  );
+
+  it("同一范围只说明一次，刷新后不同状态仍按各入口说明", async () => {
+    const payload = groupedOverview();
+    payload.services.items[1]!.state = "available";
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+    await user.click(await screen.findByText("nanobot", { exact: true }));
+    const program = document.querySelector<HTMLDetailsElement>(
+      `#application_${"a".repeat(32)} > details`,
+    )!;
+    expect(
+      within(program).getAllByText(
+        "只接受所属电脑的连接，其他电脑不能直接打开。",
+      ),
+    ).toHaveLength(1);
+    payload.services.items[1]!.state = "unavailable";
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(within(program).getByText("这个连接当前不可用。")).toBeVisible(),
+    );
+    expect(program).toHaveAttribute("open");
+    const first = document.getElementById(
+      payload.services.items[0]!.service_id,
+    )!;
+    const second = document.getElementById(
+      payload.services.items[1]!.service_id,
+    )!;
+    expect(
+      within(first).getByText("只接受所属电脑的连接，其他电脑不能直接打开。"),
+    ).toBeVisible();
+    expect(within(second).getByText("这个连接当前不可用。")).toBeVisible();
+  });
+
+  it("程序入口端口缺失时不从名称或地址补猜", async () => {
+    const payload = groupedOverview();
+    payload.services.items[2]!.port = null;
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? payload : []),
+    );
+    const user = userEvent.setup();
+    renderOverview();
+    await user.click(await screen.findByText("app.py", { exact: true }));
+    const entry = document.getElementById(
+      payload.services.items[2]!.service_id,
+    )!;
+    expect(within(entry).getByText("连接入口（端口未知）")).toBeVisible();
+  });
+
   it("旧服务端没有页面专用视图时，保持旧服务显示", async () => {
     const payload = groupedOverview();
     payload.services.items = payload.services.items.map(

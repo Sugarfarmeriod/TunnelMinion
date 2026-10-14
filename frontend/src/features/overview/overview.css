@@ -459,12 +459,55 @@
   overflow: visible;
 }
 
+.overview-service-rows.overview-service-rows--applications:has(
+    .overview-application[open]
+  ) {
+  max-height: none;
+  overflow: visible;
+}
+
+.overview-service-rows > li.overview-program-entry {
+  align-items: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.overview-program-entry > .overview-status {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.overview-program-entry > .overview-service__action {
+  grid-column: 1 / -1;
+}
+
+.overview-program-entry > div {
+  gap: var(--space-2);
+}
+
+.overview-connection-details > summary {
+  align-content: center;
+  color: var(--color-muted);
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+
 @media (max-width: 32rem) {
   .overview-service-rows.overview-service-rows--applications:has(
       .overview-application
     ) {
     max-height: none;
     overflow: visible;
+  }
+
+  .overview-service-rows > li.overview-program-entry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-program-entry > .overview-status {
+    grid-column: 1;
+    grid-row: 2;
   }
 }
 

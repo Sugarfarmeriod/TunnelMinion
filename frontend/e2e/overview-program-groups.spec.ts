@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { ResourceOverview } from "../src/api/schemas/overview";
 
@@ -5,6 +6,10 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
   page,
   request,
 }, testInfo) => {
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes.push(request.method());
+  });
   const response = await request.get("/api/resources/overview");
   const overview = (await response.json()) as ResourceOverview;
   overview.schema_version = "resource-overview-programs/v1";
@@ -43,7 +48,7 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
     [443, "baota", "docker", 3],
     [5984, "obsidian-couchdb", "docker", 4],
     [9001, "penpot-penpot-frontend-1", "docker", 5],
-    [9002, "penpot-penpot-frontend-1", "docker", 5],
+    [8888, "baota", "docker", 3],
     [6061, "penpot-penpot-exporter-1", "docker", 6],
     [8080, "llama.cpp", "model", 7],
   ];
@@ -58,8 +63,8 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
     },
     protocol: "tcp",
     port,
-    access_address: `tcp://127.0.0.1:${port}`,
-    accessibility: "loopback",
+    access_address: `tcp://${kind === "docker" ? "0.0.0.0" : "127.0.0.1"}:${port}`,
+    accessibility: kind === "docker" ? "network" : "loopback",
     lifecycle: "active",
     state: index === 2 ? "unavailable" : "available",
     source: "local_observation",
@@ -102,6 +107,31 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
     path: testInfo.outputPath("program-groups-desktop.png"),
     fullPage: true,
   });
+  const dockerProgram = page.locator(
+    `#application_${"3".padStart(32, "0")} > details`,
+  );
+  await dockerProgram.locator(":scope > summary").click();
+  await page.screenshot({
+    path: testInfo.outputPath("program-connection-desktop.png"),
+    fullPage: true,
+  });
+  expect(
+    await named.evaluate(
+      (element) => element.scrollHeight <= element.clientHeight + 1,
+    ),
+  ).toBe(true);
+  await expect(
+    dockerProgram.getByText("已发现服务，还没有确认其他电脑能否使用。"),
+  ).toHaveCount(1);
+  const firstEntry = dockerProgram.getByRole("listitem").first();
+  await expect(
+    firstEntry.getByText("tcp://0.0.0.0:80", { exact: true }),
+  ).toBeHidden();
+  await firstEntry.getByText("技术信息", { exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    firstEntry.getByText("tcp://0.0.0.0:80", { exact: true }),
+  ).toBeVisible();
   await page.setViewportSize({ width: 320, height: 760 });
   expect(
     await page.evaluate(
@@ -111,9 +141,10 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
     ),
   ).toBe(true);
   await page.screenshot({
-    path: testInfo.outputPath("program-groups-narrow.png"),
+    path: testInfo.outputPath("program-connection-narrow.png"),
     fullPage: true,
   });
+  await dockerProgram.locator(":scope > summary").click();
 
   const program = page.locator(
     `#application_${"2".padStart(32, "0")} > details`,
@@ -124,7 +155,10 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
   await expect(
     page.getByRole("list", { name: "nanobot 的入口" }).getByRole("listitem"),
   ).toHaveCount(2);
-  await expect(program.getByText("当前不可用")).toBeVisible();
+  await expect(program.getByText("当前不可用", { exact: true })).toBeVisible();
+  await expect(
+    program.getByText("这个连接当前不可用。", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "刷新" }).click();
   await expect(page.getByRole("button", { name: "刷新" })).toBeEnabled();
   await expect(program).toHaveAttribute("open", "");
@@ -143,4 +177,13 @@ test("首页按程序收拢，键盘展开、刷新和返回入口保留身份",
     path: testInfo.outputPath("program-entry-return.png"),
     fullPage: true,
   });
+  const accessibility = await new AxeBuilder({ page })
+    .include("main")
+    .analyze();
+  expect(
+    accessibility.violations.filter((item) =>
+      ["serious", "critical"].includes(item.impact ?? ""),
+    ),
+  ).toEqual([]);
+  expect(writes).toEqual([]);
 });
