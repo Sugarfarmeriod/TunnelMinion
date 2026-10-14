@@ -431,7 +431,11 @@ for (const source of [
     ).toBeVisible();
     await expect(query).toBeEnabled();
     await expect(query).toHaveCount(1);
-    await expect(page.getByRole("alert")).toHaveCount(1);
+    await expect(
+      page
+        .locator('[aria-labelledby="operation-detail-title"]')
+        .getByRole("alert"),
+    ).toHaveCount(1);
     await expect(
       page.locator(".operation-request-intent, .operation-actions"),
     ).toHaveCount(0);
