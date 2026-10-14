@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import psutil
 import pytest
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 from tunnelminion.platforms.python_entrypoint import (
     parse_python_entrypoint,
     read_python_entrypoint,
+    read_python_project_name,
 )
 from tunnelminion.platforms.windows.models import NetworkListener
 
@@ -86,6 +88,15 @@ def test_does_not_read_other_processes(
 
     monkeypatch.setattr(psutil, "Process", unexpected)
     assert (
+        read_python_project_name(
+            NetworkListener(
+                protocol=protocol, address="127.0.0.1", port=43123, pid=pid, process_name=name
+            ),
+            "app.py",
+        )
+        is None
+    )
+    assert (
         read_python_entrypoint(
             NetworkListener(
                 protocol=protocol, address="127.0.0.1", port=43123, pid=pid, process_name=name
@@ -124,3 +135,76 @@ def test_rechecks_python_identity_and_keeps_raw_arguments_local(
     assert result == ("相册.py" if failure is None else None)
     assert calls == ([] if failure == "changed" else ["cmdline"])
     assert "private" not in str(result) and "fixture-secret" not in str(result)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "absolute",
+        "relative",
+        "source",
+        "ambiguous",
+        "module",
+        "changed_entry",
+        "changed_process",
+        "denied",
+        "denied_cwd",
+        "home",
+        "root",
+        "generic",
+        "invalid",
+        "long",
+    ],
+)
+def test_generic_entry_keeps_only_bounded_project_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: str
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "private-runtime" / "Wireguard Panel"
+    directory = {
+        "source": project / "src",
+        "generic": project / "src" / "app",
+        "home": home,
+        "root": Path(tmp_path.anchor),
+        "invalid": tmp_path / "bad\x01name",
+        "long": tmp_path / ("x" * 81),
+    }.get(case, project)
+    arguments = ["python", str(directory / "app.py"), "--password", "fixture-secret"]
+    if case in {"relative", "denied_cwd"}:
+        arguments[1] = "app.py"
+    if case == "ambiguous":
+        arguments.append("app.py")
+    if case == "module":
+        arguments = ["python", "-m", "app.py"]
+    if case == "changed_entry":
+        arguments[1] = "other.py"
+    calls: list[str] = []
+
+    class Process:
+        def __init__(self, pid: int) -> None:
+            assert pid == 101
+
+        def name(self) -> str:
+            return "node" if case == "changed_process" else "python"
+
+        def cmdline(self) -> list[str]:
+            if case == "denied":
+                raise psutil.AccessDenied(101)
+            return arguments
+
+        def cwd(self) -> str:
+            calls.append("cwd")
+            if case == "denied_cwd":
+                raise psutil.AccessDenied(101)
+            return str(project)
+
+    monkeypatch.setattr(psutil, "Process", Process)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    listener = NetworkListener(
+        protocol="tcp", address="127.0.0.1", port=8787, pid=101, process_name="python"
+    )
+    result = read_python_project_name(listener, "app.py")
+    assert result == ("Wireguard Panel" if case in {"absolute", "relative", "source"} else None)
+    assert calls == (["cwd"] if case in {"relative", "denied_cwd"} else [])
+    assert "private-runtime" not in str(result) and "fixture-secret" not in str(result)
+    assert read_python_project_name(listener, "photo.py") is None

@@ -149,7 +149,7 @@ def select_service_presentations(
             ]
             application = ServiceApplication(
                 group_id=f"application_{identity}",
-                name=item.python_entrypoint or "Python 程序",
+                name=item.python_project_name or item.python_entrypoint or "Python 程序",
                 kind="python",
             )
         elif (
@@ -248,6 +248,7 @@ class DeterministicServiceObserver:
                         arguments={
                             "include_python_entrypoint": True,
                             "include_program_names": True,
+                            "include_python_project_name": True,
                         },
                     )
                     process = await self._collect(

@@ -92,6 +92,7 @@ class RemoteServiceSummary(BaseModel):
     process_pid: int | None = None
     process_name: str | None = None
     python_entrypoint: str | None = None
+    python_project_name: str | None = None
     program_name: str | None = None
     container_id: str | None = None
     container_name: str | None = None
@@ -316,6 +317,7 @@ class RemoteServiceInventoryBuilder:
             process_pid=listener.pid,
             process_name=(process.name if process is not None else listener.process_name),
             python_entrypoint=listener.python_entrypoint,
+            python_project_name=listener.python_project_name,
             program_name=listener.program_name,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,

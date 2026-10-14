@@ -280,6 +280,65 @@ def test_program_names_are_opt_in_cached_and_do_not_export_paths(
     assert "private-installation" not in named.model_dump_json()
 
 
+def test_python_project_name_is_separate_opt_in_and_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return tuple(
+                NetworkListener(
+                    protocol="tcp", address="127.0.0.1", port=port, pid=101, process_name="python"
+                )
+                for port in (8787, 8788)
+            )
+
+    def project_name(listener: NetworkListener, entrypoint: str | None) -> str | None:
+        assert entrypoint == "app.py" and listener.pid == 101
+        calls.append(101)
+        return "Wireguard Panel"
+
+    def entrypoint(listener: NetworkListener) -> str:
+        return "app.py"
+
+    def unknown_project(listener: NetworkListener, entrypoint: str | None) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "tunnelminion.platforms.windows.adapters.read_python_entrypoint", entrypoint
+    )
+    monkeypatch.setattr(
+        "tunnelminion.platforms.windows.adapters.read_python_project_name", project_name
+    )
+    adapter = NetworkListenersAdapter(Reader())
+    plain = CollectionResult.model_validate(
+        run(adapter.execute({"include_python_entrypoint": True}, token()))
+    )
+    assert calls == [] and all("python_project_name" not in item for item in plain.items)
+    named = CollectionResult.model_validate(
+        run(adapter.execute({"include_python_project_name": True}, token()))
+    )
+    assert calls == [101] and [item["python_project_name"] for item in named.items] == [
+        "Wireguard Panel",
+        "Wireguard Panel",
+    ]
+    assert all("python_entrypoint" not in item for item in named.items)
+    monkeypatch.setattr(
+        "tunnelminion.platforms.windows.adapters.read_python_project_name",
+        unknown_project,
+    )
+    unknown = CollectionResult.model_validate(
+        run(
+            adapter.execute(
+                {"include_python_project_name": True, "include_python_entrypoint": True}, token()
+            )
+        )
+    )
+    assert all(
+        item["python_entrypoint"] == "app.py" and "python_project_name" not in item
+        for item in unknown.items
+    )
+
+
 def test_docker_adapter_only_returns_allowed_fields_and_handles_offline() -> None:
     docker_line = (
         '{"ID":"abc","Names":"pdf","Image":"pdf:latest",'

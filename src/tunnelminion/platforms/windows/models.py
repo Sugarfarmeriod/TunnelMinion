@@ -68,6 +68,9 @@ class NetworkListener(BaseModel):
     python_entrypoint: str | None = Field(
         default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
     )
+    python_project_name: str | None = Field(
+        default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
+    )
 
 
 class ProcessInfo(BaseModel):

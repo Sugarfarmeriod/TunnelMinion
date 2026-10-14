@@ -23,6 +23,10 @@
 
 .workspace-layout .chat-layout {
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.workspace-layout .chat-conversation {
+  gap: var(--space-3);
 }
 .workspace-layout .chat-threads {
   border: 0;
@@ -36,7 +40,7 @@
   display: none;
 }
 .workspace-layout .chat-composer {
-  margin-top: var(--space-4);
+  margin-top: 0;
 }
 .workspace-layout .overview-page__header {
   flex-wrap: wrap;

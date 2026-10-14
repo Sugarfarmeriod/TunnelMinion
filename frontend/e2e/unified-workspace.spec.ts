@@ -26,7 +26,7 @@ for (const width of [1280, 320]) {
         source: "local_observation",
         evidence_at: overview.generated_at,
         freshness: "fresh",
-        service_count: 3,
+        service_count: 4,
       },
     ];
     overview.services = {
@@ -38,6 +38,7 @@ for (const width of [1280, 320]) {
         { port: 805, protocol: "tcp", name: "gost", group: "a" },
         { port: 9527, protocol: "tcp", name: "n3n-supernode", group: "b" },
         { port: 9527, protocol: "udp", name: "n3n-supernode", group: "b" },
+        { port: 8787, protocol: "tcp", name: "Wireguard Panel", group: "c" },
       ].map((value, index) => ({
         service_id: `service_${String(index + 1).repeat(32)}`,
         node_id: targetNodeId,
@@ -45,7 +46,7 @@ for (const width of [1280, 320]) {
         application: {
           group_id: `application_${value.group.repeat(32)}`,
           name: value.name,
-          kind: "program",
+          kind: value.port === 8787 ? "python" : "program",
         },
         protocol: value.protocol as "tcp" | "udp",
         port: value.port,
@@ -59,6 +60,7 @@ for (const width of [1280, 320]) {
       })),
     };
     overview.incidents.items = [];
+    overview.model.status = "unconfigured";
     const threadId = `thread_${"9".repeat(32)}`;
     const thread = {
       thread_id: threadId,
@@ -97,6 +99,9 @@ for (const width of [1280, 320]) {
     await question.fill("帮我检查这个程序为什么打不开");
     if (width === 320)
       await page.getByText("程序与待办", { exact: true }).click();
+    await expect(
+      page.locator(`#application_${"c".repeat(32)} > details > summary`),
+    ).toContainText("Wireguard Panel");
     await page
       .locator(`#application_${"a".repeat(32)} > details > summary`)
       .click();
@@ -106,6 +111,9 @@ for (const width of [1280, 320]) {
     await expect(page.getByLabel("正在讨论的程序")).toContainText("gost");
     await expect(question).toHaveValue("帮我检查这个程序为什么打不开");
     await expect(page.getByRole("heading", { name: "一起处理" })).toBeFocused();
+    await expect(
+      page.getByRole("link", { name: "连接模型", exact: true }),
+    ).toHaveAttribute("href", "/app/settings");
     await page.screenshot({
       path: testInfo.outputPath(`workspace-${width}.png`),
       fullPage: true,

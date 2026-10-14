@@ -77,6 +77,7 @@ def register_macos_tools(
                 "properties": {
                     "include_python_entrypoint": {"type": "boolean"},
                     "include_program_names": {"type": "boolean"},
+                    "include_python_project_name": {"type": "boolean"},
                 },
                 "additionalProperties": False,
             },

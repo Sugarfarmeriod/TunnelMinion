@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psutil
@@ -74,5 +75,51 @@ def read_python_entrypoint(listener: NetworkListener) -> str | None:
         if not is_python_process(process.name()):
             return None
         return parse_python_entrypoint(process.cmdline())
+    except (psutil.Error, OSError):
+        return None
+
+
+def read_python_project_name(listener: NetworkListener, entrypoint: str | None) -> str | None:
+    """仅为通用 app.py 缩减入口目录名，不读取目录内容或保留路径。"""
+    if (
+        entrypoint != "app.py"
+        or listener.protocol != "tcp"
+        or listener.pid is None
+        or listener.pid == os.getpid()
+        or not is_python_process(listener.process_name)
+    ):
+        return None
+    try:
+        process = psutil.Process(listener.pid)
+        if not is_python_process(process.name()):
+            return None
+        arguments = process.cmdline()
+        if parse_python_entrypoint(arguments) != entrypoint or "-m" in arguments:
+            return None
+        paths = [
+            Path(value)
+            for value in arguments[1:]
+            if value.replace("\\", "/").rsplit("/", 1)[-1] == entrypoint
+        ]
+        if len(paths) != 1:
+            return None
+        script = paths[0]
+        if not script.is_absolute():
+            script = Path(process.cwd()) / script
+        directory = Path(os.path.normpath(script)).parent
+        # shortcut: 只识别通用入口及一层常见源码目录；其他形式保留原入口名。
+        source_directories = {"src", "app", "backend", "server"}
+        if directory.name.lower() in source_directories:
+            directory = directory.parent
+        name = directory.name
+        if directory == Path.home() or name.lower() in source_directories:
+            return None
+        return (
+            name
+            if 0 < len(name) <= 80
+            and name.isprintable()
+            and not any(char in name for char in "/\\")
+            else None
+        )
     except (psutil.Error, OSError):
         return None
