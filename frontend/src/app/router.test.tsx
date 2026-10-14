@@ -22,6 +22,12 @@ describe("产品外壳", () => {
     ).toBeVisible();
     expect(screen.getByRole("navigation", { name: "主要导航" })).toBeVisible();
     expect(screen.getByText("只连接这台电脑上的 TunnelMinion")).toBeVisible();
-    expect(screen.getByRole("heading", { name: "聊天" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "工作台" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "一起处理" })).toBeVisible();
+    expect(
+      screen
+        .getByRole("navigation", { name: "主要导航" })
+        .querySelectorAll("a"),
+    ).toHaveLength(3);
   });
 });

@@ -110,9 +110,7 @@ def select_service_presentations(
     labels: dict[str, str] = {}
     applications: dict[str, set[ServiceApplication | None]] = {}
     for item in services:
-        if item.protocol != "tcp" or (
-            excluded_pid is not None and item.process_pid == excluded_pid
-        ):
+        if excluded_pid is not None and item.process_pid == excluded_pid:
             continue
         name = None
         label = None
@@ -128,7 +126,11 @@ def select_service_presentations(
                     name=item.container_name.strip()[:80],
                     kind="docker",
                 )
-        elif item.process_pid is not None and is_python_process(item.process_name):
+        elif (
+            item.protocol == "tcp"
+            and item.process_pid is not None
+            and is_python_process(item.process_name)
+        ):
             label_entry = item.python_entrypoint
             if label_entry and len(label_entry) > 55:
                 label_entry = label_entry[:54] + "…"
@@ -147,11 +149,13 @@ def select_service_presentations(
             ]
             application = ServiceApplication(
                 group_id=f"application_{identity}",
-                name=item.python_entrypoint or "Python 程序",
+                name=item.python_project_name or item.python_entrypoint or "Python 程序",
                 kind="python",
             )
-        elif item.process_pid is not None and re.fullmatch(
-            r"llama-server(?:\.exe)?", item.process_name or "", re.I
+        elif (
+            item.protocol == "tcp"
+            and item.process_pid is not None
+            and re.fullmatch(r"llama-server(?:\.exe)?", item.process_name or "", re.I)
         ):
             name = f"模型服务 · llama.cpp · {item.port}"
             identity = hashlib.sha256(f"{node_id}:model:{item.process_pid}".encode()).hexdigest()[
@@ -160,9 +164,17 @@ def select_service_presentations(
             application = ServiceApplication(
                 group_id=f"application_{identity}", name="llama.cpp", kind="model"
             )
+        elif item.process_pid is not None and item.program_name:
+            name = f"{item.program_name} · {item.port}"
+            identity = hashlib.sha256(f"{node_id}:program:{item.process_pid}".encode()).hexdigest()[
+                :32
+            ]
+            application = ServiceApplication(
+                group_id=f"application_{identity}", name=item.program_name, kind="program"
+            )
         if name is not None:
             service_id = compute_observed_service_id(
-                node_id, ServiceProtocol.TCP, item.address, item.port
+                node_id, ServiceProtocol(item.protocol), item.address, item.port
             )
             names.setdefault(str(service_id), set()).add(name)
             # 显示裁剪不参与归属冲突判定。
@@ -233,7 +245,11 @@ class DeterministicServiceObserver:
                         "list_network_listeners",
                         self._listeners,
                         self._config.listeners_enabled,
-                        arguments={"include_python_entrypoint": True},
+                        arguments={
+                            "include_python_entrypoint": True,
+                            "include_program_names": True,
+                            "include_python_project_name": True,
+                        },
                     )
                     process = await self._collect(
                         "get_process_summary",

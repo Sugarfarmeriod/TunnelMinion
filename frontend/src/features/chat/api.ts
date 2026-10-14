@@ -40,7 +40,7 @@ export function getThread(threadId: string, signal?: AbortSignal) {
 export function startRun(
   threadId: string,
   question: string,
-  toolName: AllowedToolName,
+  toolName: AllowedToolName | readonly AllowedToolName[],
   signal?: AbortSignal,
 ) {
   return requestJson(
@@ -49,7 +49,10 @@ export function startRun(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, tool_names: [toolName] }),
+      body: JSON.stringify({
+        question,
+        tool_names: typeof toolName === "string" ? [toolName] : toolName,
+      }),
       signal,
     },
   );

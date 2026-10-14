@@ -13,7 +13,11 @@ from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
-from tunnelminion.platforms.python_entrypoint import read_python_entrypoint
+from tunnelminion.platforms.program_name import read_program_name
+from tunnelminion.platforms.python_entrypoint import (
+    read_python_entrypoint,
+    read_python_project_name,
+)
 from tunnelminion.platforms.windows.models import (
     Availability,
     CollectionResult,
@@ -151,7 +155,7 @@ class WireGuardStatusAdapter:
 
 
 class NetworkListenersAdapter:
-    """读取监听端点，按需在本机提取 Python 入口名。"""
+    """读取监听端点，按需在本机缩减 Python 入口与自装程序名称。"""
 
     def __init__(self, reader: SystemReader) -> None:
         self._reader = reader
@@ -165,7 +169,10 @@ class NetworkListenersAdapter:
             raise asyncio.CancelledError
         try:
             items = await asyncio.to_thread(
-                self._items, arguments.get("include_python_entrypoint") is True
+                self._items,
+                arguments.get("include_python_entrypoint") is True,
+                arguments.get("include_program_names") is True,
+                arguments.get("include_python_project_name") is True,
             )
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
@@ -176,17 +183,38 @@ class NetworkListenersAdapter:
             )
         return _json_value(result.model_dump(mode="json"))
 
-    def _items(self, include_python_entrypoint: bool) -> tuple[dict[str, object], ...]:
+    def _items(
+        self,
+        include_python_entrypoint: bool,
+        include_program_names: bool,
+        include_python_project_name: bool,
+    ) -> tuple[dict[str, object], ...]:
         items: list[dict[str, object]] = []
         entrypoints: dict[tuple[int | None, str | None], str | None] = {}
+        programs: dict[tuple[int | None, str | None], str | None] = {}
+        projects: dict[tuple[int | None, str | None], str | None] = {}
         for listener in self._reader.listeners():
-            item = listener.model_dump(mode="json", exclude={"python_entrypoint"})
-            if include_python_entrypoint and listener.protocol == "tcp":
-                key = (listener.pid, listener.process_name)
+            item = listener.model_dump(
+                mode="json", exclude={"python_entrypoint", "program_name", "python_project_name"}
+            )
+            key = (listener.pid, listener.process_name)
+            if include_program_names:
+                if key not in programs:
+                    programs[key] = read_program_name(listener)
+                if programs[key] is not None:
+                    item["program_name"] = programs[key]
+            if (
+                include_python_entrypoint or include_python_project_name
+            ) and listener.protocol == "tcp":
                 if key not in entrypoints:
                     entrypoints[key] = read_python_entrypoint(listener)
-                if entrypoints[key] is not None:
+                if include_python_entrypoint and entrypoints[key] is not None:
                     item["python_entrypoint"] = entrypoints[key]
+                if include_python_project_name:
+                    if key not in projects:
+                        projects[key] = read_python_project_name(listener, entrypoints[key])
+                    if projects[key] is not None:
+                        item["python_project_name"] = projects[key]
             items.append(item)
         return tuple(items)
 

@@ -68,14 +68,14 @@ for (const viewport of [
     await expect(page.getByText(`operation ${operationId}`)).toBeHidden();
     await expect(page.getByText("等待你决定")).toBeVisible();
     const approve = page.getByRole("button", { name: "批准一次" });
+    await page.screenshot({
+      path: testInfo.outputPath("request-first-screen.png"),
+    });
     await expect(approve).toBeInViewport();
     await expectNoHorizontalOverflow(page);
     await page.screenshot({
       fullPage: true,
       path: testInfo.outputPath("request-page.png"),
-    });
-    await page.screenshot({
-      path: testInfo.outputPath("request-first-screen.png"),
     });
 
     await approve.click();
@@ -431,7 +431,11 @@ for (const source of [
     ).toBeVisible();
     await expect(query).toBeEnabled();
     await expect(query).toHaveCount(1);
-    await expect(page.getByRole("alert")).toHaveCount(1);
+    await expect(
+      page
+        .locator('[aria-labelledby="operation-detail-title"]')
+        .getByRole("alert"),
+    ).toHaveCount(1);
     await expect(
       page.locator(".operation-request-intent, .operation-actions"),
     ).toHaveCount(0);

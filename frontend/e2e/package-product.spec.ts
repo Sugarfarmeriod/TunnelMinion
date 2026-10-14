@@ -83,7 +83,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   }
 
   await page.goto("/app/overview");
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
   await page.getByText("更多信息", { exact: true }).click();
   await expect(page.getByText(/standalone ·/)).toBeVisible();
   await expect(page.getByText("还没有配置模型")).toBeVisible();
@@ -91,6 +91,9 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     page.getByText("未配置 Coordinator，当前按仅本机模式工作"),
   ).toBeVisible();
   await expect(page.getByText("没有配置跨节点路径")).toBeVisible();
+  await page
+    .getByRole("link", { name: "查看最近变化与调查", exact: true })
+    .click();
   await expect(page.getByText("服务只能从本机访问")).toBeVisible();
   await expect(page.getByText("已查明原因")).toBeVisible();
   await expect(page.getByText(fixture.incident.conclusion)).toBeVisible();
@@ -113,13 +116,12 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     page.getByText("只读工具 probe_service_reachability 以 success 状态结束"),
   ).toBeVisible();
   await expect(page.getByText("没有已记录的未知项。")).toBeVisible();
-  await page
-    .locator(".incident-detail")
-    .getByText("继续问一下（会使用模型额度）")
-    .click();
   await expect(
-    page.getByRole("button", { name: "为什么这个服务只能从本机访问？" }),
+    page.getByRole("heading", { name: "继续问这件事", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "问题", exact: true }),
+  ).toHaveAttribute("maxlength", "2000");
   const operationAttention = page.getByRole("list", {
     name: "需要你处理的请求",
   });
@@ -134,7 +136,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
       response.url().endsWith("/api/threads") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "新建线程" }).click();
+  await page.getByRole("button", { name: "开始新对话" }).click();
   expect((await createThread).status()).toBe(200);
 
   await page.goto(`/app/operations/${fixture.operation_id}`);

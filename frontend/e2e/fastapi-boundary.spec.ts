@@ -10,7 +10,7 @@ test("默认入口进入 React 总览", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
   expect(page.url()).toBe(`${baseURL}/app/overview`);
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 });
 
 test("FastAPI 交付深链、严格缓存和同源 CSP", async ({ page, request }) => {
@@ -117,7 +117,7 @@ test("React 写请求穿过真实守卫且浏览器不留下持久数据", async
       response.url().endsWith("/api/threads") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "新建线程" }).click();
+  await page.getByRole("button", { name: "开始新对话" }).click();
   const response = await responsePromise;
   expect(response.status()).toBe(200);
   expect(response.request().headers()["x-tunnelminion-request"]).toBe(

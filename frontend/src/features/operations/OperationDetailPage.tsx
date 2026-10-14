@@ -166,6 +166,15 @@ function OperationHistory({ detail }: { detail: OperationDetail }) {
 
 export function OperationDetailPage() {
   const { operationId } = useParams<{ operationId: string }>();
+  return (
+    <OperationDetailContent
+      key={operationId ?? "missing"}
+      operationId={operationId}
+    />
+  );
+}
+
+function OperationDetailContent({ operationId }: { operationId?: string }) {
   const queryClient = useQueryClient();
   const writeInFlightRef = useRef(false);
   const [preparingAction, setPreparingAction] =

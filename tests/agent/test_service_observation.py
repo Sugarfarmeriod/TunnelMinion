@@ -243,7 +243,17 @@ def test_python_entry_names_do_not_change_service_identity_or_leave_snapshot() -
     assert original.services == named.services
     assert set(named.display_names.values()) == {"Python · 相册.py · 43123"}
     assert "相册.py" not in named.model_dump_json()
-    assert adapter.calls == [{"include_python_entrypoint": True}] * 2
+    assert (
+        adapter.calls
+        == [
+            {
+                "include_python_entrypoint": True,
+                "include_program_names": True,
+                "include_python_project_name": True,
+            }
+        ]
+        * 2
+    )
 
 
 @pytest.mark.parametrize(
@@ -336,7 +346,84 @@ def test_application_groups_use_process_and_container_identity_not_entry_name() 
     assert set(groups[43123].model_dump()) == {"group_id", "name", "kind"}
     assert "applications" not in snapshot.model_dump_json()
     assert "app.py" not in snapshot.model_dump_json()
-    assert listeners.calls == [{"include_python_entrypoint": True}]
+    assert listeners.calls == [
+        {
+            "include_python_entrypoint": True,
+            "include_program_names": True,
+            "include_python_project_name": True,
+        }
+    ]
+
+
+def test_project_name_labels_program_without_replacing_entry_or_service_id() -> None:
+    listener = NetworkListener(
+        protocol="tcp",
+        address="127.0.0.1",
+        port=8787,
+        pid=101,
+        process_name="python",
+        python_entrypoint="app.py",
+    )
+    adapter = FakeAdapter(collection(listener))
+    plain = asyncio.run(
+        observer(adapter, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    adapter.value = collection(
+        listener.model_copy(update={"python_project_name": "Wireguard Panel"})
+    )
+    named = asyncio.run(
+        observer(adapter, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    assert named.services == plain.services and named.display_names == plain.display_names
+    assert next(iter(named.applications.values())).name == "Wireguard Panel"
+    assert "Wireguard Panel" not in named.model_dump_json()
+
+
+def test_user_programs_keep_tcp_udp_identity_and_group_by_owner() -> None:
+    listeners = [
+        NetworkListener(
+            protocol=protocol,
+            address="0.0.0.0",
+            port=port,
+            pid=pid,
+            process_name=name,
+            program_name=name,
+        )
+        for protocol, port, pid, name in (
+            ("tcp", 9527, 101, "n3n-supernode"),
+            ("udp", 9527, 101, "n3n-supernode"),
+            ("tcp", 805, 102, "gost"),
+            ("tcp", 806, 103, "gost"),
+        )
+    ]
+    plain = asyncio.run(
+        observer(
+            FakeAdapter(
+                collection(*(item.model_copy(update={"program_name": None}) for item in listeners))
+            ),
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    named = asyncio.run(
+        observer(
+            FakeAdapter(collection(*listeners)),
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    assert named.services == plain.services
+    tcp, udp = [
+        named.applications[str(item.service_id)] for item in named.services if item.port == 9527
+    ]
+    assert tcp == udp and tcp.name == "n3n-supernode" and tcp.kind == "program"
+    gosts = [
+        named.applications[str(item.service_id)]
+        for item in named.services
+        if item.port in {805, 806}
+    ]
+    assert gosts[0].group_id != gosts[1].group_id
+    assert "n3n-supernode" not in named.model_dump_json()
 
 
 def test_ambiguous_process_identity_keeps_known_name_without_application_group() -> None:

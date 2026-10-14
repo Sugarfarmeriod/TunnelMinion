@@ -38,6 +38,7 @@ type SectionMeta = Pick<
   ResourceOverview["local"],
   "source" | "evidence_at" | "freshness" | "error"
 >;
+type Service = ResourceOverview["services"]["items"][number];
 
 const sourceLabels: Record<SectionMeta["source"], string> = {
   local_runtime: "本机运行时",
@@ -139,7 +140,7 @@ const serviceStateLabels: Record<
   ResourceOverview["services"]["items"][number]["state"],
   string
 > = {
-  available: "已发现，访问待确认",
+  available: "已启动",
   degraded: "部分功能受限",
   unavailable: "当前不可用",
   stopped: "已停止",
@@ -501,10 +502,12 @@ function DeviceServiceOverview({
   nodes,
   services,
   incidents,
+  onAsk,
 }: {
   nodes: ResourceOverview["nodes"];
   services: ResourceOverview["services"];
   incidents: ResourceOverview["incidents"];
+  onAsk?: (service: Service) => void;
 }) {
   const [deviceExpansion, setDeviceExpansion] = useState<
     Record<string, boolean>
@@ -584,6 +587,7 @@ function DeviceServiceOverview({
               <ServiceRows
                 services={nodeServices}
                 incidentLinks={incidentLinks}
+                onAsk={onAsk}
               />
             </details>
           ))}
@@ -612,6 +616,7 @@ function DeviceServiceOverview({
               <ServiceRows
                 services={unassigned}
                 incidentLinks={incidentLinks}
+                onAsk={onAsk}
               />
             </details>
           ) : null}
@@ -624,9 +629,11 @@ function DeviceServiceOverview({
 function ServiceRows({
   services,
   incidentLinks,
+  onAsk,
 }: {
   services: ResourceOverview["services"]["items"];
   incidentLinks: Map<string, string | null>;
+  onAsk?: (service: Service) => void;
 }) {
   const [search, setSearch] = useState("");
   const named = services.filter((service) => service.display_name?.trim());
@@ -650,7 +657,11 @@ function ServiceRows({
           还不能确定哪些是你想用的服务；后台记录可以在下面查看。
         </p>
       ) : (
-        <ServiceList services={named} incidentLinks={incidentLinks} />
+        <ServiceList
+          services={named}
+          incidentLinks={incidentLinks}
+          onAsk={onAsk}
+        />
       )}
       <details className="overview-connections">
         <summary>查看全部 {services.length} 个检测项目（技术清单）</summary>
@@ -682,6 +693,7 @@ function ServiceRows({
             services={filtered}
             incidentLinks={incidentLinks}
             technical
+            onAsk={onAsk}
           />
         )}
       </details>
@@ -710,12 +722,14 @@ function ServiceList({
   technical = false,
   applicationName,
   sharedConnectionDescription = false,
+  onAsk,
 }: {
   services: ResourceOverview["services"]["items"];
   incidentLinks: Map<string, string | null>;
   technical?: boolean;
   applicationName?: string;
   sharedConnectionDescription?: boolean;
+  onAsk?: (service: Service) => void;
 }) {
   const groups = technical
     ? services.map((service, index) => ({
@@ -766,6 +780,7 @@ function ServiceList({
                           python: "Python 程序",
                           docker: "Docker 容器",
                           model: "模型服务",
+                          program: "自行安装的程序",
                         }[app.kind]
                       }
                       {group.services.length > 1
@@ -781,13 +796,22 @@ function ServiceList({
                       ),
                     )}
                   >
-                    {sameState
-                      ? serviceStateLabels[service.state]
-                      : "部分入口需确认"}
+                    {group.services.some(
+                      (item) => !["fresh", "live"].includes(item.freshness),
+                    )
+                      ? "记录需要刷新"
+                      : sameState
+                        ? serviceStateLabels[service.state]
+                        : "部分入口需确认"}
                   </StatusBadge>
                 </summary>
                 <div className="overview-service__body">
                   {sameConnection ? <p>{description}</p> : null}
+                  {onAsk ? (
+                    <button type="button" onClick={() => onAsk(service)}>
+                      帮我看看 {app.name}
+                    </button>
+                  ) : null}
                   <ServiceList
                     services={group.services}
                     incidentLinks={incidentLinks}
@@ -860,6 +884,11 @@ function ServiceList({
                 </div>
               </details>
             )}
+            {onAsk && !applicationName ? (
+              <button type="button" onClick={() => onAsk(service)}>
+                帮我看看这项服务
+              </button>
+            ) : null}
             {incidentLinks.get(service.service_id) ? (
               <Link
                 className="overview-service__action"
@@ -946,14 +975,16 @@ function OperationAttention({
   );
 }
 
-function IncidentList({
+export function IncidentList({
   data,
   nodes,
   services,
+  embedded = false,
 }: {
   data: ResourceOverview["incidents"];
   nodes: ResourceOverview["nodes"]["items"];
   services: ResourceOverview["services"]["items"];
+  embedded?: boolean;
 }) {
   const navigate = useNavigate();
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -1174,46 +1205,53 @@ function IncidentList({
                 </p>
                 <InvestigationDetails incident={detail.data.incident} />
               </details>
-              <details className="incident-question-disclosure">
-                <summary>继续问一下（会使用模型额度）</summary>
-                <form className="incident-follow-up" onSubmit={submitFollowUp}>
-                  <label htmlFor="incident-question">针对这个事件追问</label>
-                  <textarea
-                    id="incident-question"
-                    maxLength={2000}
-                    value={question}
-                    onChange={(event) => setQuestion(event.target.value)}
-                  />
-                  <div className="incident-suggestions">
-                    {detail.data.suggested_questions.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setQuestion(item)}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    disabled={question.trim() === "" || followUp.isPending}
-                    type="submit"
+              {!embedded ? (
+                <details className="incident-question-disclosure">
+                  <summary>继续问一下（会使用模型额度）</summary>
+                  <form
+                    className="incident-follow-up"
+                    onSubmit={submitFollowUp}
                   >
-                    {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
-                  </button>
-                </form>
-                {followUp.isError ? (
-                  <p role="alert">追问当前不可用；原 incident 证据没有改变。</p>
-                ) : null}
-                {followUp.data !== undefined ? (
-                  <p role="status">
-                    追问已在原有聊天能力中开始。{" "}
-                    <Link to={`/app/chat?thread=${followUp.data.thread_id}`}>
-                      打开对应聊天线程
-                    </Link>
-                  </p>
-                ) : null}
-              </details>
+                    <label htmlFor="incident-question">针对这个事件追问</label>
+                    <textarea
+                      id="incident-question"
+                      maxLength={2000}
+                      value={question}
+                      onChange={(event) => setQuestion(event.target.value)}
+                    />
+                    <div className="incident-suggestions">
+                      {detail.data.suggested_questions.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setQuestion(item)}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      disabled={question.trim() === "" || followUp.isPending}
+                      type="submit"
+                    >
+                      {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
+                    </button>
+                  </form>
+                  {followUp.isError ? (
+                    <p role="alert">
+                      追问当前不可用；原 incident 证据没有改变。
+                    </p>
+                  ) : null}
+                  {followUp.data !== undefined ? (
+                    <p role="status">
+                      追问已在原有聊天能力中开始。{" "}
+                      <Link to={`/app/chat?thread=${followUp.data.thread_id}`}>
+                        打开对应聊天线程
+                      </Link>
+                    </p>
+                  ) : null}
+                </details>
+              ) : null}
             </>
           ) : null}
         </section>
@@ -1228,13 +1266,16 @@ function readableRequestError(error: Error): string {
     : "无法读取本机总览，请确认 TunnelMinion 仍在运行。";
 }
 
-export function OverviewPage() {
+export function OverviewPage({
+  workspace = false,
+  onAsk,
+}: { workspace?: boolean; onAsk?: (service: Service) => void } = {}) {
   const location = useLocation();
   const [refreshRequested, setRefreshRequested] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const linkedIncident = /^incident_[0-9a-f]{32}$/.test(
-    searchParams.get("incident_id") ?? "",
-  );
+  const linkedIncident =
+    !workspace &&
+    /^incident_[0-9a-f]{32}$/.test(searchParams.get("incident_id") ?? "");
   const [showMore, setShowMore] = useState(false);
   const query = useQuery({
     queryKey: programOverviewQueryKey,
@@ -1302,7 +1343,7 @@ export function OverviewPage() {
     <section aria-labelledby="overview-title" className="overview-page surface">
       <header className="overview-page__header">
         <div>
-          <h2 id="overview-title">总览</h2>
+          <h2 id="overview-title">{workspace ? "我的程序" : "总览"}</h2>
           <p>{data.nodes.items.length} 台设备</p>
           <p className="overview-refresh-feedback" role="status">
             {query.isFetching
@@ -1332,10 +1373,17 @@ export function OverviewPage() {
       ) : null}
 
       <OperationAttention nodes={data.nodes.items} />
+      {workspace &&
+      (data.incidents.items.length > 0 || data.incidents.error) ? (
+        <Link to="/app/overview?incident_id=recent#overview-incidents">
+          查看最近变化与调查
+        </Link>
+      ) : null}
       <DeviceServiceOverview
         nodes={data.nodes}
         services={data.services}
         incidents={data.incidents}
+        onAsk={onAsk}
       />
 
       <details
@@ -1367,12 +1415,14 @@ export function OverviewPage() {
           <p className="overview-generated-at">
             本页数据由服务端生成于 {formatTimestamp(data.generated_at)}。
           </p>
-          <IncidentList
-            key={searchParams.get("incident_id") ?? "recent"}
-            data={data.incidents}
-            nodes={data.nodes.items}
-            services={data.services.items}
-          />
+          {!workspace ? (
+            <IncidentList
+              key={searchParams.get("incident_id") ?? "recent"}
+              data={data.incidents}
+              nodes={data.nodes.items}
+              services={data.services.items}
+            />
+          ) : null}
           <div className="overview-source-details">
             <h3>设备与服务的数据来源</h3>
             {showMore ? (

@@ -155,12 +155,14 @@ class RemoteServicePresentationObserver:
                         properties = (
                             entry.definition.input_schema.get("properties") if entry else None
                         )
-                        if (
-                            name == "list_network_listeners"
-                            and isinstance(properties, dict)
-                            and "include_python_entrypoint" in properties
-                        ):
-                            arguments["include_python_entrypoint"] = True
+                        if name == "list_network_listeners" and isinstance(properties, dict):
+                            for option in (
+                                "include_python_entrypoint",
+                                "include_program_names",
+                                "include_python_project_name",
+                            ):
+                                if option in properties:
+                                    arguments[option] = True
                         result = await prepared.executor.execute(
                             ToolExecutionRequest(
                                 context=context, tool_name=name, arguments=arguments

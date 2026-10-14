@@ -286,6 +286,101 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it("工作台自动选择只读工具，选程序和查看请求不发送问题、不丢草稿", async () => {
+    const user = userEvent.setup();
+    const backend = installBackend();
+    let writes = 0;
+    server.use(
+      http.post("/api/threads/:id/runs", async ({ request }) => {
+        writes += 1;
+        const payload = (await request.json()) as {
+          question: string;
+          tool_names: string[];
+        };
+        expect(payload.question).toContain("gost");
+        expect(payload.question).toContain("805");
+        expect(payload.question).toContain("客厅 Mac");
+        expect(payload.tool_names).toEqual([
+          "get_node_summary",
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability",
+        ]);
+        backend.messages.set(threadId, [makeMessage("user", payload.question)]);
+        backend.runs.set(runId, makeRun("completed"));
+        return HttpResponse.json(makeRun("completed"));
+      }),
+    );
+    const service = {
+      service_id: `service_${"a".repeat(32)}`,
+      node_id: nodeId,
+      display_name: "gost · 805",
+      protocol: "tcp" as const,
+      port: 805,
+      access_address: "tcp://192.0.2.1:805",
+      accessibility: "network" as const,
+      lifecycle: "active" as const,
+      state: "available" as const,
+      source: "local_observation" as const,
+      evidence_at: timestamp,
+      freshness: "fresh" as const,
+    };
+    const view = render(<ChatPage workspace />);
+    await user.type(
+      await screen.findByLabelText("问题", { exact: true }),
+      "为什么别的电脑打不开？",
+    );
+    view.rerender(
+      <ChatPage workspace serviceContext={service} computerName="客厅 Mac">
+        <p>当前请求</p>
+      </ChatPage>,
+    );
+    expect(screen.getByLabelText("问题", { exact: true })).toHaveValue(
+      "为什么别的电脑打不开？",
+    );
+    expect(writes).toBe(0);
+    await user.click(screen.getByRole("button", { name: "发送问题" }));
+    await waitFor(() => expect(writes).toBe(1));
+  });
+
+  it("工作台追问沿用同一调查绑定线程，不新建普通线程", async () => {
+    const user = userEvent.setup();
+    const backend = installBackend();
+    const incidentId = `incident_${"a".repeat(32)}`;
+    let writes = 0;
+    server.use(
+      http.post(
+        `/api/incidents/${incidentId}/follow-up`,
+        async ({ request }) => {
+          writes += 1;
+          expect(await request.json()).toEqual({
+            question: "这次查到什么了？",
+          });
+          backend.threadIds.push(secondThreadId);
+          backend.messages.set(secondThreadId, []);
+          return HttpResponse.json(
+            makeRun("completed", { thread_id: secondThreadId }),
+          );
+        },
+      ),
+    );
+    render(
+      <ChatPage workspace incidentId={incidentId} incidentThreadId={null} />,
+    );
+    await user.type(
+      await screen.findByLabelText("问题", { exact: true }),
+      "这次查到什么了？",
+    );
+    expect(writes).toBe(0);
+    await user.click(screen.getByRole("button", { name: "发送问题" }));
+    await waitFor(() => expect(writes).toBe(1));
+    expect(
+      screen.queryByRole("button", { name: "开始新对话" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("新建、选择并确认删除线程，同时明确长期记忆不受影响", async () => {
     const backend = installBackend();
     let createCalls = 0;

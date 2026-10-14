@@ -96,6 +96,8 @@ class Remote:
         self.truncated = False
         self.failed = False
         self.supports_entrypoint = False
+        self.supports_program_names = False
+        self.supports_project_name = False
         self.prepared: list[str] = []
         self.executed: list[str] = []
         self.outputs: dict[str, JsonValue] = {
@@ -146,8 +148,23 @@ class Remote:
         if self.error is not None:
             raise self.error
         registry = ToolRegistry()
-        if self.supports_entrypoint:
-            registry.register(windows_tool_definitions()[1], FakeToolAdapter())
+        if self.supports_entrypoint or self.supports_program_names or self.supports_project_name:
+            definition = windows_tool_definitions()[1]
+            supported_properties = definition.input_schema["properties"]
+            assert isinstance(supported_properties, dict)
+            properties = {
+                key: value
+                for key, value in supported_properties.items()
+                if (key == "include_python_entrypoint" and self.supports_entrypoint)
+                or (key == "include_program_names" and self.supports_program_names)
+                or (key == "include_python_project_name" and self.supports_project_name)
+            }
+            registry.register(
+                definition.model_copy(
+                    update={"input_schema": {**definition.input_schema, "properties": properties}}
+                ),
+                FakeToolAdapter(),
+            )
         return PreparedRemoteAgentTools(
             node_summary=NodeSummary.model_validate(
                 {
@@ -179,6 +196,10 @@ class Remote:
             if self.supports_entrypoint and request.tool_name == TOOLS[0]
             else {}
         )
+        if self.supports_program_names and request.tool_name == TOOLS[0]:
+            expected["include_program_names"] = True
+        if self.supports_project_name and request.tool_name == TOOLS[0]:
+            expected["include_python_project_name"] = True
         assert request.arguments == expected and request.tool_name in self.tools
         self.executed.append(request.tool_name)
         if self.failed:
@@ -268,6 +289,46 @@ def test_remote_container_without_identity_keeps_endpoint_without_application() 
     }
 
 
+def test_remote_program_name_requires_advertised_capability_and_keeps_service_id() -> None:
+    remote = Remote()
+    remote.supports_program_names = True
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [
+            {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 101,
+                "process_name": "gost",
+                "program_name": "gost",
+            }
+        ],
+    }
+    target = node()
+    view = observer(remote, cache(target))
+    asyncio.run(view.refresh())
+    key = (str(REMOTE), str(target.services[0].service_id))
+    assert view.names()[key] == "gost · 43123"
+    application = view.presentations()[key][1]
+    assert application is not None and application.kind == "program"
+    remote.supports_program_names = False
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [
+            {
+                "protocol": "tcp",
+                "address": "127.0.0.1",
+                "port": 43123,
+                "pid": 101,
+                "process_name": "gost",
+            }
+        ],
+    }
+    asyncio.run(view.refresh())
+    assert key not in view.names()
+
+
 def test_remote_python_entry_is_requested_only_when_supported_and_expires_to_generic() -> None:
     remote = Remote()
     remote.supports_entrypoint = True
@@ -304,6 +365,35 @@ def test_remote_python_entry_is_requested_only_when_supported_and_expires_to_gen
     }
     asyncio.run(view.refresh())
     assert view.names()[key] == "Python 服务 · 43123"
+
+
+def test_remote_project_name_keeps_entry_and_service_identity() -> None:
+    remote = Remote()
+    remote.supports_entrypoint = True
+    remote.supports_project_name = True
+    listener: dict[str, JsonValue] = {
+        "protocol": "tcp",
+        "address": "127.0.0.1",
+        "port": 43123,
+        "pid": 101,
+        "process_name": "python",
+        "python_entrypoint": "app.py",
+        "python_project_name": "Wireguard Panel",
+    }
+    remote.outputs[TOOLS[0]] = {"availability": "available", "items": [listener]}
+    target = node()
+    view = observer(remote, cache(target))
+    key = (str(REMOTE), str(target.services[0].service_id))
+    asyncio.run(view.refresh())
+    application = view.presentations()[key][1]
+    assert application is not None and application.name == "Wireguard Panel"
+    assert view.names()[key] == "Python · app.py · 43123"
+    remote.supports_project_name = False
+    del listener["python_project_name"]
+    asyncio.run(view.refresh())
+    application = view.presentations()[key][1]
+    assert application is not None and application.name == "app.py"
+    assert view.names()[key] == "Python · app.py · 43123"
 
 
 @pytest.mark.parametrize(

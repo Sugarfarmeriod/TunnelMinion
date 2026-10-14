@@ -161,6 +161,7 @@ test("远端自动归属进入精选，归属失效不丢原服务", async ({
     device.getByRole("list", { name: "完整检测清单" }).getByRole("listitem"),
   ).toHaveCount(4);
   await page.reload();
+  await page.getByText("程序与待办", { exact: true }).click();
   await expect(device).not.toHaveAttribute("open");
   await page.getByText("客厅电脑", { exact: true }).click();
   await expect(selected).toHaveCount(0);
