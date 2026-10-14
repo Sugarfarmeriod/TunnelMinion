@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 
 test("产品外壳可导航且没有严重可访问性问题", async ({ page }) => {
   await page.goto("/app/overview");
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
-  await page.getByRole("link", { name: "操作", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+  await page.getByRole("link", { name: "请求记录", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "操作", exact: true }),
   ).toBeVisible();
@@ -23,7 +23,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/app/overview");
-    await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "刷新", exact: true }),
     ).toBeVisible();
@@ -37,7 +37,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       fullPage: true,
       path: testInfo.outputPath(`desktop-${colorScheme}.png`),
     });
-    for (const label of ["聊天", "操作", "记忆", "设置"]) {
+    for (const label of ["记忆", "设置", "工作台"]) {
       await page.getByRole("link", { name: label, exact: true }).click();
       await expect(page.locator("main h2").first()).toBeVisible();
       const screen = await new AxeBuilder({ page }).analyze();

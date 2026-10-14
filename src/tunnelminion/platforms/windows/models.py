@@ -62,6 +62,9 @@ class NetworkListener(BaseModel):
     port: int = Field(ge=1, le=65535)
     pid: int | None = Field(default=None, ge=0)
     process_name: str | None = None
+    program_name: str | None = Field(
+        default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
+    )
     python_entrypoint: str | None = Field(
         default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
     )

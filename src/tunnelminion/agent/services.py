@@ -23,7 +23,8 @@ from tunnelminion.tools.contracts import ToolExecutionStatus
 
 _PORT_PATTERN = re.compile(
     r"(?:(?P<host>\[[0-9a-fA-F:]+\]|[0-9.]+|\*):)?"
-    r"(?P<host_port>\d+)->(?P<container_port>\d+)/(?P<protocol>tcp|udp)"
+    r"(?P<host_port>\d+)(?:-(?P<host_end>\d+))?->"
+    r"(?P<container_port>\d+)(?:-(?P<container_end>\d+))?/(?P<protocol>tcp|udp)"
 )
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -73,7 +74,7 @@ class ServiceApplication(BaseModel):
 
     group_id: str = Field(pattern=r"^application_[0-9a-f]{32}$")
     name: str = Field(min_length=1, max_length=80)
-    kind: Literal["python", "docker", "model"]
+    kind: Literal["python", "docker", "model", "program"]
 
 
 ServicePresentation: TypeAlias = tuple[str, ServiceApplication | None]
@@ -91,6 +92,7 @@ class RemoteServiceSummary(BaseModel):
     process_pid: int | None = None
     process_name: str | None = None
     python_entrypoint: str | None = None
+    program_name: str | None = None
     container_id: str | None = None
     container_name: str | None = None
     image: str | None = None
@@ -233,37 +235,36 @@ class RemoteServiceInventoryBuilder:
                     host = "0.0.0.0"
                 host = host.strip("[]")
                 protocol = match.group("protocol")
-                host_port = int(match.group("host_port"))
-                container_port = int(match.group("container_port"))
+                host_start = int(match.group("host_port"))
+                container_start = int(match.group("container_port"))
+                host_end = int(match.group("host_end") or host_start)
+                container_end = int(match.group("container_end") or container_start)
+                count = host_end - host_start + 1
+                if not (
+                    1 <= host_start <= host_end <= 65535
+                    and 1 <= container_start <= container_end <= 65535
+                    and count == container_end - container_start + 1
+                    and count <= 1024
+                ):
+                    raise ValueError("Docker 发布端口范围无效或超过服务预算")
                 logical_host = "dual-stack-wildcard" if host in {"0.0.0.0", "::"} else host
-                key = (
-                    candidate.container_id,
-                    protocol,
-                    host_port,
-                    container_port,
-                    logical_host,
-                )
-                existing_index = binding_indexes.get(key)
-                if existing_index is not None:
-                    if values[existing_index][4] == "::" and host == "0.0.0.0":
-                        values[existing_index] = (
-                            candidate,
-                            protocol,
-                            host_port,
-                            container_port,
-                            host,
-                        )
-                    continue
-                binding_indexes[key] = len(values)
-                values.append(
-                    (
-                        candidate,
+                for offset in range(count):
+                    host_port, container_port = host_start + offset, container_start + offset
+                    key = (
+                        candidate.container_id,
                         protocol,
                         host_port,
                         container_port,
-                        host,
+                        logical_host,
                     )
-                )
+                    existing_index = binding_indexes.get(key)
+                    value = (candidate, protocol, host_port, container_port, host)
+                    if existing_index is not None:
+                        if values[existing_index][4] == "::" and host == "0.0.0.0":
+                            values[existing_index] = value
+                        continue
+                    binding_indexes[key] = len(values)
+                    values.append(value)
         return tuple(values)
 
     @staticmethod
@@ -315,6 +316,7 @@ class RemoteServiceInventoryBuilder:
             process_pid=listener.pid,
             process_name=(process.name if process is not None else listener.process_name),
             python_entrypoint=listener.python_entrypoint,
+            program_name=listener.program_name,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,
             image=docker.image if docker is not None else None,

@@ -1,12 +1,13 @@
 import {
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 
-import { ApiError } from "../../api/client";
+import { ApiError, requestJson } from "../../api/client";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 
 import {
@@ -32,7 +33,15 @@ import type {
 import type { RunEventState } from "./eventReducer";
 import { useRunEvents } from "./useRunEvents";
 import { listOperations } from "../operations/operationsApi";
-import type { OperationSummary } from "../operations/schemas";
+import type { OperationDetail, OperationSummary } from "../operations/schemas";
+import {
+  incidentDetailSchema,
+  type ResourceOverview,
+} from "../../api/schemas/overview";
+import { runSchema } from "./contracts";
+import { operationStatusLabel } from "../operations/operationPresentation";
+import { serviceDisplayName } from "../overview/overviewActions";
+import { Link } from "react-router-dom";
 
 const toolLabels: Record<AllowedToolName, string> = {
   get_node_summary: "节点摘要",
@@ -125,14 +134,33 @@ function DeleteThreadConfirmationDialog({
 export interface ChatPageProps {
   streamIdleTimeoutMs?: number;
   streamReconnectDelayMs?: number;
+  workspace?: boolean;
+  serviceContext?: ResourceOverview["services"]["items"][number];
+  computerName?: string;
+  incidentId?: string;
+  incidentThreadId?: string | null;
+  operationContext?: OperationDetail;
+  contextBlocked?: boolean;
+  modelStatus?: ResourceOverview["model"]["status"];
+  children?: ReactNode;
 }
 
 export function ChatPage({
   streamIdleTimeoutMs,
   streamReconnectDelayMs,
+  workspace = false,
+  serviceContext,
+  computerName,
+  incidentId,
+  incidentThreadId,
+  operationContext,
+  contextBlocked = false,
+  modelStatus,
+  children,
 }: ChatPageProps = {}) {
-  const requestedThreadId =
-    new URLSearchParams(window.location.search).get("thread") ?? undefined;
+  const requestedThreadId = incidentId
+    ? (incidentThreadId ?? undefined)
+    : (new URLSearchParams(window.location.search).get("thread") ?? undefined);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
@@ -145,7 +173,9 @@ export function ChatPage({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [question, setQuestion] = useState("");
-  const [toolName, setToolName] = useState<AllowedToolName>("get_node_summary");
+  const [toolName, setToolName] = useState<AllowedToolName | "auto">(
+    workspace ? "auto" : "get_node_summary",
+  );
   const selectedThreadRef = useRef<string | null>(null);
   const actionControllers = useRef(new Set<AbortController>());
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
@@ -218,6 +248,10 @@ export function ChatPage({
     const controller = new AbortController();
     setLoadingThreads(true);
     void refreshThreads(controller.signal, requestedThreadId)
+      .then(() => {
+        if (!controller.signal.aborted && incidentId && !incidentThreadId)
+          selectThread(null);
+      })
       .catch((error: unknown) => {
         if (!isAbortError(error)) {
           setPageError("无法读取聊天线程，请确认 TunnelMinion 仍在运行。");
@@ -229,7 +263,20 @@ export function ChatPage({
         }
       });
     return () => controller.abort();
-  }, [refreshThreads, requestedThreadId]);
+  }, [
+    refreshThreads,
+    requestedThreadId,
+    incidentId,
+    incidentThreadId,
+    selectThread,
+  ]);
+
+  useEffect(() => {
+    if (incidentId) {
+      setQuestion("");
+      selectThread(incidentThreadId ?? null);
+    }
+  }, [incidentId, selectThread]);
 
   useEffect(() => {
     if (selectedThreadId === null) {
@@ -361,15 +408,24 @@ export function ChatPage({
     event.preventDefault();
     const threadId = selectedThreadRef.current;
     const normalizedQuestion = question.trim();
-    if (threadId === null || writeAction !== null || composerLocked) {
+    if (
+      (threadId === null && !incidentId) ||
+      writeAction !== null ||
+      composerLocked ||
+      contextBlocked
+    ) {
       return;
     }
     if (normalizedQuestion.length === 0) {
       setPageError("请输入问题后再发送。");
       return;
     }
-    if (normalizedQuestion.length > 20_000) {
-      setPageError("问题最多 20,000 个字符。");
+    if (normalizedQuestion.length > (incidentId ? 2000 : 20_000)) {
+      setPageError(
+        incidentId
+          ? "针对调查的问题最多 2,000 个字符。"
+          : "问题最多 20,000 个字符。",
+      );
       return;
     }
 
@@ -378,17 +434,37 @@ export function ChatPage({
     setPageError(null);
     const controller = registerController(actionControllers.current);
     try {
-      const started = await startRun(
-        threadId,
-        normalizedQuestion,
-        toolName,
-        controller.signal,
-      );
-      if (selectedThreadRef.current === threadId) {
+      const started = incidentId
+        ? await requestJson(
+            `/api/incidents/${encodeURIComponent(incidentId)}/follow-up`,
+            runSchema,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ question: normalizedQuestion }),
+              signal: controller.signal,
+            },
+          )
+        : await startRun(
+            threadId ?? "",
+            operationContext
+              ? `关于正在查看的临时访问请求（服务标识“${operationContext.service_process_or_container || operationContext.service_id}”；状态“${operationStatusLabel(operationContext.state, operationContext.role)}”；申请时长 ${operationContext.duration_seconds} 秒；${operationContext.submission_result_unknown || operationContext.execution_result_unknown ? "上次请求结果仍不明确，不得建议重复提交" : "批准或执行必须由用户在请求界面确认"}）：\n${normalizedQuestion}`
+              : serviceContext
+                ? `关于${computerName || "所属电脑名称未知"}上的“${serviceDisplayName(serviceContext) || "名称未知的程序"}”（${serviceContext.protocol?.toUpperCase() ?? "协议未知"} ${serviceContext.port ?? "端口未知"}；${serviceContext.accessibility === "loopback" ? "只接受所属电脑的连接" : "尚未验证跨电脑访问"}；${["live", "fresh"].includes(serviceContext.freshness) ? "近期记录" : "记录需要重新确认"}）：\n${normalizedQuestion}`
+                : normalizedQuestion,
+            toolName === "auto" ? allowedToolNames : toolName,
+            controller.signal,
+          );
+      if (incidentId) {
+        selectThread(started.thread_id);
+        setActiveRun(started);
+        setQuestion("");
+        await refreshThreads(controller.signal, started.thread_id);
+      } else if (selectedThreadRef.current === threadId) {
         setActiveRun(started);
         setQuestion("");
       }
-      await refreshThread(threadId, controller.signal);
+      await refreshThread(started.thread_id, controller.signal);
       setNotice("运行已发起，下面只展示服务端公开的状态和工具证据。");
     } catch (error) {
       if (isUnknownWriteResult(error)) {
@@ -397,7 +473,30 @@ export function ChatPage({
             ? "模型服务返回不可用；写入结果仍按未知处理，正在复读当前线程，不会自动重发。"
             : "发送结果未知；正在复读当前线程，不会自动重发问题或工具调用。",
         );
-        await safelyRefreshThread(refreshThread, threadId, controller.signal);
+        if (incidentId) {
+          try {
+            const latest = await requestJson(
+              `/api/incidents/${encodeURIComponent(incidentId)}`,
+              incidentDetailSchema,
+              { signal: controller.signal },
+            );
+            if (latest.thread_id) {
+              selectThread(latest.thread_id);
+              await refreshThreads(controller.signal, latest.thread_id);
+              await safelyRefreshThread(
+                refreshThread,
+                latest.thread_id,
+                controller.signal,
+              );
+            }
+          } catch {
+            setPageError(
+              "还不能确认这次追问的结果，请重新读取调查；问题没有再次发送。",
+            );
+          }
+        } else if (threadId !== null) {
+          await safelyRefreshThread(refreshThread, threadId, controller.signal);
+        }
       } else if (!isAbortError(error)) {
         setPageError("无法发起运行；请检查输入和服务状态后再手动重试。");
       }
@@ -485,18 +584,45 @@ export function ChatPage({
   function closeDeleteConfirmation() {
     setConfirmingDelete(false);
   }
+  const ThreadContainer = workspace ? "details" : "aside";
 
   return (
     <section aria-labelledby="chat-title" className="chat-page surface">
+      {children}
       <header className="chat-page__header">
         <div>
           <p className="eyebrow">公开运行事件</p>
-          <h2 id="chat-title">聊天</h2>
+          <h2 id="chat-title" tabIndex={workspace ? -1 : undefined}>
+            {workspace ? "一起处理" : "聊天"}
+          </h2>
           <p>
-            对话只展示公开回答与允许的只读工具轨迹，不显示隐藏推理或原始工具数据。
+            {workspace
+              ? "告诉我哪里用不了，或想做什么。我会先查看情况，需要你确认的事也在这里处理。提问会使用模型额度。"
+              : "对话只展示公开回答与允许的只读工具轨迹，不显示隐藏推理或原始工具数据。"}
           </p>
         </div>
+        {workspace && !incidentId ? (
+          <button
+            className="chat-button--primary"
+            disabled={writeAction !== null}
+            type="button"
+            onClick={() => void handleCreateThread()}
+          >
+            {writeAction === "create" ? "正在开始……" : "开始新对话"}
+          </button>
+        ) : null}
       </header>
+      {workspace && modelStatus === "unconfigured" ? (
+        <p className="chat-alert chat-alert--warning" role="status">
+          还没连接模型，目前只能看程序和处理已有请求，不会自动调查。
+          <Link to="/app/settings">连接模型</Link>
+        </p>
+      ) : workspace && modelStatus === "unavailable" ? (
+        <p className="chat-alert chat-alert--warning" role="status">
+          暂时联系不上模型；程序和已有请求仍可查看。
+          <Link to="/app/settings">检查模型连接</Link>
+        </p>
+      ) : null}
 
       {pageError === null ? null : (
         <div className="chat-alert chat-alert--error" role="alert">
@@ -508,18 +634,24 @@ export function ChatPage({
       </div>
 
       <div className="chat-layout">
-        <aside aria-labelledby="chat-threads-title" className="chat-threads">
+        <ThreadContainer
+          aria-labelledby="chat-threads-title"
+          className="chat-threads"
+        >
+          {workspace ? <summary>以往对话</summary> : null}
           <div className="chat-threads__heading">
             <h3 id="chat-threads-title" ref={threadsHeadingRef}>
               线程
             </h3>
-            <button
-              disabled={writeAction !== null}
-              type="button"
-              onClick={() => void handleCreateThread()}
-            >
-              {writeAction === "create" ? "正在新建……" : "新建线程"}
-            </button>
+            {!workspace ? (
+              <button
+                disabled={writeAction !== null}
+                type="button"
+                onClick={() => void handleCreateThread()}
+              >
+                {writeAction === "create" ? "正在新建……" : "新建线程"}
+              </button>
+            ) : null}
           </div>
 
           {loadingThreads ? (
@@ -565,20 +697,57 @@ export function ChatPage({
               threadId={selectedThreadId}
             />
           ) : null}
-        </aside>
+        </ThreadContainer>
 
         <div className="chat-conversation">
-          {selectedThreadId === null ? (
-            <div className="chat-empty chat-empty--large">
-              <h3>选择或新建线程</h3>
-              <p>线程记录与独立长期记忆是不同的数据。</p>
+          {serviceContext ? (
+            <div className="workspace-context" aria-label="正在讨论的程序">
+              <strong>
+                {computerName || "所属电脑名称未知"} ·{" "}
+                {serviceDisplayName(serviceContext) || "程序名称待确认"}
+              </strong>
+              <p>
+                连接入口 {serviceContext.protocol?.toUpperCase() ?? "协议未知"}{" "}
+                {serviceContext.port ?? "未知"}
+                。下面的问题会带上这条连接记录；它不代表已经验证能使用。
+              </p>
             </div>
-          ) : loadingThread ? (
+          ) : null}
+          {incidentId ? (
+            <p className="workspace-context">
+              下面的问题会沿用上面这次调查，不需要重新解释发生了什么。
+            </p>
+          ) : operationContext ? (
+            <p className="workspace-context">
+              下面的问题会带上这条请求的状态；聊天不能替你批准或执行。
+            </p>
+          ) : null}
+          {contextBlocked ? (
+            <p role="status">
+              还没读到这项任务的完整记录，暂时不能针对它提问。
+            </p>
+          ) : selectedThreadId === null && !incidentId ? (
+            <div className="chat-empty chat-empty--large">
+              <h3>
+                {workspace
+                  ? "想了解哪个程序，或哪里用不了？"
+                  : "选择或新建线程"}
+              </h3>
+              <p>
+                {workspace
+                  ? "点“开始新对话”，然后直接说你的问题，不需要选择技术工具。"
+                  : "线程记录与独立长期记忆是不同的数据。"}
+              </p>
+            </div>
+          ) : loadingThread && selectedThreadId !== null ? (
             <p aria-live="polite">正在读取线程消息……</p>
           ) : (
             <>
-              <MessageHistory detail={threadDetail} />
+              {!workspace || (threadDetail?.messages.length ?? 0) > 0 ? (
+                <MessageHistory detail={threadDetail} />
+              ) : null}
               <RunPanel
+                compact={workspace}
                 activeRun={activeRun}
                 effectiveStatus={effectiveRunStatus}
                 eventState={eventState}
@@ -590,35 +759,59 @@ export function ChatPage({
                 onRefresh={() => void handleRefreshSelectedThread()}
               />
               <form className="chat-composer" onSubmit={handleStartRun}>
-                <h3>继续当前线程</h3>
+                <h3>
+                  {workspace
+                    ? incidentId
+                      ? "继续问这件事"
+                      : "说说你想做什么"
+                    : "继续当前线程"}
+                </h3>
                 <label htmlFor="chat-question">问题</label>
                 <textarea
                   id="chat-question"
-                  maxLength={20_000}
-                  rows={5}
+                  maxLength={incidentId ? 2000 : 20_000}
+                  rows={workspace ? 3 : 5}
                   value={question}
                   disabled={writeAction !== null || composerLocked}
-                  placeholder="例如：本机 WireGuard 和模型状态如何？"
+                  placeholder={
+                    workspace
+                      ? "例如：这个程序为什么在另一台电脑上打不开？"
+                      : "例如：本机 WireGuard 和模型状态如何？"
+                  }
                   onChange={(event) => setQuestion(event.currentTarget.value)}
                 />
-                <span className="chat-composer__count">
-                  {question.length.toLocaleString("zh-CN")} / 20,000 字符
-                </span>
-                <label htmlFor="chat-tool">本次允许的只读工具</label>
-                <select
-                  id="chat-tool"
-                  value={toolName}
-                  disabled={writeAction !== null || composerLocked}
-                  onChange={(event) =>
-                    setToolName(event.currentTarget.value as AllowedToolName)
-                  }
-                >
-                  {allowedToolNames.map((name) => (
-                    <option key={name} value={name}>
-                      {toolLabels[name]}（{name}）
-                    </option>
-                  ))}
-                </select>
+                {!workspace ||
+                question.length > (incidentId ? 1800 : 18_000) ? (
+                  <span className="chat-composer__count">
+                    {question.length.toLocaleString("zh-CN")} /{" "}
+                    {incidentId ? "2,000" : "20,000"} 字符
+                  </span>
+                ) : null}
+                {!incidentId ? (
+                  <details open={!workspace}>
+                    <summary>调查工具（通常不用改）</summary>
+                    <label htmlFor="chat-tool">本次允许的只读工具</label>
+                    <select
+                      id="chat-tool"
+                      value={toolName}
+                      disabled={writeAction !== null || composerLocked}
+                      onChange={(event) =>
+                        setToolName(
+                          event.currentTarget.value as AllowedToolName | "auto",
+                        )
+                      }
+                    >
+                      {workspace ? (
+                        <option value="auto">自动选择（只读）</option>
+                      ) : null}
+                      {allowedToolNames.map((name) => (
+                        <option key={name} value={name}>
+                          {toolLabels[name]}（{name}）
+                        </option>
+                      ))}
+                    </select>
+                  </details>
+                ) : null}
                 <button
                   className="chat-button chat-button--primary"
                   disabled={
@@ -628,10 +821,16 @@ export function ChatPage({
                   }
                   type="submit"
                 >
-                  {writeAction === "start" ? "正在发送……" : "发送并开始运行"}
+                  {writeAction === "start"
+                    ? "正在发送……"
+                    : workspace
+                      ? "发送问题"
+                      : "发送并开始运行"}
                 </button>
                 <p className="chat-composer__safety">
-                  网络结果未知时只复读线程与运行状态，不会自动重发问题、工具调用或取消请求。
+                  {workspace
+                    ? "没有收到明确结果时，只查询进展，不会自动重复发送问题。任何批准或执行仍要你确认。"
+                    : "网络结果未知时只复读线程与运行状态，不会自动重发问题、工具调用或取消请求。"}
                 </p>
               </form>
             </>
@@ -740,6 +939,7 @@ function CancelRunConfirmationDialog({
 }
 
 interface RunPanelProps {
+  compact?: boolean;
   activeRun: RunView | null;
   effectiveStatus: RunStatus | null;
   eventState: RunEventState;
@@ -805,6 +1005,7 @@ function RelatedOperations({
 }
 
 function RunPanel({
+  compact = false,
   activeRun,
   effectiveStatus,
   eventState,
@@ -839,20 +1040,13 @@ function RunPanel({
       <div className="chat-run__heading">
         <div>
           <h3 id="chat-run-title" ref={runHeadingRef}>
-            当前运行
+            {compact ? "调查进展" : "当前运行"}
           </h3>
-          <p className="chat-run__id">运行 ID：{activeRun.run_id}</p>
         </div>
         <span className={`chat-run-status chat-run-status--${effectiveStatus}`}>
           {runStatusLabels[effectiveStatus]}
         </span>
       </div>
-      <p aria-live="polite" className="chat-stream-status">
-        {streamPhaseLabels[eventState.phase]}
-        {eventState.lastSequence > 0
-          ? `；最后确认事件序号 ${eventState.lastSequence}`
-          : ""}
-      </p>
       {eventState.gap === null ? null : (
         <p className="chat-alert chat-alert--warning" role="alert">
           检测到事件缺口：期望序号 {eventState.gap.expected}，收到序号{" "}
@@ -898,69 +1092,78 @@ function RunPanel({
         </button>
       )}
 
-      <h4>公开工具轨迹</h4>
-      {toolEvents.length === 0 ? (
-        <p className="chat-empty">还没有公开工具事件。</p>
-      ) : (
-        <ol className="chat-tool-events">
-          {toolEvents.map((event) => (
-            <li key={event.sequence}>
-              <dl>
-                <div>
-                  <dt>序号</dt>
-                  <dd>{event.sequence}</dd>
-                </div>
-                <div>
-                  <dt>目标节点</dt>
-                  <dd className="chat-untrusted-text">
-                    {event.target_node_id ?? "服务端未提供"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>工具</dt>
-                  <dd className="chat-untrusted-text">
-                    {event.tool_name ?? "服务端未提供"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>状态</dt>
-                  <dd className="chat-untrusted-text">
-                    {event.tool_status ?? "未知"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>耗时</dt>
-                  <dd>
-                    {event.elapsed_ms === null
-                      ? "未知"
-                      : `${Math.round(event.elapsed_ms)} ms`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>工具运行 ID / 证据引用</dt>
-                  <dd className="chat-untrusted-text">
-                    {event.tool_run_id ?? "未提供"}
-                  </dd>
-                </div>
-              </dl>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {evidence.length === 0 ? null : (
-        <div className="chat-evidence">
-          <h4>最终回答引用的证据</h4>
-          <ul>
-            {evidence.map((item) => (
-              <li key={item.tool_run_id} className="chat-untrusted-text">
-                {item.tool_name} · {item.status} · {item.tool_run_id}
+      <details open={!compact}>
+        <summary>查看用了哪些工具与证据</summary>
+        <p className="chat-run__id">运行 ID：{activeRun.run_id}</p>
+        <p aria-live="polite" className="chat-stream-status">
+          {streamPhaseLabels[eventState.phase]}
+          {eventState.lastSequence > 0
+            ? `；最后确认事件序号 ${eventState.lastSequence}`
+            : ""}
+        </p>
+        <h4>公开工具轨迹</h4>
+        {toolEvents.length === 0 ? (
+          <p className="chat-empty">还没有公开工具事件。</p>
+        ) : (
+          <ol className="chat-tool-events">
+            {toolEvents.map((event) => (
+              <li key={event.sequence}>
+                <dl>
+                  <div>
+                    <dt>序号</dt>
+                    <dd>{event.sequence}</dd>
+                  </div>
+                  <div>
+                    <dt>目标节点</dt>
+                    <dd className="chat-untrusted-text">
+                      {event.target_node_id ?? "服务端未提供"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>工具</dt>
+                    <dd className="chat-untrusted-text">
+                      {event.tool_name ?? "服务端未提供"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>状态</dt>
+                    <dd className="chat-untrusted-text">
+                      {event.tool_status ?? "未知"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>耗时</dt>
+                    <dd>
+                      {event.elapsed_ms === null
+                        ? "未知"
+                        : `${Math.round(event.elapsed_ms)} ms`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>工具运行 ID / 证据引用</dt>
+                    <dd className="chat-untrusted-text">
+                      {event.tool_run_id ?? "未提供"}
+                    </dd>
+                  </div>
+                </dl>
               </li>
             ))}
-          </ul>
-        </div>
-      )}
+          </ol>
+        )}
 
+        {evidence.length === 0 ? null : (
+          <div className="chat-evidence">
+            <h4>最终回答引用的证据</h4>
+            <ul>
+              {evidence.map((item) => (
+                <li key={item.tool_run_id} className="chat-untrusted-text">
+                  {item.tool_name} · {item.status} · {item.tool_run_id}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </details>
       <RelatedOperations toolRunIds={activeRun.result?.tool_run_ids} />
 
       {terminalEvent?.message === null ||

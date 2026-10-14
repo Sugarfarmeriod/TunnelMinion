@@ -150,6 +150,56 @@ def test_inventory_survives_degraded_sources_and_unknown_address() -> None:
     assert inventory.services[0].confidence is EvidenceConfidence.LOW
 
 
+def test_docker_port_ranges_preserve_each_endpoint_and_container_owner() -> None:
+    inventory = RemoteServiceInventoryBuilder().build(
+        NodeId.new(),
+        observation(
+            "list_network_listeners",
+            [{"protocol": "tcp", "address": "0.0.0.0", "port": 3000, "pid": 10}],
+        ),
+        observation("get_process_summary", []),
+        observation(
+            "list_docker_services",
+            [
+                {
+                    "container_id": "gimp-one",
+                    "name": "gimp",
+                    "image": "gimp",
+                    "ports": "0.0.0.0:3000-3001->3000-3001/tcp, [::]:3000-3001->3000-3001/tcp",
+                    "status": "Up",
+                }
+            ],
+        ),
+    )
+    assert [
+        (item.port, item.container_port, item.container_name) for item in inventory.services
+    ] == [(3000, 3000, "gimp"), (3001, 3001, "gimp")]
+
+
+@pytest.mark.parametrize(
+    "ports", ["3000-3001->80/tcp", "3001-3000->80-81/tcp", "0->80/tcp", "1-65535->1-65535/tcp"]
+)
+def test_docker_invalid_or_unbounded_range_is_not_a_complete_snapshot(ports: str) -> None:
+    with pytest.raises(ValueError, match="发布端口范围"):
+        RemoteServiceInventoryBuilder().build(
+            NodeId.new(),
+            observation("list_network_listeners", []),
+            observation("get_process_summary", []),
+            observation(
+                "list_docker_services",
+                [
+                    {
+                        "container_id": "one",
+                        "name": "app",
+                        "image": "app",
+                        "ports": ports,
+                        "status": "Up",
+                    }
+                ],
+            ),
+        )
+
+
 def test_same_port_on_different_addresses_does_not_claim_container_ownership() -> None:
     inventory = RemoteServiceInventoryBuilder().build(
         NodeId.new(),

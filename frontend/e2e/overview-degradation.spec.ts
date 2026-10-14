@@ -94,7 +94,7 @@ async function serveOverview(page: Page, payload: ResourceOverview) {
     },
   );
   await page.goto("/app/overview");
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 }
 
 function modelUnavailableOverview(): ResourceOverview {
@@ -302,7 +302,7 @@ test.describe("Overview 浏览器层降级与恢复矩阵", () => {
     );
     await expect(nodesCard.getByText("缓存中的只读服务").first()).toBeVisible();
     await expect(
-      nodesCard.getByText("已发现，访问待确认（记录已过时）").first(),
+      nodesCard.getByText("已启动（记录已过时）").first(),
     ).toBeVisible();
   });
 

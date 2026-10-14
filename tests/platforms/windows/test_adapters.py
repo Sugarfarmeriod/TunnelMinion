@@ -237,6 +237,49 @@ def test_listener_entry_names_are_opt_in_local_and_deduplicated(
     assert "cmdline" not in named.model_dump_json()
 
 
+def test_program_names_are_opt_in_cached_and_do_not_export_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return (
+                *tuple(
+                    NetworkListener(
+                        protocol=protocol,
+                        address="0.0.0.0",
+                        port=9527,
+                        pid=101,
+                        process_name="supernode",
+                    )
+                    for protocol in ("tcp", "udp")
+                ),
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=805),
+            )
+
+    class Process:
+        def __init__(self, pid: int) -> None:
+            calls.append(pid)
+
+        def name(self) -> str:
+            return "supernode"
+
+        def exe(self) -> str:
+            return "/opt/private-installation/bin/supernode"
+
+    monkeypatch.setattr(psutil, "Process", Process)
+    adapter = NetworkListenersAdapter(Reader())
+    unnamed = CollectionResult.model_validate(run(adapter.execute({}, token())))
+    assert calls == [] and all("program_name" not in item for item in unnamed.items)
+    named = CollectionResult.model_validate(
+        run(adapter.execute({"include_program_names": True}, token()))
+    )
+    assert calls == [101]
+    assert [item.get("program_name") for item in named.items] == ["supernode", "supernode", None]
+    assert "private-installation" not in named.model_dump_json()
+
+
 def test_docker_adapter_only_returns_allowed_fields_and_handles_offline() -> None:
     docker_line = (
         '{"ID":"abc","Names":"pdf","Image":"pdf:latest",'

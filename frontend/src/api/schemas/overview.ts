@@ -203,7 +203,7 @@ export const resourceOverviewSchema = z
                       (name) => [...name].length <= 80,
                       "程序名称不能超过 80 个字符",
                     ),
-                  kind: z.enum(["python", "docker", "model"]),
+                  kind: z.enum(["python", "docker", "model", "program"]),
                 })
                 .strict()
                 .nullable()

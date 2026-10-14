@@ -80,7 +80,10 @@ def windows_tool_definitions() -> tuple[ToolDefinition, ...]:
             "列出 TCP/UDP 监听端点；可在本机临时读取 Python 参数，仅返回入口名。",
             {
                 "type": "object",
-                "properties": {"include_python_entrypoint": {"type": "boolean"}},
+                "properties": {
+                    "include_python_entrypoint": {"type": "boolean"},
+                    "include_program_names": {"type": "boolean"},
+                },
                 "additionalProperties": False,
             },
             timeout=10,

@@ -181,6 +181,12 @@ export function incidentOperationHandoff(
       message: "当前证据无法确定服务端口，不能安全预填候选计划。",
     };
   }
+  if (service.protocol === "udp") {
+    return {
+      available: false,
+      message: "这是 UDP 连接，不适用于现有网页临时访问方案。",
+    };
+  }
   const query = new URLSearchParams({
     incident_id: incident.incidentId,
     target_node_id: incident.targetNodeId,

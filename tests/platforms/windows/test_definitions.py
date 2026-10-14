@@ -57,7 +57,8 @@ def test_registers_exact_windows_read_only_tool_set() -> None:
     assert all(item.platforms == {Platform.WINDOWS} for item in definitions)
     assert definitions[1].version.minor == 1
     assert definitions[1].input_schema["properties"] == {
-        "include_python_entrypoint": {"type": "boolean"}
+        "include_python_entrypoint": {"type": "boolean"},
+        "include_program_names": {"type": "boolean"},
     }
     assert registry.model_tools(Platform.WINDOWS) == definitions
     registered = tuple(registry.lookup(item.name) for item in definitions)

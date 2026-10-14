@@ -788,8 +788,9 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   await expect(
     detail.getByRole("link", { name: "查看临时访问方案" }),
   ).toBeVisible();
-  await detail.getByText("继续问一下（会使用模型额度）").click();
-  await detail.getByRole("textbox").fill("上一次的问题");
+  await page
+    .getByRole("textbox", { name: "问题", exact: true })
+    .fill("上一次的问题");
   await detail.getByRole("button", { name: "返回最近变化" }).click();
   await expect(page.getByRole("button", { name: "查看调查详情" })).toHaveCount(
     2,
@@ -805,8 +806,9 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   await expect(
     detail.getByRole("link", { name: "查看临时访问方案" }),
   ).toHaveCount(0);
-  await detail.getByText("继续问一下（会使用模型额度）").click();
-  await expect(detail.getByRole("textbox")).toHaveValue("");
+  await expect(
+    page.getByRole("textbox", { name: "问题", exact: true }),
+  ).toHaveValue("");
   await page.goBack();
   await expect(
     page.getByRole("button", { name: "查看调查详情" }).first(),
@@ -815,8 +817,8 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   await expect(
     detail.getByText("结论：还没有查清原因", { exact: true }),
   ).toBeVisible();
-  await page.getByText("更多信息", { exact: true }).click();
-  await expect(page.locator(".overview-more")).not.toHaveAttribute("open");
+  await detail.getByRole("link", { name: "返回这项服务" }).click();
+  await expect(page.locator(".incident-detail")).toHaveCount(0);
   await expect(page).not.toHaveURL(/incident_id=/);
   expect(writes).toBe(0);
 });
@@ -844,7 +846,7 @@ test("请求读取失败只显示提示，不阻断设备和调查且不产生�
   await expect(
     page.getByText("暂时读不到待处理请求；设备和服务仍可查看。"),
   ).toBeVisible();
-  await page.getByText("更多信息", { exact: true }).click();
+  await page.getByRole("link", { name: "查看最近变化与调查" }).first().click();
   await expect(page.getByText("远端服务只监听环回地址")).toBeVisible();
   expect(writes).toBe(0);
 });

@@ -75,7 +75,7 @@ test("首页直接展示有名称的服务，后台记录与技术信息按需�
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/app/overview");
 
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
   await expect(
     page.getByRole("list", { name: "需要你处理的请求" }),
   ).toHaveCount(0);

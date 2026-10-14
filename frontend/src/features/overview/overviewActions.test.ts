@@ -223,6 +223,12 @@ describe("incidentOperationHandoff", () => {
     [
       incident,
       nodes,
+      [{ ...services[0], protocol: "udp" as const }],
+      "UDP 连接",
+    ],
+    [
+      incident,
+      nodes,
       [{ ...services[0], freshness: "stale" as const }],
       "证据已经陈旧",
     ],
