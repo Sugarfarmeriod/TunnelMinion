@@ -230,8 +230,8 @@ export function OperationDetailPage() {
       const latest = await refreshRequesterState();
       setActionMessage(
         latest.error_code === null
-          ? "已查询目标节点的最新状态，没有重放任何写请求。"
-          : `目标节点状态查询未完成：${latest.error_code}。页面没有重放写请求。`,
+          ? "已查到对方的最新状态，刚才的请求没有再次发送。"
+          : "暂时没查到对方的明确结果。请稍后再查询，具体原因可在技术详情中查看。",
       );
     } catch (error) {
       setActionError(
@@ -254,9 +254,15 @@ export function OperationDetailPage() {
     setPreparingAction(action);
     try {
       const latest = await readLatest();
-      if (!serverAllowsAction(latest, action)) {
+      if (
+        latest.submission_result_unknown ||
+        latest.execution_result_unknown ||
+        !serverAllowsAction(latest, action)
+      ) {
         setActionMessage(
-          `服务器最新状态是“${operationStatusLabel(latest.state, latest.role)}”，现在不允许${operationActionLabels[action]}。本次未提交。`,
+          latest.submission_result_unknown || latest.execution_result_unknown
+            ? "最新记录还不能确认结果。请先查询这条请求，不要重复提交。"
+            : `最新状态是“${operationStatusLabel(latest.state, latest.role)}”，现在不允许${operationActionLabels[action]}。本次未提交。`,
         );
         return;
       }
@@ -276,6 +282,7 @@ export function OperationDetailPage() {
     if (pending === null) {
       return;
     }
+    setPreparingAction("refresh");
     setActionError(null);
     try {
       const latest =
@@ -294,20 +301,16 @@ export function OperationDetailPage() {
             : current,
         );
         setActionMessage(
-          pending.action === "execute"
-            ? "执行响应曾经未知；随后只查询了原 operation ID，目标节点已返回明确状态。页面没有重放执行，也不根据响应缺失猜测成功。"
-            : "写请求响应曾经未知；随后只读查询显示 state 或 allowed_actions 已变化，服务端已经裁决原动作。页面没有重放写请求，也不根据响应缺失猜测成功。",
+          "已读到最新状态，请以下方结果为准。刚才的请求没有再次发送。",
         );
         return;
       }
-      setActionMessage(
-        `已只查询服务端最新详情，但 state 仍是“${operationStatusLabel(latest.state, latest.role)}”且仍允许${operationActionLabels[pending.action]}。写入结果继续未知，页面只允许继续查询。`,
-      );
-    } catch (error) {
+      setActionMessage("查询后仍没有明确结果。先不要重复提交，可以稍后再查。");
+    } catch {
       setActionMessage(null);
-      setActionError(
-        `写入结果仍未知，最新详情也读取失败：${readableOperationError(error as Error)}`,
-      );
+      setActionError("暂时查不到最新结果。请稍后再查询，不要重复提交。");
+    } finally {
+      setPreparingAction(null);
     }
   }
 
@@ -334,9 +337,13 @@ export function OperationDetailPage() {
         closeConfirmation();
         try {
           latest = await readLatest();
-        } catch (error) {
+        } catch {
+          setUnknownResult({
+            action: submittedAction,
+            initialState: submittedDetail.state,
+          });
           setActionError(
-            `服务器已回应写请求，但最新详情读取失败：${readableOperationError(error as Error)} 不会自动重放写请求。`,
+            "请求已收到，但暂时读不到处理结果。请先查询，不要重新提交。",
           );
           return;
         }
@@ -345,9 +352,7 @@ export function OperationDetailPage() {
       void queryClient.invalidateQueries({ queryKey: operationQueryKeys.list });
       closeConfirmation();
       if (latest.execution_result_unknown || latest.submission_result_unknown) {
-        setActionMessage(
-          "服务端无法确认写入结果。页面没有重放；请只刷新原 operation ID。",
-        );
+        setActionMessage("请查询这条请求。查清之前，不要重复批准或开始。");
       } else if (latest.error_code !== null) {
         setActionMessage(
           `${operationActionLabels[submittedAction]}未完成：${latest.error_code}。页面没有自动重试。`,
@@ -391,7 +396,7 @@ export function OperationDetailPage() {
           className="operations-callout operations-callout--danger"
           role="alert"
         >
-          路由中缺少 operation ID，未发起请求。
+          缺少请求编号，请返回列表选择一条请求。没有发送操作。
         </div>
       </section>
     );
@@ -405,7 +410,7 @@ export function OperationDetailPage() {
       >
         <h2 id="operation-detail-title">操作详情</h2>
         <p aria-live="polite" role="status">
-          正在按 operation ID 读取最新详情……
+          正在读取这条请求……
         </p>
       </section>
     );
@@ -437,6 +442,8 @@ export function OperationDetailPage() {
   const summary = detail.summary;
   const serverResultUnknown =
     detail.submission_result_unknown || detail.execution_result_unknown;
+  const resultUnknown = unknownResult !== null || serverResultUnknown;
+  const showUnknownStatus = resultUnknown && detail.state !== "cleanup_failed";
   const actions = detail.allowed_actions.filter((action) =>
     serverAllowsAction(detail, action),
   );
@@ -476,27 +483,37 @@ export function OperationDetailPage() {
         </div>
         <div className="operation-detail-header__controls">
           <span
-            className={`operation-status operation-status--${operationTone(detail.state)}`}
+            className={`operation-status operation-status--${showUnknownStatus ? "warning" : operationTone(detail.state)}`}
           >
-            {operationStatusLabel(detail.state, detail.role)}
+            {showUnknownStatus
+              ? "结果待确认"
+              : operationStatusLabel(detail.state, detail.role)}
           </span>
           <button
             disabled={
               query.isFetching || submitting || preparingAction !== null
             }
             type="button"
-            onClick={() => void refreshVisibleDetail()}
+            onClick={() =>
+              void (unknownResult !== null
+                ? queryAfterUnknownResult()
+                : refreshVisibleDetail())
+            }
           >
             {query.isFetching || preparingAction === "refresh"
-              ? "正在刷新……"
-              : detail.role === "requester"
-                ? operationActionLabels.refresh
-                : "刷新详情"}
+              ? resultUnknown
+                ? "正在查询……"
+                : "正在刷新……"
+              : resultUnknown
+                ? "查询这条请求"
+                : detail.role === "requester"
+                  ? operationActionLabels.refresh
+                  : "刷新详情"}
           </button>
         </div>
       </header>
 
-      {query.isRefetchError ? (
+      {query.isRefetchError && !resultUnknown ? (
         <div
           className="operations-callout operations-callout--warning"
           role="alert"
@@ -506,40 +523,23 @@ export function OperationDetailPage() {
         </div>
       ) : null}
 
-      {serverResultUnknown ? (
+      {resultUnknown ? (
         <div
           className="operations-callout operations-callout--danger"
           role="alert"
         >
-          <strong>这条操作的写入结果尚未确认。</strong>
+          <strong>这次请求的结果还不明确。</strong>
           <span>
-            页面只允许刷新原 operation ID，不会重新创建计划或自动执行。
+            {actionError ??
+              (query.isRefetchError
+                ? "暂时查不到最新结果。请稍后再查询，不要重复提交。"
+                : actionMessage) ??
+              "请查询这条请求，先不要再次批准或开始。"}
           </span>
         </div>
       ) : null}
 
-      {unknownResult === null ? null : (
-        <div
-          className="operations-callout operations-callout--danger"
-          role="alert"
-        >
-          <strong>
-            {operationActionLabels[unknownResult.action]}请求的写入结果未知。
-          </strong>
-          <span>
-            页面没有重放该请求。下面即使读到新状态，也不把它自动解释为刚才的写入成功。
-          </span>
-          <button
-            disabled={query.isFetching || submitting}
-            type="button"
-            onClick={() => void queryAfterUnknownResult()}
-          >
-            只查询最新状态
-          </button>
-        </div>
-      )}
-
-      {actionError === null ? null : (
+      {actionError === null || resultUnknown ? null : (
         <div
           className="operations-callout operations-callout--danger"
           role="alert"
@@ -547,7 +547,7 @@ export function OperationDetailPage() {
           {actionError}
         </div>
       )}
-      {actionMessage === null ? null : (
+      {actionMessage === null || resultUnknown ? null : (
         <div
           aria-live="polite"
           className="operations-callout operations-callout--neutral"
@@ -558,10 +558,11 @@ export function OperationDetailPage() {
       )}
 
       <RequestExplanation
+        compact={resultUnknown}
         detail={detail}
         overview={overviewQuery.isError ? undefined : overviewQuery.data}
       />
-      {detail.error_code === null ? null : (
+      {detail.error_code === null || resultUnknown ? null : (
         <div
           className="operations-callout operations-callout--warning"
           role="alert"
@@ -646,6 +647,11 @@ export function OperationDetailPage() {
           <DetailList
             title="授权、验证与回滚依据"
             items={[
+              { label: "服务端状态（上次读取）", value: detail.state },
+              {
+                label: "允许操作（上次读取）",
+                value: detail.allowed_actions.join("、") || "无",
+              },
               { label: "操作等级", value: `L${summary.level}` },
               {
                 label: "授权类型",
@@ -704,52 +710,52 @@ export function OperationDetailPage() {
         </div>
       </details>
 
-      <section aria-label="处理请求" className="operation-actions">
-        <div className="operation-actions__buttons">
-          {unknownResult !== null || serverResultUnknown ? (
-            <span>写入结果未知期间只允许查询最新状态，不提供写动作。</span>
-          ) : confirmationActions.length === 0 && !canAccess ? (
-            <span>当前没有可提交动作。</span>
-          ) : (
-            <>
-              {confirmationActions.map((action) => (
-                <button
-                  key={action}
-                  id={`operation-action-${action}`}
-                  className={
-                    action === "approve" || action === "execute"
-                      ? undefined
-                      : "operation-button--secondary"
-                  }
-                  disabled={
-                    preparingAction !== null ||
-                    submitting ||
-                    query.isRefetchError
-                  }
-                  type="button"
-                  onClick={(event) =>
-                    void prepareAction(action, event.currentTarget)
-                  }
-                >
-                  {preparingAction === action
-                    ? "正在确认最新状态……"
-                    : operationActionLabels[action]}
-                </button>
-              ))}
-              {canAccess ? (
-                <a
-                  className="operation-link"
-                  href={operationAccessUrl(summary.operation_id)}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  打开临时访问
-                </a>
-              ) : null}
-            </>
-          )}
-        </div>
-      </section>
+      {resultUnknown ? null : (
+        <section aria-label="处理请求" className="operation-actions">
+          <div className="operation-actions__buttons">
+            {confirmationActions.length === 0 && !canAccess ? (
+              <span>当前没有可提交动作。</span>
+            ) : (
+              <>
+                {confirmationActions.map((action) => (
+                  <button
+                    key={action}
+                    id={`operation-action-${action}`}
+                    className={
+                      action === "approve" || action === "execute"
+                        ? undefined
+                        : "operation-button--secondary"
+                    }
+                    disabled={
+                      preparingAction !== null ||
+                      submitting ||
+                      query.isRefetchError
+                    }
+                    type="button"
+                    onClick={(event) =>
+                      void prepareAction(action, event.currentTarget)
+                    }
+                  >
+                    {preparingAction === action
+                      ? "正在确认最新状态……"
+                      : operationActionLabels[action]}
+                  </button>
+                ))}
+                {canAccess ? (
+                  <a
+                    className="operation-link"
+                    href={operationAccessUrl(summary.operation_id)}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    打开临时访问
+                  </a>
+                ) : null}
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {confirmation === null ? null : (
         <ActionConfirmationDialog

@@ -218,7 +218,7 @@ export function operationsRequiringAttention(
     ) {
       items.push({
         kind: "unknown_result",
-        label: "写入结果待确认",
+        label: "结果待确认",
         operation,
       });
     } else if (

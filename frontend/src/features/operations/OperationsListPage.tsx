@@ -308,9 +308,7 @@ export function OperationsListPage() {
           role="alert"
         >
           <strong>刷新失败，下面是上一次成功读取的陈旧列表。</strong>
-          <span>
-            列表状态不能视为最新；进入详情仍会按 operation ID 单独读取。
-          </span>
+          <span>这些状态可能已变化；进入详情后会重新确认这条请求。</span>
         </div>
       ) : null}
 
@@ -514,9 +512,13 @@ export function OperationsListPage() {
                     </h3>
                   </div>
                   <span
-                    className={`operation-status operation-status--${operationTone(operation.status)}`}
+                    className={`operation-status operation-status--${operation.status !== "cleanup_failed" && (operation.submission_result_unknown || operation.execution_result_unknown) ? "warning" : operationTone(operation.status)}`}
                   >
-                    {operationStatusLabel(operation.status, operation.role)}
+                    {operation.status !== "cleanup_failed" &&
+                    (operation.submission_result_unknown ||
+                      operation.execution_result_unknown)
+                      ? "结果待确认"
+                      : operationStatusLabel(operation.status, operation.role)}
                   </span>
                 </div>
                 <p>
@@ -565,7 +567,7 @@ export function OperationsListPage() {
                 {operation.submission_result_unknown ||
                 operation.execution_result_unknown ? (
                   <p className="operation-summary-card__error">
-                    写入结果尚未确认；只刷新这条操作，不要重新创建或自动执行。
+                    还不能确认这次请求是否办成。请打开这条请求查询，不要重新发送。
                   </p>
                 ) : operation.error_code === null ? null : (
                   <p className="operation-summary-card__error">

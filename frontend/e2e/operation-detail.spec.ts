@@ -351,3 +351,156 @@ test("浏览器完成请求、等待批准、执行、访问、重启降级和�
   await expect(page.getByText("已拒绝")).toBeVisible();
   expect(rejectCalls).toBe(1);
 });
+
+for (const source of [
+  "server",
+  "lost-response",
+  "unreadable-detail",
+] as const) {
+  test(`${source} 的待确认结果只查同一请求，窄屏不遮挡并可恢复`, async ({
+    context,
+    page,
+  }, testInfo) => {
+    let detail = makeOperationDetail({
+      submission_result_unknown: source === "server",
+    });
+    let detailReads = 0;
+    const writes: string[] = [];
+    const readPaths: string[] = [];
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await context.route("**/api/ui/overview", (route) =>
+      route.fulfill({
+        status: 503,
+        json: {
+          detail: { code: "names_unavailable", message: "名称暂不可用" },
+        },
+      }),
+    );
+    await context.route("**/api/operations**", async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (request.method() !== "GET") {
+        writes.push(path);
+        expect(path).toBe(`/api/operations/${operationId}/approve`);
+        if (source === "lost-response") await route.abort("failed");
+        else
+          await fulfillJson(
+            route,
+            makeOperationSummary({ status: "authorized" }),
+          );
+      } else if (path === "/api/operations/eligible-peers") {
+        await fulfillJson(route, []);
+      } else if (path === "/api/operations") {
+        await fulfillJson(route, [operationListItem(detail)]);
+      } else {
+        expect(path).toBe(`/api/operations/${operationId}`);
+        readPaths.push(path);
+        detailReads += 1;
+        if (source === "unreadable-detail" && detailReads === 3) {
+          await route.fulfill({
+            status: 503,
+            json: {
+              detail: { code: "unavailable", message: "暂时读不到结果" },
+            },
+          });
+        } else await fulfillJson(route, detail);
+      }
+    });
+    if (source === "server") {
+      await page.goto("/app/operations");
+      await expect(page.getByText("结果待确认", { exact: true })).toBeVisible();
+      await expect(page.getByText("等待你决定", { exact: true })).toHaveCount(
+        0,
+      );
+      await page.getByRole("link", { name: "查看请求", exact: true }).click();
+    } else {
+      await page.goto(`/app/operations/${operationId}`);
+      await page.getByRole("button", { name: "批准一次", exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "确认批准一次", exact: true })
+        .click();
+    }
+    const query = page.getByRole("button", {
+      name: "查询这条请求",
+      exact: true,
+    });
+    await expect(
+      page.getByText("这次请求的结果还不明确。", { exact: true }),
+    ).toBeVisible();
+    await expect(query).toBeEnabled();
+    await expect(query).toHaveCount(1);
+    await expect(page.getByRole("alert")).toHaveCount(1);
+    await expect(
+      page.locator(".operation-request-intent, .operation-actions"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        /认识这个请求再批准|operation ID|state 仍是|allowed_actions/,
+      ),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "批准一次", exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByText(/使用者可能查看或修改内容/)).toBeVisible();
+    for (const width of [1280, 320]) {
+      await page.setViewportSize({ width, height: width === 320 ? 760 : 720 });
+      await query.focus();
+      await expect(query).toBeInViewport();
+      await expectNoHorizontalOverflow(page);
+      await page.screenshot({
+        fullPage: true,
+        path: testInfo.outputPath(`request-pending-${width}.png`),
+      });
+    }
+    const technical = page.getByText("查看技术详情与记录", { exact: true });
+    await technical.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByText(`operation ${operationId}`, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("awaiting_authorization", { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Enter");
+    await query.click();
+    await expect(query).toBeEnabled();
+    await expect(
+      page.getByText("这次请求的结果还不明确。", { exact: true }),
+    ).toBeVisible();
+    expect(writes).toHaveLength(source === "server" ? 0 : 1);
+    const a11y = await new AxeBuilder({ page }).include("main").analyze();
+    expect(
+      a11y.violations.filter(
+        ({ impact }) => impact === "serious" || impact === "critical",
+      ),
+    ).toEqual([]);
+    detail = makeOperationDetail({
+      state: "authorized",
+      allowed_actions: ["cancel"],
+    });
+    await query.click();
+    await expect(page.getByText("等待对方开始", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("这次请求的结果还不明确。", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "取消请求", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(/批准成功|执行成功/)).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({
+      fullPage: true,
+      path: testInfo.outputPath("request-result-restored.png"),
+    });
+    expect(writes).toEqual(
+      source === "server" ? [] : [`/api/operations/${operationId}/approve`],
+    );
+    expect(readPaths.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(readPaths)).toEqual(
+      new Set([`/api/operations/${operationId}`]),
+    );
+    expect(errors).toEqual([]);
+  });
+}
