@@ -37,6 +37,9 @@ flowchart TB
     Q16 --> Q17["✅ Mac 隔离页更新与服务名实测"]
     Q17 --> Q18["✅ 同一程序多个入口收拢"]
     Q18 --> Q19["✅ 程序名称贯穿调查与访问请求"]
+    Q18 --> Q20["✅ Mac 程序分组版更新与只读复核"]
+    Q19 --> Q20
+    Q20 -.用户实际使用与独立范围.-> Q14
     Q19 -.实际使用与明确范围.-> Q14
     Q17 -.用户实际使用反馈.-> Q14
     Q2 --> Q4["✅ 从服务直达结果与下一步"]
@@ -85,6 +88,7 @@ flowchart TB
     class Q17 done;
     class Q18 done;
     class Q19 done;
+    class Q20 done;
 ```
 
 ## 当前状态
@@ -118,15 +122,17 @@ flowchart TB
 | 调查与处理的定位、返回和反馈        | 已完成   | [阶段结果](stages/2026-10-12-service-return-path.md)：调查对象可辨认，申请及请求可回调查，返回原服务时展开设备并定位；142组件及80双浏览器检查通过，本阶段最新完整 CI 通过并合并后生效 |
 | 首页日常入口与信息层级复核          | 已完成   | [阶段结果](stages/2026-10-12-home-service-entry.md)：导航一行、有名称服务默认可见、后台说明下沉技术清单、刷新保留用户选择；143组件及完整浏览器路径已检查，完成状态以 PR #119 最新完整 CI 通过并合并为准 |
 | Mac 隔离页更新与服务名实测          | 已完成   | [阶段记录](stages/2026-10-14-mac-isolated-product-view.md)：正式新版在 Mac 18767 运行，真实 `app.py`/`nanobot` 入口、相同服务 ID、33 项完整清单及双浏览器四项只读检查有证据；保留原数据与其他进程，不发模型/访问/批准请求；完成状态仅在本阶段证据 PR 最新门禁成功并合并后生效 |
-| 同一程序多个入口收拢                | 已完成   | [阶段结果](stages/2026-10-14-application-service-groups.md)：[PR #123](https://github.com/Sugarfarmeriod/TunnelMinion/pull/123) 已合并为 `e543ddf`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38458702985)；首页按可靠程序归属收拢，入口身份及完整清单保留，未部署 Mac |
-| 程序名称贯穿调查与访问请求          | 已完成   | [阶段结果](stages/2026-10-14-program-context.md)：[PR #124](https://github.com/Sugarfarmeriod/TunnelMinion/pull/124) 已合并为 `45d63c7`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38462436685)；调查、申请及批准沿用程序名，具体入口保留，未部署 Mac |
+| 同一程序多个入口收拢                | 已完成   | [阶段结果](stages/2026-10-14-application-service-groups.md)：[PR #123](https://github.com/Sugarfarmeriod/TunnelMinion/pull/123) 已合并为 `e543ddf`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38458702985)；首页按可靠程序归属收拢，入口身份及完整清单保留，已在 Mac 更新阶段只读实测 |
+| 程序名称贯穿调查与访问请求          | 已完成   | [阶段结果](stages/2026-10-14-program-context.md)：[PR #124](https://github.com/Sugarfarmeriod/TunnelMinion/pull/124) 已合并为 `45d63c7`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38462436685)；调查、申请及批准沿用程序名，具体入口保留，已部署 Mac，真实跨页操作仍待独立验收 |
+| Mac 程序分组版更新与只读复核        | 已完成   | [实机记录](stages/2026-10-14-mac-program-view.md)：原 18767 已更新，10 个有名称入口收成 7 个程序，33 项原服务身份保留，双浏览器桌面与窄屏四项只读检查通过；Qwen、旧页及 8787 保持原进程，无模型/访问/批准请求；完成状态在本阶段证据 PR 最新完整 CI 成功并合并后生效 |
 | 完整新版实机使用验收                | 条件触发 | 将服务浏览、调查返回和新首页作为同一套体验验收；隔离页只读更新不等于完整使用验收，不默认发推理、临时访问或批准请求，也不修改网络配置 |
 | 请求处理与批准决策复核              | 已完成   | [阶段记录](stages/2026-10-12-request-decision-flow.md)：已有请求优先、申请按需展开、双方等待关系与窄屏决策复核；155组件、80双浏览器及8项请求定向检查通过，完成状态仅在 PR #120 最新完整 CI 成功且合并后生效，Mac 更新不在当前范围 |
 | 单案例讲解                          | 已完成   | PR #104 合并生效；复核真实模型固定环境记录，区分预检、模型选择、程序证据门与处理交接 |
 
-当前下一步：待用户确认更新范围后，把程序分组与跨页面名称一致的同一正式版本更新到 Mac 隔离测试页，
-只读复核真实服务列表和页面。此范围不包含模型推理、临时访问或批准请求；不把隔离页更新当成完整使用验收。
-完整实机使用验收与具体用途识别仍按各自条件触发。
+刚完成：Mac 原隔离测试页已更新到程序分组与跨页面名称一致的正式版本，真实 10 个有名称入口收成 7 个程序，
+全部 33 项服务身份保留，双浏览器桌面与窄屏只读检查通过。完成状态在本阶段证据 PR 最新完整 CI 成功并合并后生效。
+当前没有自动扩大的实机操作范围；完整实机使用验收与具体用途识别仍按各自条件触发，
+不把本次隔离页更新等同模型推理、临时访问、批准请求或老人用户易用性验收。
 
 最近完成阶段文档：
 [`固定口径 Investigation Harness / Skill A/B 评测`](stages/2026-09-29-fixed-evaluation-ab.md)。
