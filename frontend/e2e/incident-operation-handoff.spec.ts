@@ -560,7 +560,7 @@ test("从 Overview incident 进入预填计划并只创建一次 Operation", asy
   const attention = page.getByRole("list", { name: "需要你处理的请求" });
   await expect(attention.getByText("待本机批准")).toBeVisible();
   await expect(attention.getByText("待确认执行")).toBeVisible();
-  await expect(attention.getByText("写入结果待确认")).toBeVisible();
+  await expect(attention.getByText("结果待确认")).toBeVisible();
   await expect(attention.getByText("清理失败，需人工处理")).toBeVisible();
   await expect(attention.getByRole("link", { name: "查看并处理" })).toHaveCount(
     4,

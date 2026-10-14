@@ -105,6 +105,43 @@ describe("OperationsListPage", () => {
     expect(screen.getByText(summary.target_node_id)).toBeVisible();
   });
 
+  it("未知结果摘要优先于旧的等待决定状态，仍只链接同一请求", async () => {
+    const operation = makeOperationListItem({
+      submission_result_unknown: true,
+    });
+    mockOperationsAndPeers(fetchMock, [operation]);
+    renderList();
+    expect(
+      await screen.findByText("结果待确认", { exact: true }),
+    ).toBeVisible();
+    expect(screen.queryByText("等待你决定")).not.toBeInTheDocument();
+    expect(screen.getByText(/请打开这条请求查询，不要重新发送/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "查看请求" })).toHaveAttribute(
+      "href",
+      `/app/operations/${operation.operation_id}`,
+    );
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => (init?.method ?? "GET") === "GET",
+      ),
+    ).toBe(true);
+  });
+
+  it("结果待确认不遮掉入口关闭失败", async () => {
+    mockOperationsAndPeers(fetchMock, [
+      makeOperationListItem({
+        status: "cleanup_failed",
+        execution_result_unknown: true,
+      }),
+    ]);
+    renderList();
+    expect(await screen.findByText("入口关闭失败，需要处理")).toBeVisible();
+    expect(
+      screen.queryByText("结果待确认", { exact: true }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/请打开这条请求查询/)).toBeVisible();
+  });
+
   it("刷新失败时保留并明确标记陈旧列表", async () => {
     const staleSummary: OperationListItem = makeOperationListItem({
       tool_name: "旧列表里的工具",
@@ -131,7 +168,7 @@ describe("OperationsListPage", () => {
     expect(screen.getByText(/旧列表里的工具/)).not.toBeVisible();
     await user.click(screen.getByText("查看编号与连接记录"));
     expect(screen.getByText(/旧列表里的工具/)).toBeVisible();
-    expect(screen.getByText(/按 operation ID 单独读取/)).toBeVisible();
+    expect(screen.getByText(/进入详情后会重新确认这条请求/)).toBeVisible();
   });
 
   it("初次错误提供第一个可键盘触发的恢复按钮", async () => {

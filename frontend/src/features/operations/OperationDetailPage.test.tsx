@@ -137,7 +137,7 @@ describe("OperationDetailPage", () => {
 
     const { container } = renderDetail();
 
-    expect(screen.getByRole("status")).toHaveTextContent("按 operation ID");
+    expect(screen.getByRole("status")).toHaveTextContent("正在读取这条请求");
     expect(
       await screen.findByRole("heading", { name: "临时访问请求" }),
     ).toBeVisible();
@@ -346,21 +346,23 @@ describe("OperationDetailPage", () => {
       await screen.findByRole("button", { name: "确认批准一次" }),
     );
 
+    expect(await screen.findByText("这次请求的结果还不明确。")).toBeVisible();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByText("结果待确认", { exact: true })).toBeVisible();
+    expect(screen.queryByText(/认识这个请求再批准/)).not.toBeInTheDocument();
     expect(
-      await screen.findByText("批准一次请求的写入结果未知。"),
-    ).toBeVisible();
-    expect(screen.getByText(/页面没有重放该请求/)).toBeVisible();
+      screen.queryByText(/operation ID|state 仍是|allowed_actions/),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByText(/state 仍是.*等待你决定.*且仍允许批准一次/),
-    ).toBeVisible();
-    expect(screen.getByText(/写入结果未知期间只允许查询/)).toBeVisible();
+      screen.queryByRole("region", { name: "处理请求" }),
+    ).not.toBeInTheDocument();
     expect(postCalls(fetchMock)).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "只查询最新状态" }));
+    await user.click(screen.getByRole("button", { name: "查询这条请求" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
     expect(postCalls(fetchMock)).toHaveLength(1);
-    expect(screen.queryByText("批准一次请求的写入结果未知。")).toBeVisible();
-    expect(screen.getByText(/写入结果继续未知/)).toBeVisible();
+    expect(screen.getByText("这次请求的结果还不明确。")).toBeVisible();
+    expect(screen.getByText(/查询后仍没有明确结果/)).toBeVisible();
     expect(
       screen.queryByRole("button", { name: /再次批准/ }),
     ).not.toBeInTheDocument();
@@ -395,11 +397,12 @@ describe("OperationDetailPage", () => {
     );
 
     expect(
-      await screen.findByText(/写请求响应曾经未知.*服务端已经裁决原动作/),
+      await screen.findByText(/已读到最新状态，请以下方结果为准/),
     ).toBeVisible();
-    expect(screen.getByText(/不根据响应缺失猜测成功/)).toBeVisible();
+    expect(screen.getByText(/刚才的请求没有再次发送/)).toBeVisible();
+    expect(screen.queryByText(/批准成功|执行成功/)).not.toBeInTheDocument();
     expect(
-      screen.queryByText("批准一次请求的写入结果未知。"),
+      screen.queryByText("这次请求的结果还不明确。"),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消请求" })).toBeVisible();
     expect(postCalls(fetchMock)).toHaveLength(1);
@@ -425,16 +428,13 @@ describe("OperationDetailPage", () => {
       await screen.findByRole("button", { name: "确认批准一次" }),
     );
 
+    expect(await screen.findByText("这次请求的结果还不明确。")).toBeVisible();
+    expect(screen.getByText(/暂时查不到最新结果/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "查询这条请求" })).toBeVisible();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(
-      await screen.findByText("批准一次请求的写入结果未知。"),
-    ).toBeVisible();
-    expect(
-      screen.getByText(/写入结果仍未知，最新详情也读取失败/),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "只查询最新状态" }),
-    ).toBeVisible();
-    expect(screen.getByText(/写入结果未知期间只允许查询/)).toBeVisible();
+      screen.queryByRole("button", { name: "批准一次" }),
+    ).not.toBeInTheDocument();
     expect(postCalls(fetchMock)).toHaveLength(1);
   });
 
@@ -531,13 +531,11 @@ describe("OperationDetailPage", () => {
     const user = userEvent.setup();
 
     renderDetail();
-    expect(
-      await screen.findByText("这条操作的写入结果尚未确认。"),
-    ).toBeVisible();
+    expect(await screen.findByText("这次请求的结果还不明确。")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "开始临时访问" }),
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "查看对方状态" }));
+    await user.click(screen.getByRole("button", { name: "查询这条请求" }));
 
     await waitFor(() => expect(postCalls(fetchMock)).toHaveLength(1));
     expect(postCalls(fetchMock)[0]?.[0]).toBe(
@@ -548,5 +546,177 @@ describe("OperationDetailPage", () => {
         ([path]) => path === `/api/operations/${operationId}/execute`,
       ),
     ).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      role: "target",
+      state: "awaiting_authorization",
+      flag: "submission_result_unknown",
+      action: "批准一次",
+    },
+    {
+      role: "target",
+      state: "awaiting_authorization",
+      flag: "execution_result_unknown",
+      action: "批准一次",
+    },
+    {
+      role: "requester",
+      state: "authorized",
+      flag: "execution_result_unknown",
+      action: "开始临时访问",
+    },
+  ] as const)(
+    "准备 $action 时最新详情变成 $flag，不再打开确认框",
+    async ({ role, state, flag, action }) => {
+      const detail = makeOperationDetail({
+        role,
+        state,
+        allowed_actions:
+          role === "target" ? ["approve"] : ["execute", "refresh"],
+      });
+      fetchMock
+        .mockReturnValueOnce(jsonResponse(detail))
+        .mockReturnValueOnce(jsonResponse({ ...detail, [flag]: true }));
+      const user = userEvent.setup();
+      renderDetail();
+      await user.click(await screen.findByRole("button", { name: action }));
+      expect(await screen.findByText("这次请求的结果还不明确。")).toBeVisible();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "查询这条请求" }),
+      ).toBeVisible();
+      expect(postCalls(fetchMock)).toHaveLength(0);
+    },
+  );
+
+  it("入口关闭失败与待确认并存时，不掩盖需要人工处理的提醒", async () => {
+    fetchMock.mockReturnValueOnce(
+      jsonResponse(
+        makeOperationDetail({
+          state: "cleanup_failed",
+          execution_result_unknown: true,
+          manual_action: "请检查尚未关闭的入口",
+          allowed_actions: [],
+        }),
+      ),
+    );
+    renderDetail();
+    expect(await screen.findByText("入口关闭失败，需要处理")).toBeVisible();
+    expect(screen.getByText("需要你处理：临时入口没有安全关闭")).toBeVisible();
+    expect(screen.getByText("请检查尚未关闭的入口")).toBeVisible();
+    expect(screen.getByText("这次请求的结果还不明确。")).toBeVisible();
+  });
+
+  it("结果待确认时只保留一个查询入口，读取失败也不重新展示批准建议", async () => {
+    const detail = makeOperationDetail({
+      submission_result_unknown: true,
+      error_code: "submission_result_unknown",
+    });
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(detail))
+      .mockRejectedValueOnce(new TypeError("offline"));
+    const user = userEvent.setup();
+    const { container } = renderDetail();
+
+    await screen.findByText("这次请求的结果还不明确。");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "查询这条请求" }),
+    ).toHaveLength(1);
+    expect(container.querySelector(".operation-request-intent")).toBeNull();
+    expect(container.querySelector(".operation-actions")).toBeNull();
+    expect(screen.getByText(/请向发起人确认身份/)).toBeVisible();
+    expect(screen.getByText(/使用者可能查看或修改内容/)).toBeVisible();
+    expect(
+      screen.getByText("awaiting_authorization", { exact: true }),
+    ).not.toBeVisible();
+    await user.click(screen.getByText("查看技术详情与记录"));
+    expect(
+      screen.getByText("awaiting_authorization", { exact: true }),
+    ).toBeVisible();
+    expect(screen.getByText("approve、reject、cancel")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "查询这条请求" }));
+    expect(await screen.findByText(/暂时查不到最新结果/)).toBeVisible();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByText("结果待确认", { exact: true })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "批准一次" }),
+    ).not.toBeInTheDocument();
+    expect(postCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("已收到提交响应但详情读取失败时，先查询同一请求再恢复允许动作", async () => {
+    const awaiting = makeOperationDetail();
+    const authorized = makeOperationDetail({
+      state: "authorized",
+      allowed_actions: ["cancel"],
+    });
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(awaiting))
+      .mockReturnValueOnce(jsonResponse(awaiting))
+      .mockReturnValueOnce(jsonResponse(authorized.summary))
+      .mockRejectedValueOnce(new TypeError("detail offline"))
+      .mockReturnValueOnce(jsonResponse(authorized));
+    const user = userEvent.setup();
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "批准一次" }));
+    await user.click(
+      await screen.findByRole("button", { name: "确认批准一次" }),
+    );
+    expect(
+      await screen.findByText(/请求已收到，但暂时读不到处理结果/),
+    ).toBeVisible();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(
+      screen.queryByRole("button", { name: "批准一次" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查询这条请求" }));
+    expect(await screen.findByText("等待对方开始")).toBeVisible();
+    expect(
+      screen.queryByText("这次请求的结果还不明确。"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消请求" })).toBeVisible();
+    expect(postCalls(fetchMock)).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path]) => path === `/api/operations/${operationId}`,
+      ),
+    ).toHaveLength(4);
+  });
+
+  it("查询进行中禁用唯一按钮，重复点击不会再次提交或查询", async () => {
+    const awaiting = makeOperationDetail();
+    let finishQuery!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      finishQuery = resolve;
+    });
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(awaiting))
+      .mockReturnValueOnce(jsonResponse(awaiting))
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockReturnValueOnce(jsonResponse(awaiting))
+      .mockReturnValueOnce(response);
+    const user = userEvent.setup();
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "批准一次" }));
+    await user.click(
+      await screen.findByRole("button", { name: "确认批准一次" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "查询这条请求" }),
+    );
+    const querying = screen.getByRole("button", { name: "正在查询……" });
+    expect(querying).toBeDisabled();
+    fireEvent.click(querying);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    finishQuery(new Response(JSON.stringify(awaiting), { status: 200 }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "查询这条请求" }),
+      ).toBeEnabled(),
+    );
+    expect(postCalls(fetchMock)).toHaveLength(1);
   });
 });

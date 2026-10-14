@@ -1111,7 +1111,7 @@ describe("OverviewPage", () => {
 
     expect(await screen.findByText("待本机批准")).toBeVisible();
     expect(screen.getByText("待确认执行")).toBeVisible();
-    expect(screen.getByText("写入结果待确认")).toBeVisible();
+    expect(screen.getByText("结果待确认")).toBeVisible();
     expect(screen.getByText("清理失败，需人工处理")).toBeVisible();
     expect(screen.getAllByRole("link", { name: "查看并处理" })).toHaveLength(4);
 
