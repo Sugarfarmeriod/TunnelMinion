@@ -1,0 +1,531 @@
+{
+  "schema_version": "mac-unified-workspace-evidence/v1",
+  "implementation": {
+    "pull_request": 130,
+    "main_revision": "959be798582dae7731b7f29dd2b87350004f08cc",
+    "ci_run": 38540013275,
+    "ci_head": "1d17197e8d6a0ab63903dc2055f2d0de489be93e",
+    "ci_checks_passed": 8
+  },
+  "observed_at": {
+    "before": "2026-10-14T09:03:40.181475+00:00",
+    "after": "2026-10-14T09:21:33.445876+00:00",
+    "final": "2026-10-14T17:34:23.687090+00:00",
+    "browser": "2026-10-14T17:27:30.6130294Z"
+  },
+  "package": {
+    "archive_sha256": "b8f81fcf102ad565f61b3d4f6469c0022b7e430e9df2ab02a48cc6df4b86277b",
+    "manifest_sha256": "8bb47c9d8d0c69cd6b494c84d525ce5b4837529a41416cfab008a297c26de8f0",
+    "source_revision": "eed0cc4ad7b92cc663c89cd3e660540f46280b04",
+    "source_tree_sha256": "53f14ce13312f80945487b8b35bc2032ed08b455836708ac128e1c1664fe0944",
+    "frontend": {
+      "file_count": 3,
+      "root": "_internal/tunnelminion/web/ui",
+      "sha256": "de3b0ed285dd497507cc232ac97fbc2943986f708161988c05af8e369104c3c7"
+    },
+    "candidate": "tunnelminion-0-1-0-darwin-arm64-53f14ce13312-de3b0ed285dd",
+    "file_count": 143,
+    "source_matches_main": true,
+    "closed_file_set_and_hashes_valid": true,
+    "activation": [
+      {
+        "action": "status",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "components": [
+          {
+            "component": "local",
+            "pid": 24033
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "stop",
+        "exit_code": 0,
+        "runtime_state": "stopped",
+        "components": [
+          {
+            "component": "local",
+            "pid": 24033
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "start",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "components": [
+          {
+            "component": "local",
+            "pid": 60448
+          }
+        ],
+        "preflight": {
+          "deterministic_ready": false,
+          "checks": [
+            {
+              "name": "package",
+              "status": "passed",
+              "code": "package_valid"
+            },
+            {
+              "name": "profile",
+              "status": "passed",
+              "code": "profile_valid"
+            },
+            {
+              "name": "data-dir",
+              "status": "passed",
+              "code": "data_dir_writable"
+            },
+            {
+              "name": "model-config",
+              "status": "warning",
+              "code": "model_unconfigured"
+            },
+            {
+              "name": "managed-config",
+              "status": "warning",
+              "code": "managed_unconfigured"
+            },
+            {
+              "name": "gateway-config",
+              "status": "warning",
+              "code": "gateway_disabled"
+            },
+            {
+              "name": "local-instance",
+              "status": "failed",
+              "code": "existing_instance_record"
+            },
+            {
+              "name": "local-port",
+              "status": "passed",
+              "code": "port_available"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "retained": {
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "profile_unchanged": true,
+    "declared_data_directory_sha256": "ccb2b1d1cdeb9d63ca90b2db11eea96f90772d0a4c5621ae8b9acd9db99bde73",
+    "declared_data_directory_unchanged": true,
+    "local_port": 18767,
+    "enabled_components": [
+      "local"
+    ],
+    "configuration_present": {
+      "model.json": false,
+      "managed-node.json": false,
+      "gateway.json": false
+    },
+    "listener_pids_before": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        24033
+      ]
+    },
+    "listener_pids_after": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        60448
+      ]
+    }
+  },
+  "overview": {
+    "before_service_count": 34,
+    "after_service_count": 34,
+    "before_named_entries": 10,
+    "named_entries": 16,
+    "program_count": 11,
+    "unnamed_count": 18,
+    "preserved_service_ids": [
+      "service_05fbdbfa0abe70af77b897cc82251bd5",
+      "service_0ad8cb08bb07c81bc1ef6f7241466751",
+      "service_206019d1f707dc45b7590279b66397d2",
+      "service_2adeabcc16698e7e2be7c22590827ac0",
+      "service_38951919013688b568bdcd996dce5a4c",
+      "service_3ac26f85fc0cc666f77b12a8637641b3",
+      "service_403cecc51c5a6f56bd2014891aed00a3",
+      "service_4b56417640f7bc5c48adc2e5b1c8d589",
+      "service_4e7d410e0554e3c53683bc472a2d094b",
+      "service_55c67e4408191457f4bbc4dfb98a555f",
+      "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+      "service_5fbf33ec2fba867c84cd28f75585964c",
+      "service_676ab4650bf1596975b3288d45765bc8",
+      "service_6c1d6b6bbd73a008b8f982c21c930d8a",
+      "service_742e89a982bfc0144cd2e1c70ee21b80",
+      "service_876f8d86e27b80252defc61253029a1b",
+      "service_88b7a794984ee12a55613846e2c1c959",
+      "service_8bd518511091c6b46bb2b236ad1c5680",
+      "service_91936be1687e7d79fbddd1269d3f70db",
+      "service_9b34c848771d6fc83fd777241fffd414",
+      "service_9df399218796db0522d86beaef15db19",
+      "service_a715c27099aa7428797107bba5410b94",
+      "service_aae8cc91b632075cfab0d49e2172301c",
+      "service_aded671a4cd959263862cff804060f47",
+      "service_af9bd90262f7f5d3bd681249a9cddbad",
+      "service_b2b48cd662f70dc5b36a56db05fc8c17",
+      "service_c4095eeda456c02274f0cec124e54631",
+      "service_d61f5628200f628bcfef8d6f74b0903a",
+      "service_e0ca86cbfffc3a1c91f00d252df6a930",
+      "service_e66f9a76f6c9b750020dad07d9e145a5",
+      "service_edda0b62de18feac81ec04b492662d99",
+      "service_f4dac12f830d92466868d2a7276197a5",
+      "service_f79d53c24339d4ec9890e76a541e6b5d",
+      "service_fde85872ce80d9ea9a1302892bcd9620"
+    ],
+    "states": [
+      "available"
+    ],
+    "freshness": [
+      "fresh"
+    ],
+    "groups": [
+      {
+        "group_id": "application_8fde0d1001916151b4283620a3f17cbf",
+        "name": "n3n-supernode",
+        "kind": "program",
+        "service_ids": [
+          "service_2adeabcc16698e7e2be7c22590827ac0",
+          "service_e0ca86cbfffc3a1c91f00d252df6a930"
+        ],
+        "ports": [
+          9527
+        ],
+        "protocols": [
+          "udp",
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_b3b719f3e0b8c57cc0b40401d35ecf0a",
+        "name": "tunnelminion",
+        "kind": "program",
+        "service_ids": [
+          "service_403cecc51c5a6f56bd2014891aed00a3"
+        ],
+        "ports": [
+          18765
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_c6b2af069fff6f801fba3a202b9746fb",
+        "name": "gost",
+        "kind": "program",
+        "service_ids": [
+          "service_4e7d410e0554e3c53683bc472a2d094b"
+        ],
+        "ports": [
+          805
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_fa5a65a5cc1ce50af95e91f151fb9701",
+        "name": "gimp",
+        "kind": "docker",
+        "service_ids": [
+          "service_55c67e4408191457f4bbc4dfb98a555f",
+          "service_c4095eeda456c02274f0cec124e54631"
+        ],
+        "ports": [
+          3001,
+          3000
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_aab87df86832a27272cad8315de81bac",
+        "name": "Wireguard Panel",
+        "kind": "python",
+        "service_ids": [
+          "service_5a49c15455dfaf2f661d7c9957e6d0b8"
+        ],
+        "ports": [
+          8787
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_db42d6387cb7526a594aa8dce8aa4cc2",
+        "name": "baota",
+        "kind": "docker",
+        "service_ids": [
+          "service_5fbf33ec2fba867c84cd28f75585964c",
+          "service_a715c27099aa7428797107bba5410b94",
+          "service_edda0b62de18feac81ec04b492662d99"
+        ],
+        "ports": [
+          80,
+          443,
+          8888
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_d5b29a5ea768b0a4d3030f56672c091c",
+        "name": "nanobot",
+        "kind": "python",
+        "service_ids": [
+          "service_676ab4650bf1596975b3288d45765bc8",
+          "service_fde85872ce80d9ea9a1302892bcd9620"
+        ],
+        "ports": [
+          8765,
+          18790
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_dc538c3a2e6c366f62ad26f3e4feb9ac",
+        "name": "obsidian-couchdb",
+        "kind": "docker",
+        "service_ids": [
+          "service_8bd518511091c6b46bb2b236ad1c5680"
+        ],
+        "ports": [
+          5984
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_4c7a7b2a75556e83bccbb11b7fa3d342",
+        "name": "penpot-penpot-frontend-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_9b34c848771d6fc83fd777241fffd414"
+        ],
+        "ports": [
+          9001
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_4ae8af43eb65aaac35078bc674b4a1e1",
+        "name": "llama.cpp",
+        "kind": "model",
+        "service_ids": [
+          "service_aae8cc91b632075cfab0d49e2172301c"
+        ],
+        "ports": [
+          8080
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      },
+      {
+        "group_id": "application_127f7885847a4783cf301ef6237cbbbc",
+        "name": "penpot-penpot-mailcatch-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_af9bd90262f7f5d3bd681249a9cddbad"
+        ],
+        "ports": [
+          1080
+        ],
+        "protocols": [
+          "tcp"
+        ]
+      }
+    ]
+  },
+  "browser": {
+    "target": "mac-live-unified-workspace",
+    "fixture": false,
+    "results": [
+      {
+        "browser": "chromium",
+        "width": 1280,
+        "total": 34,
+        "programs": 11,
+        "identityPreserved": true,
+        "existingGroupsPreserved": true,
+        "projectSelection": true,
+        "sameWorkspaceForRequests": true,
+        "fullTechnicalInventory": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/threads",
+          "/api/ui/overview",
+          "/app-assets/assets/index-BcasCHxr.js",
+          "/app-assets/assets/index-CqVQ7XZb.css",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "chromium",
+        "width": 320,
+        "total": 34,
+        "programs": 11,
+        "identityPreserved": true,
+        "existingGroupsPreserved": true,
+        "projectSelection": true,
+        "sameWorkspaceForRequests": true,
+        "fullTechnicalInventory": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/threads",
+          "/api/ui/overview",
+          "/app-assets/assets/index-BcasCHxr.js",
+          "/app-assets/assets/index-CqVQ7XZb.css",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "webkit",
+        "width": 1280,
+        "total": 34,
+        "programs": 11,
+        "identityPreserved": true,
+        "existingGroupsPreserved": true,
+        "projectSelection": true,
+        "sameWorkspaceForRequests": true,
+        "fullTechnicalInventory": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/threads",
+          "/api/ui/overview",
+          "/app-assets/assets/index-BcasCHxr.js",
+          "/app-assets/assets/index-CqVQ7XZb.css",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "webkit",
+        "width": 320,
+        "total": 34,
+        "programs": 11,
+        "identityPreserved": true,
+        "existingGroupsPreserved": true,
+        "projectSelection": true,
+        "sameWorkspaceForRequests": true,
+        "fullTechnicalInventory": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/threads",
+          "/api/ui/overview",
+          "/app-assets/assets/index-BcasCHxr.js",
+          "/app-assets/assets/index-CqVQ7XZb.css",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      }
+    ],
+    "evidence_files": [
+      {
+        "path": "build/unified-workspace/mac-chromium-1280.png",
+        "sha256": "bd6a055c2c612a4307423bfea2c9408023cb5e1dacf587734130c85973d564c3"
+      },
+      {
+        "path": "build/unified-workspace/mac-chromium-320.png",
+        "sha256": "01213b2e84f157e0d43a9e38feeeb5d16171629e08c1c2b1e22264f87e82a243"
+      },
+      {
+        "path": "build/unified-workspace/mac-webkit-1280.png",
+        "sha256": "7dac016bd1c3f7ae7d40ff22d201c9c817e3301972b1ac27c11f8ddc161e89c2"
+      },
+      {
+        "path": "build/unified-workspace/mac-webkit-320.png",
+        "sha256": "5ef6af2542970cb5bdb68bd8a5c6d5711dbbe94436d2eeb44781989525bf1b94"
+      },
+      {
+        "path": "build/unified-workspace/mac-selected-chromium-1280.png",
+        "sha256": "c562a901e905d6ecb153653900b70bfb89110e35604234831f9ad348c83744ba"
+      },
+      {
+        "path": "build/unified-workspace/mac-selected-chromium-320.png",
+        "sha256": "0822631b90b3c5183546acdb7e80c44b6b9d9021d879efb90abdcbf6361f401c"
+      },
+      {
+        "path": "build/unified-workspace/mac-selected-webkit-1280.png",
+        "sha256": "a6adcce5a2db43cc3e890a7851a30f2e14024e4c48b424f6f048564be32a05ac"
+      },
+      {
+        "path": "build/unified-workspace/mac-selected-webkit-320.png",
+        "sha256": "0a7345c58a37f7091c2254dd7543c84c9fc9e954cd02556b5db1a28302f39503"
+      }
+    ]
+  },
+  "cleanup": {
+    "uploaded_archive_removed": true,
+    "new_program_retained": true,
+    "fallback_program_retained": true,
+    "owned_forwarder_pids": [
+      43004,
+      33084
+    ],
+    "owned_forwarder_closed": true,
+    "local_verification_ports_closed": true,
+    "unrelated_local_listener_pid": 43436
+  },
+  "boundaries": {
+    "model_inference_requests": 0,
+    "access_requests": 0,
+    "approval_requests": 0,
+    "network_settings_changed": false,
+    "wireguard_changed": false,
+    "production_services_changed": false,
+    "full_command_arguments_exported": false,
+    "python_project_paths_exported": false,
+    "business_file_contents_read": false
+  }
+}
