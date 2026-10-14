@@ -1,0 +1,731 @@
+{
+  "schema_version": "mac-connection-view-evidence/v1",
+  "observed_at": "2026-10-14T03:35:17.740276+00:00",
+  "approved_main": "52484aeb3a677fd8a6bdfd0f2ed8e992cf26064e",
+  "implementation_pr": 127,
+  "package_ci_run": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38504823941",
+  "package_ci_head": "5163c2d7a0ee4da470dfc0d4304aa0de30ecf142",
+  "package": {
+    "archive_sha256": "985033104831555c32f6fea58450724f48d92d827bbf779daee901869ccbb40f",
+    "manifest_sha256": "334ba3bdf46ecf4d91b367bac28f8ff723cde370775823cb45873fc8e93b981b",
+    "source_revision": "414c885f9a8ba39ca2f6f1aea8ce43154d35e278",
+    "source_tree_sha256": "49c0a9f0e39bc92e8bdb500f5cb4bd845670a178afeb5dd458c27dfcf1269c61",
+    "candidate": "tunnelminion-0-1-0-darwin-arm64-49c0a9f0e39b-7519d992ed52",
+    "frontend": {
+      "file_count": 3,
+      "root": "_internal/tunnelminion/web/ui",
+      "sha256": "7519d992ed52813cae744c76645bc0ba765145b1ebe7c77b47fb2b4bf0a4efbe"
+    },
+    "file_count": 143,
+    "source_matches_main": true,
+    "closed_file_set_and_hashes_valid": true,
+    "artifact_id": 11867007313,
+    "artifact_zip_sha256": "272fc416a8ba916dae9db996b32b254ad112e0cf86d80d0eaca6fb69d790e459",
+    "native_checks": {
+      "package": {
+        "status": "passed",
+        "code": "package_valid"
+      },
+      "profile": {
+        "status": "passed",
+        "code": "profile_valid"
+      },
+      "data-dir": {
+        "status": "passed",
+        "code": "data_dir_writable"
+      },
+      "model-config": {
+        "status": "warning",
+        "code": "model_unconfigured"
+      },
+      "managed-config": {
+        "status": "warning",
+        "code": "managed_unconfigured"
+      },
+      "gateway-config": {
+        "status": "warning",
+        "code": "gateway_disabled"
+      },
+      "local-instance": {
+        "status": "failed",
+        "code": "existing_instance_record"
+      },
+      "local-port": {
+        "status": "passed",
+        "code": "port_available"
+      }
+    },
+    "prestart_deterministic_ready": false,
+    "runtime_state": "running",
+    "runtime_exit_code": 0,
+    "executable_sha256": "58d2ed433819c541705089a6a521016c118a04579d5e85bb56ee6e054493e505"
+  },
+  "retained": {
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "data_dir_sha256": "ccb2b1d1cdeb9d63ca90b2db11eea96f90772d0a4c5621ae8b9acd9db99bde73",
+    "profile_unchanged": true,
+    "declared_data_directory_unchanged": true,
+    "local_port": 18767,
+    "enabled_components": [
+      "local"
+    ],
+    "configuration_present": {
+      "model.json": false,
+      "managed-node.json": false,
+      "gateway.json": false
+    },
+    "qwen_pid_before": 33870,
+    "qwen_pid_after": 33870,
+    "old_page_pid_before": 95881,
+    "old_page_pid_after": 95881,
+    "existing_8787_pid_before": 79774,
+    "existing_8787_pid_after": 79774,
+    "old_test_page_pid": 13189,
+    "new_test_page_pid": 24033,
+    "old_program_retained": true,
+    "new_program_root": "/Users/mac/Working-Env/tunnelminion-20261014-connection-view",
+    "listeners": {
+      "test": "127.0.0.1:18767",
+      "old_page": "127.0.0.1:18765",
+      "qwen": "*:8080",
+      "existing_python": "127.0.0.1:8787"
+    }
+  },
+  "overview": {
+    "schema_version": "resource-overview-programs/v1",
+    "before_observed_at": "2026-10-14T03:32:06.347656+00:00",
+    "after_observed_at": "2026-10-14T03:35:17.740276+00:00",
+    "before_service_count": 34,
+    "after_service_count": 34,
+    "named_entries": 10,
+    "program_count": 7,
+    "unnamed_count": 24,
+    "all_service_ids_names_ports_states_freshness_applications_and_accessibility_preserved": true,
+    "states": {
+      "available": 34
+    },
+    "freshness": {
+      "fresh": 34
+    },
+    "groups": [
+      {
+        "name": "app.py",
+        "kind": "python",
+        "service_ids": [
+          "service_5a49c15455dfaf2f661d7c9957e6d0b8"
+        ],
+        "ports": [
+          8787
+        ]
+      },
+      {
+        "name": "baota",
+        "kind": "docker",
+        "service_ids": [
+          "service_5fbf33ec2fba867c84cd28f75585964c",
+          "service_a715c27099aa7428797107bba5410b94",
+          "service_edda0b62de18feac81ec04b492662d99"
+        ],
+        "ports": [
+          80,
+          443,
+          8888
+        ]
+      },
+      {
+        "name": "nanobot",
+        "kind": "python",
+        "service_ids": [
+          "service_676ab4650bf1596975b3288d45765bc8",
+          "service_fde85872ce80d9ea9a1302892bcd9620"
+        ],
+        "ports": [
+          8765,
+          18790
+        ]
+      },
+      {
+        "name": "obsidian-couchdb",
+        "kind": "docker",
+        "service_ids": [
+          "service_8bd518511091c6b46bb2b236ad1c5680"
+        ],
+        "ports": [
+          5984
+        ]
+      },
+      {
+        "name": "penpot-penpot-frontend-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_9b34c848771d6fc83fd777241fffd414"
+        ],
+        "ports": [
+          9001
+        ]
+      },
+      {
+        "name": "llama.cpp",
+        "kind": "model",
+        "service_ids": [
+          "service_aae8cc91b632075cfab0d49e2172301c"
+        ],
+        "ports": [
+          8080
+        ]
+      },
+      {
+        "name": "penpot-penpot-mailcatch-1",
+        "kind": "docker",
+        "service_ids": [
+          "service_af9bd90262f7f5d3bd681249a9cddbad"
+        ],
+        "ports": [
+          1080
+        ]
+      }
+    ],
+    "preserved_services": [
+      {
+        "service_id": "service_05fbdbfa0abe70af77b897cc82251bd5",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 32222,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_0ad8cb08bb07c81bc1ef6f7241466751",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 7000,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_206019d1f707dc45b7590279b66397d2",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 21291,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_2adeabcc16698e7e2be7c22590827ac0",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 9527,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_38951919013688b568bdcd996dce5a4c",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 51413,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_3ac26f85fc0cc666f77b12a8637641b3",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 7273,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_403cecc51c5a6f56bd2014891aed00a3",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 18765,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_4b56417640f7bc5c48adc2e5b1c8d589",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 50594,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_4e7d410e0554e3c53683bc472a2d094b",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 805,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_55c67e4408191457f4bbc4dfb98a555f",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 3001,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Python · app.py · 8787",
+        "port": 8787,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_aab87df86832a27272cad8315de81bac",
+          "name": "app.py",
+          "kind": "python"
+        },
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_5fbf33ec2fba867c84cd28f75585964c",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · baota · 80",
+        "port": 80,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_db42d6387cb7526a594aa8dce8aa4cc2",
+          "name": "baota",
+          "kind": "docker"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_676ab4650bf1596975b3288d45765bc8",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Python · nanobot · 8765",
+        "port": 8765,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_d5b29a5ea768b0a4d3030f56672c091c",
+          "name": "nanobot",
+          "kind": "python"
+        },
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_6c1d6b6bbd73a008b8f982c21c930d8a",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 10000,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_742e89a982bfc0144cd2e1c70ee21b80",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 49238,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_876f8d86e27b80252defc61253029a1b",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 33331,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_88b7a794984ee12a55613846e2c1c959",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 5353,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_8bd518511091c6b46bb2b236ad1c5680",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · obsidian-couchdb · 5984",
+        "port": 5984,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_dc538c3a2e6c366f62ad26f3e4feb9ac",
+          "name": "obsidian-couchdb",
+          "kind": "docker"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_91936be1687e7d79fbddd1269d3f70db",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 64427,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_9b34c848771d6fc83fd777241fffd414",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · penpot-penpot-frontend-1 · 9001",
+        "port": 9001,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_4c7a7b2a75556e83bccbb11b7fa3d342",
+          "name": "penpot-penpot-frontend-1",
+          "kind": "docker"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_9df399218796db0522d86beaef15db19",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 49354,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_a715c27099aa7428797107bba5410b94",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · baota · 443",
+        "port": 443,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_db42d6387cb7526a594aa8dce8aa4cc2",
+          "name": "baota",
+          "kind": "docker"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_aae8cc91b632075cfab0d49e2172301c",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "模型服务 · llama.cpp · 8080",
+        "port": 8080,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_4ae8af43eb65aaac35078bc674b4a1e1",
+          "name": "llama.cpp",
+          "kind": "model"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_aded671a4cd959263862cff804060f47",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 7475,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_af9bd90262f7f5d3bd681249a9cddbad",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · penpot-penpot-mailcatch-1 · 1080",
+        "port": 1080,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_127f7885847a4783cf301ef6237cbbbc",
+          "name": "penpot-penpot-mailcatch-1",
+          "kind": "docker"
+        },
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_b2b48cd662f70dc5b36a56db05fc8c17",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 51413,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_c4095eeda456c02274f0cec124e54631",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 3000,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_d61f5628200f628bcfef8d6f74b0903a",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 5000,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_e0ca86cbfffc3a1c91f00d252df6a930",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 9527,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_e66f9a76f6c9b750020dad07d9e145a5",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 5309,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_edda0b62de18feac81ec04b492662d99",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Docker · baota · 8888",
+        "port": 8888,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_db42d6387cb7526a594aa8dce8aa4cc2",
+          "name": "baota",
+          "kind": "docker"
+        },
+        "accessibility": "network"
+      },
+      {
+        "service_id": "service_f4dac12f830d92466868d2a7276197a5",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 18767,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_f79d53c24339d4ec9890e76a541e6b5d",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": null,
+        "port": 32222,
+        "state": "available",
+        "freshness": "fresh",
+        "application": null,
+        "accessibility": "loopback"
+      },
+      {
+        "service_id": "service_fde85872ce80d9ea9a1302892bcd9620",
+        "node_id": "node_3a5d8262972c4ae9b9b8da825862a90e",
+        "display_name": "Python · nanobot · 18790",
+        "port": 18790,
+        "state": "available",
+        "freshness": "fresh",
+        "application": {
+          "group_id": "application_d5b29a5ea768b0a4d3030f56672c091c",
+          "name": "nanobot",
+          "kind": "python"
+        },
+        "accessibility": "loopback"
+      }
+    ]
+  },
+  "browser": {
+    "target": "mac-live-isolated-page",
+    "fixture": false,
+    "results": [
+      {
+        "browser": "chromium",
+        "width": 1280,
+        "namedEntries": 10,
+        "programs": 7,
+        "total": 34,
+        "identityPreserved": true,
+        "groupEntriesVerified": true,
+        "plainDescriptionsVerified": true,
+        "commonDescriptionOnce": true,
+        "technicalDetailsInitiallyClosed": true,
+        "keyboardDisclosureVerified": true,
+        "expandedListUnclipped": true,
+        "refreshPreservesExpandedProgram": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/ui/overview",
+          "/app-assets/assets/index-CRD3Gb63.css",
+          "/app-assets/assets/index-PUwG4two.js",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "chromium",
+        "width": 320,
+        "namedEntries": 10,
+        "programs": 7,
+        "total": 34,
+        "identityPreserved": true,
+        "groupEntriesVerified": true,
+        "plainDescriptionsVerified": true,
+        "commonDescriptionOnce": true,
+        "technicalDetailsInitiallyClosed": true,
+        "keyboardDisclosureVerified": true,
+        "expandedListUnclipped": true,
+        "refreshPreservesExpandedProgram": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/ui/overview",
+          "/app-assets/assets/index-CRD3Gb63.css",
+          "/app-assets/assets/index-PUwG4two.js",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "webkit",
+        "width": 1280,
+        "namedEntries": 10,
+        "programs": 7,
+        "total": 34,
+        "identityPreserved": true,
+        "groupEntriesVerified": true,
+        "plainDescriptionsVerified": true,
+        "commonDescriptionOnce": true,
+        "technicalDetailsInitiallyClosed": true,
+        "keyboardDisclosureVerified": true,
+        "expandedListUnclipped": true,
+        "refreshPreservesExpandedProgram": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/ui/overview",
+          "/app-assets/assets/index-CRD3Gb63.css",
+          "/app-assets/assets/index-PUwG4two.js",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      },
+      {
+        "browser": "webkit",
+        "width": 320,
+        "namedEntries": 10,
+        "programs": 7,
+        "total": 34,
+        "identityPreserved": true,
+        "groupEntriesVerified": true,
+        "plainDescriptionsVerified": true,
+        "commonDescriptionOnce": true,
+        "technicalDetailsInitiallyClosed": true,
+        "keyboardDisclosureVerified": true,
+        "expandedListUnclipped": true,
+        "refreshPreservesExpandedProgram": true,
+        "requestedPaths": [
+          "/api/operations",
+          "/api/ui/overview",
+          "/app-assets/assets/index-CRD3Gb63.css",
+          "/app-assets/assets/index-PUwG4two.js",
+          "/app/overview"
+        ],
+        "writeRequests": 0,
+        "externalRequests": 0,
+        "horizontalOverflow": false,
+        "scriptErrors": 0
+      }
+    ],
+    "screenshot_origin": "Windows 测试浏览器通过自有 SSH 转发读取真实 Mac 页面，不是 Mac 屏幕截图或 fixture。",
+    "evidence_files": [
+      {
+        "path": "build/mac-connection-view/chromium-1280.png",
+        "sha256": "2c4e434c89c5a6f1f92f9bcb775c805a58262a5b6caf5f1c62410dbf1d29beeb"
+      },
+      {
+        "path": "build/mac-connection-view/chromium-320.png",
+        "sha256": "8d637e90de490a1210e5301ad5005adf9c83bd8bee3b6da9030c262a64824457"
+      },
+      {
+        "path": "build/mac-connection-view/nanobot-expanded-1280.png",
+        "sha256": "15858297dce68cadebab11b67be0ecc6239579f409db7c08be5707145c23da52"
+      },
+      {
+        "path": "build/mac-connection-view/baota-expanded-320.png",
+        "sha256": "33d810529dabc2473b605c3ea4a9afab257b71a2965a197a0753ba48bf8ca193"
+      },
+      {
+        "path": "build/mac-connection-view/browser-receipt.json",
+        "sha256": "5cdcb1ce645621fd563536175b68e1af39b0b30f69d493f47d84a11ecc7a98c6"
+      }
+    ]
+  },
+  "cleanup": {
+    "owned_forwarder_pids": [
+      24956,
+      41404
+    ],
+    "owned_forwarders_closed": true,
+    "windows_18767_listener_absent": true,
+    "uploaded_tar_removed": true,
+    "old_program_retained": true,
+    "test_page_retained": true
+  },
+  "boundaries": {
+    "model_configured": false,
+    "model_conversation_requests": 0,
+    "temporary_access_requests": 0,
+    "approval_requests": 0,
+    "network_settings_changed": false,
+    "credentials_read_or_copied": false,
+    "raw_process_arguments_persisted_or_exported": false,
+    "full_operation_chain_accepted": false,
+    "ordinary_user_usability_accepted": false,
+    "notes": [
+      "本次没有不可用服务；对应分支已由固定数据验证，不冒充实机故障验收。",
+      "lsof 对既有 OrbStack 挂载给出不完整枚举警告；所核对的四个监听均可见，未改动挂载。",
+      "启动前保留已停止实例记录，原生预检不是全项通过；既有启动器恢复该记录并成功启动，未删除记录。"
+    ]
+  }
+}
