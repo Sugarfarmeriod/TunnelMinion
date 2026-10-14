@@ -689,16 +689,33 @@ function ServiceRows({
   );
 }
 
+function serviceConnectionDescription(
+  service: ResourceOverview["services"]["items"][number],
+): string {
+  if (!["fresh", "live"].includes(service.freshness))
+    return "连接记录需要重新确认，暂时不能判断怎么使用。";
+  if (service.state === "unavailable") return "这个连接当前不可用。";
+  if (service.state === "stopped") return "这个连接已停止。";
+  if (service.state === "unknown") return "还不能确认这个连接是否可用。";
+  return service.accessibility === "loopback"
+    ? "只接受所属电脑的连接，其他电脑不能直接打开。"
+    : service.accessibility === "network"
+      ? "已发现服务，还没有确认其他电脑能否使用。"
+      : "连接方式还不清楚，目前不能确认怎么使用。";
+}
+
 function ServiceList({
   services,
   incidentLinks,
   technical = false,
   applicationName,
+  sharedConnectionDescription = false,
 }: {
   services: ResourceOverview["services"]["items"];
   incidentLinks: Map<string, string | null>;
   technical?: boolean;
   applicationName?: string;
+  sharedConnectionDescription?: boolean;
 }) {
   const groups = technical
     ? services.map((service, index) => ({
@@ -725,6 +742,10 @@ function ServiceList({
           const app = group.application;
           const sameState = group.services.every(
             (item) => item.state === service.state,
+          );
+          const description = serviceConnectionDescription(service);
+          const sameConnection = group.services.every(
+            (item) => serviceConnectionDescription(item) === description,
           );
           const incidents = [
             ...new Set(
@@ -766,11 +787,13 @@ function ServiceList({
                   </StatusBadge>
                 </summary>
                 <div className="overview-service__body">
+                  {sameConnection ? <p>{description}</p> : null}
                   <ServiceList
                     services={group.services}
                     incidentLinks={incidentLinks}
                     technical
                     applicationName={app.name}
+                    sharedConnectionDescription={sameConnection}
                   />
                 </div>
               </details>
@@ -788,10 +811,27 @@ function ServiceList({
         return (
           <li
             key={group.key}
+            className={applicationName ? "overview-program-entry" : undefined}
             id={`${technical && !applicationName ? "technical-" : ""}${service.service_id}`}
             tabIndex={-1}
           >
-            {technical ? (
+            {applicationName ? (
+              <div>
+                <strong>
+                  {service.port === null
+                    ? "连接入口（端口未知）"
+                    : `连接入口 ${service.port}`}
+                </strong>
+                {!sharedConnectionDescription ? (
+                  <p>{serviceConnectionDescription(service)}</p>
+                ) : null}
+                <details className="overview-connection-details">
+                  <summary>技术信息</summary>
+                  <span>{service.display_name ?? "用途未识别的后台项目"}</span>
+                  <code>{service.access_address ?? "访问地址未知"}</code>
+                </details>
+              </div>
+            ) : technical ? (
               <div>
                 <strong>
                   {service.display_name ?? "用途未识别的后台项目"}
@@ -812,13 +852,7 @@ function ServiceList({
                   </StatusBadge>
                 </summary>
                 <div className="overview-service__body">
-                  <p>
-                    {service.accessibility === "loopback"
-                      ? "只接受所属电脑的连接，其他电脑不能直接打开。"
-                      : service.accessibility === "network"
-                        ? "已发现服务，还没有确认其他电脑能否使用。"
-                        : "连接方式还不清楚，请先确认服务的监听设置。"}
-                  </p>
+                  <p>{serviceConnectionDescription(service)}</p>
                   <p>
                     <span>检测到的地址</span>
                     <code>{service.access_address ?? "访问地址未知"}</code>
@@ -1224,7 +1258,9 @@ export function OverviewPage() {
     ) {
       if (parent instanceof HTMLDetailsElement) parent.open = true;
     }
-    (target.querySelector<HTMLElement>("summary") ?? target).focus();
+    (
+      target.querySelector<HTMLElement>(":scope > details > summary") ?? target
+    ).focus();
     target.scrollIntoView({ block: "center" });
   }, [hasOverview, location.hash, location.key]);
 
