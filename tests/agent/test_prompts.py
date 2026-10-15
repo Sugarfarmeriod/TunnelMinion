@@ -7,6 +7,7 @@ from tunnelminion.agent.prompts import (
     INCIDENT_INVESTIGATION_PROMPT,
     PROMPT_REGISTRY,
     READONLY_AGENT_PROMPT,
+    READONLY_AGENT_PROMPT_V1,
     REAL_MODEL_EVALUATION_PROMPT,
     PromptRegistry,
 )
@@ -15,7 +16,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 7
+    assert len(definitions) == 8
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.content_hash == (
@@ -28,6 +29,13 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
     assert READONLY_AGENT_PROMPT.version == "v2"
     assert "只调查用户当前提到的程序和问题" in READONLY_AGENT_PROMPT.template
     assert "不得声称执行了修改" in READONLY_AGENT_PROMPT.template
+    assert (
+        PROMPT_REGISTRY.resolve("readonly-agent", "v1", ContextTaskType.LOCAL_CONVERSATION)
+        == READONLY_AGENT_PROMPT_V1
+    )
+    assert READONLY_AGENT_PROMPT_V1.content_hash == (
+        "sha256:863e16161fb8fb816156bd95acaec5c6784081972a090769b6a0a8700b4ec839"
+    )
 
     assert (
         PROMPT_REGISTRY.resolve(
