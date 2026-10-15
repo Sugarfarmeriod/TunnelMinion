@@ -121,6 +121,7 @@ class MacOSNode:
     listeners: NetworkListenersAdapter
     processes: ProcessSummaryAdapter
     docker: DockerServicesAdapter
+    artifact_manager: ArtifactContextManager
 
 
 @dataclass(frozen=True)
@@ -221,7 +222,9 @@ def _gateway_lifespan(
 
 def _create_macos_read_only_agent(node: MacOSNode) -> LangChainReadOnlyAgent:
     """把 macOS 节点依赖组合成受只读策略约束的 Agent。"""
-    model = TunnelMinionChatModel(provider=node.model_service.create_provider())
+    model = TunnelMinionChatModel(
+        provider=node.model_service.create_provider(), artifact_manager=node.artifact_manager
+    )
     return LangChainReadOnlyAgent(model, node.tool_registry, node.tool_runtime, Platform.MACOS)
 
 
@@ -268,11 +271,12 @@ def _build_macos_node(
     )
     register_safe_http_sharing_operation(registry)
     stores = SQLiteStores.open(root / "runtime.sqlite3")
+    artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
         registry,
         Platform.MACOS,
         audit,
-        artifact_manager=ArtifactContextManager(stores.artifacts),
+        artifact_manager=artifact_manager,
     )
     return MacOSNode(
         root,
@@ -285,6 +289,7 @@ def _build_macos_node(
         listeners,
         processes,
         docker,
+        artifact_manager,
     )
 
 

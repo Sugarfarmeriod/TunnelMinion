@@ -288,6 +288,189 @@
     "operation_count": 0,
     "thread_count": 1
   },
+  "context_failure_case": {
+    "source_revision": "dc8eceb14955c02962b943ee67a266ca57d5d053",
+    "question": "这个程序为什么在另一台电脑上打不开？",
+    "selected_program_context": "关于本机上的“Wireguard Panel”（Python 程序；TCP 8787；只接受所属电脑的连接；近期记录）：",
+    "run": {
+      "run_id": "run_b75ba5402e0349eda19344008bab590f",
+      "thread_id": "thread_27fb8ccdbd5e43d38fb417fed768bc0b",
+      "status": "failed",
+      "created_at": "2026-10-15T05:46:10.991391Z",
+      "finished_at": "2026-10-15T05:46:47.820212Z",
+      "error_code": "agent_runtime_failed",
+      "failure": {
+        "category": "harness_or_tool",
+        "phase": "agent-runtime",
+        "reason": "agent_runtime_failed",
+        "retryable": false
+      },
+      "result": null
+    },
+    "tool_results": [
+      {
+        "tool_name": "get_process_summary",
+        "status": "success",
+        "tool_run_id": "toolrun_2920ce2a97ea49f49ebdbc98f5a36cd7",
+        "elapsed_ms": 31.25,
+        "finished_at": "2026-10-15T05:46:47.814490Z"
+      },
+      {
+        "tool_name": "list_network_listeners",
+        "status": "success",
+        "tool_run_id": "toolrun_d0847bd4d8414a02a7ff147832e63a7d",
+        "elapsed_ms": 38.05,
+        "finished_at": "2026-10-15T05:46:47.816684Z"
+      }
+    ],
+    "complete_conclusion": false,
+    "ui_terminal_label": "运行失败",
+    "browser_writes": [
+      "POST /api/threads",
+      "POST /api/threads/thread_27fb8ccdbd5e43d38fb417fed768bc0b/runs"
+    ],
+    "screenshot": {
+      "path": "build/qwen-readonly-experience/qwen-natural-failed.jpg",
+      "sha256": "45e581300dabb7195b4a389994158c91d15f2d9c096e17a2d72b85b165235d3e"
+    },
+    "cause_boundary": "离线复现：工具信封错作当前用户意图可在模型调用前触发长度校验。实机失败发生于两份工具成功后的上下文交接；未导出该次完整工具正文或推断其具体参数。"
+  },
+  "refined_package": {
+    "archive_sha256": "3fb59bfc91387df0ab3e5def8946a339933d1fdacbb96b70760e356e632990dc",
+    "manifest_sha256": "f366bb75498c40a59627ee61797e409b6395e8b9089bea91e293b80a4c82c713",
+    "source_revision": "ac77801a580604aec1cd4add8f9c4b717e6a60f7",
+    "source_tree_sha256": "72b9dfeca4d8924f4f0c7052a525f42003b302c8b22952fe7cc8f57e22426708",
+    "frontend": {
+      "file_count": 3,
+      "root": "_internal/tunnelminion/web/ui",
+      "sha256": "a24dc2e0188f93c493910c33142a03f527f0593a77530f812b8ad64c65c2439d"
+    },
+    "candidate": "tunnelminion-0-1-0-darwin-arm64-72b9dfeca4d8-a24dc2e0188f",
+    "file_count": 143,
+    "source_matches_checkout": true,
+    "closed_file_set_and_hashes_valid": true
+  },
+  "refined_activation": [
+    {
+      "action": "status",
+      "exit_code": 0,
+      "runtime_state": "running",
+      "model_health": {
+        "status": "reachable",
+        "code": "model_reachable",
+        "http_status": 200,
+        "latency_ms": 5
+      },
+      "components": [
+        {
+          "component": "local",
+          "pid": 19044
+        }
+      ],
+      "preflight": null
+    },
+    {
+      "action": "stop",
+      "exit_code": 0,
+      "runtime_state": "stopped",
+      "model_health": {
+        "status": "reachable",
+        "code": "model_reachable",
+        "http_status": 200,
+        "latency_ms": 12
+      },
+      "components": [
+        {
+          "component": "local",
+          "pid": 19044
+        }
+      ],
+      "preflight": null
+    },
+    {
+      "action": "start",
+      "exit_code": 0,
+      "runtime_state": "running",
+      "model_health": {
+        "status": "reachable",
+        "code": "model_reachable",
+        "http_status": 200,
+        "latency_ms": 17
+      },
+      "components": [
+        {
+          "component": "local",
+          "pid": 90355
+        }
+      ],
+      "preflight": {
+        "deterministic_ready": false,
+        "checks": [
+          {
+            "name": "package",
+            "status": "passed",
+            "code": "package_valid"
+          },
+          {
+            "name": "profile",
+            "status": "passed",
+            "code": "profile_valid"
+          },
+          {
+            "name": "data-dir",
+            "status": "passed",
+            "code": "data_dir_writable"
+          },
+          {
+            "name": "model-config",
+            "status": "passed",
+            "code": "model_config_valid"
+          },
+          {
+            "name": "managed-config",
+            "status": "warning",
+            "code": "managed_unconfigured"
+          },
+          {
+            "name": "gateway-config",
+            "status": "warning",
+            "code": "gateway_disabled"
+          },
+          {
+            "name": "local-instance",
+            "status": "failed",
+            "code": "existing_instance_record"
+          },
+          {
+            "name": "local-port",
+            "status": "passed",
+            "code": "port_available"
+          }
+        ]
+      }
+    },
+    {
+      "protected_pids_preserved": true,
+      "profile_preserved": true,
+      "model_config_preserved": true,
+      "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+      "fallback_program_retained": true
+    }
+  ],
+  "refined_package_ci": {
+    "run_id": 38686400583,
+    "head": "dc8eceb14955c02962b943ee67a266ca57d5d053",
+    "conclusion": "success",
+    "passed": 8,
+    "total": 8
+  },
+  "context_length_check": {
+    "independent_of_agent_tool_trace": true,
+    "processes_50_envelope_chars": 5702,
+    "processes_200_envelope_chars": 21939,
+    "listeners_envelope_chars": 3705,
+    "raw_data_exported": false
+  },
   "refined_investigation": null,
   "conclusion": "已接入并发生真实取证；首次调查因预算停止，未达到可用结论标准。"
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from tunnelminion.agent.context_runtime import (
 from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import ArtifactId, RunId, ThreadId, ToolRunId
-from tunnelminion.memory.context import ToolResultContext
+from tunnelminion.memory.context import ArtifactContextManager, ToolResultContext
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import (
     CancellationToken,
@@ -66,6 +67,9 @@ class ModelRunMetrics:
     total_tokens: int = 0
     context_records: list[RedactedContextRecord] = dataclass_field(default_factory=_context_records)
     failures: list[FailureRecord] = dataclass_field(default_factory=_failure_records)
+    artifact_contexts: dict[str, ToolResultContext] = dataclass_field(
+        default_factory=dict[str, ToolResultContext]
+    )
 
     def record(
         self,
@@ -90,6 +94,7 @@ class TunnelMinionChatModel(BaseChatModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     provider: object
+    artifact_manager: ArtifactContextManager | None = None
     run_metrics: ModelRunMetrics = Field(default_factory=ModelRunMetrics)
     cancellation_token: CancellationToken | None = None
     thread_id: ThreadId | None = None
@@ -142,6 +147,10 @@ class TunnelMinionChatModel(BaseChatModel):
         if self.thread_id is None or self.run_id is None:
             raise ValueError("生产模型调用必须关联 thread_id 和 run_id")
         converted = tuple(self._convert_message(message) for message in messages)
+        current_intent = next(
+            (message.content for message in reversed(converted) if message.role == "user"),
+            "继续基于工具证据回答当前问题",
+        )
         normal_messages: list[ModelMessage] = []
         tool_results: list[ToolResultContext] = []
         artifact_references: list[ContextContentReference] = []
@@ -150,6 +159,36 @@ class TunnelMinionChatModel(BaseChatModel):
             if result is None:
                 normal_messages.append(message)
                 continue
+            if (
+                self.artifact_manager is not None
+                and result.artifact_id is None
+                and not result.truncated
+            ):
+                key = hashlib.sha256(message.content.encode()).hexdigest()
+                prepared = self.run_metrics.artifact_contexts.get(key)
+                if prepared is None:
+                    payload = cast(dict[str, Any], json.loads(message.content))
+                    prepared = self.artifact_manager.prepare(
+                        result.tool_run_id, cast(JsonValue, payload), current_intent
+                    )
+                    if prepared.artifact_id is not None:
+                        prepared = prepared.model_copy(
+                            update={
+                                "content": (
+                                    "untrusted-tool-data; "
+                                    f"status={payload['result'].get('status', 'unknown')}; "
+                                    + prepared.content
+                                )
+                            }
+                        )
+                        self.run_metrics.artifact_contexts[key] = prepared
+                if prepared.artifact_id is not None:
+                    result = prepared.model_copy(
+                        update={
+                            "tool_call_id": message.tool_call_id,
+                            "tool_name": message.name,
+                        }
+                    )
             tool_results.append(result)
             if result.artifact_id is not None:
                 artifact_references.append(
@@ -164,7 +203,7 @@ class TunnelMinionChatModel(BaseChatModel):
                 )
         request = ContextRequest(
             task_type=ContextTaskType.LOCAL_CONVERSATION,
-            current_intent=self._text_content(messages[-1].content),
+            current_intent=current_intent,
             thread_id=self.thread_id,
             run_id=self.run_id,
             prompt_id=READONLY_AGENT_PROMPT.prompt_id,
