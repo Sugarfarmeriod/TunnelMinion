@@ -19,7 +19,7 @@ from tunnelminion.agent.conversation import (
     RunView,
     StartRunInput,
 )
-from tunnelminion.agent.runtime import AgentStopReason
+from tunnelminion.agent.runtime import AgentStopReason, CheckedAgentTurnResult
 from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId
 from tunnelminion.memory.contracts import (
     CheckpointStatus,
@@ -72,6 +72,12 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     assert final.status is RunStatus.COMPLETED
     assert final.finished_at is not None
     assert final.result is not None
+    assert isinstance(final.result, CheckedAgentTurnResult)
+    assert final.result.answer_checked
+    assert "本次还没有形成能核对的程序结论" in final.result.answer
+    assert "已确认服务状态" not in final.result.answer
+    assert final.result.evidence_answer.confirmed_facts == ()
+    assert "已确认服务状态" in final.result.evidence_answer.inferences[0]
     assert [event.event_type for event in events] == [
         RunEventType.GOAL,
         RunEventType.TOOL,
@@ -89,6 +95,7 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     assert [message.role for message in detail.messages] == ["user", "assistant"]
     assert detail.thread.message_count == 2
     assert detail.thread.updated_at >= detail.thread.created_at
+    assert detail.messages[1].answer_checked
 
     async def continue_scenario() -> None:
         continued = await conversations.start_run(
@@ -138,7 +145,10 @@ def test_continued_run_includes_prior_thread_messages() -> None:
     second_run_request = provider.requests[2]
     contents = [item.content for item in second_run_request.messages]
     assert "第一次检查 8082" in contents
-    assert any("已确认服务状态" in item for item in contents)
+    previous_answer = conversations.get_thread(thread.thread_id).messages[1]
+    assert previous_answer.answer_checked
+    assert previous_answer.content in contents
+    assert all("已确认服务状态" not in item for item in contents)
     assert contents[-1] == "继续刚才的检查"
 
 

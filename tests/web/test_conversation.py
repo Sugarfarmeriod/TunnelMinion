@@ -9,13 +9,23 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.agent.test_connection_fact_check import DRAFT, connection_agent, connection_case
 from tests.agent.test_langchain_agent import build_agent
 
 from tunnelminion.agent.conversation import InMemoryConversationService, RunEvent
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
-from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
+from tunnelminion.agent.services import ServiceApplication
+from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, ThreadId
 from tunnelminion.model.contracts import ProviderError, ProviderErrorCode
 from tunnelminion.web.conversation import create_conversation_router
+from tunnelminion.web.overview import (
+    KnownServicesOverview,
+    KnownServiceState,
+    OverviewFreshness,
+    OverviewService,
+    OverviewSource,
+    ProgramKnownServiceOverview,
+)
 
 
 class ApiClient(Protocol):
@@ -34,11 +44,12 @@ class ApiClient(Protocol):
 
 def build_client(
     service: InMemoryConversationService | None = None,
+    overview: OverviewService | None = None,
 ) -> tuple[ApiClient, InMemoryConversationService]:
     """组装只包含会话路由的测试应用。"""
     value = service or InMemoryConversationService(NodeId.new(), lambda: build_agent()[0])
     app = FastAPI()
-    app.include_router(create_conversation_router(value))
+    app.include_router(create_conversation_router(value, overview))
     return cast(ApiClient, TestClient(app)), value
 
 
@@ -128,3 +139,107 @@ def test_model_unavailable_maps_to_service_unavailable() -> None:
         )
         assert response.status_code == 503
         assert cast(dict[str, object], response.json())["detail"] == "模型未配置"
+
+
+def program_overview(item: ProgramKnownServiceOverview) -> OverviewService:
+    """提供与页面同源的程序身份，不接受客户端自报的名称。"""
+    return OverviewService(
+        services=lambda: KnownServicesOverview(
+            source=OverviewSource.LOCAL_OBSERVATION,
+            freshness=OverviewFreshness.FRESH,
+            items=(item,),
+        )
+    )
+
+
+def selected_program() -> ProgramKnownServiceOverview:
+    """构造本机可靠 Python 归属，不读取业务内容。"""
+    target, _, _ = connection_case()
+    return ProgramKnownServiceOverview(
+        service_id=target.service_id,
+        node_id=target.node_id,
+        display_name="Python · app.py · 8787",
+        application=ServiceApplication(
+            group_id="application_" + "a" * 32, name=target.display_name, kind="python"
+        ),
+        protocol=target.protocol,
+        port=target.port,
+        state=KnownServiceState.AVAILABLE,
+        source=OverviewSource.LOCAL_OBSERVATION,
+        freshness=OverviewFreshness.FRESH,
+    )
+
+
+@pytest.mark.parametrize("named", [True, False])
+def test_selected_program_is_resolved_on_server_and_public_answer_is_checked(named: bool) -> None:
+    """HTTP、Agent、持久消息及 SSE 都只公开核对结果，原始说明仍保留。"""
+    item = selected_program()
+    if not named:
+        item = item.model_copy(
+            update={"application": None, "display_name": None, "freshness": OverviewFreshness.LIVE}
+        )
+    agent, provider = connection_agent()
+    conversations = InMemoryConversationService(item.node_id, lambda: agent)
+    client, _ = build_client(conversations, program_overview(item))
+    with client:
+        thread = conversations.create_thread()
+        question = "为什么另一台电脑打不开？"
+        response = client.post(
+            f"/api/ui/threads/{thread.thread_id}/runs",
+            json={
+                "question": question,
+                "service_id": str(item.service_id),
+                "tool_names": ["list_network_listeners"],
+            },
+        )
+        assert response.status_code == 200
+        run_id = cast(dict[str, object], response.json())["run_id"]
+        events = client.get(f"/api/runs/{run_id}/events")
+        assert "只允许这台电脑自己连接" in events.text
+        assert DRAFT not in events.text
+        detail = conversations.get_thread(thread.thread_id)
+        assert detail.messages[0].content == question
+        assert detail.messages[1].answer_checked
+        assert "网页是否正常" in detail.messages[1].content
+        result = conversations.get_run(RunId(str(run_id))).result
+        assert result is not None and result.answer_checked
+        assert result.checked_service_id == item.service_id
+        assert result.evidence_answer.inferences == (DRAFT,)
+        expected_name = "Wireguard Panel" if named else "所选程序"
+        assert any(expected_name in message.content for message in provider.requests[0].messages)
+
+
+@pytest.mark.parametrize(
+    "invalid", ["missing", "stale", "protocol", "port", "remote", "no-overview"]
+)
+def test_uncheckable_program_rejected_before_model_and_messages(invalid: str) -> None:
+    """失效、缺少身份字段或不属于本机的对象不能启动错误调查。"""
+    item = selected_program()
+    node = item.node_id
+    updates: dict[str, dict[str, object]] = {
+        "missing": {"service_id": ServiceId.new()},
+        "stale": {"freshness": OverviewFreshness.STALE},
+        "protocol": {"protocol": None},
+        "port": {"port": None},
+        "remote": {"node_id": NodeId.new()},
+        "no-overview": {},
+    }
+    selected = item.model_copy(update=updates[invalid])
+    agent, provider = connection_agent()
+    conversations = InMemoryConversationService(node, lambda: agent)
+    client, _ = build_client(
+        conversations, None if invalid == "no-overview" else program_overview(selected)
+    )
+    with client:
+        thread = conversations.create_thread()
+        response = client.post(
+            f"/api/ui/threads/{thread.thread_id}/runs",
+            json={
+                "question": "检查这个程序",
+                "service_id": str(item.service_id),
+                "tool_names": ["list_network_listeners"],
+            },
+        )
+        assert response.status_code == 422
+        assert conversations.get_thread(thread.thread_id).messages == ()
+        assert provider.requests == []

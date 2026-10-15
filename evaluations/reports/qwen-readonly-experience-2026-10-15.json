@@ -943,5 +943,29 @@
     "thread_count": 4
   },
   "fact_check_scope_approved": true,
-  "conclusion": "接入与工具交接故障已修复，真实只读工具循环已完成；当前 Qwen 仍输出未经验证的状态断言和扩大访问建议，事实边界与易用性验收未通过，PR 暂不合并。已获准加入回答前事实核对，实施与验收尚未完成，不将提示要求当作已经交付的可靠能力。"
+  "fact_check_implementation": {
+    "state": "implemented_pending_package_and_live_acceptance",
+    "scope": "所选本机程序连接入口；不是任意问题的通用事实验证",
+    "identity_source": "服务端当前程序清单，不从模型文字或端口号猜归属",
+    "fact_source": "本次最新完整可用的实际监听工具结果，匹配同一节点和服务身份",
+    "incomplete_or_unmatched_evidence": "保留未知，不回退到旧成功结果",
+    "model_draft": "保留在本机调查记录，普通界面收起并标未核对",
+    "legacy_messages": "缺少核对标记时收起原文，不重写历史记录",
+    "public_interface_baseline_preserved": true,
+    "local_checks": {
+      "backend_passed": 1751,
+      "backend_platform_skipped": 6,
+      "line_and_branch_coverage_percent": 100,
+      "frontend_components_passed": 203,
+      "browser_checks_passed": 8,
+      "browser_matrix": ["chromium", "webkit"],
+      "viewport_widths": [1280, 320],
+      "browser_fixture_not_live_model": true,
+      "typecheck_and_format": "passed",
+      "production_build_and_size": "passed",
+      "initial_bundle_gzip_kib": 160.77,
+      "existing_bundle_limit_kib": 171.16
+    }
+  },
+  "conclusion": "事实核对已在当前分支实现，本地完整门禁通过；只公开所选程序连接证据能证明的事实，网页、跨电脑访问与程序整体状态仍保留未知。当前 Mac 运行的旧包回答仍不可靠，新正式包及同题实机验收待完成，PR 暂不合并。"
 }

@@ -40,10 +40,7 @@ import {
 } from "../../api/schemas/overview";
 import { runSchema } from "./contracts";
 import { operationStatusLabel } from "../operations/operationPresentation";
-import {
-  serviceDisplayName,
-  serviceKindLabels,
-} from "../overview/overviewActions";
+import { serviceDisplayName } from "../overview/overviewActions";
 import { Link } from "react-router-dom";
 
 const toolLabels: Record<AllowedToolName, string> = {
@@ -57,7 +54,7 @@ const toolLabels: Record<AllowedToolName, string> = {
 
 const runStatusLabels: Record<RunStatus, string> = {
   running: "正在运行",
-  completed: "已完成",
+  completed: "本次检查已结束",
   cancelled: "已取消",
   failed: "运行失败",
   interrupted: "服务重启时中断",
@@ -164,11 +161,6 @@ export function ChatPage({
   const requestedThreadId = incidentId
     ? (incidentThreadId ?? undefined)
     : (new URLSearchParams(window.location.search).get("thread") ?? undefined);
-  const serviceKind =
-    serviceContext?.application &&
-    ["fresh", "live"].includes(serviceContext.freshness)
-      ? serviceKindLabels[serviceContext.application.kind]
-      : "程序归属尚未确认";
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
@@ -457,11 +449,10 @@ export function ChatPage({
             threadId ?? "",
             operationContext
               ? `关于正在查看的临时访问请求（服务标识“${operationContext.service_process_or_container || operationContext.service_id}”；状态“${operationStatusLabel(operationContext.state, operationContext.role)}”；申请时长 ${operationContext.duration_seconds} 秒；${operationContext.submission_result_unknown || operationContext.execution_result_unknown ? "上次请求结果仍不明确，不得建议重复提交" : "批准或执行必须由用户在请求界面确认"}）：\n${normalizedQuestion}`
-              : serviceContext
-                ? `关于${computerName || "所属电脑名称未知"}上的“${serviceDisplayName(serviceContext) || "名称未知的程序"}”（${serviceKind}；${serviceContext.protocol?.toUpperCase() ?? "协议未知"} ${serviceContext.port ?? "端口未知"}；${serviceContext.accessibility === "loopback" ? "只接受所属电脑的连接" : "尚未验证跨电脑访问"}；${["live", "fresh"].includes(serviceContext.freshness) ? "近期记录" : "记录需要重新确认"}）：\n${normalizedQuestion}`
-                : normalizedQuestion,
+              : normalizedQuestion,
             toolName === "auto" ? allowedToolNames : toolName,
             controller.signal,
+            operationContext ? undefined : serviceContext?.service_id,
           );
       if (incidentId) {
         selectThread(started.thread_id);
@@ -473,7 +464,7 @@ export function ChatPage({
         setQuestion("");
       }
       await refreshThread(started.thread_id, controller.signal);
-      setNotice("运行已发起，下面只展示服务端公开的状态和工具证据。");
+      setNotice("正在检查，结果会区分已查明和还不能确认的部分。");
     } catch (error) {
       if (isUnknownWriteResult(error)) {
         setNotice(
@@ -870,6 +861,8 @@ function MessageHistory({ detail }: { detail: ThreadDetail | null }) {
 }
 
 function MessageItem({ message }: { message: ThreadMessage }) {
+  const unchecked =
+    message.role === "assistant" && message.answer_checked !== true;
   const marker = "\n\n证据索引（程序生成）：\n";
   const index =
     message.role === "assistant" ? message.content.lastIndexOf(marker) : -1;
@@ -882,10 +875,20 @@ function MessageItem({ message }: { message: ThreadMessage }) {
             {formatTimestamp(message.created_at)}
           </time>
         </header>
-        <p className="chat-untrusted-text">
-          {index < 0 ? message.content : message.content.slice(0, index)}
-        </p>
-        {index < 0 ? null : (
+        {unchecked ? (
+          <>
+            <p>这条旧说明还没有经过事实核对，请不要据此更改设置。</p>
+            <details>
+              <summary>查看原始说明（未核对）</summary>
+              <p className="chat-untrusted-text">{message.content}</p>
+            </details>
+          </>
+        ) : (
+          <p className="chat-untrusted-text">
+            {index < 0 ? message.content : message.content.slice(0, index)}
+          </p>
+        )}
+        {unchecked || index < 0 ? null : (
           <details>
             <summary>查看证据编号</summary>
             <p className="chat-untrusted-text">
@@ -1066,6 +1069,16 @@ function RunPanel({
         ? "已取消"
         : "已达到调查上限"
     : runStatusLabels[effectiveStatus];
+  const terminalMessage =
+    terminalEvent?.event_type !== "finished"
+      ? terminalEvent?.message
+      : activeRun.result
+        ? activeRun.result.answer_checked === true
+          ? activeRun.result.answer
+          : "这条旧说明还没有经过事实核对，请不要据此更改设置。"
+        : eventState.terminalReadFailed
+          ? "检查已结束，暂时未取得核对结果。"
+          : "检查已结束，正在读取核对结果。";
 
   return (
     <section aria-labelledby="chat-run-title" className="chat-run">
@@ -1197,14 +1210,26 @@ function RunPanel({
             </ul>
           </div>
         )}
+        {activeRun.result?.answer_checked === true &&
+        activeRun.result.stop_reason === "completed" &&
+        activeRun.result.evidence_answer.inferences.length > 0 ? (
+          <details>
+            <summary>查看模型原始说明（未核对）</summary>
+            {activeRun.result.evidence_answer.inferences.map((text, index) => (
+              <p className="chat-untrusted-text" key={index}>
+                {text}
+              </p>
+            ))}
+          </details>
+        ) : null}
       </details>
       <RelatedOperations toolRunIds={activeRun.result?.tool_run_ids} />
 
-      {terminalEvent?.message === null ||
-      terminalEvent?.message === undefined ||
-      (compact && terminalEvent.message === activeRun.result?.answer) ? null : (
+      {terminalMessage === null ||
+      terminalMessage === undefined ||
+      (compact && terminalMessage === activeRun.result?.answer) ? null : (
         <p className="chat-terminal-message chat-untrusted-text">
-          {terminalEvent.message}
+          {terminalMessage}
         </p>
       )}
     </section>

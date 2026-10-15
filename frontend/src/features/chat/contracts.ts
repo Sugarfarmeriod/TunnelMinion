@@ -40,6 +40,7 @@ export const threadMessageSchema = z
     content: z.string(),
     created_at: timestampSchema,
     run_id: runIdSchema,
+    answer_checked: z.boolean().optional(),
   })
   .strict();
 
@@ -72,6 +73,8 @@ const evidenceReferenceSchema = z
 const runResultSchema = z
   .object({
     answer: z.string(),
+    answer_checked: z.boolean().optional(),
+    checked_service_id: identifierSchema("service").nullable().optional(),
     model_rounds: z.number().int().nonnegative(),
     tool_calls: z.number().int().nonnegative(),
     tool_run_ids: z.array(toolRunIdSchema),

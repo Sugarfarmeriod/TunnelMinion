@@ -42,15 +42,17 @@ export function startRun(
   question: string,
   toolName: AllowedToolName | readonly AllowedToolName[],
   signal?: AbortSignal,
+  serviceId?: string,
 ) {
   return requestJson(
-    `/api/threads/${encodeURIComponent(threadId)}/runs`,
+    `/api/${serviceId ? "ui/" : ""}threads/${encodeURIComponent(threadId)}/runs`,
     runSchema,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question,
+        service_id: serviceId,
         tool_names: typeof toolName === "string" ? [toolName] : toolName,
       }),
       signal,

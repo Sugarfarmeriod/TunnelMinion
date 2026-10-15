@@ -176,6 +176,7 @@ function makeMessage(
     content,
     created_at: timestamp,
     run_id: id,
+    answer_checked: role === "assistant",
   };
 }
 
@@ -222,6 +223,7 @@ function completedRun(answer: string): RunView {
   return makeRun("completed", {
     result: {
       answer,
+      answer_checked: true,
       model_rounds: 1,
       tool_calls: 2,
       tool_run_ids: [toolRun2, toolRun3],
@@ -287,26 +289,21 @@ afterAll(() => {
 
 describe("ChatPage", () => {
   it.each(["fresh", "stale"] as const)(
-    "工作台自动选择只读工具，程序归属按新鲜度传入且不丢草稿（%s）",
+    "工作台只传所选程序身份，归属由服务端核对且不丢草稿（%s）",
     async (freshness) => {
       const user = userEvent.setup();
       const backend = installBackend();
       let writes = 0;
       server.use(
-        http.post("/api/threads/:id/runs", async ({ request }) => {
+        http.post("/api/ui/threads/:id/runs", async ({ request }) => {
           writes += 1;
           const payload = (await request.json()) as {
             question: string;
+            service_id: string;
             tool_names: string[];
           };
-          expect(payload.question).toContain(
-            freshness === "fresh" ? "gost" : "名称未知的程序",
-          );
-          expect(payload.question).toContain(
-            freshness === "fresh" ? "自行安装的程序" : "程序归属尚未确认",
-          );
-          expect(payload.question).toContain("805");
-          expect(payload.question).toContain("客厅 Mac");
+          expect(payload.question).toBe("为什么别的电脑打不开？");
+          expect(payload.service_id).toBe(service.service_id);
           expect(payload.tool_names).toEqual([
             "get_node_summary",
             "get_wireguard_status",
@@ -465,6 +462,61 @@ describe("ChatPage", () => {
     expect(longText).toHaveClass("chat-untrusted-text");
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it.each([undefined, false])(
+    "旧记录缺少或未通过核对时，原文保留但默认收起（%s）",
+    async (answerChecked) => {
+      const draft = "程序正常，请开放防火墙。";
+      const message = makeMessage("assistant", draft);
+      message.answer_checked = answerChecked;
+      installBackend([message]);
+      render(<ChatPage workspace />);
+      expect(
+        await screen.findByText(
+          "这条旧说明还没有经过事实核对，请不要据此更改设置。",
+        ),
+      ).toBeVisible();
+      expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+      await userEvent.setup().click(screen.getByText("查看原始说明（未核对）"));
+      expect(screen.getByText(draft, { exact: true })).toBeVisible();
+    },
+  );
+
+  it("公开核对结论，模型原始说明只能在证据中主动展开", async () => {
+    const answer = "这个入口只接受这台电脑连接；网页是否正常还没有验证。";
+    const draft = "程序正常，请改成 0.0.0.0。";
+    const backend = installBackend([makeMessage("assistant", answer)]);
+    const checked = completedRun(answer);
+    checked.result!.evidence_answer.inferences = [draft];
+    backend.runs.set(runId, checked);
+    render(<ChatPage workspace />);
+    expect(await screen.findByText(answer, { exact: true })).toBeVisible();
+    expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+    const user = userEvent.setup();
+    await user.click(screen.getByText("查看用了哪些工具与证据"));
+    expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+    await user.click(screen.getByText("查看模型原始说明（未核对）"));
+    expect(screen.getByText(draft, { exact: true })).toBeVisible();
+  });
+
+  it("实时结束消息不能覆盖已读取的核对结果", async () => {
+    const backend = installBackend([makeMessage("user", "检查面板")]);
+    backend.runs.set(runId, makeRun());
+    render(<ChatPage />);
+    const source = await waitForSource();
+    backend.runs.set(runId, completedRun("跨电脑访问还没有验证。"));
+    act(() => {
+      source.emit(
+        "finished",
+        makeEvent(1, "finished", {
+          stop_reason: "completed",
+          message: "程序正常，请开放防火墙。",
+        }),
+      );
+    });
+    expect(await screen.findByText("跨电脑访问还没有验证。")).toBeVisible();
+    expect(screen.queryByText("程序正常，请开放防火墙。")).toBeNull();
   });
 
   it("把共享工具证据的操作链接到现有详情页", async () => {
@@ -658,7 +710,7 @@ describe("ChatPage", () => {
       );
     });
 
-    expect(await screen.findByText("已完成")).toBeVisible();
+    expect(await screen.findByText("本次检查已结束")).toBeVisible();
     expect(recoveredSource.closed).toBe(true);
     expect(screen.getAllByText(toolRun3).length).toBeGreaterThan(0);
     expect(screen.getAllByText(finalAnswer).length).toBeGreaterThan(0);
@@ -807,12 +859,14 @@ describe("ChatPage", () => {
       );
     });
 
-    expect(await screen.findByText("已完成")).toBeVisible();
+    expect(await screen.findByText("本次检查已结束")).toBeVisible();
     expect(screen.getByLabelText("问题")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "取消这次运行" })).toBeNull();
     expect(
       await screen.findByText(/已收到并应用终态事件，但暂时无法复读/),
     ).toBeVisible();
+    expect(screen.queryByText("服务端已经完成", { exact: true })).toBeNull();
+    expect(screen.getByText("检查已结束，暂时未取得核对结果。")).toBeVisible();
     const refresh = screen.getByRole("button", { name: "重新读取线程" });
 
     failRunRead = false;
@@ -879,7 +933,7 @@ describe("ChatPage", () => {
     expect(cancelCalls).toBe(0);
     await user.click(screen.getByRole("button", { name: "确认取消此运行" }));
     expect(
-      await screen.findByText(/运行状态：已完成；不会再次发送取消请求/),
+      await screen.findByText(/运行状态：本次检查已结束；不会再次发送取消请求/),
     ).toBeVisible();
     expect(cancelCalls).toBe(1);
     expect(source.closed).toBe(true);
