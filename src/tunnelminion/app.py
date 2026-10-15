@@ -106,10 +106,13 @@ class WindowsApplication:
     operation_control_service: OperationControlService
     requester_operation_service: RequesterOperationService
     managed_node: ManagedNodeApplication
+    artifact_manager: ArtifactContextManager
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
-        model = TunnelMinionChatModel(provider=self.model_service.create_provider())
+        model = TunnelMinionChatModel(
+            provider=self.model_service.create_provider(), artifact_manager=self.artifact_manager
+        )
         return LangChainReadOnlyAgent(
             model,
             self.tool_registry,
@@ -222,15 +225,18 @@ def build_windows_application(
     )
     register_safe_http_sharing_operation(registry)
     stores = SQLiteStores.open(root / "runtime.sqlite3")
+    artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
         registry,
         Platform.WINDOWS,
         audit,
-        artifact_manager=ArtifactContextManager(stores.artifacts),
+        artifact_manager=artifact_manager,
     )
 
     def create_agent() -> LangChainReadOnlyAgent:
-        model = TunnelMinionChatModel(provider=model_service.create_provider())
+        model = TunnelMinionChatModel(
+            provider=model_service.create_provider(), artifact_manager=artifact_manager
+        )
         return LangChainReadOnlyAgent(model, registry, runtime, Platform.WINDOWS)
 
     conversations = InMemoryConversationService(
@@ -368,7 +374,7 @@ def build_windows_application(
     app.include_router(create_overview_router(views.overview_service))
     app.include_router(create_incident_router(incident_store, conversations))
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
-    app.include_router(create_conversation_router(conversations))
+    app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
     app.include_router(create_spa_router())
@@ -384,6 +390,7 @@ def build_windows_application(
         operation_control,
         requester_operations,
         managed,
+        artifact_manager,
     )
 
 

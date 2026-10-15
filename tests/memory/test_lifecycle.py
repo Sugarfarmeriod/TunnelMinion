@@ -11,6 +11,7 @@ from tunnelminion.agent.context_contracts import (
 )
 from tunnelminion.agent.context_runtime import ContextSnapshotBuilder
 from tunnelminion.agent.conversation import InMemoryConversationService
+from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId
 from tunnelminion.memory.contracts import (
     LongTermMemory,
@@ -133,8 +134,8 @@ def test_confirmed_memory_is_injected_only_as_untrusted_data(
             current_intent="PDF 端口",
             thread_id=ThreadId.new(),
             run_id=RunId.new(),
-            prompt_id="readonly-agent",
-            prompt_version="v1",
+            prompt_id=READONLY_AGENT_PROMPT.prompt_id,
+            prompt_version=READONLY_AGENT_PROMPT.version,
             messages=(
                 ModelMessage(role="system", content="只允许只读工具。"),
                 ModelMessage(role="user", content="PDF 端口？"),

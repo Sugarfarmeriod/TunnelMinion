@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 from pydantic import JsonValue
 
@@ -390,6 +391,55 @@ def test_rejects_incompatible_provider_without_saving(provider: ModelProvider) -
         asyncio.run(service.configure(input_config()))
     assert caught.value.code == ProviderErrorCode.CAPABILITY_INCOMPATIBLE
     assert repository.value is None
+
+
+@pytest.mark.parametrize(
+    ("content", "error_code"),
+    [
+        ('```json\n{"status": "ok"}\n```', None),
+        ('```json\n{"status": "bad"}\n```', ProviderErrorCode.CAPABILITY_INCOMPATIBLE),
+        ('说明\n```json\n{"status": "ok"}\n```', ProviderErrorCode.INVALID_RESPONSE),
+    ],
+)
+def test_configuration_validates_fenced_json_before_saving(
+    content: str, error_code: ProviderErrorCode | None
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        payload = json.loads(http_request.content)
+        calls.append(payload)
+        if payload.get("tools"):
+            message = {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "capability-check",
+                        "function": {
+                            "name": "report_capability",
+                            "arguments": '{"status":"ok"}',
+                        },
+                    }
+                ],
+            }
+        else:
+            message = {"content": content}
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    provider = OpenAICompatibleProvider(
+        input_config().provider_config(), transport=httpx.MockTransport(handler)
+    )
+    service, repository, secrets = service_with(provider)
+    if error_code is None:
+        assert asyncio.run(service.configure(input_config())).status == "available"
+        assert repository.value == input_config().provider_config()
+    else:
+        with pytest.raises(ProviderError) as caught:
+            asyncio.run(service.configure(input_config()))
+        assert caught.value.code == error_code
+        assert repository.value is None
+    assert len(calls) == 2
+    assert secrets.values == {}
 
 
 def test_validate_tracks_failure_and_recovery() -> None:

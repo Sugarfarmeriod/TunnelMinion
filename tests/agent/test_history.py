@@ -11,6 +11,7 @@ from tunnelminion.agent.context_contracts import (
 )
 from tunnelminion.agent.context_runtime import ContextSnapshotBuilder
 from tunnelminion.agent.history import FactResolver, ThreadHistoryAssembler
+from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import RunId, ThreadId
 from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.model.contracts import ModelMessage
@@ -81,8 +82,8 @@ def test_summary_failure_retains_recent_history_and_reports_degradation() -> Non
             current_intent="继续",
             thread_id=ThreadId.new(),
             run_id=RunId.new(),
-            prompt_id="readonly-agent",
-            prompt_version="v1",
+            prompt_id=READONLY_AGENT_PROMPT.prompt_id,
+            prompt_version=READONLY_AGENT_PROMPT.version,
             messages=(ModelMessage(role="user", content="继续"),),
             history=history,
         ),
@@ -174,8 +175,8 @@ def test_snapshot_orders_workflow_history_facts_and_current_message() -> None:
             current_intent="现在端口是多少？",
             thread_id=ThreadId.new(),
             run_id=RunId.new(),
-            prompt_id="readonly-agent",
-            prompt_version="v1",
+            prompt_id=READONLY_AGENT_PROMPT.prompt_id,
+            prompt_version=READONLY_AGENT_PROMPT.version,
             messages=(
                 ModelMessage(role="system", content="只使用只读工具。"),
                 ModelMessage(role="user", content="现在端口是多少？"),

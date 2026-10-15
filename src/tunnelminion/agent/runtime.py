@@ -6,8 +6,9 @@ import asyncio
 import json
 from collections.abc import Callable
 from enum import StrEnum
+from ipaddress import IPv6Address, ip_address
 from time import perf_counter
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariableType]
 from langchain.agents.middleware import (  # pyright: ignore[reportUnknownVariableType]
@@ -26,14 +27,19 @@ from tunnelminion.agent.context_contracts import (
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
+from tunnelminion.agent.service_observation import compute_observed_service_id
+from tunnelminion.coordinator.contracts import ServiceProtocol
+from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import CancellationToken
+from tunnelminion.platforms.windows.models import Availability, CollectionResult, NetworkListener
 from tunnelminion.tools.contracts import (
     ToolCallContext,
     ToolCancellationToken,
     ToolExecutionRequest,
     ToolExecutionResult,
+    ToolExecutionStatus,
 )
 from tunnelminion.tools.registry import RegisteredTool, ToolRegistry
 
@@ -131,6 +137,19 @@ class EvidenceAnswer(BaseModel):
     stop_reason: AgentStopReason
 
 
+class ServiceCheckTarget(BaseModel):
+    """由当前服务清单解析的调查对象，不从模型正文或端口号猜身份。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_id: ServiceId
+    node_id: NodeId
+    display_name: str = Field(min_length=1, max_length=80)
+    protocol: ServiceProtocol
+    port: int = Field(ge=1, le=65535)
+    application_kind: Literal["python", "docker", "model", "program"] | None = None
+
+
 class AgentTurnResult(BaseModel):
     """一次本地只读 Agent 调用的最小公开结果。"""
 
@@ -148,6 +167,15 @@ class AgentTurnResult(BaseModel):
     evidence_answer: EvidenceAnswer
     context_records: tuple[RedactedContextRecord, ...] = ()
     failures: tuple[FailureRecord, ...] = ()
+
+
+class CheckedAgentTurnResult(AgentTurnResult):
+    """内部与工作台保留核对状态，既有公开结果契约不增加字段。"""
+
+    answer_checked: bool = Field(
+        default=False, description="公开回答已核对事实边界，不代表所问的全部情况已验证"
+    )
+    checked_service_id: ServiceId | None = None
 
 
 class AgentCancellationToken:
@@ -195,14 +223,16 @@ class LangChainReadOnlyAgent:
         tool_event_sink: Callable[[AgentToolEvent], None] | None = None,
         history_context: HistoryContext | None = None,
         memories: tuple[LongTermMemory, ...] = (),
-    ) -> AgentTurnResult:
+        target: ServiceCheckTarget | None = None,
+    ) -> CheckedAgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
         budget = limits or AgentRunLimits()
         started = perf_counter()
         policy = evaluate_request_policy(question)
         if policy is not None:
-            return AgentTurnResult(
+            return CheckedAgentTurnResult(
                 answer=policy.answer,
+                answer_checked=True,
                 model_rounds=0,
                 tool_calls=0,
                 selected_tools=tool_names,
@@ -234,8 +264,9 @@ class LangChainReadOnlyAgent:
             }
         )
         evidence: list[EvidenceReference] = []
+        results: list[tuple[ToolExecutionRequest, ToolExecutionResult]] = []
         tools = tuple(
-            self._build_tool(name, context, tool_token, evidence, tool_event_sink)
+            self._build_tool(name, context, tool_token, evidence, tool_event_sink, results)
             for name in self._validate_tools(tool_names)
         )
         middleware = [
@@ -256,9 +287,20 @@ class LangChainReadOnlyAgent:
             middleware=middleware,
             name="tunnelminion-read-only",
         )
-        graph_task = asyncio.create_task(
-            graph.ainvoke({"messages": [{"role": "user", "content": question}]})
-        )
+        input_messages: list[dict[str, str]] = []
+        if target is not None:
+            input_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"用户选择了这台电脑上的“{target.display_name}”（类型："
+                        f"{target.application_kind or '未知'}；{target.protocol.value.upper()} "
+                        f"{target.port}）。名称来自当前程序清单，连接事实必须用工具核对。"
+                    ),
+                }
+            )
+        input_messages.append({"role": "user", "content": question})
+        graph_task = asyncio.create_task(graph.ainvoke({"messages": input_messages}))
         cancel_task = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
         waiters: set[asyncio.Task[Any]] = {graph_task}
         if cancel_task is not None:
@@ -301,11 +343,22 @@ class LangChainReadOnlyAgent:
         messages = cast(list[BaseMessage], state["messages"])
         answer = self._answer(messages)
         stop_reason = self._limit_reason(answer)
+        checked_answer = (
+            self._connection_evidence(target, results, answer, evidence)
+            if stop_reason is AgentStopReason.COMPLETED and target is not None
+            else None
+        )
+        if checked_answer is not None:
+            answer = checked_answer.summary
         if stop_reason is AgentStopReason.COMPLETED:
             answer = self._attach_evidence_index(answer, evidence)
         executed_ids = [item.tool_run_id for item in evidence]
-        return AgentTurnResult(
+        return CheckedAgentTurnResult(
             answer=self._bounded_answer(stop_reason, answer, executed_ids),
+            answer_checked=target is not None or stop_reason is not AgentStopReason.COMPLETED,
+            checked_service_id=target.service_id
+            if checked_answer is not None and target is not None
+            else None,
             model_rounds=metrics.model_rounds,
             tool_calls=len(executed_ids),
             tool_run_ids=tuple(executed_ids),
@@ -314,7 +367,7 @@ class LangChainReadOnlyAgent:
             elapsed_ms=round((perf_counter() - started) * 1000, 2),
             usage=self._usage(metrics),
             limits=budget,
-            evidence_answer=self._evidence_answer(stop_reason, answer, evidence),
+            evidence_answer=checked_answer or self._evidence_answer(stop_reason, answer, evidence),
             context_records=tuple(metrics.context_records),
             failures=tuple(metrics.failures),
         )
@@ -340,6 +393,7 @@ class LangChainReadOnlyAgent:
         cancellation: ToolCancellationToken,
         evidence: list[EvidenceReference],
         event_sink: Callable[[AgentToolEvent], None] | None,
+        results: list[tuple[ToolExecutionRequest, ToolExecutionResult]],
     ) -> StructuredTool:
         async def execute(**arguments: Any) -> str:
             started = perf_counter()
@@ -352,14 +406,13 @@ class LangChainReadOnlyAgent:
                         elapsed_ms=0,
                     )
                 )
-            result = await self._runtime.execute(
-                ToolExecutionRequest(
-                    context=context,
-                    tool_name=entry.definition.name,
-                    arguments=cast(dict[str, JsonValue], arguments),
-                ),
-                cancellation,
+            request = ToolExecutionRequest(
+                context=context,
+                tool_name=entry.definition.name,
+                arguments=cast(dict[str, JsonValue], arguments),
             )
+            result = await self._runtime.execute(request, cancellation)
+            results.append((request, result))
             evidence.append(
                 EvidenceReference(
                     tool_run_id=str(result.tool_run_id),
@@ -402,7 +455,7 @@ class LangChainReadOnlyAgent:
         limits: AgentRunLimits,
         started: float,
         reason: AgentStopReason,
-    ) -> AgentTurnResult:
+    ) -> CheckedAgentTurnResult:
         model_token.cancel()
         tool_token.cancel()
         graph_task.cancel()
@@ -412,8 +465,9 @@ class LangChainReadOnlyAgent:
             await asyncio.gather(cancel_task, return_exceptions=True)
         executed_ids = [item.tool_run_id for item in evidence]
         answer = self._bounded_answer(reason, "", executed_ids)
-        return AgentTurnResult(
+        return CheckedAgentTurnResult(
             answer=answer,
+            answer_checked=True,
             model_rounds=metrics.model_rounds,
             tool_calls=len(executed_ids),
             tool_run_ids=tuple(executed_ids),
@@ -440,13 +494,17 @@ class LangChainReadOnlyAgent:
         if reason is AgentStopReason.COMPLETED:
             return answer
         labels = {
-            AgentStopReason.MODEL_LIMIT: "模型轮次上限",
-            AgentStopReason.TOOL_LIMIT: "工具调用上限",
-            AgentStopReason.TIMEOUT: "总运行时间上限",
-            AgentStopReason.CANCELLED: "用户取消",
+            AgentStopReason.MODEL_LIMIT: "已达到本次调查次数上限，暂时没能查完。",
+            AgentStopReason.TOOL_LIMIT: "已达到本次检查次数上限，暂时没能查完。",
+            AgentStopReason.TIMEOUT: "这次检查等待太久，已停止，还没有完整结论。",
+            AgentStopReason.CANCELLED: "已按你的要求停止检查。",
         }
-        evidence = "、".join(tool_run_ids) if tool_run_ids else "无"
-        return f"运行因{labels[reason]}停止。已获得的工具证据：{evidence}；未完成部分无法确认。"
+        evidence = (
+            f"已保留 {len(tool_run_ids)} 项检查记录，可展开查看。"
+            if tool_run_ids
+            else "还没有取得工具检查记录。"
+        )
+        return f"{labels[reason]}{evidence}未查明的部分仍不能确认。"
 
     @staticmethod
     def _usage(metrics: ModelRunMetrics) -> AgentUsage:
@@ -454,6 +512,83 @@ class LangChainReadOnlyAgent:
             input_tokens=metrics.input_tokens,
             output_tokens=metrics.output_tokens,
             total_tokens=metrics.total_tokens,
+        )
+
+    @staticmethod
+    def _connection_evidence(
+        target: ServiceCheckTarget,
+        results: list[tuple[ToolExecutionRequest, ToolExecutionResult]],
+        draft: str,
+        evidence: list[EvidenceReference],
+    ) -> EvidenceAnswer:
+        """只核对最新完整监听中的同一节点和入口，模型草稿不参与事实判定。"""
+        facts: list[ConfirmedFact] = []
+        unknowns = (
+            "网页是否正常、另一台电脑能否实际打开，还没有验证。",
+            "这次只核对了所选连接入口，程序的其他状态和其他入口还不能确认。",
+        )
+        for request, result in reversed(results):
+            if request.tool_name != "list_network_listeners":
+                continue
+            if (
+                request.context.execution_node_id != target.node_id
+                or result.status is not ToolExecutionStatus.SUCCESS
+                or result.truncated
+            ):
+                break
+            try:
+                collection = CollectionResult.model_validate(result.output)
+                if collection.availability is not Availability.AVAILABLE:
+                    break
+                listeners = [NetworkListener.model_validate(item) for item in collection.items]
+                matching = [
+                    item
+                    for item in listeners
+                    if compute_observed_service_id(
+                        target.node_id, ServiceProtocol(item.protocol), item.address, item.port
+                    )
+                    == target.service_id
+                ]
+                if not matching:
+                    break
+                addresses = [ip_address(item.address) for item in matching]
+                local_only = all(
+                    (address.ipv4_mapped or address).is_loopback
+                    if isinstance(address, IPv6Address)
+                    else address.is_loopback
+                    for address in addresses
+                )
+            except ValueError:
+                break
+            if matching[0].protocol == "udp":
+                statement = (
+                    f"已记录你选中的“{target.display_name}”的消息传送入口；"
+                    "它还不是已验证的网页入口。"
+                )
+            elif local_only:
+                statement = (
+                    f"你选中的“{target.display_name}”这个连接入口，目前只允许这台电脑自己连接，"
+                    "另一台电脑不能直接使用这个入口。"
+                )
+            else:
+                statement = (
+                    f"你选中的“{target.display_name}”这个连接入口不只限这台电脑自身；"
+                    "能否从另一台电脑连上，还没有验证。"
+                )
+            facts.append(
+                ConfirmedFact(statement=statement, evidence_refs=(str(result.tool_run_id),))
+            )
+            break
+        summary = (
+            facts[0].statement if facts else "这次还没有取得能核对所选程序连接入口的完整记录。"
+        )
+        return EvidenceAnswer(
+            summary="\n\n".join((summary, *unknowns)),
+            confirmed_facts=tuple(facts),
+            inferences=(draft,) if draft else (),
+            unknowns=unknowns,
+            evidence=tuple(evidence),
+            stop_reason=AgentStopReason.COMPLETED,
         )
 
     @staticmethod

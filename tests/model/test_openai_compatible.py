@@ -127,6 +127,49 @@ def test_parses_structured_output_without_api_key() -> None:
     assert response.usage.input_tokens is None
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        '```json\n{"status": "ok"}\n```',
+        ' \r\n```json\r\n{"status": "ok"}\r\n```\r\n ',
+    ],
+)
+def test_parses_a_single_json_code_block(content: str) -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        ),
+    )
+    response = run(provider.complete(request(structured=True)))
+    assert response.structured_output == {"status": "ok"}
+    assert response.content == content
+    assert run(provider.complete(request())).content == content
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '说明\n```json\n{"status": "ok"}\n```',
+        '```json\n{"status": "ok"}\n```\n其他文字',
+        '```json\n{"status": "ok"}\n```\n```json\n{}\n```',
+        '```python\n{"status": "ok"}\n```',
+        '```json\n{"status": "ok"}',
+        "```json\nnot-json\n```",
+    ],
+)
+def test_rejects_code_blocks_with_prose_or_invalid_json(content: str) -> None:
+    provider = OpenAICompatibleProvider(
+        config(),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        ),
+    )
+    with pytest.raises(ProviderError) as caught:
+        run(provider.complete(request(structured=True)))
+    assert caught.value.code == ProviderErrorCode.INVALID_RESPONSE
+
+
 def test_supports_requests_without_tools_and_optional_tool_choice() -> None:
     transport = httpx.MockTransport(
         lambda _: httpx.Response(

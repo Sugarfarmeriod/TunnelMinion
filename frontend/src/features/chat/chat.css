@@ -206,6 +206,15 @@
   color: var(--color-accent-strong);
 }
 
+.chat-run-status--bounded {
+  background: color-mix(
+    in srgb,
+    var(--color-warning-text) 10%,
+    var(--color-surface)
+  );
+  color: var(--color-warning-text);
+}
+
 .chat-run-status--failed,
 .chat-run-status--interrupted {
   background: color-mix(in srgb, #b42318 12%, var(--color-surface));

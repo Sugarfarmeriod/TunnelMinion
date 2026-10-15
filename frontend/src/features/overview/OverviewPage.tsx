@@ -28,6 +28,7 @@ import {
   operationsRequiringAttention,
   groupServiceApplications,
   serviceDisplayName,
+  serviceKindLabels,
 } from "./overviewActions";
 import { InvestigationDetails } from "./InvestigationDetails";
 
@@ -775,14 +776,7 @@ function ServiceList({
                   <span className="overview-application__identity">
                     <strong>{app.name}</strong>
                     <small>
-                      {
-                        {
-                          python: "Python 程序",
-                          docker: "Docker 容器",
-                          model: "模型服务",
-                          program: "自行安装的程序",
-                        }[app.kind]
-                      }
+                      {serviceKindLabels[app.kind]}
                       {group.services.length > 1
                         ? ` · ${group.services.length} 个入口`
                         : ""}

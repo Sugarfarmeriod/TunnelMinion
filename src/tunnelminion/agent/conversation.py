@@ -25,7 +25,9 @@ from tunnelminion.agent.runtime import (
     AgentStopReason,
     AgentToolEvent,
     AgentTurnResult,
+    CheckedAgentTurnResult,
     LangChainReadOnlyAgent,
+    ServiceCheckTarget,
 )
 from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ContextBudgets
@@ -81,6 +83,7 @@ class ThreadMessage(BaseModel):
     content: str
     created_at: datetime
     run_id: RunId
+    answer_checked: bool = False
 
 
 class ThreadDetail(BaseModel):
@@ -118,6 +121,13 @@ class RunView(BaseModel):
     failure: FailureRecord | None = None
 
 
+class CheckedRunView(RunView):
+    """工作台与本机存储保留核对标记，公开接口仍使用 RunView。"""
+
+    # Pydantic 已冻结该字段，子类收窄类型不会允许可变赋值。
+    result: CheckedAgentTurnResult | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
+
+
 class RunEvent(BaseModel):
     """SSE 使用的顺序化公开事件。"""
 
@@ -143,7 +153,7 @@ class _ConversationCheckpointState(BaseModel):
 
     thread: ThreadView
     messages: tuple[ThreadMessage, ...]
-    run: RunView
+    run: CheckedRunView
     events: tuple[RunEvent, ...]
     rolling_summary: RollingSummary | None = None
 
@@ -158,7 +168,7 @@ class _RunState:
     cancellation: AgentCancellationToken
     status: RunStatus = RunStatus.RUNNING
     finished_at: datetime | None = None
-    result: AgentTurnResult | None = None
+    result: CheckedAgentTurnResult | None = None
     error_code: str | None = None
     error_message: str | None = None
     failure: FailureRecord | None = None
@@ -237,9 +247,11 @@ class InMemoryConversationService:
         if self._checkpoints is not None:
             self._checkpoints.delete_thread(thread_id)
 
-    async def start_run(self, thread_id: ThreadId, value: StartRunInput) -> RunView:
+    async def start_run(
+        self, thread_id: ThreadId, value: StartRunInput, target: ServiceCheckTarget | None = None
+    ) -> RunView:
         """验证线程与模型后，在后台启动一次 Agent run。"""
-        return await self._start_run(thread_id, value, agent_question=value.question)
+        return await self._start_run(thread_id, value, agent_question=value.question, target=target)
 
     async def start_incident_run(
         self,
@@ -262,10 +274,13 @@ class InMemoryConversationService:
         value: StartRunInput,
         *,
         agent_question: str,
+        target: ServiceCheckTarget | None = None,
     ) -> RunView:
         thread = self._threads.get(str(thread_id))
         if thread is None:
             raise KeyError("thread_not_found")
+        if target is not None and target.node_id != self._node_id:
+            raise ValueError("当前只读工具不能核对另一台电脑上的程序")
         memories = self._memories(value.question)
         history_context = self._history_assembler.assemble(
             tuple(ModelMessage(role=item.role, content=item.content) for item in thread.messages),
@@ -291,11 +306,11 @@ class InMemoryConversationService:
             message=value.question,
         )
         state.task = asyncio.create_task(
-            self._execute(state, agent, value, agent_question, history_context, memories)
+            self._execute(state, agent, value, agent_question, history_context, memories, target)
         )
         return self._view(state)
 
-    def get_run(self, run_id: RunId) -> RunView:
+    def get_run(self, run_id: RunId) -> CheckedRunView:
         """读取 run 当前状态。"""
         return self._view(self._get(run_id))
 
@@ -328,6 +343,7 @@ class InMemoryConversationService:
         agent_question: str,
         history_context: HistoryContext,
         memories: tuple[LongTermMemory, ...],
+        target: ServiceCheckTarget | None,
     ) -> None:
         def tool_event(event: AgentToolEvent) -> None:
             self._append(
@@ -355,7 +371,23 @@ class InMemoryConversationService:
                 tool_event,
                 history_context,
                 memories,
+                target,
             )
+            if not result.answer_checked:
+                summary = "本次还没有形成能核对的程序结论。请先选择要检查的程序，再问一次。"
+                result = result.model_copy(
+                    update={
+                        "answer": summary,
+                        "answer_checked": True,
+                        "evidence_answer": result.evidence_answer.model_copy(
+                            update={
+                                "summary": summary,
+                                "confirmed_facts": (),
+                                "unknowns": ("本次检查记录尚不能确认所问的实际情况。",),
+                            }
+                        ),
+                    }
+                )
             state.result = result
             state.status = (
                 RunStatus.CANCELLED
@@ -363,7 +395,13 @@ class InMemoryConversationService:
                 else RunStatus.COMPLETED
             )
             state.finished_at = datetime.now(UTC)
-            self._add_message(state.thread_id, "assistant", result.answer, state.run_id)
+            self._add_message(
+                state.thread_id,
+                "assistant",
+                result.answer,
+                state.run_id,
+                answer_checked=result.answer_checked,
+            )
             self._append(
                 state,
                 RunEventType.FINISHED,
@@ -527,13 +565,21 @@ class InMemoryConversationService:
         role: str,
         content: str,
         run_id: RunId,
+        *,
+        answer_checked: bool = False,
     ) -> None:
         thread = self._threads.get(str(thread_id))
         if thread is None:
             return
         now = datetime.now(UTC)
         thread.messages.append(
-            ThreadMessage(role=role, content=content, created_at=now, run_id=run_id)
+            ThreadMessage(
+                role=role,
+                content=content,
+                created_at=now,
+                run_id=run_id,
+                answer_checked=answer_checked,
+            )
         )
         thread.updated_at = now
 
@@ -547,8 +593,8 @@ class InMemoryConversationService:
         )
 
     @staticmethod
-    def _view(state: _RunState) -> RunView:
-        return RunView(
+    def _view(state: _RunState) -> CheckedRunView:
+        return CheckedRunView(
             run_id=state.run_id,
             thread_id=state.thread_id,
             status=state.status,

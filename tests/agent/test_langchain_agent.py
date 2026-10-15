@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, HumanMessage, ToolMessage
 from pydantic import ValidationError
 
-from tunnelminion.agent.langchain_model import TunnelMinionChatModel
+from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.runtime import (
     AgentCancellationToken,
     AgentRunLimits,
@@ -30,6 +31,8 @@ from tunnelminion.domain.tools import (
     ToolDefinition as RuntimeToolDefinition,
 )
 from tunnelminion.domain.versioning import ProtocolVersion
+from tunnelminion.memory.context import ArtifactContextManager
+from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelCapabilities,
@@ -305,8 +308,10 @@ def test_agent_stops_at_model_or_tool_limit(
     assert result.stop_reason is expected
     assert result.tool_calls == 1
     assert len(adapter.calls) == 1
-    assert result.tool_run_ids[0] in result.answer
-    assert "未完成部分无法确认" in result.answer
+    assert "暂时没能查完" in result.answer
+    assert result.tool_run_ids[0] not in result.answer
+    assert result.evidence_answer.evidence[0].tool_run_id == result.tool_run_ids[0]
+    assert "未查明的部分仍不能确认" in result.answer
 
 
 def test_agent_wall_clock_timeout_cancels_model() -> None:
@@ -327,7 +332,8 @@ def test_agent_wall_clock_timeout_cancels_model() -> None:
     assert result.model_rounds == 0
     assert result.tool_calls == 0
     assert not adapter.calls
-    assert "总运行时间上限" in result.answer
+    assert "等待太久" in result.answer
+    assert "还没有取得工具检查记录" in result.answer
 
 
 def test_prompt_injection_data_cannot_add_forbidden_tool() -> None:
@@ -386,7 +392,7 @@ def test_user_cancellation_stops_run() -> None:
     result = run(scenario())
 
     assert result.stop_reason is AgentStopReason.CANCELLED
-    assert "用户取消" in result.answer
+    assert "已按你的要求停止检查" in result.answer
 
 
 @pytest.mark.parametrize(
@@ -505,6 +511,145 @@ def test_chat_model_sync_entry_and_message_guards() -> None:
     assert failure.reason.value == "model_timeout"
     assert failure.retryable
     assert "敏感模型正文" not in failure.model_dump_json()
+
+
+def test_chat_model_continues_after_large_tool_result() -> None:
+    """正常工具清单超过问题长度上限时，仍以用户问题继续调查。"""
+    provider = ScriptedProvider()
+    call_context = context()
+    model = TunnelMinionChatModel(
+        provider=provider,
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
+    content = json.dumps(
+        {
+            "trust": "untrusted-tool-data",
+            "result": {
+                "tool_run_id": str(ToolRunId.new()),
+                "status": "success",
+                "output": "x" * 21_000,
+            },
+        }
+    )
+    response = model.invoke(
+        [
+            HumanMessage(content="这个程序为什么在另一台电脑上打不开？"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"id": "large-call", "name": "get_process_summary", "args": {"limit": 200}},
+                ],
+            ),
+            ToolMessage(content=content, tool_call_id="large-call", name="get_process_summary"),
+        ]
+    )
+    assert response.content == "已确认服务状态，并引用工具证据。"
+    assert provider.requests[-1].messages[-1].content == content
+
+
+def test_chat_model_prepares_large_evidence_without_losing_parallel_results(tmp_path: Path) -> None:
+    """大型成功结果制品化，保留并行响应、执行状态和每次调查独立的缓存。"""
+    provider = ScriptedProvider()
+    store = SQLiteStores.open(tmp_path / "context.sqlite3").artifacts
+    call_context = context()
+    model = TunnelMinionChatModel(
+        provider=provider,
+        artifact_manager=ArtifactContextManager(store),
+        thread_id=call_context.thread_id,
+        run_id=call_context.run_id,
+    )
+    payload = {
+        "trust": "untrusted-tool-data",
+        "result": {
+            "tool_run_id": str(ToolRunId.new()),
+            "status": "success",
+            "output": {"unrelated": "x" * 24_000, "service": "Wireguard Panel", "port": 8787},
+        },
+    }
+    small_content = json.dumps(
+        {
+            "result": {
+                "tool_run_id": str(ToolRunId.new()),
+                "status": "success",
+                "output": {"address": "127.0.0.1", "port": 8787},
+            }
+        }
+    )
+    messages: list[BaseMessage] = [
+        HumanMessage(content="之前的问题"),
+        HumanMessage(content="Wireguard Panel 的 8787 为什么在另一台电脑上打不开？"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "listeners", "name": "list_network_listeners", "args": {}},
+                {"id": "processes", "name": "get_process_summary", "args": {"limit": 200}},
+            ],
+        ),
+        ToolMessage(content=small_content, tool_call_id="listeners", name="list_network_listeners"),
+        ToolMessage(
+            content=json.dumps(payload), tool_call_id="processes", name="get_process_summary"
+        ),
+    ]
+
+    for _ in range(2):
+        model.invoke(messages)
+        results = [item for item in provider.requests[-1].messages if item.role == "tool"]
+        assert [item.tool_call_id for item in results] == ["listeners", "processes"]
+        assert results[0].content == small_content
+        assert "status=success" in results[1].content
+        assert "8787" in results[1].content and "artifact=" in results[1].content
+        assert len(results[1].content) < 1200
+
+    assert len(model.run_metrics.artifact_contexts) == 1
+    prepared = next(iter(model.run_metrics.artifact_contexts.values()))
+    assert prepared.artifact_id is not None
+    artifact = store.get(prepared.artifact_id)
+    assert artifact is not None and artifact.content == payload
+    assert prepared.truncated
+    assert all(
+        item.kind.value == "artifact" for item in model.run_metrics.context_records[-1].truncations
+    )
+
+    next_run = model.model_copy(update={"run_id": RunId.new(), "run_metrics": ModelRunMetrics()})
+    next_run.invoke(messages)
+    assert (
+        next(iter(next_run.run_metrics.artifact_contexts.values())).artifact_id
+        != prepared.artifact_id
+    )
+
+    for existing_id in (ArtifactId.new(), None):
+        model.invoke(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"id": "existing", "name": "get_process_summary", "args": {}},
+                    ],
+                ),
+                ToolMessage(
+                    content=json.dumps(
+                        {
+                            "result": {
+                                "tool_run_id": str(ToolRunId.new()),
+                                "status": "partial",
+                                "artifact_id": str(existing_id)
+                                if existing_id is not None
+                                else None,
+                                "truncated": True,
+                                "output": "已有预览",
+                            }
+                        }
+                    ),
+                    tool_call_id="existing",
+                    name="get_process_summary",
+                ),
+            ]
+        )
+        if existing_id is not None:
+            assert str(existing_id) in provider.requests[-1].messages[-1].content
+        assert "partial" in provider.requests[-1].messages[-1].content
+        assert len(model.run_metrics.artifact_contexts) == 1
 
 
 def test_agent_result_helpers_handle_content_variants() -> None:

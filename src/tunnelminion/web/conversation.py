@@ -10,8 +10,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from tunnelminion.agent.conversation import InMemoryConversationService, StartRunInput
-from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.agent.runtime import ServiceCheckTarget
+from tunnelminion.domain.identifiers import RunId, ServiceId, ThreadId
 from tunnelminion.model.contracts import ProviderError
+from tunnelminion.web.overview import OverviewFreshness, OverviewService
 
 _CHAT_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>TunnelMinion 聊天</title><style>
@@ -45,7 +47,15 @@ async function deleteThread(){if(currentThread){await api('/api/threads/'+curren
 refresh();</script></main></body></html>"""
 
 
-def create_conversation_router(service: InMemoryConversationService) -> APIRouter:
+class StartProgramRunInput(StartRunInput):
+    """工作台专用的所选程序身份，不改变既有对话请求契约。"""
+
+    service_id: ServiceId
+
+
+def create_conversation_router(
+    service: InMemoryConversationService, overview: OverviewService | None = None
+) -> APIRouter:
     """创建只由环回绑定应用挂载的对话路由。"""
     router = APIRouter()
 
@@ -88,12 +98,49 @@ def create_conversation_router(service: InMemoryConversationService) -> APIRoute
         return HTMLResponse(_CHAT_PAGE)
 
     async def start_run(value: str, payload: StartRunInput) -> dict[str, object]:
+        return await begin_run(value, payload)
+
+    async def start_program_run(value: str, payload: StartProgramRunInput) -> dict[str, object]:
+        items = overview.view_for_programs().services.items if overview is not None else ()
+        selected = next((item for item in items if item.service_id == payload.service_id), None)
+        if (
+            selected is None
+            or selected.protocol is None
+            or selected.port is None
+            or selected.freshness not in {OverviewFreshness.LIVE, OverviewFreshness.FRESH}
+        ):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "程序记录不可核对，请刷新后重试"
+            )
+        target = ServiceCheckTarget(
+            service_id=selected.service_id,
+            node_id=selected.node_id,
+            protocol=selected.protocol,
+            port=selected.port,
+            application_kind=selected.application.kind
+            if selected.application is not None
+            else None,
+            display_name=(
+                selected.application.name
+                if selected.application is not None
+                else selected.display_name or "所选程序"
+            ),
+        )
+        return await begin_run(value, payload, target)
+
+    async def begin_run(
+        value: str, payload: StartRunInput, target: ServiceCheckTarget | None = None
+    ) -> dict[str, object]:
         try:
-            view = await service.start_run(thread_id(value), payload)
+            view = await service.start_run(thread_id(value), payload, target)
         except KeyError as exc:
             raise not_found(exc) from exc
         except ProviderError as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "当前工具不能核对所选程序"
+            ) from exc
         return view.model_dump(mode="json")
 
     async def get_run(value: str) -> dict[str, object]:
@@ -133,6 +180,9 @@ def create_conversation_router(service: InMemoryConversationService) -> APIRoute
     router.add_api_route("/api/threads/{value}", get_thread, methods=["GET"])
     router.add_api_route("/api/threads/{value}", delete_thread, methods=["DELETE"])
     router.add_api_route("/api/threads/{value}/runs", start_run, methods=["POST"])
+    router.add_api_route(
+        "/api/ui/threads/{value}/runs", start_program_run, methods=["POST"], include_in_schema=False
+    )
     router.add_api_route("/api/runs/{value}", get_run, methods=["GET"])
     router.add_api_route("/api/runs/{value}/cancel", cancel_run, methods=["POST"])
     router.add_api_route("/api/runs/{value}/events", events, methods=["GET"])
