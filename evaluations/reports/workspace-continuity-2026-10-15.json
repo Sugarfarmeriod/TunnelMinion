@@ -1,0 +1,255 @@
+{
+  "schema_version": "workspace-continuity-evidence/v1",
+  "status": "accepted",
+  "scope": "工作台最近检查与初始清单衔接；合并后只更新 Mac 18767 隔离测试程序并只读复核",
+  "implementation": {
+    "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/133",
+    "base_commit": "30d62b3ad282670ad4b9718a9dcbb30d0cc0b9e2",
+    "head_commit": "3c2e8d7321b6a80d6e9aa279a2b34ad9401cd886",
+    "merge_commit": "85f731b7fcd1bd182deb7d9e0b78628801498b6b",
+    "merged_at": "2026-10-15T14:11:18Z",
+    "ci_url": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38747547551",
+    "ci_passed_jobs": 8,
+    "ci_total_jobs": 8
+  },
+  "local_checks": {
+    "component_files": 19,
+    "component_tests_passed": 215,
+    "format_type_build_size_passed": true,
+    "initial_gzip_kib": 160.96,
+    "baseline_limit_kib": 171.16,
+    "directed_browser_tests_passed": 8,
+    "continuity_latest_copy_tests_passed": 4,
+    "browsers": [
+      "chromium",
+      "webkit"
+    ],
+    "viewport_widths": [
+      1280,
+      320
+    ],
+    "controlled_initial_unknown_recovery": true,
+    "max_supplemental_reads": 2,
+    "supplemental_interval_ms": 1000,
+    "leave_cancels_timer_and_last_subscriber_request": true,
+    "old_api_fallback_preserves_abort_signal": true,
+    "draft_and_input_focus_preserved": true,
+    "browser_write_requests": 0
+  },
+  "runtime_package": {
+    "artifact_id": 11978763924,
+    "ci_run_id": 38747547551,
+    "ci_head_commit": "3c2e8d7321b6a80d6e9aa279a2b34ad9401cd886",
+    "source_revision": "8f07bf50f979143c7df49016b494a73f676e615e",
+    "source_tree_sha256": "e5079ece3d97cfcd54e3231ffa450fdea76d83ae4c15e3fdd5ce55191bdf570d",
+    "frontend_sha256": "a60e1f23de9a319be6c4b9dca7d2f1f6445db6d9551730f7e3a8b7b0f1fc3b41",
+    "archive_sha256": "80f44d42bd084c5d6d8a21015fdad6efec65c6ae82034f50b0846e93f6631dbb",
+    "manifest_sha256": "df61e58b14008de868ed15aa258b08ee88a509242139b6cb4952696e7cdae3bf",
+    "file_count": 143,
+    "source_matches_checkout": true,
+    "closed_file_set_and_hashes_valid": true
+  },
+  "live": {
+    "before_at": "2026-10-15T14:10:19.705653+00:00",
+    "after_at": "2026-10-15T14:19:55.914431+00:00",
+    "origin": "http://127.0.0.1:18767",
+    "program": "/Users/mac/Working-Env/tunnelminion-20261015-workspace-continuity/package/tunnelminion",
+    "previous_program": "/Users/mac/Working-Env/tunnelminion-20261015-qwen-facts-view/package/tunnelminion",
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "profile_preserved": true,
+    "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+    "enabled_components": [
+      "local"
+    ],
+    "gateway_or_managed_config_present": false,
+    "before_ports": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        11213
+      ]
+    },
+    "after_ports": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        48930
+      ]
+    },
+    "before_service_count": 35,
+    "after_service_count": 35,
+    "before_program_count": 11,
+    "after_program_count": 11,
+    "named_service_ids_preserved": true,
+    "named_service_ids": [
+      "service_2adeabcc16698e7e2be7c22590827ac0",
+      "service_403cecc51c5a6f56bd2014891aed00a3",
+      "service_4e7d410e0554e3c53683bc472a2d094b",
+      "service_55c67e4408191457f4bbc4dfb98a555f",
+      "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+      "service_5fbf33ec2fba867c84cd28f75585964c",
+      "service_676ab4650bf1596975b3288d45765bc8",
+      "service_8bd518511091c6b46bb2b236ad1c5680",
+      "service_9b34c848771d6fc83fd777241fffd414",
+      "service_a715c27099aa7428797107bba5410b94",
+      "service_aae8cc91b632075cfab0d49e2172301c",
+      "service_af9bd90262f7f5d3bd681249a9cddbad",
+      "service_c4095eeda456c02274f0cec124e54631",
+      "service_e0ca86cbfffc3a1c91f00d252df6a930",
+      "service_edda0b62de18feac81ec04b492662d99",
+      "service_fde85872ce80d9ea9a1302892bcd9620"
+    ],
+    "program_group_ids": [
+      "application_127f7885847a4783cf301ef6237cbbbc",
+      "application_4ae8af43eb65aaac35078bc674b4a1e1",
+      "application_4c7a7b2a75556e83bccbb11b7fa3d342",
+      "application_7ac33815d3a4d53b80b233e1aac76739",
+      "application_aab87df86832a27272cad8315de81bac",
+      "application_b3b719f3e0b8c57cc0b40401d35ecf0a",
+      "application_c6b2af069fff6f801fba3a202b9746fb",
+      "application_d5b29a5ea768b0a4d3030f56672c091c",
+      "application_db42d6387cb7526a594aa8dce8aa4cc2",
+      "application_dc538c3a2e6c366f62ad26f3e4feb9ac",
+      "application_fa5a65a5cc1ce50af95e91f151fb9701"
+    ],
+    "thread_ids": [
+      "thread_0ad920f78f174549b4aa2330f3acb6bd",
+      "thread_27fb8ccdbd5e43d38fb417fed768bc0b",
+      "thread_b0e8623caf48471c9febac1c92eb6f66",
+      "thread_9205d772d6bc4995872008d37d003aa9",
+      "thread_2775f9ffe9f34e9cb31a24ae614d03da"
+    ],
+    "all_five_message_hashes_preserved": true,
+    "retained_message_hashes": {
+      "thread_0ad920f78f174549b4aa2330f3acb6bd": "e498604f9e84eaddecde42c1135d328de1373c70b9dbd0992a2d9ac4a1021974",
+      "thread_27fb8ccdbd5e43d38fb417fed768bc0b": "fce456afe98d9f6d300ed20ba6b0902b573c0c08c5280741795e2b59cdf6e018",
+      "thread_b0e8623caf48471c9febac1c92eb6f66": "ec3d121c758315bd5de8710b62d3e691f2005b0cb7bb696d6f507b4eef3c6d23",
+      "thread_9205d772d6bc4995872008d37d003aa9": "b4590a5a3ef3ea93f121a86d4825a1abb68f41f829219cc239c55af4992e5a60",
+      "thread_2775f9ffe9f34e9cb31a24ae614d03da": "e1c0c6ae338a57a1e3f5a1e1ae52e82a22af3b8a6604bb6cd06c8868e31576ca"
+    },
+    "operation_ids_before": [],
+    "operation_ids_after": [],
+    "default_thread_id": "thread_2775f9ffe9f34e9cb31a24ae614d03da",
+    "selected_thread_matches_most_recent": true,
+    "retained_run": {
+      "run_id": "run_c599a0203f064ed0b12fbdcd5fdde05a",
+      "thread_id": "thread_2775f9ffe9f34e9cb31a24ae614d03da",
+      "status": "completed",
+      "finished_at": "2026-10-15T08:28:37.134231Z",
+      "answer_checked": true,
+      "checked_service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "tool_run_ids": [
+        "toolrun_80db6d0a380745a6ac0533637e6b989c",
+        "toolrun_8d204843f5854af8949d5a12cb6ae28d"
+      ],
+      "usage": {
+        "input_tokens": 4514,
+        "output_tokens": 1517,
+        "total_tokens": 6031,
+        "estimated_cost": null
+      },
+      "raw_draft_hashes": [
+        "cbd076c1e7902dcace77faef067ddc1930d5327e27cbe6d6763d7c3df4940c85"
+      ]
+    },
+    "browser_check": {
+      "window": "重新打开工作台并点击刷新这段对话",
+      "captured_request_count": 20,
+      "non_get_request_count": 0,
+      "events_truncated": false,
+      "events_has_more": false,
+      "overview_reads": 1,
+      "default_thread_visible": true,
+      "original_checked_answer_visible": true,
+      "ended_status_visible": true,
+      "refresh_notice_visible": true,
+      "new_investigation_runs": 0,
+      "screenshot": "build/workspace-continuity/mac-workspace-continuity.jpg",
+      "screenshot_sha256": "366c8244bec98b586e61a0362c93c0eef6e2c581e7c02575251877d0824a8ee4"
+    },
+    "initial_unknown_recovery_observed_live": false,
+    "initial_unknown_recovery_evidence": "实机复核时已取得清单；初始空记录恢复、上限、离页取消与输入位置由本地受控场景验证，不冒充实机启动抓取",
+    "preflight": {
+      "deterministic_ready": false,
+      "checks": [
+        {
+          "name": "package",
+          "status": "passed",
+          "code": "package_valid"
+        },
+        {
+          "name": "profile",
+          "status": "passed",
+          "code": "profile_valid"
+        },
+        {
+          "name": "data-dir",
+          "status": "passed",
+          "code": "data_dir_writable"
+        },
+        {
+          "name": "model-config",
+          "status": "passed",
+          "code": "model_config_valid"
+        },
+        {
+          "name": "managed-config",
+          "status": "warning",
+          "code": "managed_unconfigured"
+        },
+        {
+          "name": "gateway-config",
+          "status": "warning",
+          "code": "gateway_disabled"
+        },
+        {
+          "name": "local-instance",
+          "status": "failed",
+          "code": "existing_instance_record"
+        },
+        {
+          "name": "local-port",
+          "status": "passed",
+          "code": "port_available"
+        }
+      ]
+    },
+    "protected_pids_preserved": true,
+    "model_config_preserved": true,
+    "fallback_program_retained": true
+  },
+  "cleanup": {
+    "uploaded_archive_removed": true,
+    "all_programs_retained": true,
+    "browser_tab_closed": "3",
+    "owned_windows_forward_stopped": {
+      "pid": 54168,
+      "start_utc": "2026-10-15T14:14:51.9882998Z",
+      "local_port": 18767
+    },
+    "mac_test_program_retained": true
+  },
+  "limits": [
+    "本轮未发起新模型调查；保留的两轮模型、两次工具和 6031 tokens 属于已验收的旧检查。",
+    "网页业务和跨电脑访问未验证，不创建访问、操作或批准请求，不改服务或网络。",
+    "清单数量绑定观测时间，临时 UDP 监听会自然变化。",
+    "实例记录预检失败项由现有启动器恢复；不宣称全部预检通过。",
+    "长程序名挤压状态标签的既有视觉问题仍待后续小修，本轮不宣称全产品或老人用户易用性已验收。"
+  ]
+}
