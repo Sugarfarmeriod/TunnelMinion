@@ -193,7 +193,10 @@ export function ChatPage({
 
   const refreshThreads = useCallback(
     async (signal?: AbortSignal, preferredThreadId?: string) => {
-      const latest = await listThreads(signal);
+      const latest = (await listThreads(signal)).sort(
+        (left, right) =>
+          Date.parse(right.updated_at) - Date.parse(left.updated_at),
+      );
       if (signal?.aborted) {
         return latest;
       }
