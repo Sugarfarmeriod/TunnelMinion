@@ -633,7 +633,9 @@ def test_chat_model_prepares_large_evidence_without_losing_parallel_results(tmp_
                             "result": {
                                 "tool_run_id": str(ToolRunId.new()),
                                 "status": "partial",
-                                "artifact_id": str(existing_id),
+                                "artifact_id": str(existing_id)
+                                if existing_id is not None
+                                else None,
                                 "truncated": True,
                                 "output": "已有预览",
                             }

@@ -3,7 +3,7 @@
   "status": "in_progress",
   "phase_date": "2026-10-15",
   "base_revision": "e8000c4b8e761e88fc7f19257ece37e857517cbc",
-  "implementation_revision": "7ef5851c8b28799d9a65d0c936263d101cf563c4",
+  "implementation_revision": "d80c0707a0f25187114172f59d9dbac3f0a9b3b7",
   "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/132",
   "scope": {
     "isolated_page_port": 18767,
@@ -471,6 +471,198 @@
     "listeners_envelope_chars": 3705,
     "raw_data_exported": false
   },
+  "completed_investigation_with_usability_gaps": {
+    "source_revision": "d80c0707a0f25187114172f59d9dbac3f0a9b3b7",
+    "run": {
+      "run_id": "run_fc78b0dc68e849cbb657423e11ae3e5b",
+      "thread_id": "thread_b0e8623caf48471c9febac1c92eb6f66",
+      "status": "completed",
+      "created_at": "2026-10-15T06:33:21.865134Z",
+      "finished_at": "2026-10-15T06:34:38.664576Z",
+      "error_code": null,
+      "failure": null,
+      "result": {
+        "answer": "该程序在另一台电脑上无法打开，是因为它目前**仅监听本机环回地址**，不接受外部局域网连接。\n\n**已确认事实：**\n根据实时网络监听数据（证据 1），PID 79774（进程名 Python）正在 **TCP 8787** 端口运行，但其绑定地址显示为 **`127.0.0.1`**。这意味着该服务仅对“本机”开放，外部设备连接时会因为找不到监听的服务而被网络层拒绝。\n\n**推测与建议：**\n*   **原因**：Python 程序（如 Flask/FastAPI）默认配置通常只监听 127.0.0.1，需显式配置监听 `0.0.0.0` 才能对外暴露。\n*   **建议**：请在“Wireguard Panel”的设置中将监听地址（Host/Bind）改为 `0.0.0.0`，并确认本机防火墙允许该端口的外部访问。\n\n证据索引（程序生成）：\n- get_process_summary: toolrun_0bd146b8023b49e0be00d609f5e640c6 (success)\n- list_network_listeners: toolrun_f562d553f9f145b0bb225ad2bd4bd829 (success)",
+        "model_rounds": 2,
+        "tool_calls": 2,
+        "tool_run_ids": [
+          "toolrun_0bd146b8023b49e0be00d609f5e640c6",
+          "toolrun_f562d553f9f145b0bb225ad2bd4bd829"
+        ],
+        "selected_tools": [
+          "get_node_summary",
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability"
+        ],
+        "stop_reason": "completed",
+        "elapsed_ms": 76794.5,
+        "usage": {
+          "input_tokens": 5574,
+          "output_tokens": 1677,
+          "total_tokens": 7251,
+          "estimated_cost": null
+        },
+        "limits": {
+          "max_model_rounds": 8,
+          "max_tool_calls": 12,
+          "timeout_seconds": 120
+        }
+      }
+    },
+    "accepted_for_product_experience": false,
+    "confirmed_listener": {
+      "pid": 79774,
+      "address": "127.0.0.1",
+      "port": 8787,
+      "independently_verified": true,
+      "http_page_or_cross_device_access_tested": false
+    },
+    "context_tool_result_chars": 8751,
+    "context_tool_results_included": 2,
+    "context_tool_results_dropped": 0,
+    "context_artifact_count": 0,
+    "observed_gaps": [
+      "术语和原样 Markdown 过多",
+      "主动建议扩大监听和防火墙放行",
+      "未说明网页和跨设备访问尚未验证"
+    ],
+    "package": {
+      "archive_sha256": "28b9865cab80ccd9793cc35e441717f441cb9cc45ea6478015007ce722763df6",
+      "manifest_sha256": "95a1629a2ed0e24199eff5b3cc0057d5d5e8d237a0370b47d2d7b786c51f36d7",
+      "source_revision": "39aa343bc0a6b9c7ee89cd2056de6d3b4f520731",
+      "source_tree_sha256": "42a8ce746d10d3992686a8fbc8b856549322b9c8f991c77f61ae3bd4ac93154b",
+      "frontend": {
+        "file_count": 3,
+        "root": "_internal/tunnelminion/web/ui",
+        "sha256": "a24dc2e0188f93c493910c33142a03f527f0593a77530f812b8ad64c65c2439d"
+      },
+      "candidate": "tunnelminion-0-1-0-darwin-arm64-42a8ce746d10-a24dc2e0188f",
+      "file_count": 143,
+      "source_matches_checkout": true,
+      "closed_file_set_and_hashes_valid": true
+    },
+    "ci": {
+      "run_id": 38691857735,
+      "head": "d80c0707a0f25187114172f59d9dbac3f0a9b3b7",
+      "conclusion": "success",
+      "passed": 8,
+      "total": 8
+    },
+    "activation": [
+      {
+        "action": "status",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 10
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 90355
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "stop",
+        "exit_code": 0,
+        "runtime_state": "stopped",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 28
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 90355
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "start",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 18
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 95611
+          }
+        ],
+        "preflight": {
+          "deterministic_ready": false,
+          "checks": [
+            {
+              "name": "package",
+              "status": "passed",
+              "code": "package_valid"
+            },
+            {
+              "name": "profile",
+              "status": "passed",
+              "code": "profile_valid"
+            },
+            {
+              "name": "data-dir",
+              "status": "passed",
+              "code": "data_dir_writable"
+            },
+            {
+              "name": "model-config",
+              "status": "passed",
+              "code": "model_config_valid"
+            },
+            {
+              "name": "managed-config",
+              "status": "warning",
+              "code": "managed_unconfigured"
+            },
+            {
+              "name": "gateway-config",
+              "status": "warning",
+              "code": "gateway_disabled"
+            },
+            {
+              "name": "local-instance",
+              "status": "failed",
+              "code": "existing_instance_record"
+            },
+            {
+              "name": "local-port",
+              "status": "passed",
+              "code": "port_available"
+            }
+          ]
+        }
+      },
+      {
+        "protected_pids_preserved": true,
+        "profile_preserved": true,
+        "model_config_preserved": true,
+        "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+        "fallback_program_retained": true
+      }
+    ],
+    "screenshot": {
+      "path": "build/qwen-readonly-experience/qwen-technical-answer.jpg",
+      "sha256": "490449785afe5796442a9677a0dc6526a6b87bb1eaaf0eddf7b15205be6c0136"
+    }
+  },
   "refined_investigation": null,
-  "conclusion": "已接入并发生真实取证；首次调查因预算停止，未达到可用结论标准。"
+  "conclusion": "自然提问已完成真实只读取证，连接限制与独立监听事实一致；回答边界与易用性仍待验收，不计为完整产品体验通过。"
 }
