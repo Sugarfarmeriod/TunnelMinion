@@ -8,11 +8,12 @@ import {
   targetNodeId,
 } from "../src/features/operations/testFixtures";
 
-for (const width of [1280, 320]) {
-  test(`${width}px 工作台选程序、聊天、查看请求共享页面且不丢草稿`, async ({
+for (const width of [1280, 881, 320]) {
+  test(`${width}px 工作台长名称状态清晰且跨页不丢草稿`, async ({
     page,
     request,
   }, testInfo) => {
+    const longName = "penpot-penpot-frontend-1";
     const overview = (await (
       await request.get("/api/resources/overview")
     ).json()) as ResourceOverview;
@@ -26,7 +27,7 @@ for (const width of [1280, 320]) {
         source: "local_observation",
         evidence_at: overview.generated_at,
         freshness: "fresh",
-        service_count: 4,
+        service_count: 5,
       },
     ];
     overview.services = {
@@ -59,6 +60,18 @@ for (const width of [1280, 320]) {
         freshness: "fresh",
       })),
     };
+    overview.services.items.push({
+      ...overview.services.items[0]!,
+      service_id: `service_${"5".repeat(32)}`,
+      display_name: `${longName} · 9001`,
+      application: {
+        group_id: `application_${"d".repeat(32)}`,
+        name: longName,
+        kind: "docker",
+      },
+      port: 9001,
+      access_address: "tcp://192.0.2.1:9001",
+    });
     overview.incidents.items = [];
     overview.model.status = "unconfigured";
     const threadId = `thread_${"9".repeat(32)}`;
@@ -102,6 +115,63 @@ for (const width of [1280, 320]) {
     await expect(
       page.locator(`#application_${"c".repeat(32)} > details > summary`),
     ).toContainText("Wireguard Panel");
+    const longProgram = page.locator(
+      `#application_${"d".repeat(32)} > details > summary`,
+    );
+    await expect(longProgram.locator("strong")).toHaveText(longName);
+    const status = longProgram.locator(".overview-status");
+    await expect(status).toHaveText("已启动");
+    await page.screenshot({
+      path: testInfo.outputPath(`program-status-${width}.png`),
+      fullPage: true,
+    });
+    expect(
+      await status.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      }),
+    ).toBe(1);
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth + 1,
+      ),
+    ).toBe(true);
+    await longProgram.click();
+    await expect(
+      page.getByRole("button", { name: `帮我看看 ${longName}`, exact: true }),
+    ).toBeVisible();
+    await longProgram.click();
+    overview.services.items[4]!.freshness = "stale";
+    await page.getByRole("button", { name: "刷新", exact: true }).click();
+    const staleProgram = page.locator(
+      `#service_${"5".repeat(32)} > details > summary`,
+    );
+    const staleStatus = staleProgram.locator(".overview-status");
+    await expect(staleStatus).toHaveText("已启动（记录已过时）");
+    await page.screenshot({
+      path: testInfo.outputPath(`program-stale-status-${width}.png`),
+      fullPage: true,
+    });
+    expect(
+      await staleStatus.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      }),
+    ).toBe(1);
+    await expect(staleProgram.locator("strong")).toHaveText(
+      `${longName} · 9001`,
+    );
+    expect(
+      await staleProgram.locator("strong").evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      }),
+    ).toBeLessThanOrEqual(3);
     await page
       .locator(`#application_${"a".repeat(32)} > details > summary`)
       .click();

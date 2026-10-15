@@ -57,12 +57,35 @@
 .workspace-programs > .surface {
   box-shadow: none;
 }
-.workspace-layout .overview-application__identity {
+.workspace-layout .overview-service > summary {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-1) var(--space-2);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.workspace-layout .overview-application__identity {
+  display: contents;
+}
+.workspace-layout .overview-service > summary strong {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding-right: var(--space-4);
+}
+.workspace-layout .overview-application__identity small {
+  grid-column: 1;
+  grid-row: 2;
 }
 .workspace-layout .overview-status {
   white-space: normal;
+}
+.workspace-layout .overview-service > summary > .overview-status {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  white-space: nowrap;
+}
+.workspace-layout .overview-service > summary::after {
+  grid-column: 2;
+  grid-row: 1;
 }
 .workspace-context {
   border-left: 3px solid var(--color-accent-strong);
