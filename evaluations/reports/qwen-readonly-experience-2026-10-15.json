@@ -1,0 +1,293 @@
+{
+  "schema_version": "qwen-readonly-experience/v1",
+  "status": "in_progress",
+  "phase_date": "2026-10-15",
+  "base_revision": "e8000c4b8e761e88fc7f19257ece37e857517cbc",
+  "implementation_revision": "7ef5851c8b28799d9a65d0c936263d101cf563c4",
+  "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/132",
+  "scope": {
+    "isolated_page_port": 18767,
+    "model_port": 8080,
+    "read_only_investigation": true,
+    "service_or_network_changes": false,
+    "access_or_approval_requests": false
+  },
+  "model": {
+    "name": "Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf",
+    "identifier_sha256": "6d217b866b8d9833f6c9cc874b589591894ebf5259e936058c1732bda3a18983",
+    "full_identifier_exported": false,
+    "hidden_reasoning_exported": false
+  },
+  "initial_configuration_failure": {
+    "event": "configuration_result",
+    "observed_at": "2026-10-14T17:56:01.768185+00:00",
+    "http_status": 422,
+    "error_code": "invalid_response",
+    "elapsed_ms": 44818,
+    "after": {
+      "status": "unconfigured",
+      "model_name": null,
+      "model_identifier_sha256": null,
+      "timeout_seconds": null,
+      "api_key_configured": false,
+      "profile_count": 0,
+      "error_code": null
+    },
+    "ports": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        60448
+      ]
+    },
+    "protected_pids_preserved": true,
+    "configuration_attempts": 1,
+    "api_key_supplied": false,
+    "full_identifier_exported": false
+  },
+  "native_configuration": {
+    "event": "configuration_result",
+    "observed_at": "2026-10-14T18:15:58.809052+00:00",
+    "http_status": 200,
+    "error_code": null,
+    "elapsed_ms": 20951,
+    "after": {
+      "status": "available",
+      "model_name": "Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf",
+      "model_identifier_sha256": "6d217b866b8d9833f6c9cc874b589591894ebf5259e936058c1732bda3a18983",
+      "timeout_seconds": 90,
+      "api_key_configured": false,
+      "profile_count": 1,
+      "error_code": null
+    },
+    "ports": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        19044
+      ]
+    },
+    "protected_pids_preserved": true,
+    "configuration_attempts": 1,
+    "api_key_supplied": false,
+    "full_identifier_exported": false
+  },
+  "first_package": {
+    "archive_sha256": "ed84c02d210238a889e0d890c8cb6912509cd7aab3e1b93964890fd5dc1d0e92",
+    "manifest_sha256": "0389bded6e90bf81dfa066d168564b4c8b40c84ce817f0030e77d5df29cdda94",
+    "source_revision": "25d0db9fdd9f2ebe1a3504a8234195c4a04446df",
+    "source_tree_sha256": "7938b23911962786b288e14b0cdbb334dcb716e04911f87cd21b91f0a11091bf",
+    "frontend": {
+      "file_count": 3,
+      "root": "_internal/tunnelminion/web/ui",
+      "sha256": "de3b0ed285dd497507cc232ac97fbc2943986f708161988c05af8e369104c3c7"
+    },
+    "candidate": "tunnelminion-0-1-0-darwin-arm64-7938b2391196-de3b0ed285dd",
+    "file_count": 143,
+    "source_matches_checkout": true,
+    "closed_file_set_and_hashes_valid": true,
+    "ci": {
+      "run_id": 38611984758,
+      "head": "7ef5851c8b28799d9a65d0c936263d101cf563c4",
+      "conclusion": "success",
+      "passed": 8,
+      "total": 8
+    }
+  },
+  "first_investigation": {
+    "actual_ui": true,
+    "fixture": false,
+    "service_name": "Wireguard Panel",
+    "service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+    "question": "我想从另一台电脑打开这个 Wireguard Panel。请实际用只读工具核对现在的情况，不要只重复页面记录；用不懂电脑的人也能看明白的话，简短说明已经查明的原因和还没验证的部分。",
+    "prompt_version": "readonly-agent@v1",
+    "browser_writes": [
+      {
+        "method": "POST",
+        "path": "/api/threads"
+      },
+      {
+        "method": "POST",
+        "path": "/api/threads/thread_0ad920f78f174549b4aa2330f3acb6bd/runs",
+        "selected_tools": [
+          "get_node_summary",
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability"
+        ],
+        "limits_override": null
+      }
+    ],
+    "public_result": {
+      "run_id": "run_1bc6116c322a4ceabb3cd0cc64ed26b0",
+      "thread_id": "thread_0ad920f78f174549b4aa2330f3acb6bd",
+      "status": "completed",
+      "created_at": "2026-10-14T18:17:57.308352Z",
+      "finished_at": "2026-10-14T18:19:57.391860Z",
+      "error_code": null,
+      "failure": null,
+      "result": {
+        "answer": "运行因总运行时间上限停止。已获得的工具证据：toolrun_8ac9bba518c948c985e9ca11419ac7d2、toolrun_40cdb59094154b38a598a2f17a646c3b、toolrun_9ccd74a415a9422fb79628e3d7197ad8；未完成部分无法确认。",
+        "model_rounds": 1,
+        "tool_calls": 3,
+        "tool_run_ids": [
+          "toolrun_8ac9bba518c948c985e9ca11419ac7d2",
+          "toolrun_40cdb59094154b38a598a2f17a646c3b",
+          "toolrun_9ccd74a415a9422fb79628e3d7197ad8"
+        ],
+        "selected_tools": [
+          "get_node_summary",
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability"
+        ],
+        "stop_reason": "timeout",
+        "elapsed_ms": 120076.02,
+        "usage": {
+          "input_tokens": 837,
+          "output_tokens": 1627,
+          "total_tokens": 2464,
+          "estimated_cost": null
+        },
+        "limits": {
+          "max_model_rounds": 8,
+          "max_tool_calls": 12,
+          "timeout_seconds": 120
+        }
+      }
+    },
+    "public_events": [
+      {
+        "sequence": 1,
+        "event_type": "goal",
+        "created_at": "2026-10-14T18:17:57.308665Z"
+      },
+      {
+        "sequence": 2,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:55.497328Z",
+        "tool_name": "list_network_listeners",
+        "tool_status": "started"
+      },
+      {
+        "sequence": 3,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:55.507240Z",
+        "tool_name": "probe_service_reachability",
+        "tool_status": "started"
+      },
+      {
+        "sequence": 4,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:55.508633Z",
+        "tool_name": "list_docker_services",
+        "tool_status": "started"
+      },
+      {
+        "sequence": 5,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:55.529888Z",
+        "tool_name": "probe_service_reachability",
+        "tool_status": "success",
+        "tool_run_id": "toolrun_8ac9bba518c948c985e9ca11419ac7d2",
+        "elapsed_ms": 22.62
+      },
+      {
+        "sequence": 6,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:55.547527Z",
+        "tool_name": "list_network_listeners",
+        "tool_status": "success",
+        "tool_run_id": "toolrun_40cdb59094154b38a598a2f17a646c3b",
+        "elapsed_ms": 50.78
+      },
+      {
+        "sequence": 7,
+        "event_type": "tool",
+        "created_at": "2026-10-14T18:18:56.034458Z",
+        "tool_name": "list_docker_services",
+        "tool_status": "success",
+        "tool_run_id": "toolrun_9ccd74a415a9422fb79628e3d7197ad8",
+        "elapsed_ms": 525.78
+      },
+      {
+        "sequence": 8,
+        "event_type": "finished",
+        "created_at": "2026-10-14T18:19:57.392074Z",
+        "stop_reason": "timeout"
+      }
+    ],
+    "complete_conclusion": false,
+    "independent_panel_check": {
+      "pid": 79774,
+      "listener": "127.0.0.1:8787",
+      "command": "lsof -nP -iTCP:8787 -sTCP:LISTEN -Fpcn",
+      "nfs_stat_warning": true,
+      "warning_does_not_prove_other_listeners_absent": true
+    },
+    "ui_issue": "stop_reason=timeout，但界面显示已完成且正文暴露证据编号",
+    "screenshot": {
+      "path": "build/qwen-readonly-experience/qwen-timeout-before.jpg",
+      "sha256": "830bc9f66c6b738dd3da738d74578d5eed0675f9bcfba13604f80e52f90e2247"
+    },
+    "usage_scope": "仅包含已返回响应的用量；被取消的模型请求及原生配置校验用量未知，不据此推算全部消耗或费用。"
+  },
+  "inventory_at_update": {
+    "before_count": 34,
+    "after_count": 32,
+    "named_count_preserved": 16,
+    "retained_identity_count": 32,
+    "removed_unknown_udp_ports": [
+      21291,
+      50594
+    ],
+    "group_id_changes": [
+      {
+        "name": "n3n-supernode",
+        "before": "application_8fde0d1001916151b4283620a3f17cbf",
+        "after": "application_7ac33815d3a4d53b80b233e1aac76739"
+      }
+    ]
+  },
+  "recheck": {
+    "observed_at": "2026-10-15T04:43:38.508235+00:00",
+    "model_status": "available",
+    "ports": {
+      "8080": [
+        33870
+      ],
+      "8787": [
+        79774
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        19044
+      ]
+    },
+    "service_count": 32,
+    "operation_count": 0,
+    "thread_count": 1
+  },
+  "refined_investigation": null,
+  "conclusion": "已接入并发生真实取证；首次调查因预算停止，未达到可用结论标准。"
+}

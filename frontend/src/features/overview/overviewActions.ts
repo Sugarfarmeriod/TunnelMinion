@@ -4,6 +4,13 @@ import type { OperationListItem } from "../operations/schemas";
 type NodeItem = ResourceOverview["nodes"]["items"][number];
 type ServiceItem = ResourceOverview["services"]["items"][number];
 
+export const serviceKindLabels = {
+  python: "Python 程序",
+  docker: "Docker 容器",
+  model: "模型服务",
+  program: "自行安装的程序",
+};
+
 export function serviceDisplayName(
   service: ServiceItem | undefined,
 ): string | undefined {

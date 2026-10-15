@@ -9,6 +9,7 @@ from tunnelminion.agent.context_runtime import (
     ContextSnapshotBuilder,
     SnapshotModelProvider,
 )
+from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.domain.identifiers import RunId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
 from tunnelminion.model.contracts import (
@@ -50,8 +51,8 @@ def _request(**updates: object) -> ContextRequest:
         current_intent="检查状态",
         thread_id=ThreadId.new(),
         run_id=RunId.new(),
-        prompt_id="readonly-agent",
-        prompt_version="v1",
+        prompt_id=READONLY_AGENT_PROMPT.prompt_id,
+        prompt_version=READONLY_AGENT_PROMPT.version,
         messages=(
             ModelMessage(role="system", content="只读"),
             ModelMessage(role="user", content="状态？"),

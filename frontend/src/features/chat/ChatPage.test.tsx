@@ -286,64 +286,79 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
-  it("工作台自动选择只读工具，选程序和查看请求不发送问题、不丢草稿", async () => {
-    const user = userEvent.setup();
-    const backend = installBackend();
-    let writes = 0;
-    server.use(
-      http.post("/api/threads/:id/runs", async ({ request }) => {
-        writes += 1;
-        const payload = (await request.json()) as {
-          question: string;
-          tool_names: string[];
-        };
-        expect(payload.question).toContain("gost");
-        expect(payload.question).toContain("805");
-        expect(payload.question).toContain("客厅 Mac");
-        expect(payload.tool_names).toEqual([
-          "get_node_summary",
-          "get_wireguard_status",
-          "list_network_listeners",
-          "get_process_summary",
-          "list_docker_services",
-          "probe_service_reachability",
-        ]);
-        backend.messages.set(threadId, [makeMessage("user", payload.question)]);
-        backend.runs.set(runId, makeRun("completed"));
-        return HttpResponse.json(makeRun("completed"));
-      }),
-    );
-    const service = {
-      service_id: `service_${"a".repeat(32)}`,
-      node_id: nodeId,
-      display_name: "gost · 805",
-      protocol: "tcp" as const,
-      port: 805,
-      access_address: "tcp://192.0.2.1:805",
-      accessibility: "network" as const,
-      lifecycle: "active" as const,
-      state: "available" as const,
-      source: "local_observation" as const,
-      evidence_at: timestamp,
-      freshness: "fresh" as const,
-    };
-    const view = render(<ChatPage workspace />);
-    await user.type(
-      await screen.findByLabelText("问题", { exact: true }),
-      "为什么别的电脑打不开？",
-    );
-    view.rerender(
-      <ChatPage workspace serviceContext={service} computerName="客厅 Mac">
-        <p>当前请求</p>
-      </ChatPage>,
-    );
-    expect(screen.getByLabelText("问题", { exact: true })).toHaveValue(
-      "为什么别的电脑打不开？",
-    );
-    expect(writes).toBe(0);
-    await user.click(screen.getByRole("button", { name: "发送问题" }));
-    await waitFor(() => expect(writes).toBe(1));
-  });
+  it.each(["fresh", "stale"] as const)(
+    "工作台自动选择只读工具，程序归属按新鲜度传入且不丢草稿（%s）",
+    async (freshness) => {
+      const user = userEvent.setup();
+      const backend = installBackend();
+      let writes = 0;
+      server.use(
+        http.post("/api/threads/:id/runs", async ({ request }) => {
+          writes += 1;
+          const payload = (await request.json()) as {
+            question: string;
+            tool_names: string[];
+          };
+          expect(payload.question).toContain(
+            freshness === "fresh" ? "gost" : "名称未知的程序",
+          );
+          expect(payload.question).toContain(
+            freshness === "fresh" ? "自行安装的程序" : "程序归属尚未确认",
+          );
+          expect(payload.question).toContain("805");
+          expect(payload.question).toContain("客厅 Mac");
+          expect(payload.tool_names).toEqual([
+            "get_node_summary",
+            "get_wireguard_status",
+            "list_network_listeners",
+            "get_process_summary",
+            "list_docker_services",
+            "probe_service_reachability",
+          ]);
+          backend.messages.set(threadId, [
+            makeMessage("user", payload.question),
+          ]);
+          backend.runs.set(runId, makeRun("completed"));
+          return HttpResponse.json(makeRun("completed"));
+        }),
+      );
+      const service = {
+        service_id: `service_${"a".repeat(32)}`,
+        node_id: nodeId,
+        display_name: "gost · 805",
+        application: {
+          group_id: `application_${"a".repeat(32)}`,
+          name: "gost",
+          kind: "program" as const,
+        },
+        protocol: "tcp" as const,
+        port: 805,
+        access_address: "tcp://192.0.2.1:805",
+        accessibility: "network" as const,
+        lifecycle: "active" as const,
+        state: "available" as const,
+        source: "local_observation" as const,
+        evidence_at: timestamp,
+        freshness,
+      };
+      const view = render(<ChatPage workspace />);
+      await user.type(
+        await screen.findByLabelText("问题", { exact: true }),
+        "为什么别的电脑打不开？",
+      );
+      view.rerender(
+        <ChatPage workspace serviceContext={service} computerName="客厅 Mac">
+          <p>当前请求</p>
+        </ChatPage>,
+      );
+      expect(screen.getByLabelText("问题", { exact: true })).toHaveValue(
+        "为什么别的电脑打不开？",
+      );
+      expect(writes).toBe(0);
+      await user.click(screen.getByRole("button", { name: "发送问题" }));
+      await waitFor(() => expect(writes).toBe(1));
+    },
+  );
 
   it("工作台追问沿用同一调查绑定线程，不新建普通线程", async () => {
     const user = userEvent.setup();
@@ -470,6 +485,76 @@ describe("ChatPage", () => {
       "href",
       `/app/operations/${related.operation_id}`,
     );
+  });
+
+  it.each([
+    ["timeout", "暂时没查完"],
+    ["model-limit", "已达到调查上限"],
+    ["tool-limit", "已达到调查上限"],
+    ["cancelled", "已取消"],
+  ] as const)("%s 停止不显示为调查完成", async (reason, label) => {
+    const backend = installBackend([makeMessage("user", "检查面板")]);
+    const stopped = completedRun("还没有完整结论。");
+    stopped.result!.stop_reason = reason;
+    stopped.result!.evidence_answer.stop_reason = reason;
+    backend.runs.set(runId, stopped);
+    render(<ChatPage workspace />);
+    expect(await screen.findByText(label, { exact: true })).toBeVisible();
+    expect(
+      screen.queryByText("已完成", { exact: true }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("只有超时终态事件且详情读取失败时，也不显示已完成", async () => {
+    const backend = installBackend([makeMessage("user", "检查面板")]);
+    backend.runs.set(runId, makeRun());
+    render(<ChatPage workspace />);
+    const source = await waitForSource();
+    server.use(
+      http.get(
+        "/api/runs/:runId",
+        () => new HttpResponse(null, { status: 503 }),
+      ),
+    );
+    act(() => {
+      source.open();
+      source.emit(
+        "finished",
+        makeEvent(1, "finished", { stop_reason: "timeout" }),
+      );
+    });
+    expect(
+      await screen.findByText("暂时没查完", { exact: true }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("已完成", { exact: true }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("回答正文与程序附加的证据编号分开，编号按需查看", async () => {
+    const index = `probe_service_reachability: ${toolRun2} (success)`;
+    const answer = `面板目前只接受这台电脑的连接。\n\n证据索引（程序生成）：\n${index}`;
+    const backend = installBackend([makeMessage("assistant", answer)]);
+    backend.runs.set(runId, completedRun(answer));
+    const user = userEvent.setup();
+    render(<ChatPage workspace />);
+    expect(
+      await screen.findByText("面板目前只接受这台电脑的连接。"),
+    ).toBeVisible();
+    expect(screen.getByText(index, { exact: true })).not.toBeVisible();
+    await user.click(screen.getByText("查看证据编号", { exact: true }));
+    expect(screen.getByText(index, { exact: true })).toBeVisible();
+  });
+
+  it("不把用户输入中的证据索引文字折叠或删掉", async () => {
+    const content = "我的问题\n\n证据索引（程序生成）：\n这也是问题正文";
+    installBackend([makeMessage("user", content)]);
+    const { container } = render(<ChatPage workspace />);
+    await screen.findByRole("heading", { name: "消息" });
+    expect(
+      container.querySelector(".chat-message--user")?.textContent,
+    ).toContain(content);
+    expect(screen.queryByText("查看证据编号")).not.toBeInTheDocument();
   });
 
   it("发起 run、按 after 恢复缺口、去重工具事件并在终态关闭", async () => {

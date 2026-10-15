@@ -25,6 +25,9 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
 
     assert INCIDENT_INVESTIGATION_PROMPT.version == "v3"
     assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "3.0.0"
+    assert READONLY_AGENT_PROMPT.version == "v2"
+    assert "只调查用户当前提到的程序和问题" in READONLY_AGENT_PROMPT.template
+    assert "不得声称执行了修改" in READONLY_AGENT_PROMPT.template
 
     assert (
         PROMPT_REGISTRY.resolve(

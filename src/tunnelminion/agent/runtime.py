@@ -440,13 +440,17 @@ class LangChainReadOnlyAgent:
         if reason is AgentStopReason.COMPLETED:
             return answer
         labels = {
-            AgentStopReason.MODEL_LIMIT: "模型轮次上限",
-            AgentStopReason.TOOL_LIMIT: "工具调用上限",
-            AgentStopReason.TIMEOUT: "总运行时间上限",
-            AgentStopReason.CANCELLED: "用户取消",
+            AgentStopReason.MODEL_LIMIT: "已达到本次调查次数上限，暂时没能查完。",
+            AgentStopReason.TOOL_LIMIT: "已达到本次检查次数上限，暂时没能查完。",
+            AgentStopReason.TIMEOUT: "这次检查等待太久，已停止，还没有完整结论。",
+            AgentStopReason.CANCELLED: "已按你的要求停止检查。",
         }
-        evidence = "、".join(tool_run_ids) if tool_run_ids else "无"
-        return f"运行因{labels[reason]}停止。已获得的工具证据：{evidence}；未完成部分无法确认。"
+        evidence = (
+            f"已保留 {len(tool_run_ids)} 项检查记录，可展开查看。"
+            if tool_run_ids
+            else "还没有取得工具检查记录。"
+        )
+        return f"{labels[reason]}{evidence}未查明的部分仍不能确认。"
 
     @staticmethod
     def _usage(metrics: ModelRunMetrics) -> AgentUsage:

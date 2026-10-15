@@ -305,8 +305,10 @@ def test_agent_stops_at_model_or_tool_limit(
     assert result.stop_reason is expected
     assert result.tool_calls == 1
     assert len(adapter.calls) == 1
-    assert result.tool_run_ids[0] in result.answer
-    assert "未完成部分无法确认" in result.answer
+    assert "暂时没能查完" in result.answer
+    assert result.tool_run_ids[0] not in result.answer
+    assert result.evidence_answer.evidence[0].tool_run_id == result.tool_run_ids[0]
+    assert "未查明的部分仍不能确认" in result.answer
 
 
 def test_agent_wall_clock_timeout_cancels_model() -> None:
@@ -327,7 +329,8 @@ def test_agent_wall_clock_timeout_cancels_model() -> None:
     assert result.model_rounds == 0
     assert result.tool_calls == 0
     assert not adapter.calls
-    assert "总运行时间上限" in result.answer
+    assert "等待太久" in result.answer
+    assert "还没有取得工具检查记录" in result.answer
 
 
 def test_prompt_injection_data_cannot_add_forbidden_tool() -> None:
@@ -386,7 +389,7 @@ def test_user_cancellation_stops_run() -> None:
     result = run(scenario())
 
     assert result.stop_reason is AgentStopReason.CANCELLED
-    assert "用户取消" in result.answer
+    assert "已按你的要求停止检查" in result.answer
 
 
 @pytest.mark.parametrize(
