@@ -3,7 +3,7 @@
   "status": "in_progress",
   "phase_date": "2026-10-15",
   "base_revision": "e8000c4b8e761e88fc7f19257ece37e857517cbc",
-  "implementation_revision": "64491bd6f4f5483a3c592eacb49f328614407a1d",
+  "implementation_revision": "b9d4352390365f50e7e77af170daaf1abb477c05",
   "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/132",
   "scope": {
     "isolated_page_port": 18767,
@@ -944,7 +944,7 @@
   },
   "fact_check_scope_approved": true,
   "fact_check_implementation": {
-    "state": "implemented_pending_package_and_live_acceptance",
+    "state": "live_facts_verified_pending_final_ui_package_and_merge",
     "scope": "所选本机程序连接入口；不是任意问题的通用事实验证",
     "identity_source": "服务端当前程序清单，不从模型文字或端口号猜归属",
     "fact_source": "本次最新完整可用的实际监听工具结果，匹配同一节点和服务身份",
@@ -963,9 +963,309 @@
       "browser_fixture_not_live_model": true,
       "typecheck_and_format": "passed",
       "production_build_and_size": "passed",
-      "initial_bundle_gzip_kib": 160.77,
+      "initial_bundle_gzip_kib": 160.73,
       "existing_bundle_limit_kib": 171.16
     }
   },
-  "conclusion": "事实核对已在当前分支实现，本地完整门禁通过；只公开所选程序连接证据能证明的事实，网页、跨电脑访问与程序整体状态仍保留未知。当前 Mac 运行的旧包回答仍不可靠，新正式包及同题实机验收待完成，PR 暂不合并。"
+  "fact_checked_investigation": {
+    "actual_ui": true,
+    "fixture": false,
+    "question": "这个程序为什么在另一台电脑上打不开？",
+    "service_name": "Wireguard Panel",
+    "service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+    "implementation_revision": "b9d4352390365f50e7e77af170daaf1abb477c05",
+    "package": {
+      "archive_sha256": "12936c76730c9deb8a16a338d7a2cc7ea4f9db2a7e81c83c7c0146e1aaab9741",
+      "manifest_sha256": "626f9a598f6f271015b63efca6de7eb80a25525483e64b8ef6bc8e05f40d3911",
+      "source_revision": "7c82f7720472a30d4ff342a521ce88ad84bcd171",
+      "source_tree_sha256": "d9d86bf143b5b0ff0d95b8e298c9bd6cea5dc55e2104c36ce569d37c9e331952",
+      "frontend": {
+        "file_count": 3,
+        "root": "_internal/tunnelminion/web/ui",
+        "sha256": "ee190294969a568bc67272f4b9b1027fe7def2c9fa7a4f636b27475065addd55"
+      },
+      "candidate": "tunnelminion-0-1-0-darwin-arm64-d9d86bf143b5-ee190294969a",
+      "file_count": 143,
+      "source_matches_checkout": true,
+      "closed_file_set_and_hashes_valid": true,
+      "artifact_id": 11957029704,
+      "ci": {
+        "run_id": 38704320896,
+        "head": "b9d4352390365f50e7e77af170daaf1abb477c05",
+        "conclusion": "success",
+        "passed": 8,
+        "total": 8
+      }
+    },
+    "public_result_projection": {
+      "run_id": "run_c599a0203f064ed0b12fbdcd5fdde05a",
+      "thread_id": "thread_2775f9ffe9f34e9cb31a24ae614d03da",
+      "status": "completed",
+      "created_at": "2026-10-15T08:27:33.674505Z",
+      "finished_at": "2026-10-15T08:28:37.134231Z",
+      "error_code": null,
+      "failure": null,
+      "result": {
+        "answer": "你选中的“Wireguard Panel”这个连接入口，目前只允许这台电脑自己连接，另一台电脑不能直接使用这个入口。\n\n网页是否正常、另一台电脑能否实际打开，还没有验证。\n\n这次只核对了所选连接入口，程序的其他状态和其他入口还不能确认。\n\n证据索引（程序生成）：\n- get_node_summary: toolrun_80db6d0a380745a6ac0533637e6b989c (success)\n- list_network_listeners: toolrun_8d204843f5854af8949d5a12cb6ae28d (success)",
+        "answer_checked": true,
+        "checked_service_id": "service_5a49c15455dfaf2f661d7c9957e6d0b8",
+        "model_rounds": 2,
+        "tool_calls": 2,
+        "tool_run_ids": [
+          "toolrun_80db6d0a380745a6ac0533637e6b989c",
+          "toolrun_8d204843f5854af8949d5a12cb6ae28d"
+        ],
+        "selected_tools": [
+          "get_node_summary",
+          "get_wireguard_status",
+          "list_network_listeners",
+          "get_process_summary",
+          "list_docker_services",
+          "probe_service_reachability"
+        ],
+        "stop_reason": "completed",
+        "elapsed_ms": 63455.54,
+        "usage": {
+          "input_tokens": 4514,
+          "output_tokens": 1517,
+          "total_tokens": 6031,
+          "estimated_cost": null
+        },
+        "limits": {
+          "max_model_rounds": 8,
+          "max_tool_calls": 12,
+          "timeout_seconds": 120
+        },
+        "evidence_answer": {
+          "summary": "你选中的“Wireguard Panel”这个连接入口，目前只允许这台电脑自己连接，另一台电脑不能直接使用这个入口。\n\n网页是否正常、另一台电脑能否实际打开，还没有验证。\n\n这次只核对了所选连接入口，程序的其他状态和其他入口还不能确认。",
+          "confirmed_facts": [
+            {
+              "statement": "你选中的“Wireguard Panel”这个连接入口，目前只允许这台电脑自己连接，另一台电脑不能直接使用这个入口。",
+              "evidence_refs": [
+                "toolrun_8d204843f5854af8949d5a12cb6ae28d"
+              ]
+            }
+          ],
+          "unknowns": [
+            "网页是否正常、另一台电脑能否实际打开，还没有验证。",
+            "这次只核对了所选连接入口，程序的其他状态和其他入口还不能确认。"
+          ],
+          "evidence": [
+            {
+              "tool_run_id": "toolrun_80db6d0a380745a6ac0533637e6b989c",
+              "tool_name": "get_node_summary",
+              "status": "success"
+            },
+            {
+              "tool_run_id": "toolrun_8d204843f5854af8949d5a12cb6ae28d",
+              "tool_name": "list_network_listeners",
+              "status": "success"
+            }
+          ],
+          "stop_reason": "completed"
+        },
+        "raw_draft_count": 1,
+        "raw_draft_hashes": [
+          "cbd076c1e7902dcace77faef067ddc1930d5327e27cbe6d6763d7c3df4940c85"
+        ]
+      }
+    },
+    "actual_context_and_independent_recheck": {
+      "run_id": "run_c599a0203f064ed0b12fbdcd5fdde05a",
+      "model_rounds": 2,
+      "records": [
+        {
+          "budget_decisions": [
+            {
+              "kind": "tool-result",
+              "limit_chars": 24000,
+              "used_chars": 0,
+              "included_count": 0,
+              "dropped_count": 0,
+              "truncated_count": 0
+            },
+            {
+              "kind": "artifact",
+              "limit_chars": 24000,
+              "used_chars": 0,
+              "included_count": 0,
+              "dropped_count": 0,
+              "truncated_count": 0
+            }
+          ],
+          "prompt_version": "v3",
+          "prompt_content_hash": "sha256:08bbb78987eac064562eb03d1e23a5660fcf686f01a87842626bf25ec54cc7e9",
+          "v3_prompt_present_in_actual_messages": true,
+          "truncations": []
+        },
+        {
+          "budget_decisions": [
+            {
+              "kind": "tool-result",
+              "limit_chars": 24000,
+              "used_chars": 4504,
+              "included_count": 2,
+              "dropped_count": 0,
+              "truncated_count": 0
+            },
+            {
+              "kind": "artifact",
+              "limit_chars": 24000,
+              "used_chars": 0,
+              "included_count": 0,
+              "dropped_count": 0,
+              "truncated_count": 0
+            }
+          ],
+          "prompt_version": "v3",
+          "prompt_content_hash": "sha256:08bbb78987eac064562eb03d1e23a5660fcf686f01a87842626bf25ec54cc7e9",
+          "v3_prompt_present_in_actual_messages": true,
+          "truncations": []
+        }
+      ],
+      "independent_panel_check": {
+        "pid": 79774,
+        "listener": "127.0.0.1:8787",
+        "listener_verified": true,
+        "nfs_stat_warning": false,
+        "http_page_or_cross_device_access_tested": false
+      }
+    },
+    "process_activation": [
+      {
+        "action": "status",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 6
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 98143
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "stop",
+        "exit_code": 0,
+        "runtime_state": "stopped",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 26
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 98143
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "start",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 17
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 8930
+          }
+        ],
+        "preflight": {
+          "deterministic_ready": false,
+          "checks": [
+            {
+              "name": "package",
+              "status": "passed",
+              "code": "package_valid"
+            },
+            {
+              "name": "profile",
+              "status": "passed",
+              "code": "profile_valid"
+            },
+            {
+              "name": "data-dir",
+              "status": "passed",
+              "code": "data_dir_writable"
+            },
+            {
+              "name": "model-config",
+              "status": "passed",
+              "code": "model_config_valid"
+            },
+            {
+              "name": "managed-config",
+              "status": "warning",
+              "code": "managed_unconfigured"
+            },
+            {
+              "name": "gateway-config",
+              "status": "warning",
+              "code": "gateway_disabled"
+            },
+            {
+              "name": "local-instance",
+              "status": "failed",
+              "code": "existing_instance_record"
+            },
+            {
+              "name": "local-port",
+              "status": "passed",
+              "code": "port_available"
+            }
+          ]
+        }
+      },
+      {
+        "protected_pids_preserved": true,
+        "profile_preserved": true,
+        "model_config_preserved": true,
+        "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+        "fallback_program_retained": true
+      }
+    ],
+    "browser_writes": [
+      {
+        "method": "POST",
+        "path": "/api/threads"
+      },
+      {
+        "method": "POST",
+        "path": "/api/ui/threads/thread_2775f9ffe9f34e9cb31a24ae614d03da/runs",
+        "question_unmodified": true,
+        "limits_override": null
+      }
+    ],
+    "no_operation_or_approval_requests": true,
+    "old_message_hashes": {
+      "thread_0ad920f78f174549b4aa2330f3acb6bd": "e498604f9e84eaddecde42c1135d328de1373c70b9dbd0992a2d9ac4a1021974",
+      "thread_27fb8ccdbd5e43d38fb417fed768bc0b": "fce456afe98d9f6d300ed20ba6b0902b573c0c08c5280741795e2b59cdf6e018",
+      "thread_b0e8623caf48471c9febac1c92eb6f66": "ec3d121c758315bd5de8710b62d3e691f2005b0cb7bb696d6f507b4eef3c6d23",
+      "thread_9205d772d6bc4995872008d37d003aa9": "b4590a5a3ef3ea93f121a86d4825a1abb68f41f829219cc239c55af4992e5a60"
+    },
+    "old_messages_preserved": true,
+    "protected_named_service_ids_preserved": true,
+    "screenshot": {
+      "path": "build/qwen-readonly-experience/qwen-checked-answer-before-notice.jpg",
+      "sha256": "c5f46b77a86dd19124ac11f3c0c90bfb31d926bc5581e8ceb129baf45f395991"
+    },
+    "fact_boundary_accepted": true,
+    "final_ui_recheck_pending": true,
+    "known_ui_gap": "结论已结束但上方仍留正在检查提示；当前分支删去重复提示，203 组件与 8 双浏览器回归通过，正式包待更新。"
+  },
+  "conclusion": "事实核对正式包完整 CI 8/8，同一自然问题在 Mac 工作台约 63 秒完成，公开结论与独立监听事实一致，网页、跨设备访问及程序整体状态保留未知。四段旧对话原文、受保护进程和模型配置保留，无访问或批准请求。运行中提示残留的小修已在本地验证，最终页面包、清理和合并待完成。"
 }

@@ -712,6 +712,9 @@ describe("ChatPage", () => {
 
     expect(await screen.findByText("本次检查已结束")).toBeVisible();
     expect(recoveredSource.closed).toBe(true);
+    expect(
+      screen.queryByText("正在检查，结果会区分已查明和还不能确认的部分。"),
+    ).toBeNull();
     expect(screen.getAllByText(toolRun3).length).toBeGreaterThan(0);
     expect(screen.getAllByText(finalAnswer).length).toBeGreaterThan(0);
     expect(container.querySelector("script")).toBeNull();

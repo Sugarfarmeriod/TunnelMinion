@@ -464,7 +464,6 @@ export function ChatPage({
         setQuestion("");
       }
       await refreshThread(started.thread_id, controller.signal);
-      setNotice("正在检查，结果会区分已查明和还不能确认的部分。");
     } catch (error) {
       if (isUnknownWriteResult(error)) {
         setNotice(
