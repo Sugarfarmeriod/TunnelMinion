@@ -1,9 +1,10 @@
 {
   "schema_version": "qwen-readonly-experience/v1",
-  "status": "in_progress",
+  "status": "accepted",
+  "completion_condition": "PR #132 最新完整 CI 成功并合并",
   "phase_date": "2026-10-15",
   "base_revision": "e8000c4b8e761e88fc7f19257ece37e857517cbc",
-  "implementation_revision": "b9d4352390365f50e7e77af170daaf1abb477c05",
+  "implementation_revision": "027fed303e17034d9cf4a5ff656709c1a222b4d8",
   "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/132",
   "scope": {
     "isolated_page_port": 18767,
@@ -912,7 +913,7 @@
     "scope_extension_requested": "保留现有 Qwen，加入回答前的事实核对；只改项目和隔离测试程序，不改服务、网络，不创建访问或批准请求。"
   },
   "latest_recheck": {
-    "observed_at": "2026-10-15T07:10:22.132489+00:00",
+    "observed_at": "2026-10-15T08:49:38.637623+00:00",
     "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
     "model": {
       "status": "available",
@@ -932,7 +933,7 @@
         95881
       ],
       "18767": [
-        98143
+        11213
       ]
     },
     "service_count": 34,
@@ -940,11 +941,11 @@
     "program_count": 11,
     "unknown_count": 18,
     "operation_count": 0,
-    "thread_count": 4
+    "thread_count": 5
   },
   "fact_check_scope_approved": true,
   "fact_check_implementation": {
-    "state": "live_facts_verified_pending_final_ui_package_and_merge",
+    "state": "accepted",
     "scope": "所选本机程序连接入口；不是任意问题的通用事实验证",
     "identity_source": "服务端当前程序清单，不从模型文字或端口号猜归属",
     "fact_source": "本次最新完整可用的实际监听工具结果，匹配同一节点和服务身份",
@@ -1264,8 +1265,183 @@
       "sha256": "c5f46b77a86dd19124ac11f3c0c90bfb31d926bc5581e8ceb129baf45f395991"
     },
     "fact_boundary_accepted": true,
-    "final_ui_recheck_pending": true,
-    "known_ui_gap": "结论已结束但上方仍留正在检查提示；当前分支删去重复提示，203 组件与 8 双浏览器回归通过，正式包待更新。"
+    "final_ui_recheck_pending": false,
+    "resolved_ui_gap": "重复的运行中提示已删除；组件和双浏览器回归通过，最终正式包已只读复核，无追加模型调查。"
   },
-  "conclusion": "事实核对正式包完整 CI 8/8，同一自然问题在 Mac 工作台约 63 秒完成，公开结论与独立监听事实一致，网页、跨设备访问及程序整体状态保留未知。四段旧对话原文、受保护进程和模型配置保留，无访问或批准请求。运行中提示残留的小修已在本地验证，最终页面包、清理和合并待完成。"
+  "final_ui_recheck": {
+    "implementation_revision": "027fed303e17034d9cf4a5ff656709c1a222b4d8",
+    "package": {
+      "archive_sha256": "46b08f28715c9448d04e8d352bc5d82d38a41ab34722c3c810780543961c8471",
+      "manifest_sha256": "4c5d710403514140f9bab90cd210a41e01319a6b5d617b2fce4793adf03e2f72",
+      "source_revision": "a8375023d0fb9221a160e5de3918fbbdf454836a",
+      "source_tree_sha256": "1aaf08cb8f4a9a2cba31b4ef634c7d823472377724e7a0dfc62371099ed7d987",
+      "frontend": {
+        "file_count": 3,
+        "root": "_internal/tunnelminion/web/ui",
+        "sha256": "749f9d207f4669855077ee74fe36211a4282973a9f923230426170890be89d03"
+      },
+      "candidate": "tunnelminion-0-1-0-darwin-arm64-1aaf08cb8f4a-749f9d207f46",
+      "file_count": 143,
+      "source_matches_checkout": true,
+      "closed_file_set_and_hashes_valid": true,
+      "artifact_id": 11959135693,
+      "ci": {
+        "run_id": 38706907694,
+        "head": "027fed303e17034d9cf4a5ff656709c1a222b4d8",
+        "conclusion": "success",
+        "passed": 8,
+        "total": 8
+      }
+    },
+    "process_activation": [
+      {
+        "action": "status",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 7
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 8930
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "stop",
+        "exit_code": 0,
+        "runtime_state": "stopped",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 28
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 8930
+          }
+        ],
+        "preflight": null
+      },
+      {
+        "action": "start",
+        "exit_code": 0,
+        "runtime_state": "running",
+        "model_health": {
+          "status": "reachable",
+          "code": "model_reachable",
+          "http_status": 200,
+          "latency_ms": 15
+        },
+        "components": [
+          {
+            "component": "local",
+            "pid": 11213
+          }
+        ],
+        "preflight": {
+          "deterministic_ready": false,
+          "checks": [
+            {
+              "name": "package",
+              "status": "passed",
+              "code": "package_valid"
+            },
+            {
+              "name": "profile",
+              "status": "passed",
+              "code": "profile_valid"
+            },
+            {
+              "name": "data-dir",
+              "status": "passed",
+              "code": "data_dir_writable"
+            },
+            {
+              "name": "model-config",
+              "status": "passed",
+              "code": "model_config_valid"
+            },
+            {
+              "name": "managed-config",
+              "status": "warning",
+              "code": "managed_unconfigured"
+            },
+            {
+              "name": "gateway-config",
+              "status": "warning",
+              "code": "gateway_disabled"
+            },
+            {
+              "name": "local-instance",
+              "status": "failed",
+              "code": "existing_instance_record"
+            },
+            {
+              "name": "local-port",
+              "status": "passed",
+              "code": "port_available"
+            }
+          ]
+        }
+      },
+      {
+        "protected_pids_preserved": true,
+        "profile_preserved": true,
+        "model_config_preserved": true,
+        "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+        "fallback_program_retained": true
+      }
+    ],
+    "backend_git_tree_comparison": {
+      "before_revision": "b9d4352390365f50e7e77af170daaf1abb477c05",
+      "after_revision": "027fed303e17034d9cf4a5ff656709c1a222b4d8",
+      "src_tree_before": "138566298f677217b38022ab23558c65b41dceed",
+      "src_tree_after": "138566298f677217b38022ab23558c65b41dceed",
+      "equal": true
+    },
+    "run_id": "run_c599a0203f064ed0b12fbdcd5fdde05a",
+    "original_checked_result_unchanged": true,
+    "additional_model_runs": 0,
+    "browser_write_count": 0,
+    "browser_request_log_truncated": false,
+    "browser_request_log_has_more": false,
+    "checked_answer_visible": true,
+    "ended_label_visible": true,
+    "stale_running_notice_count": 0,
+    "raw_draft_default_collapsed": true,
+    "old_message_hashes_preserved": true,
+    "profile_and_model_config_preserved": true,
+    "protected_pids_preserved": true,
+    "screenshot": {
+      "path": "build/qwen-readonly-experience/qwen-checked-answer.jpg",
+      "sha256": "4ef73138f16fab00c9c5c5bcac396a92ac541610b75249eb4be1d56c8ac04040"
+    },
+    "cleanup": {
+      "uploaded_archives_removed": [
+        "tunnelminion-20261015-qwen-workbench",
+        "tunnelminion-20261015-qwen-context",
+        "tunnelminion-20261015-qwen-plain",
+        "tunnelminion-20261015-qwen-facts",
+        "tunnelminion-20261015-qwen-facts-view"
+      ],
+      "all_test_programs_and_fallback_retained": true,
+      "own_browser_tab_closed": true,
+      "own_windows_forward": {
+        "own_forward_stopped": true,
+        "pid": 45172,
+        "start_time_utc": "2026-10-14T17:55:51.7922783Z",
+        "other_processes_touched": false
+      },
+      "mac_test_page_remains_running": true
+    }
+  },
+  "conclusion": "所选程序连接事实核对及最终 Mac 页面已验收：同题真实调查约 63 秒完成，公开结论与独立监听复核一致；网页、跨设备访问及程序整体状态保留未知。最终页面包 CI 8/8，只读恢复同一结果，没有追加模型调查。原对话、受保护进程、profile 和模型配置保留，自有连接、标签及上传归档已清理；本阶段在 PR #132 最新完整 CI 成功并合并后完成。"
 }
