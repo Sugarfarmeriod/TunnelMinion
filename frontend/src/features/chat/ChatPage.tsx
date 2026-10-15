@@ -522,7 +522,7 @@ export function ChatPage({
         refreshThread(threadId, controller.signal),
         refreshThreads(controller.signal, threadId),
       ]);
-      setNotice("已通过只读请求重新读取线程与运行状态。");
+      setNotice("这段对话和检查进展已刷新，没有重新发起检查。");
     } catch (error) {
       if (!isAbortError(error)) {
         setPageError("仍无法读取线程状态；不会因此重发任何写请求。");
@@ -1137,7 +1137,7 @@ function RunPanel({
           type="button"
           onClick={onRefresh}
         >
-          重新读取线程
+          刷新这段对话
         </button>
       )}
 

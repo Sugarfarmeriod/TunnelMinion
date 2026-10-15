@@ -322,8 +322,8 @@ describe("ChatPage", () => {
     expect(
       await screen.findByText("以前的检查", { exact: true }),
     ).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "重新读取线程" }));
-    await screen.findByText("已通过只读请求重新读取线程与运行状态。");
+    await user.click(screen.getByRole("button", { name: "刷新这段对话" }));
+    await screen.findByText("这段对话和检查进展已刷新，没有重新发起检查。");
     expect(screen.getByText("以前的检查", { exact: true })).toBeVisible();
     expect(screen.queryByText("刚才的检查", { exact: true })).toBeNull();
   });
@@ -946,12 +946,12 @@ describe("ChatPage", () => {
     ).toBeVisible();
     expect(screen.queryByText("服务端已经完成", { exact: true })).toBeNull();
     expect(screen.getByText("检查已结束，暂时未取得核对结果。")).toBeVisible();
-    const refresh = screen.getByRole("button", { name: "重新读取线程" });
+    const refresh = screen.getByRole("button", { name: "刷新这段对话" });
 
     failRunRead = false;
     await userEvent.setup().click(refresh);
     expect(
-      await screen.findByText("已通过只读请求重新读取线程与运行状态。"),
+      await screen.findByText("这段对话和检查进展已刷新，没有重新发起检查。"),
     ).toBeVisible();
     await waitFor(() => {
       expect(

@@ -79,6 +79,7 @@ export function WorkspacePage() {
   }, [isOperation]);
   useEffect(() => {
     if (selected) {
+      if (document.activeElement?.closest(".chat-composer")) return;
       const heading = document.getElementById("chat-title");
       heading?.focus();
       heading?.scrollIntoView({ block: "start" });

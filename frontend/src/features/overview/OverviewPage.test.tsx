@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -190,8 +192,204 @@ describe("OverviewPage", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it("第一份清单未就绪时自动补读，拿到记录后停止且只有 GET", async () => {
+    vi.useFakeTimers();
+    const waiting = makeOverview();
+    waiting.services = {
+      ...waiting.services,
+      evidence_at: null,
+      freshness: "unknown",
+    };
+    let reads = 0;
+    fetchMock.mockImplementation((input) => {
+      if (input !== "/api/ui/overview") return jsonResponse([]);
+      reads += 1;
+      return jsonResponse(reads === 1 ? waiting : groupedOverview());
+    });
+    renderOverview();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(reads).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(reads).toBe(2);
+    expect(screen.getByText("nanobot", { exact: true })).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(reads).toBe(2);
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET",
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["unknown-result", "read-error"])(
+    "%s 最多两次初始化补读，仍取不到时保留未知",
+    async (kind) => {
+      vi.useFakeTimers();
+      const waiting = makeOverview();
+      waiting.services = {
+        ...waiting.services,
+        evidence_at: null,
+        freshness: "unknown",
+      };
+      let reads = 0;
+      fetchMock.mockImplementation((input) => {
+        if (input !== "/api/ui/overview") return jsonResponse([]);
+        reads += 1;
+        if (kind === "read-error" && reads > 1)
+          return Promise.resolve(new Response("{}", { status: 503 }));
+        return jsonResponse(waiting);
+      });
+      renderOverview();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      expect(reads).toBe(3);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(reads).toBe(3);
+      expect(
+        screen.getByText("服务清单还不能确认最新状态，请刷新后再判断。"),
+      ).toBeVisible();
+    },
+  );
+
+  it("已有完整记录后，即使手动刷新成未知也不重新启动初始化补读", async () => {
+    vi.useFakeTimers();
+    const waiting = makeOverview();
+    waiting.services = {
+      ...waiting.services,
+      evidence_at: null,
+      freshness: "unknown",
+    };
+    let reads = 0;
+    fetchMock.mockImplementation((input) => {
+      if (input !== "/api/ui/overview") return jsonResponse([]);
+      reads += 1;
+      return jsonResponse(reads === 1 ? groupedOverview() : waiting);
+    });
+    renderOverview();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getByText("nanobot", { exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(reads).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(reads).toBe(2);
+    expect(
+      screen.getByText("服务清单还不能确认最新状态，请刷新后再判断。"),
+    ).toBeVisible();
+  });
+
+  it("旧接口回退沿用同一可取消的只读请求", async () => {
+    fetchMock.mockImplementation((input) =>
+      input === "/api/ui/overview"
+        ? Promise.resolve(new Response("{}", { status: 404 }))
+        : jsonResponse(
+            input === "/api/resources/overview" ? groupedOverview() : [],
+          ),
+    );
+    renderOverview();
+    expect(await screen.findByText("nanobot", { exact: true })).toBeVisible();
+    const current = fetchMock.mock.calls.find(
+      ([input]) => input === "/api/ui/overview",
+    );
+    const legacy = fetchMock.mock.calls.find(
+      ([input]) => input === "/api/resources/overview",
+    );
+    expect(current?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(legacy?.[1]?.signal).toBe(current?.[1]?.signal);
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET",
+      ),
+    ).toBe(true);
+  });
+
+  it("离开页面会取消尚未发出的补读", async () => {
+    vi.useFakeTimers();
+    const waiting = makeOverview();
+    waiting.services = {
+      ...waiting.services,
+      evidence_at: null,
+      freshness: "unknown",
+    };
+    fetchMock.mockImplementation((input) =>
+      jsonResponse(input === "/api/ui/overview" ? waiting : []),
+    );
+    const view = renderOverview();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    view.unmount();
+    const before = fetchMock.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(fetchMock.mock.calls).toHaveLength(before);
+  });
+
+  it("离开页面会中止在途清单请求", () => {
+    let signal: AbortSignal | null | undefined;
+    fetchMock.mockImplementation((_input, init) => {
+      signal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    const view = renderOverview();
+    expect(signal?.aborted).toBe(false);
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it.each(["known-empty", "not-retryable"])(
+    "%s 清单不启动初始化补读",
+    async (kind) => {
+      vi.useFakeTimers();
+      const payload = makeOverview();
+      if (kind === "not-retryable")
+        payload.services = {
+          ...payload.services,
+          evidence_at: null,
+          freshness: "unavailable",
+          error: { code: "not_supported", retryable: false },
+        };
+      fetchMock.mockImplementation((input) =>
+        jsonResponse(input === "/api/ui/overview" ? payload : []),
+      );
+      renderOverview();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(
+        fetchMock.mock.calls.filter(([input]) => input === "/api/ui/overview"),
+      ).toHaveLength(1);
+    },
+  );
 
   it("程序优先显示，展开保留各入口状态与准确变化链接，刷新保留展开", async () => {
     const payload = groupedOverview();
