@@ -114,6 +114,7 @@ class FakeEventSource {
 
 interface Backend {
   threadIds: string[];
+  updatedAt: Map<string, string>;
   messages: Map<string, ThreadMessage[]>;
   runs: Map<string, RunView>;
   runReads: number;
@@ -122,6 +123,7 @@ interface Backend {
 function installBackend(initialMessages: ThreadMessage[] = []): Backend {
   const backend: Backend = {
     threadIds: [threadId],
+    updatedAt: new Map(),
     messages: new Map([[threadId, initialMessages]]),
     runs: new Map(),
     runReads: 0,
@@ -130,7 +132,11 @@ function installBackend(initialMessages: ThreadMessage[] = []): Backend {
     http.get("/api/threads", () =>
       HttpResponse.json(
         backend.threadIds.map((id) =>
-          makeThread(id, backend.messages.get(id)?.length ?? 0),
+          makeThread(
+            id,
+            backend.messages.get(id)?.length ?? 0,
+            backend.updatedAt.get(id),
+          ),
         ),
       ),
     ),
@@ -157,11 +163,15 @@ function installBackend(initialMessages: ThreadMessage[] = []): Backend {
   return backend;
 }
 
-function makeThread(id = threadId, messageCount = 0): ThreadSummary {
+function makeThread(
+  id = threadId,
+  messageCount = 0,
+  updatedAt = timestamp,
+): ThreadSummary {
   return {
     thread_id: id,
     created_at: timestamp,
-    updated_at: timestamp,
+    updated_at: updatedAt,
     message_count: messageCount,
   };
 }
@@ -288,6 +298,72 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it("默认接上最近的对话，手动选择旧对话后刷新不跳走", async () => {
+    const backend = installBackend([makeMessage("user", "以前的检查")]);
+    const recentRunId = `run_${"4".repeat(32)}`;
+    backend.threadIds.push(secondThreadId);
+    backend.updatedAt.set(secondThreadId, "2026-10-15T08:28:00Z");
+    backend.messages.set(secondThreadId, [
+      makeMessage("user", "刚才的检查", recentRunId),
+    ]);
+    backend.runs.set(runId, makeRun("completed"));
+    backend.runs.set(
+      recentRunId,
+      makeRun("completed", { run_id: recentRunId, thread_id: secondThreadId }),
+    );
+    render(<ChatPage workspace />);
+    expect(
+      await screen.findByText("刚才的检查", { exact: true }),
+    ).toBeVisible();
+    expect(screen.queryByText("以前的检查", { exact: true })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(screen.getByText("以往对话", { exact: true }));
+    await user.click(screen.getByRole("button", { name: /继续对话 2/ }));
+    expect(
+      await screen.findByText("以前的检查", { exact: true }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "刷新这段对话" }));
+    await screen.findByText("这段对话和检查进展已刷新，没有重新发起检查。");
+    expect(screen.getByText("以前的检查", { exact: true })).toBeVisible();
+    expect(screen.queryByText("刚才的检查", { exact: true })).toBeNull();
+  });
+
+  it.each(["incident", "deep-link"])(
+    "%s 指定的对话优先于最近对话",
+    async (entry) => {
+      const backend = installBackend([makeMessage("user", "指定的检查")]);
+      backend.threadIds.push(secondThreadId);
+      backend.updatedAt.set(secondThreadId, "2026-10-15T08:28:00Z");
+      backend.messages.set(secondThreadId, [
+        makeMessage("user", "另一段更新的对话"),
+      ]);
+      const originalUrl = window.location.href;
+      try {
+        if (entry === "deep-link")
+          window.history.replaceState({}, "", `?thread=${threadId}`);
+        render(
+          <ChatPage
+            workspace
+            {...(entry === "incident"
+              ? {
+                  incidentId: `incident_${"a".repeat(32)}`,
+                  incidentThreadId: threadId,
+                }
+              : {})}
+          />,
+        );
+        expect(
+          await screen.findByText("指定的检查", { exact: true }),
+        ).toBeVisible();
+        expect(
+          screen.queryByText("另一段更新的对话", { exact: true }),
+        ).toBeNull();
+      } finally {
+        window.history.replaceState({}, "", originalUrl);
+      }
+    },
+  );
+
   it.each(["fresh", "stale"] as const)(
     "工作台只传所选程序身份，归属由服务端核对且不丢草稿（%s）",
     async (freshness) => {
@@ -870,12 +946,12 @@ describe("ChatPage", () => {
     ).toBeVisible();
     expect(screen.queryByText("服务端已经完成", { exact: true })).toBeNull();
     expect(screen.getByText("检查已结束，暂时未取得核对结果。")).toBeVisible();
-    const refresh = screen.getByRole("button", { name: "重新读取线程" });
+    const refresh = screen.getByRole("button", { name: "刷新这段对话" });
 
     failRunRead = false;
     await userEvent.setup().click(refresh);
     expect(
-      await screen.findByText("已通过只读请求重新读取线程与运行状态。"),
+      await screen.findByText("这段对话和检查进展已刷新，没有重新发起检查。"),
     ).toBeVisible();
     await waitFor(() => {
       expect(

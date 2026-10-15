@@ -1275,7 +1275,38 @@ export function OverviewPage({
     queryKey: programOverviewQueryKey,
     queryFn: loadProgramOverview,
   });
+  const initialReads = useRef(0);
+  const inventoryReceived = useRef(false);
   const hasOverview = query.data !== undefined;
+  const initialInventoryMissing =
+    query.data !== undefined &&
+    query.data.services.items.length === 0 &&
+    query.data.services.evidence_at === null &&
+    ["unknown", "unavailable"].includes(query.data.services.freshness) &&
+    query.data.services.error?.retryable !== false;
+  useEffect(() => {
+    if (hasOverview && !initialInventoryMissing)
+      inventoryReceived.current = true;
+    if (
+      !initialInventoryMissing ||
+      query.isFetching ||
+      inventoryReceived.current ||
+      initialReads.current >= 2
+    )
+      return;
+    const timer = window.setTimeout(() => {
+      initialReads.current += 1;
+      void query.refetch();
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    hasOverview,
+    initialInventoryMissing,
+    query.dataUpdatedAt,
+    query.errorUpdatedAt,
+    query.isFetching,
+    query.refetch,
+  ]);
   useEffect(() => {
     if (
       !hasOverview ||
