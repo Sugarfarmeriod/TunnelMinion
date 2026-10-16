@@ -520,6 +520,18 @@ describe("ChatPage", () => {
     },
   );
 
+  it("任务记录还没读到时，不显示上一段对话的程序", async () => {
+    const backend = installBackend();
+    backend.serviceIds.set(threadId, program.service_id);
+    const view = render(<ChatPage workspace services={[program]} />);
+    await screen.findByLabelText("正在讨论的程序");
+    view.rerender(<ChatPage workspace services={[program]} contextBlocked />);
+    expect(screen.queryByLabelText("正在讨论的程序")).toBeNull();
+    expect(
+      screen.getByText("还没读到这项任务的完整记录，暂时不能针对它提问。"),
+    ).toBeVisible();
+  });
+
   it("默认接上最近的对话，手动选择旧对话后刷新不跳走", async () => {
     const backend = installBackend([makeMessage("user", "以前的检查")]);
     const recentRunId = `run_${"4".repeat(32)}`;

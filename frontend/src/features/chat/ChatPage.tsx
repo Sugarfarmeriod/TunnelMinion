@@ -357,7 +357,8 @@ export function ChatPage({
     eventState.terminalStatus !== null && eventState.phase !== "terminal";
   const composerLocked =
     effectiveRunStatus === "running" || terminalReplayPending;
-  const programConversation = workspace && !incidentId && !operationContext;
+  const programConversation =
+    workspace && !incidentId && !operationContext && !contextBlocked;
   const currentDetail =
     threadDetail?.thread.thread_id === selectedThreadId ? threadDetail : null;
   const savedServiceId =
