@@ -2,6 +2,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { MemoryRouter } from "react-router-dom";
 import {
   afterAll,
   afterEach,
@@ -362,6 +363,124 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it.each([
+    ["model_network_unreachable", "这次联系模型时遇到问题，还没查完。", true],
+    [
+      "model_authentication_failed",
+      "模型连接没有通过验证，这次检查没能完成。",
+      true,
+    ],
+    ["model_timeout", "等模型回答等得太久，这次检查先停下了。", false],
+    ["tool_failed", "读取程序情况时遇到问题，这次还没查完。", false],
+    [
+      "unknown_fixture",
+      "这次检查没有完成，还不能据此判断程序是否有问题。",
+      false,
+    ],
+    ["__proto__", "这次检查没有完成，还不能据此判断程序是否有问题。", false],
+  ] as const)(
+    "未完成检查按已知原因说明，不从原始文字猜测（%s）",
+    async (reason, explanation, settings) => {
+      const backend = installBackend([makeMessage("user", "之前的问题")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(
+        runId,
+        makeRun("failed", {
+          failure: {
+            category: "prompt_or_model",
+            phase: "agent-runtime",
+            reason,
+            retryable: false,
+            occurred_at: timestamp,
+            source_refs: [],
+          },
+          error_message: "原始错误：这段文字不能当作程序故障结论",
+        }),
+      );
+      render(
+        <MemoryRouter>
+          <ChatPage workspace services={[program]} />
+        </MemoryRouter>,
+      );
+      await screen.findByText("之前的问题", { exact: true });
+      await replayTerminalRun("failed");
+      expect(
+        await screen.findByText(explanation, { exact: true }),
+      ).toBeVisible();
+      expect(
+        screen.getByText(/刷新只更新已有记录，不会重新检查/),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("link", { name: "检查模型连接" }) !== null,
+      ).toBe(settings);
+      await userEvent
+        .setup()
+        .type(
+          screen.getByLabelText("问题", { exact: true }),
+          "我接着问，草稿保留",
+        );
+      expect(screen.getByLabelText("问题", { exact: true })).toHaveValue(
+        "我接着问，草稿保留",
+      );
+      expect(screen.getByLabelText("正在讨论的程序")).toHaveTextContent("gost");
+    },
+  );
+
+  it.each([
+    ["cancelled", "这次检查已停止，没有自动重新开始。"],
+    [
+      "interrupted",
+      "TunnelMinion重新启动时，这次检查还没结束。已有记录保留，没有自动重做。",
+    ],
+  ] as const)(
+    "未完成检查说明停止或中断，保留原问题（%s）",
+    async (status, explanation) => {
+      const backend = installBackend([makeMessage("user", "之前的问题")]);
+      backend.runs.set(runId, makeRun(status));
+      render(<ChatPage workspace />);
+      await screen.findByText("之前的问题", { exact: true });
+      await replayTerminalRun(status);
+      expect(
+        await screen.findByText(explanation, { exact: true }),
+      ).toBeVisible();
+      expect(screen.getByText(/想继续检查，请在下面发送问题/)).toBeVisible();
+    },
+  );
+
+  it("原始错误收在技术证据里，不作为普通页面的主要说明", async () => {
+    const raw = "未经核对的错误说明：请修改全部网络设置";
+    const backend = installBackend([makeMessage("user", "之前的问题")]);
+    backend.runs.set(runId, makeRun("failed", { error_message: raw }));
+    render(<ChatPage workspace />);
+    const source = await waitForSource();
+    act(() => source.emit("failed", makeEvent(1, "failed", { message: raw })));
+    await waitFor(() => expect(source.closed).toBe(true));
+    expect(
+      await screen.findByText(
+        "这次检查没有完成，还不能据此判断程序是否有问题。",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(raw, { exact: true })).not.toBeVisible();
+    await userEvent.setup().click(screen.getByText("查看用了哪些工具与证据"));
+    expect(screen.getByText(raw, { exact: true })).toBeVisible();
+  });
+
+  it("检查终态没有结果时说明未知，不永久声称正在读取", async () => {
+    const backend = installBackend([makeMessage("user", "之前的问题")]);
+    backend.runs.set(runId, makeRun("completed"));
+    render(<ChatPage workspace />);
+    await replayTerminalRun();
+    expect(
+      await screen.findByText("检查已结束，但没有读到可核对的结果。", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("检查已结束，正在读取核对结果。", { exact: true }),
+    ).toBeNull();
+  });
+
   it.each(["completed", "failed", "cancelled", "interrupted"] as const)(
     "重开%s的检查后，显示当前程序名并带同一对象追问，不自动发送",
     async (status) => {
@@ -422,6 +541,9 @@ describe("ChatPage", () => {
       await user.type(question, "草稿不能丢");
       expect(question).toHaveValue("草稿不能丢");
       expect(screen.getByRole("button", { name: "发送问题" })).toBeDisabled();
+      expect(
+        screen.getByText(/先从程序列表重新选择程序，再继续问。/),
+      ).toBeVisible();
       expect(FakeEventSource.instances).toHaveLength(1);
       view.rerender(
         <ChatPage workspace services={[program]} nodes={computers} />,
@@ -854,7 +976,7 @@ describe("ChatPage", () => {
     ["timeout", "暂时没查完"],
     ["model-limit", "已达到调查上限"],
     ["tool-limit", "已达到调查上限"],
-    ["cancelled", "已取消"],
+    ["cancelled", "已停止检查"],
   ] as const)("%s 停止不显示为调查完成", async (reason, label) => {
     const backend = installBackend([makeMessage("user", "检查面板")]);
     const stopped = completedRun("还没有完整结论。");
@@ -1175,7 +1297,7 @@ describe("ChatPage", () => {
 
     expect(await screen.findByText("本次检查已结束")).toBeVisible();
     expect(screen.getByLabelText("问题")).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "取消这次运行" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "停止这次检查" })).toBeNull();
     expect(
       await screen.findByText(/已收到并应用终态事件，但暂时无法复读/),
     ).toBeVisible();
@@ -1239,19 +1361,19 @@ describe("ChatPage", () => {
     const source = await waitForSource();
     act(() => source.open());
 
-    await user.click(screen.getByRole("button", { name: "取消这次运行" }));
+    await user.click(screen.getByRole("button", { name: "停止这次检查" }));
     const cancelDialog = screen.getByRole("alertdialog", {
-      name: "确认取消这次运行？",
+      name: "要停止这次检查吗？",
     });
     expect(cancelDialog).toHaveTextContent(runId);
     expect(cancelCalls).toBe(0);
-    await user.click(screen.getByRole("button", { name: "确认取消此运行" }));
+    await user.click(screen.getByRole("button", { name: "确认停止" }));
     expect(
       await screen.findByText(/运行状态：本次检查已结束；不会再次发送取消请求/),
     ).toBeVisible();
     expect(cancelCalls).toBe(1);
     expect(source.closed).toBe(true);
-    expect(screen.queryByRole("button", { name: "取消这次运行" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "停止这次检查" })).toBeNull();
     secondView.unmount();
   });
 });
