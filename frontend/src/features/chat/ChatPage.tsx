@@ -53,12 +53,25 @@ const toolLabels: Record<AllowedToolName, string> = {
 };
 
 const runStatusLabels: Record<RunStatus, string> = {
-  running: "正在运行",
+  running: "正在检查",
   completed: "本次检查已结束",
-  cancelled: "已取消",
-  failed: "运行失败",
-  interrupted: "服务重启时中断",
+  cancelled: "已停止检查",
+  failed: "这次没查完",
+  interrupted: "检查被打断",
 };
+
+const failureMessages = new Map([
+  ["model_authentication_failed", "模型连接没有通过验证，这次检查没能完成。"],
+  ["model_not_found", "没有找到设置中的模型，这次检查没能完成。"],
+  ["model_timeout", "等模型回答等得太久，这次检查先停下了。"],
+  ["model_network_unreachable", "这次联系模型时遇到问题，还没查完。"],
+  ["model_invalid_response", "模型这次没有给出可用的回答，检查没能完成。"],
+  ["model_capability_incompatible", "当前模型还不能完成这类检查。"],
+  ["tool_failed", "读取程序情况时遇到问题，这次还没查完。"],
+  ["context_invalid", "检查记录暂时没能整理好，这次检查没有完成。"],
+  ["summary_failed", "检查记录暂时没能整理好，这次检查没有完成。"],
+  ["governance_denied", "这次检查没有获准继续。已有记录仍可查看。"],
+]);
 
 const streamPhaseLabels: Record<RunEventState["phase"], string> = {
   idle: "未连接事件流",
@@ -197,6 +210,7 @@ export function ChatPage({
     setConfirmingDelete(false);
     setConfirmingCancel(false);
     setPageError(null);
+    setNotice(null);
   }, []);
 
   const refreshThreads = useCallback(
@@ -258,6 +272,8 @@ export function ChatPage({
   useEffect(() => {
     const controller = new AbortController();
     setLoadingThreads(true);
+    if (requestedThreadId && requestedThreadId !== selectedThreadRef.current)
+      setNotice(null);
     void refreshThreads(controller.signal, requestedThreadId)
       .then(() => {
         if (!controller.signal.aborted && incidentId && !incidentThreadId)
@@ -593,37 +609,47 @@ export function ChatPage({
       return;
     }
     const runId = activeRun.run_id;
+    const threadId = activeRun.thread_id;
     setWriteAction("cancel");
     setNotice(null);
     setPageError(null);
     const controller = registerController(actionControllers.current);
     try {
       const latest = await cancelRun(runId, controller.signal);
+      if (selectedThreadRef.current !== threadId) return;
       onRunUpdate(latest);
       setNotice(
         latest.status === "running"
-          ? "取消请求已送达，正在等待服务端终态。"
-          : `运行状态：${runStatusLabels[latest.status]}；不会再次发送取消请求。`,
+          ? "已请求停止，正在等当前步骤结束。"
+          : `${runStatusLabels[latest.status]}。没有重复请求停止。`,
       );
       if (latest.status !== "running") {
         await refreshThread(latest.thread_id, controller.signal);
       }
     } catch (error) {
+      if (selectedThreadRef.current !== threadId) return;
       if (isUnknownWriteResult(error)) {
-        setNotice("取消结果未知；正在复读同一运行，不会自动再次发送取消请求。");
+        setNotice("还不能确认是否停止；正在查看进展，不会重复请求。");
         try {
           const latest = await getRun(runId, controller.signal);
+          if (selectedThreadRef.current !== threadId) return;
           onRunUpdate(latest);
           if (latest.status !== "running") {
+            setNotice(`${runStatusLabels[latest.status]}。没有重复请求停止。`);
             await refreshThread(latest.thread_id, controller.signal);
           }
         } catch (readError) {
-          if (!isAbortError(readError)) {
-            setPageError("暂时也无法读取运行状态，请稍后手动刷新线程。");
+          if (
+            !isAbortError(readError) &&
+            selectedThreadRef.current === threadId
+          ) {
+            setPageError(
+              "暂时没能读全这次检查的记录，可以稍后刷新；不会重复请求停止。",
+            );
           }
         }
       } else if (!isAbortError(error)) {
-        setPageError("无法请求取消；请重新读取运行状态后再决定是否重试。");
+        setPageError("暂时没能请求停止；请先查看检查进展，再决定是否重试。");
       }
     } finally {
       actionControllers.current.delete(controller);
@@ -818,6 +844,7 @@ export function ChatPage({
                 eventState={eventState}
                 cancelling={writeAction === "cancel"}
                 confirmingCancel={confirmingCancel}
+                continuationBlocked={programContextBlocked}
                 onRequestCancel={() => setConfirmingCancel(true)}
                 onDismissCancel={() => setConfirmingCancel(false)}
                 onConfirmCancel={() => void handleCancelRun()}
@@ -1002,11 +1029,14 @@ function CancelRunConfirmationDialog({
       tabIndex={-1}
       onKeyDown={handleKeyDown}
     >
-      <h4 id="cancel-run-title">确认取消这次运行？</h4>
+      <h4 id="cancel-run-title">要停止这次检查吗？</h4>
       <p id="cancel-run-description">
-        只会请求取消下面这一项运行；服务端终态仍可能是已完成。
+        会请求停止当前检查；正在进行的步骤可能先结束，也可能刚好已经查完。已有记录会保留。
       </p>
-      <p className="chat-object-id">运行 ID：{runId}</p>
+      <details>
+        <summary>技术信息</summary>
+        <p className="chat-object-id">运行 ID：{runId}</p>
+      </details>
       <div className="chat-actions">
         <button
           disabled={busy}
@@ -1014,7 +1044,7 @@ function CancelRunConfirmationDialog({
           type="button"
           onClick={onCancel}
         >
-          返回运行
+          暂不停止
         </button>
         <button
           className="chat-button--danger"
@@ -1022,7 +1052,7 @@ function CancelRunConfirmationDialog({
           type="button"
           onClick={onConfirm}
         >
-          {busy ? "正在请求取消……" : "确认取消此运行"}
+          {busy ? "正在请求停止……" : "确认停止"}
         </button>
       </div>
     </section>
@@ -1036,6 +1066,7 @@ interface RunPanelProps {
   eventState: RunEventState;
   cancelling: boolean;
   confirmingCancel: boolean;
+  continuationBlocked: boolean;
   onRequestCancel: () => void;
   onDismissCancel: () => void;
   onConfirmCancel: () => void;
@@ -1102,6 +1133,7 @@ function RunPanel({
   eventState,
   cancelling,
   confirmingCancel,
+  continuationBlocked,
   onRequestCancel,
   onDismissCancel,
   onConfirmCancel,
@@ -1133,7 +1165,7 @@ function RunPanel({
     ? stopReason === "timeout"
       ? "暂时没查完"
       : stopReason === "cancelled"
-        ? "已取消"
+        ? "已停止检查"
         : "已达到调查上限"
     : runStatusLabels[effectiveStatus];
   const terminalMessage =
@@ -1146,12 +1178,52 @@ function RunPanel({
         : eventState.terminalReadFailed
           ? "检查已结束，暂时未取得核对结果。"
           : "检查已结束，正在读取核对结果。";
+  const reason = activeRun.failure?.reason ?? activeRun.error_code ?? "";
+  const needsModelSettings =
+    effectiveStatus === "failed" &&
+    [
+      "model_authentication_failed",
+      "model_not_found",
+      "model_network_unreachable",
+      "model_capability_incompatible",
+    ].includes(reason);
+  let feedback: string | null = null;
+  if (compact) {
+    if (effectiveStatus === "failed") {
+      feedback =
+        failureMessages.get(reason) ??
+        "这次检查没有完成，还不能据此判断程序是否有问题。";
+    } else if (
+      effectiveStatus === "cancelled" ||
+      (stoppedEarly && stopReason === "cancelled")
+    ) {
+      feedback = "这次检查已停止，没有自动重新开始。";
+    } else if (effectiveStatus === "interrupted") {
+      feedback =
+        "TunnelMinion重新启动时，这次检查还没结束。已有记录保留，没有自动重做。";
+    } else if (stoppedEarly) {
+      feedback =
+        stopReason === "timeout"
+          ? "这次检查用时已到上限，先停在这里。"
+          : "这次检查已到用量上限，先停在这里。";
+    } else if (
+      effectiveStatus === "completed" &&
+      !activeRun.result &&
+      eventState.phase === "terminal"
+    ) {
+      feedback = "检查已结束，但没有读到可核对的结果。";
+    }
+  }
+  const technicalMessage =
+    effectiveStatus === "failed" || effectiveStatus === "interrupted"
+      ? (terminalEvent?.message ?? activeRun.error_message)
+      : null;
 
   return (
     <section aria-labelledby="chat-run-title" className="chat-run">
       <div className="chat-run__heading">
         <div>
-          <h3 id="chat-run-title" ref={runHeadingRef}>
+          <h3 id="chat-run-title" ref={runHeadingRef} tabIndex={-1}>
             {compact ? "调查进展" : "当前运行"}
           </h3>
         </div>
@@ -1161,6 +1233,27 @@ function RunPanel({
           {statusLabel}
         </span>
       </div>
+      {feedback ? (
+        <>
+          <p className="chat-terminal-message" role="status">
+            {feedback}
+          </p>
+          <p>
+            {continuationBlocked ? (
+              "先从程序列表重新选择程序，再继续问。"
+            ) : needsModelSettings ? (
+              <>
+                先<Link to="/app/settings">检查模型连接</Link>
+                ，再从下面发送问题。
+              </>
+            ) : (
+              "想继续检查，请在下面发送问题。"
+            )}
+            <br />
+            刷新只更新已有记录，不会重新检查。
+          </p>
+        </>
+      ) : null}
       {eventState.gap === null ? null : (
         <p className="chat-alert chat-alert--warning" role="alert">
           检测到事件缺口：期望序号 {eventState.gap.expected}，收到序号{" "}
@@ -1176,7 +1269,7 @@ function RunPanel({
           type="button"
           onClick={onRequestCancel}
         >
-          取消这次运行
+          停止这次检查
         </button>
       ) : null}
       {effectiveStatus === "running" && confirmingCancel ? (
@@ -1190,7 +1283,7 @@ function RunPanel({
         />
       ) : null}
 
-      {eventState.terminalReadFailed ? (
+      {eventState.terminalReadFailed && !feedback ? (
         <p className="chat-alert chat-alert--warning" role="alert">
           已收到并应用终态事件，但暂时无法复读最终 run
           详情。页面不会重放写请求；可使用下面的只读刷新。
@@ -1208,6 +1301,12 @@ function RunPanel({
 
       <details open={!compact}>
         <summary>查看用了哪些工具与证据</summary>
+        {feedback && technicalMessage ? (
+          <>
+            <h4>技术说明（不是程序结论）</h4>
+            <p className="chat-untrusted-text">{technicalMessage}</p>
+          </>
+        ) : null}
         <p className="chat-run__id">运行 ID：{activeRun.run_id}</p>
         <p aria-live="polite" className="chat-stream-status">
           {streamPhaseLabels[eventState.phase]}
@@ -1292,7 +1391,8 @@ function RunPanel({
       </details>
       <RelatedOperations toolRunIds={activeRun.result?.tool_run_ids} />
 
-      {terminalMessage === null ||
+      {feedback ||
+      terminalMessage === null ||
       terminalMessage === undefined ||
       (compact && terminalMessage === activeRun.result?.answer) ? null : (
         <p className="chat-terminal-message chat-untrusted-text">
