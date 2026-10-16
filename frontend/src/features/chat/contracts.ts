@@ -48,6 +48,7 @@ export const threadDetailSchema = z
   .object({
     thread: threadSchema,
     messages: z.array(threadMessageSchema),
+    service_id: identifierSchema("service").nullable().optional(),
   })
   .strict();
 

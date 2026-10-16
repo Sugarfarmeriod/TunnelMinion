@@ -29,7 +29,16 @@ export function createThread(signal?: AbortSignal) {
   });
 }
 
-export function getThread(threadId: string, signal?: AbortSignal) {
+export async function getThread(threadId: string, signal?: AbortSignal) {
+  try {
+    return await requestJson(
+      `/api/ui/threads/${encodeURIComponent(threadId)}`,
+      threadDetailSchema,
+      { signal },
+    );
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
   return requestJson(
     `/api/threads/${encodeURIComponent(threadId)}`,
     threadDetailSchema,

@@ -136,7 +136,11 @@ export interface ChatPageProps {
   streamReconnectDelayMs?: number;
   workspace?: boolean;
   serviceContext?: ResourceOverview["services"]["items"][number];
+  services?: ResourceOverview["services"]["items"];
+  nodes?: ResourceOverview["nodes"]["items"];
   computerName?: string;
+  onThreadSelect?: (threadId: string | null) => void;
+  onThreadCreated?: (threadId: string) => void;
   incidentId?: string;
   incidentThreadId?: string | null;
   operationContext?: OperationDetail;
@@ -150,7 +154,11 @@ export function ChatPage({
   streamReconnectDelayMs,
   workspace = false,
   serviceContext,
+  services,
+  nodes,
   computerName,
+  onThreadSelect,
+  onThreadCreated,
   incidentId,
   incidentThreadId,
   operationContext,
@@ -349,6 +357,44 @@ export function ChatPage({
     eventState.terminalStatus !== null && eventState.phase !== "terminal";
   const composerLocked =
     effectiveRunStatus === "running" || terminalReplayPending;
+  const programConversation = workspace && !incidentId && !operationContext;
+  const currentDetail =
+    threadDetail?.thread.thread_id === selectedThreadId ? threadDetail : null;
+  const savedServiceId =
+    currentDetail?.service_id === undefined &&
+    activeRun?.thread_id === selectedThreadId &&
+    activeRun?.run_id === currentDetail?.messages.at(-1)?.run_id &&
+    activeRun?.result?.answer_checked === true
+      ? activeRun.result.checked_service_id
+      : currentDetail?.service_id;
+  const matches = services?.filter(
+    (service) => service.service_id === savedServiceId,
+  );
+  const restoredService =
+    matches?.length === 1 && ["live", "fresh"].includes(matches[0]!.freshness)
+      ? matches[0]
+      : undefined;
+  const selectedService = programConversation
+    ? (serviceContext ?? restoredService)
+    : undefined;
+  const matchingComputers = nodes?.filter(
+    (node) => node.node_id === selectedService?.node_id,
+  );
+  const selectedComputerName = serviceContext
+    ? computerName
+    : matchingComputers?.length === 1 &&
+        ["live", "fresh"].includes(matchingComputers[0]!.freshness)
+      ? matchingComputers[0]!.display_name
+      : undefined;
+  const programContextBlocked =
+    programConversation &&
+    !serviceContext &&
+    selectedThreadId !== null &&
+    (!currentDetail ||
+      (Boolean(savedServiceId) && !restoredService) ||
+      (currentDetail.service_id === undefined &&
+        currentDetail.messages.length > 0 &&
+        !savedServiceId));
 
   async function handleCreateThread() {
     if (writeAction !== null) {
@@ -361,6 +407,7 @@ export function ChatPage({
     try {
       const created = await createThread(controller.signal);
       await refreshThreads(controller.signal, created.thread_id);
+      if (!controller.signal.aborted) onThreadCreated?.(created.thread_id);
       setNotice("新线程已创建，可以开始提问。");
     } catch (error) {
       if (isUnknownWriteResult(error)) {
@@ -389,12 +436,15 @@ export function ChatPage({
     try {
       await deleteThread(threadId, controller.signal);
       selectThread(null);
-      await refreshThreads(controller.signal);
+      const remaining = await refreshThreads(controller.signal);
+      if (!controller.signal.aborted)
+        onThreadSelect?.(remaining[0]?.thread_id ?? null);
       setNotice("线程及其短期消息已删除，独立长期记忆未受影响。");
     } catch (error) {
       if (isUnknownWriteResult(error)) {
         setNotice("删除结果未知；已重新读取线程列表，不会自动再次删除。");
         await safelyRefreshThreads(refreshThreads, controller.signal);
+        if (!controller.signal.aborted) onThreadSelect?.(null);
       } else if (!isAbortError(error)) {
         setPageError("删除失败；请重新读取线程状态后再决定是否重试。");
       }
@@ -415,7 +465,8 @@ export function ChatPage({
       (threadId === null && !incidentId) ||
       writeAction !== null ||
       composerLocked ||
-      contextBlocked
+      contextBlocked ||
+      programContextBlocked
     ) {
       return;
     }
@@ -455,7 +506,7 @@ export function ChatPage({
               : normalizedQuestion,
             toolName === "auto" ? allowedToolNames : toolName,
             controller.signal,
-            operationContext ? undefined : serviceContext?.service_id,
+            selectedService?.service_id,
           );
       if (incidentId) {
         selectThread(started.thread_id);
@@ -667,7 +718,12 @@ export function ChatPage({
                     aria-pressed={thread.thread_id === selectedThreadId}
                     className="chat-thread-list__button"
                     type="button"
-                    onClick={() => selectThread(thread.thread_id)}
+                    onClick={() => {
+                      if (thread.thread_id === selectedThreadRef.current)
+                        void handleRefreshSelectedThread();
+                      else selectThread(thread.thread_id);
+                      onThreadSelect?.(thread.thread_id);
+                    }}
                   >
                     <strong>继续对话 {index + 1}</strong>
                     <span>{thread.message_count} 条消息</span>
@@ -701,18 +757,25 @@ export function ChatPage({
         </ThreadContainer>
 
         <div className="chat-conversation">
-          {serviceContext ? (
+          {selectedService ? (
             <div className="workspace-context" aria-label="正在讨论的程序">
               <strong>
-                {computerName || "所属电脑名称未知"} ·{" "}
-                {serviceDisplayName(serviceContext) || "程序名称待确认"}
+                {selectedComputerName || "所属电脑名称未知"} ·{" "}
+                {serviceDisplayName(selectedService) || "程序名称待确认"}
               </strong>
               <p>
-                连接入口 {serviceContext.protocol?.toUpperCase() ?? "协议未知"}{" "}
-                {serviceContext.port ?? "未知"}
+                连接入口 {selectedService.protocol?.toUpperCase() ?? "协议未知"}{" "}
+                {selectedService.port ?? "未知"}
                 。下面的问题会带上这条连接记录；它不代表已经验证能使用。
               </p>
             </div>
+          ) : null}
+          {programContextBlocked && !loadingThread ? (
+            <p className="chat-alert chat-alert--warning" role="status">
+              {savedServiceId
+                ? "暂时找不到这段对话原来检查的程序，请刷新程序清单，或重新选择后再问。"
+                : "还不能确认这段对话检查的是哪个程序，请刷新对话，或重新选择程序后再问。"}
+            </p>
           ) : null}
           {incidentId ? (
             <p className="workspace-context">
@@ -818,6 +881,7 @@ export function ChatPage({
                   disabled={
                     writeAction !== null ||
                     composerLocked ||
+                    programContextBlocked ||
                     question.trim().length === 0
                   }
                   type="submit"
