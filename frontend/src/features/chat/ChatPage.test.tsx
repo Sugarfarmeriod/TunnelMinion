@@ -363,6 +363,42 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it("工作台保留程序名，连接按需查看，继续入口定位原草稿且不发送", async () => {
+    const backend = installBackend([makeMessage("user", "之前的问题")]);
+    backend.serviceIds.set(threadId, program.service_id);
+    backend.runs.set(runId, makeRun("cancelled"));
+    let writes = 0;
+    server.use(
+      http.post("/api/ui/threads/:id/runs", () => {
+        writes += 1;
+        return HttpResponse.json(makeRun("completed"));
+      }),
+    );
+    render(<ChatPage workspace services={[program]} nodes={computers} />);
+    await replayTerminalRun("cancelled");
+    expect(screen.getByLabelText("正在讨论的程序")).toHaveTextContent(
+      "客厅 Mac · gost",
+    );
+    const connection = screen.getByText(/连接入口 TCP 805/);
+    expect(connection).not.toBeVisible();
+    const user = userEvent.setup();
+    await user.click(screen.getByText("查看连接信息", { exact: true }));
+    expect(connection).toBeVisible();
+    const question = screen.getByLabelText("问题", { exact: true });
+    await user.type(question, "这句草稿先保留");
+    const originalUrl = window.location.href;
+    await user.click(screen.getByRole("link", { name: "继续提问" }));
+    expect(question).toHaveFocus();
+    expect(question).toHaveValue("这句草稿先保留");
+    expect(window.location.href).toBe(originalUrl);
+    expect(writes).toBe(0);
+    expect(screen.queryByRole("heading", { name: "消息" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "说说你想做什么" }),
+    ).toBeNull();
+    expect(screen.getByText(/提问会使用模型额度/)).toBeVisible();
+  });
+
   it.each([
     ["model_network_unreachable", "这次联系模型时遇到问题，还没查完。", true],
     [
@@ -443,7 +479,7 @@ describe("ChatPage", () => {
       expect(
         await screen.findByText(explanation, { exact: true }),
       ).toBeVisible();
-      expect(screen.getByText(/想继续检查，请在下面发送问题/)).toBeVisible();
+      expect(screen.getByRole("link", { name: "继续提问" })).toBeVisible();
     },
   );
 
@@ -544,6 +580,7 @@ describe("ChatPage", () => {
       expect(
         screen.getByText(/先从程序列表重新选择程序，再继续问。/),
       ).toBeVisible();
+      expect(screen.queryByRole("link", { name: "继续提问" })).toBeNull();
       expect(FakeEventSource.instances).toHaveLength(1);
       view.rerender(
         <ChatPage workspace services={[program]} nodes={computers} />,
@@ -1035,7 +1072,7 @@ describe("ChatPage", () => {
     const content = "我的问题\n\n证据索引（程序生成）：\n这也是问题正文";
     installBackend([makeMessage("user", content)]);
     const { container } = render(<ChatPage workspace />);
-    await screen.findByRole("heading", { name: "消息" });
+    await screen.findByRole("region", { name: "对话记录" });
     expect(
       container.querySelector(".chat-message--user")?.textContent,
     ).toContain(content);

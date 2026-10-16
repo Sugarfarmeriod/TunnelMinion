@@ -24,9 +24,10 @@
 .workspace-layout .chat-layout {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 .workspace-layout .chat-conversation {
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 .workspace-layout .chat-threads {
   border: 0;
@@ -39,8 +40,51 @@
 .workspace-layout .chat-page__header .eyebrow {
   display: none;
 }
+.workspace-layout .chat-page__header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+.workspace-layout .chat-page__header > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.workspace-layout .chat-message {
+  border-color: transparent;
+  padding: var(--space-3);
+}
+.workspace-layout .chat-message > p {
+  margin: var(--space-2) 0 0;
+}
+.workspace-layout .chat-run {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.workspace-layout .chat-run > p {
+  margin: 0;
+}
+.workspace-layout .chat-terminal-message {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.workspace-layout .chat-run > button {
+  justify-self: start;
+}
 .workspace-layout .chat-composer {
+  border: 0;
   margin-top: 0;
+  padding: 0;
+}
+.workspace-layout .chat-composer label,
+.workspace-layout .chat-composer .chat-button--primary,
+.workspace-layout .chat-composer__safety {
+  margin: 0;
 }
 .workspace-layout .overview-page__header {
   flex-wrap: wrap;
@@ -100,6 +144,11 @@
   border-left: 3px solid var(--color-accent-strong);
   padding-left: var(--space-3);
 }
+.workspace-context > details > summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  padding-top: var(--space-2);
+}
 
 .workspace-layout .operation-request-facts {
   grid-template-columns: minmax(0, 1fr);
@@ -123,6 +172,19 @@
   background: var(--color-surface);
   padding: var(--space-3) 0;
   z-index: 1;
+}
+
+@media (min-width: 55.001rem) {
+  .workspace-layout .chat-run {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .workspace-layout .chat-run > :not(button, details),
+  .workspace-layout .chat-run > details[open] {
+    grid-column: 1 / -1;
+  }
+  .workspace-layout .chat-run > details:not([open]) {
+    align-self: center;
+  }
 }
 
 @media (max-width: 55rem) {

@@ -240,6 +240,28 @@ for (const width of [1280, 320]) {
     await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
     await expect(question).toHaveValue("我想继续刚才的检查");
     await expect(question).toBeFocused();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await testInfo.attach("input-position", {
+      body: JSON.stringify(await question.boundingBox()),
+      contentType: "application/json",
+    });
+    await page.screenshot({
+      path: testInfo.outputPath(`workspace-first-screen-${width}.png`),
+    });
+    if (width === 1280) await expect(question).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText(/连接入口 TCP 43123/)).not.toBeVisible();
+    const connectionDetails = page
+      .getByLabel("正在讨论的程序")
+      .getByText("查看连接信息", { exact: true });
+    await connectionDetails.click();
+    await expect(page.getByText(/连接入口 TCP 43123/)).toBeVisible();
+    await connectionDetails.click();
+    const originalUrl = page.url();
+    await page.getByRole("link", { name: "继续提问", exact: true }).click();
+    await expect(question).toBeFocused();
+    await expect(question).toHaveValue("我想继续刚才的检查");
+    expect(page.url()).toBe(originalUrl);
+    expect(writes).toBe(0);
     await expect(
       page.getByText("这次联系模型时遇到问题，还没查完。", { exact: true }),
     ).toBeVisible();
