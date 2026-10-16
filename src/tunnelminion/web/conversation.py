@@ -87,6 +87,15 @@ def create_conversation_router(
         except KeyError as exc:
             raise not_found(exc) from exc
 
+    async def get_program_thread(value: str) -> dict[str, object]:
+        identifier = thread_id(value)
+        try:
+            detail = service.get_thread(identifier).model_dump(mode="json")
+            selected = service.get_thread_service_id(identifier)
+            return {**detail, "service_id": str(selected) if selected is not None else None}
+        except KeyError as exc:
+            raise not_found(exc) from exc
+
     async def delete_thread(value: str) -> Response:
         try:
             service.delete_thread(thread_id(value))
@@ -178,6 +187,9 @@ def create_conversation_router(
     router.add_api_route("/api/threads", create_thread, methods=["POST"])
     router.add_api_route("/api/threads", list_threads, methods=["GET"])
     router.add_api_route("/api/threads/{value}", get_thread, methods=["GET"])
+    router.add_api_route(
+        "/api/ui/threads/{value}", get_program_thread, methods=["GET"], include_in_schema=False
+    )
     router.add_api_route("/api/threads/{value}", delete_thread, methods=["DELETE"])
     router.add_api_route("/api/threads/{value}/runs", start_run, methods=["POST"])
     router.add_api_route(
