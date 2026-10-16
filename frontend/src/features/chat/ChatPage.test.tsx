@@ -1317,6 +1317,127 @@ describe("ChatPage", () => {
     });
   });
 
+  it.each([false, true])(
+    "停止请求断开后只查进展，已确认结果不再说未知（读取失败：%s）",
+    async (readUnavailable) => {
+      const backend = installBackend([makeMessage("user", "之前的问题")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(runId, makeRun());
+      let cancelCalls = 0;
+      server.use(
+        http.post("/api/runs/:id/cancel", () => {
+          cancelCalls += 1;
+          backend.runs.set(runId, makeRun("cancelled"));
+          return HttpResponse.error();
+        }),
+        http.get("/api/runs/:id", () =>
+          cancelCalls > 0 && readUnavailable
+            ? new HttpResponse(null, { status: 503 })
+            : HttpResponse.json(backend.runs.get(runId)),
+        ),
+      );
+      render(<ChatPage workspace services={[program]} />);
+      await waitForSource();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "停止这次检查" }));
+      const dialog = screen.getByRole("alertdialog", {
+        name: "要停止这次检查吗？",
+      });
+      expect(dialog.querySelector(".chat-object-id")).not.toBeVisible();
+      expect(cancelCalls).toBe(0);
+      await user.click(screen.getByRole("button", { name: "确认停止" }));
+      if (readUnavailable) {
+        expect(
+          await screen.findByText(
+            "还不能确认是否停止；正在查看进展，不会重复请求。",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        expect(
+          await screen.findByText(
+            "暂时没能读全这次检查的记录，可以稍后刷新；不会重复请求停止。",
+            { exact: true },
+          ),
+        ).toBeVisible();
+      } else {
+        expect(
+          await screen.findByText("已停止检查。没有重复请求停止。", {
+            exact: true,
+          }),
+        ).toBeVisible();
+        expect(screen.queryByText(/还不能确认是否停止/)).toBeNull();
+      }
+      expect(cancelCalls).toBe(1);
+      expect(screen.getByText("之前的问题", { exact: true })).toBeVisible();
+      expect(screen.getByLabelText("正在讨论的程序")).toHaveTextContent("gost");
+    },
+  );
+
+  it.each([false, true])(
+    "浏览器切换对话后，停止请求的旧回执不串页（补读：%s）",
+    async (reread) => {
+      const backend = installBackend([makeMessage("user", "之前的问题")]);
+      backend.threadIds.push(secondThreadId);
+      backend.messages.set(secondThreadId, []);
+      backend.runs.set(runId, makeRun());
+      let release = () => {};
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let cancelCalls = 0;
+      server.use(
+        http.post("/api/runs/:id/cancel", async () => {
+          cancelCalls += 1;
+          if (!reread) await pending;
+          backend.runs.set(runId, makeRun("cancelled"));
+          return reread
+            ? HttpResponse.error()
+            : HttpResponse.json(makeRun("cancelled"));
+        }),
+        http.get("/api/runs/:id", async () => {
+          if (reread && cancelCalls > 0) await pending;
+          return HttpResponse.json(backend.runs.get(runId));
+        }),
+      );
+      const originalUrl = window.location.href;
+      const view = render(<ChatPage workspace />);
+      try {
+        await waitForSource();
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: "停止这次检查" }));
+        await user.click(screen.getByRole("button", { name: "确认停止" }));
+        await waitFor(() => expect(cancelCalls).toBe(1));
+        if (reread) {
+          await screen.findByText(
+            "还不能确认是否停止；正在查看进展，不会重复请求。",
+            { exact: true },
+          );
+        }
+        window.history.replaceState({}, "", `?thread=${secondThreadId}`);
+        view.rerender(<ChatPage workspace />);
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", { name: /继续对话 2/ }),
+          ).toHaveAttribute("aria-pressed", "true"),
+        );
+        release();
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", { name: "开始新对话" }),
+          ).toBeEnabled(),
+        );
+        expect(
+          screen.queryByText("已停止检查。没有重复请求停止。", { exact: true }),
+        ).toBeNull();
+        expect(screen.queryByText(/还不能确认是否停止/)).toBeNull();
+        expect(cancelCalls).toBe(1);
+      } finally {
+        release();
+        window.history.replaceState({}, "", originalUrl);
+      }
+    },
+  );
+
   it("模型不可用时不创建事件连接，取消竞态则采用服务端终态", async () => {
     const backend = installBackend();
     let startCalls = 0;
@@ -1369,7 +1490,9 @@ describe("ChatPage", () => {
     expect(cancelCalls).toBe(0);
     await user.click(screen.getByRole("button", { name: "确认停止" }));
     expect(
-      await screen.findByText(/运行状态：本次检查已结束；不会再次发送取消请求/),
+      await screen.findByText("本次检查已结束。没有重复请求停止。", {
+        exact: true,
+      }),
     ).toBeVisible();
     expect(cancelCalls).toBe(1);
     expect(source.closed).toBe(true);

@@ -4,7 +4,7 @@ import type { ResourceOverview } from "../src/api/schemas/overview";
 import type { RunEvent, RunView } from "../src/features/chat/contracts";
 
 for (const width of [1280, 320]) {
-  test(`${width}px 重开对话继续原程序，恢复清单且切换不串用`, async ({
+  test(`${width}px 未完成检查可理解、可停止，继续原程序且切换不串用`, async ({
     page,
     request,
   }, testInfo) => {
@@ -87,7 +87,9 @@ for (const width of [1280, 320]) {
       ...oldThread,
       thread_id: recentThreadId,
       updated_at: "2026-10-15T08:28:00Z",
+      message_count: 2,
     };
+    const checkedFact = "之前已核对：相册入口只接受这台电脑连接。";
     const newThread = {
       ...recentThread,
       thread_id: `thread_${"c".repeat(32)}`,
@@ -129,6 +131,17 @@ for (const width of [1280, 320]) {
               thread === newThread
                 ? []
                 : [
+                    ...(thread === recentThread
+                      ? [
+                          {
+                            role: "assistant",
+                            content: checkedFact,
+                            answer_checked: true,
+                            created_at: oldThread.updated_at,
+                            run_id: `run_${"a".repeat(32)}`,
+                          },
+                        ]
+                      : []),
                     {
                       role: "user",
                       content:
@@ -150,17 +163,23 @@ for (const width of [1280, 320]) {
       created_at: recentThread.updated_at,
       finished_at: recentThread.updated_at,
       result: null,
-      error_code: "fixture_failed",
-      error_message: "上次检查没有完成",
+      error_code: "model_network_unreachable",
+      error_message: "fixture_transport_error：模型连接失败的技术记录",
       failure: null,
     };
+    let stopReason: RunEvent["stop_reason"] = "completed";
     await page.route(`**/api/runs/${runId}`, (route) =>
       route.fulfill({ json: run }),
     );
     await page.route(`**/api/runs/${runId}/events?*`, (route) => {
       const event: RunEvent = {
         sequence: 1,
-        event_type: run.status === "failed" ? "failed" : "finished",
+        event_type:
+          run.status === "running"
+            ? "goal"
+            : run.status === "failed" || run.status === "interrupted"
+              ? run.status
+              : "finished",
         created_at: recentThread.updated_at,
         run_id: runId,
         target_node_id: null,
@@ -168,13 +187,25 @@ for (const width of [1280, 320]) {
         tool_status: null,
         elapsed_ms: null,
         tool_run_id: null,
-        stop_reason: "completed",
-        message: null,
+        stop_reason: stopReason,
+        message: run.error_message,
       };
       return route.fulfill({
         contentType: "text/event-stream",
         body: `id: 1\nevent: ${event.event_type}\ndata: ${JSON.stringify(event)}\n\n`,
       });
+    });
+    let cancelCalls = 0;
+    await page.route(`**/api/runs/${runId}/cancel`, (route) => {
+      expect(route.request().method()).toBe("POST");
+      cancelCalls += 1;
+      run = {
+        ...run,
+        status: "cancelled",
+        finished_at: recentThread.updated_at,
+      };
+      stopReason = "cancelled";
+      return route.fulfill({ json: run });
     });
     await page.route(
       `**/api/ui/threads/${recentThreadId}/runs`,
@@ -190,6 +221,7 @@ for (const width of [1280, 320]) {
           error_code: null,
           error_message: null,
         };
+        stopReason = "completed";
         return route.fulfill({ json: run });
       },
     );
@@ -208,9 +240,23 @@ for (const width of [1280, 320]) {
     await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
     await expect(question).toHaveValue("我想继续刚才的检查");
     await expect(question).toBeFocused();
+    await expect(
+      page.getByText("这次联系模型时遇到问题，还没查完。", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "检查模型连接" }),
+    ).toHaveAttribute("href", "/app/settings");
+    await expect(page.getByText(checkedFact, { exact: true })).toBeVisible();
+    const technicalMessage = page.getByText(run.error_message!, {
+      exact: true,
+    });
+    await expect(technicalMessage).not.toBeVisible();
+    await page.getByText("查看用了哪些工具与证据", { exact: true }).click();
+    await expect(technicalMessage).toBeVisible();
+    await page.getByText("查看用了哪些工具与证据", { exact: true }).click();
     await question.scrollIntoViewIfNeeded();
     await page.screenshot({
-      path: testInfo.outputPath(`conversation-program-${width}.png`),
+      path: testInfo.outputPath(`run-feedback-${width}.png`),
       fullPage: true,
     });
     const accessibility = await new AxeBuilder({ page }).analyze();
@@ -228,6 +274,73 @@ for (const width of [1280, 320]) {
     ).toBe(true);
     expect(reads).toBe(2);
     expect(writes).toBe(0);
+    for (const [status, reason, explanation] of [
+      [
+        "interrupted",
+        null,
+        "TunnelMinion重新启动时，这次检查还没结束。已有记录保留，没有自动重做。",
+      ],
+      ["cancelled", "cancelled", "这次检查已停止，没有自动重新开始。"],
+      ["completed", "timeout", "这次检查用时已到上限，先停在这里。"],
+      ["completed", "model-limit", "这次检查已到用量上限，先停在这里。"],
+      ["completed", "tool-limit", "这次检查已到用量上限，先停在这里。"],
+      ["completed", "completed", "检查已结束，但没有读到可核对的结果。"],
+    ] as const) {
+      run = { ...run, status, error_code: null, error_message: null };
+      stopReason = reason;
+      await page.reload();
+      await expect(page.getByText(explanation, { exact: true })).toBeVisible();
+      await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
+      await expect(page.getByText(checkedFact, { exact: true })).toBeVisible();
+      await question.fill("这句草稿先保留");
+      await page.getByRole("button", { name: "刷新这段对话" }).click();
+      await expect(
+        page.getByText("这段对话和检查进展已刷新，没有重新发起检查。", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(question).toHaveValue("这句草稿先保留");
+      expect(writes).toBe(0);
+    }
+    run = { ...run, status: "running", finished_at: null };
+    stopReason = null;
+    await page.reload();
+    const stop = page.getByRole("button", { name: "停止这次检查" });
+    await stop.click();
+    const dialog = page.getByRole("alertdialog", {
+      name: "要停止这次检查吗？",
+    });
+    const dismiss = dialog.getByRole("button", { name: "暂不停止" });
+    await expect(dismiss).toBeFocused();
+    await expect(
+      dialog.getByText(`运行 ID：${runId}`, { exact: true }),
+    ).not.toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(stop).toBeFocused();
+    expect(writes).toBe(0);
+    await stop.click();
+    await page.screenshot({
+      path: testInfo.outputPath(`run-stop-confirmation-${width}.png`),
+      fullPage: true,
+    });
+    const confirmationAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(
+      confirmationAccessibility.violations.filter(
+        ({ impact }) => impact === "serious" || impact === "critical",
+      ),
+    ).toEqual([]);
+    await dialog.getByRole("button", { name: "确认停止" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "调查进展", exact: true }),
+    ).toBeFocused();
+    await expect(
+      page.getByText("这次检查已停止，没有自动重新开始。", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(checkedFact, { exact: true })).toBeVisible();
+    expect(cancelCalls).toBe(1);
+    expect(writes).toBe(1);
     await page.reload();
     await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
     await question.fill("我想继续刚才的检查");
@@ -246,18 +359,18 @@ for (const width of [1280, 320]) {
     await expect(page).toHaveURL(new RegExp(`thread=${recentThreadId}$`));
     await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
     await expect(question).toHaveValue("我想继续刚才的检查");
-    expect(writes).toBe(0);
+    expect(writes).toBe(1);
     await expect(page.getByRole("button", { name: "发送问题" })).toBeEnabled();
     await page.getByRole("button", { name: "发送问题" }).click();
     await expect(question).toHaveValue("");
-    expect(writes).toBe(1);
+    expect(writes).toBe(2);
     await page.getByRole("button", { name: "开始新对话" }).click();
     await expect(page).toHaveURL(new RegExp(`thread=${newThread.thread_id}$`));
     await expect(page.getByLabel("正在讨论的程序")).toHaveCount(0);
     await page.reload();
     await expect(page.getByLabel("正在讨论的程序")).toHaveCount(0);
     await expect(question).toBeVisible();
-    expect(writes).toBe(2);
+    expect(writes).toBe(3);
     overview.services.items = [];
     await page.goto(`/app/overview?thread=${recentThreadId}`);
     await expect(
@@ -272,6 +385,6 @@ for (const width of [1280, 320]) {
       path: testInfo.outputPath(`conversation-program-missing-${width}.png`),
       fullPage: true,
     });
-    expect(writes).toBe(2);
+    expect(writes).toBe(3);
   });
 }

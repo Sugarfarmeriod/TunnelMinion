@@ -210,6 +210,7 @@ export function ChatPage({
     setConfirmingDelete(false);
     setConfirmingCancel(false);
     setPageError(null);
+    setNotice(null);
   }, []);
 
   const refreshThreads = useCallback(
@@ -271,6 +272,8 @@ export function ChatPage({
   useEffect(() => {
     const controller = new AbortController();
     setLoadingThreads(true);
+    if (requestedThreadId && requestedThreadId !== selectedThreadRef.current)
+      setNotice(null);
     void refreshThreads(controller.signal, requestedThreadId)
       .then(() => {
         if (!controller.signal.aborted && incidentId && !incidentThreadId)
@@ -606,37 +609,47 @@ export function ChatPage({
       return;
     }
     const runId = activeRun.run_id;
+    const threadId = activeRun.thread_id;
     setWriteAction("cancel");
     setNotice(null);
     setPageError(null);
     const controller = registerController(actionControllers.current);
     try {
       const latest = await cancelRun(runId, controller.signal);
+      if (selectedThreadRef.current !== threadId) return;
       onRunUpdate(latest);
       setNotice(
         latest.status === "running"
-          ? "取消请求已送达，正在等待服务端终态。"
-          : `运行状态：${runStatusLabels[latest.status]}；不会再次发送取消请求。`,
+          ? "已请求停止，正在等当前步骤结束。"
+          : `${runStatusLabels[latest.status]}。没有重复请求停止。`,
       );
       if (latest.status !== "running") {
         await refreshThread(latest.thread_id, controller.signal);
       }
     } catch (error) {
+      if (selectedThreadRef.current !== threadId) return;
       if (isUnknownWriteResult(error)) {
-        setNotice("取消结果未知；正在复读同一运行，不会自动再次发送取消请求。");
+        setNotice("还不能确认是否停止；正在查看进展，不会重复请求。");
         try {
           const latest = await getRun(runId, controller.signal);
+          if (selectedThreadRef.current !== threadId) return;
           onRunUpdate(latest);
           if (latest.status !== "running") {
+            setNotice(`${runStatusLabels[latest.status]}。没有重复请求停止。`);
             await refreshThread(latest.thread_id, controller.signal);
           }
         } catch (readError) {
-          if (!isAbortError(readError)) {
-            setPageError("暂时也无法读取运行状态，请稍后手动刷新线程。");
+          if (
+            !isAbortError(readError) &&
+            selectedThreadRef.current === threadId
+          ) {
+            setPageError(
+              "暂时没能读全这次检查的记录，可以稍后刷新；不会重复请求停止。",
+            );
           }
         }
       } else if (!isAbortError(error)) {
-        setPageError("无法请求取消；请重新读取运行状态后再决定是否重试。");
+        setPageError("暂时没能请求停止；请先查看检查进展，再决定是否重试。");
       }
     } finally {
       actionControllers.current.delete(controller);
@@ -1210,7 +1223,7 @@ function RunPanel({
     <section aria-labelledby="chat-run-title" className="chat-run">
       <div className="chat-run__heading">
         <div>
-          <h3 id="chat-run-title" ref={runHeadingRef}>
+          <h3 id="chat-run-title" ref={runHeadingRef} tabIndex={-1}>
             {compact ? "调查进展" : "当前运行"}
           </h3>
         </div>
