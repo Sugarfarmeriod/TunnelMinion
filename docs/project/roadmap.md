@@ -48,8 +48,9 @@ flowchart TB
     Q25 --> Q27["✅ 重开对话后继续检查原程序"]
     Q26 --> Q27
     Q27 --> Q28["✅ 检查未完成时说清原因与下一步"]
-    Q28 --> Q29["工作台阅读与提问路径收拢"]
+    Q28 --> Q29["✅ 工作台阅读与提问路径收拢"]
     Q26 --> Q29
+    Q29 --> UIFeedback["新版实际使用反馈"]
     Q29 -.明确现场范围.-> Q14
     Q25 -.独立现场范围.-> Q14
     Q24 -.独立访问与使用范围.-> Q14
@@ -115,7 +116,8 @@ flowchart TB
     class Q26 done;
     class Q27 done;
     class Q28 done;
-    class Q29 current;
+    class Q29 done;
+    class UIFeedback next;
 ```
 
 ## 当前状态
@@ -160,7 +162,8 @@ flowchart TB
 | 长名称程序行可读性                  | 已完成   | PR #135 已合并为 `0a36554`，完整 CI 8/8；215 组件、104 项完整双浏览器检查通过，完整名称、状态、展开入口、草稿与原首屏位置保留，不更新 Mac |
 | 重开对话后继续检查原程序            | 已完成   | [PR #136](https://github.com/Sugarfarmeriod/TunnelMinion/pull/136) 已合并为 `069458f`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38852188860)；[阶段结果](stages/2026-10-15-conversation-program-context.md)覆盖恢复、切换及失效，235 组件和104双浏览器通过，不更新 Mac |
 | 检查未完成时说清原因与下一步        | 已完成   | [PR #138](https://github.com/Sugarfarmeriod/TunnelMinion/pull/138) 已合并为 `42d998c`，[最新完整 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38872745187)；[阶段结果](stages/2026-10-16-investigation-run-feedback.md)覆盖原因、停止回执、切换和键盘位置，249 组件与104双浏览器通过，不更新 Mac |
-| 工作台阅读与提问路径收拢            | 进行中   | [阶段范围](stages/2026-10-16-workspace-reading-flow.md)：减少重复标题、卡片与首屏技术说明，让已有结果和继续提问更靠近；保留程序身份、核对事实、明确发送与批准边界，仅本地验证 |
+| 工作台阅读与提问路径收拢            | 已完成   | [PR #139](https://github.com/Sugarfarmeriod/TunnelMinion/pull/139) 已合并为 `d37b491`，[最新完整 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38877914903)；[阶段结果](stages/2026-10-16-workspace-reading-flow.md)保留程序、事实与草稿，减少重复标题和卡片，250 组件与104双浏览器通过，不更新 Mac |
+| 新版实际使用反馈                    | 下一步   | 查看新版截图或获准测试页，依据具体不顺手之处限定后续调整；Mac 更新和真实使用需明确现场范围，不默认调用模型、申请访问或发送批准请求 |
 | 完整新版实机使用验收                | 条件触发 | 将服务浏览、调查返回和新首页作为同一套体验验收；隔离页只读更新不等于完整使用验收，不默认发推理、临时访问或批准请求，也不修改网络配置 |
 | 请求处理与批准决策复核              | 已完成   | [阶段记录](stages/2026-10-12-request-decision-flow.md)：已有请求优先、申请按需展开、双方等待关系与窄屏决策复核；155组件、80双浏览器及8项请求定向检查通过，完成状态仅在 PR #120 最新完整 CI 成功且合并后生效，Mac 更新不在当前范围 |
 | 单案例讲解                          | 已完成   | PR #104 合并生效；复核真实模型固定环境记录，区分预检、模型选择、程序证据门与处理交接 |
@@ -176,9 +179,11 @@ Mac 保留已验收版本，未更新本次布局。[重开对话后继续检查
 PR #137 合并为 `cbe1de5`，其最终 CI 8/8，不增加 MCP 产品能力。
 [检查未完成时的反馈](stages/2026-10-16-investigation-run-feedback.md)已随 PR #138 合并为 `42d998c`，
 最新完整 CI 8/8；249 项组件与接口、104 项完整双浏览器检查通过，初始 gzip 162.29 KiB。
-当前阶段为[工作台阅读与提问路径收拢](stages/2026-10-16-workspace-reading-flow.md)：削减重复标题、
-卡片和常驻技术说明，让已有结果和输入框更靠近；保留核对事实、程序关联、明确发送及批准边界。
-本阶段不发真实模型、访问或批准请求，不更新 Mac，不新建栏目或依赖。
+[工作台阅读与提问路径收拢](stages/2026-10-16-workspace-reading-flow.md)已随 PR #139 合并为 `d37b491`，
+最新完整 CI 8/8；250 项组件与接口、104 项完整双浏览器及两端正式包流程通过，初始 gzip 162.41 KiB。
+重复标题、卡片和常驻技术说明已收拢；核对事实、程序关联、明确发送及批准边界保留。
+下一步依据新版截图或获准测试页的实际反馈限定交互调整。Mac 更新及完整实机使用仍需明确现场范围，
+不默认发真实模型、访问或批准请求，也不把固定数据截图等同于老人用户或完整跨设备使用验收。
 最近验收：[现有 Qwen 的只读 Agent 体验](stages/2026-10-15-qwen-readonly-experience.md)，PR #132 已合并为
 `30d62b3`，最终 CI 8/8。PR #130 已合并，
 程序、对话、调查和请求共享工作台；正式包已更新至原 18767，实机验收 PR #131 已合并为 `e8000c4`，最终 CI 8/8。
