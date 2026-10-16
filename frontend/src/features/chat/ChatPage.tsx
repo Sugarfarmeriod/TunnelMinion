@@ -674,11 +674,11 @@ export function ChatPage({
           <h2 id="chat-title" tabIndex={workspace ? -1 : undefined}>
             {workspace ? "一起处理" : "聊天"}
           </h2>
-          <p>
-            {workspace
-              ? "告诉我哪里用不了，或想做什么。我会先查看情况，需要你确认的事也在这里处理。提问会使用模型额度。"
-              : "对话只展示公开回答与允许的只读工具轨迹，不显示隐藏推理或原始工具数据。"}
-          </p>
+          {!workspace ? (
+            <p>
+              对话只展示公开回答与允许的只读工具轨迹，不显示隐藏推理或原始工具数据。
+            </p>
+          ) : null}
         </div>
         {workspace && !incidentId ? (
           <button
@@ -790,11 +790,15 @@ export function ChatPage({
                 {selectedComputerName || "所属电脑名称未知"} ·{" "}
                 {serviceDisplayName(selectedService) || "程序名称待确认"}
               </strong>
-              <p>
-                连接入口 {selectedService.protocol?.toUpperCase() ?? "协议未知"}{" "}
-                {selectedService.port ?? "未知"}
-                。下面的问题会带上这条连接记录；它不代表已经验证能使用。
-              </p>
+              <details>
+                <summary>查看连接信息</summary>
+                <p>
+                  连接入口{" "}
+                  {selectedService.protocol?.toUpperCase() ?? "协议未知"}{" "}
+                  {selectedService.port ?? "未知"}
+                  。下面的问题会带上这条连接记录；它不代表已经验证能使用。
+                </p>
+              </details>
             </div>
           ) : null}
           {programContextBlocked && !loadingThread ? (
@@ -835,7 +839,7 @@ export function ChatPage({
           ) : (
             <>
               {!workspace || (threadDetail?.messages.length ?? 0) > 0 ? (
-                <MessageHistory detail={threadDetail} />
+                <MessageHistory compact={workspace} detail={threadDetail} />
               ) : null}
               <RunPanel
                 compact={workspace}
@@ -851,13 +855,7 @@ export function ChatPage({
                 onRefresh={() => void handleRefreshSelectedThread()}
               />
               <form className="chat-composer" onSubmit={handleStartRun}>
-                <h3>
-                  {workspace
-                    ? incidentId
-                      ? "继续问这件事"
-                      : "说说你想做什么"
-                    : "继续当前线程"}
-                </h3>
+                {!workspace ? <h3>继续当前线程</h3> : null}
                 <label htmlFor="chat-question">问题</label>
                 <textarea
                   id="chat-question"
@@ -922,7 +920,7 @@ export function ChatPage({
                 </button>
                 <p className="chat-composer__safety">
                   {workspace
-                    ? "没有收到明确结果时，只查询进展，不会自动重复发送问题。任何批准或执行仍要你确认。"
+                    ? "提问会使用模型额度。任何批准或执行仍要你确认。"
                     : "网络结果未知时只复读线程与运行状态，不会自动重发问题、工具调用或取消请求。"}
                 </p>
               </form>
@@ -934,10 +932,20 @@ export function ChatPage({
   );
 }
 
-function MessageHistory({ detail }: { detail: ThreadDetail | null }) {
+function MessageHistory({
+  compact,
+  detail,
+}: {
+  compact: boolean;
+  detail: ThreadDetail | null;
+}) {
   return (
-    <section aria-labelledby="chat-messages-title" className="chat-messages">
-      <h3 id="chat-messages-title">消息</h3>
+    <section
+      aria-label={compact ? "对话记录" : undefined}
+      aria-labelledby={compact ? undefined : "chat-messages-title"}
+      className="chat-messages"
+    >
+      {!compact ? <h3 id="chat-messages-title">消息</h3> : null}
       {detail === null || detail.messages.length === 0 ? (
         <p className="chat-empty">这个线程还没有消息。</p>
       ) : (
@@ -1241,13 +1249,24 @@ function RunPanel({
           <p>
             {continuationBlocked ? (
               "先从程序列表重新选择程序，再继续问。"
-            ) : needsModelSettings ? (
-              <>
-                先<Link to="/app/settings">检查模型连接</Link>
-                ，再从下面发送问题。
-              </>
             ) : (
-              "想继续检查，请在下面发送问题。"
+              <>
+                {needsModelSettings ? (
+                  <>
+                    先<Link to="/app/settings">检查模型连接</Link>，再
+                  </>
+                ) : null}
+                <a
+                  href="#chat-question"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    document.getElementById("chat-question")?.focus();
+                  }}
+                >
+                  继续提问
+                </a>
+                。
+              </>
             )}
             <br />
             刷新只更新已有记录，不会重新检查。
