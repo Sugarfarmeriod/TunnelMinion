@@ -117,7 +117,9 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   ).toBeVisible();
   await expect(page.getByText("没有已记录的未知项。")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "继续问这件事", exact: true }),
+    page.getByText("下面的问题会沿用上面这次调查，不需要重新解释发生了什么。", {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "问题", exact: true }),
