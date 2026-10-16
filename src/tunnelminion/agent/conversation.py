@@ -29,7 +29,7 @@ from tunnelminion.agent.runtime import (
     LangChainReadOnlyAgent,
     ServiceCheckTarget,
 )
-from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ServiceId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
@@ -156,11 +156,12 @@ class _ConversationCheckpointState(BaseModel):
     run: CheckedRunView
     events: tuple[RunEvent, ...]
     rolling_summary: RollingSummary | None = None
+    service_id: ServiceId | None = None
 
 
 @dataclass
 class _RunState:
-    """仅存在于当前进程的可变运行状态；第 6 阶段再持久化。"""
+    """当前进程中的任务引用、取消令牌与可保存运行状态。"""
 
     run_id: RunId
     thread_id: ThreadId
@@ -179,17 +180,18 @@ class _RunState:
 
 @dataclass
 class _ThreadState:
-    """当前进程中的线程消息集合。"""
+    """当前进程中的线程消息和所选检查对象。"""
 
     thread_id: ThreadId
     created_at: datetime
     updated_at: datetime
     messages: list[ThreadMessage] = field(default_factory=lambda: [])
     rolling_summary: RollingSummary | None = None
+    service_id: ServiceId | None = None
 
 
 class InMemoryConversationService:
-    """在持久化阶段到来前管理本机线程、run、取消和事件。"""
+    """管理本机对话、运行和取消，并按需保存与恢复 checkpoint。"""
 
     def __init__(
         self,
@@ -232,6 +234,13 @@ class InMemoryConversationService:
         if state is None:
             raise KeyError("thread_not_found")
         return ThreadDetail(thread=self._thread_view(state), messages=tuple(state.messages))
+
+    def get_thread_service_id(self, thread_id: ThreadId) -> ServiceId | None:
+        """读取已接受检查的对象身份，不把关联视为访问权限。"""
+        state = self._threads.get(str(thread_id))
+        if state is None:
+            raise KeyError("thread_not_found")
+        return state.service_id
 
     def delete_thread(self, thread_id: ThreadId) -> None:
         """删除线程、短期消息和所属 run，并取消仍在执行的 run。"""
@@ -298,6 +307,7 @@ class InMemoryConversationService:
             cancellation=AgentCancellationToken(),
         )
         self._runs[str(state.run_id)] = state
+        thread.service_id = target.service_id if target is not None else None
         self._add_message(thread_id, "user", value.question, state.run_id)
         self._append(
             state,
@@ -460,6 +470,7 @@ class InMemoryConversationService:
                     run=self._view(state),
                     events=tuple(state.events),
                     rolling_summary=thread.rolling_summary,
+                    service_id=thread.service_id,
                 ).model_dump(mode="json"),
                 tool_run_ids=(
                     tuple(ToolRunId(item) for item in state.result.tool_run_ids)
@@ -478,12 +489,21 @@ class InMemoryConversationService:
             public = _ConversationCheckpointState.model_validate(record.public_state)
             thread_view = public.thread
             messages = list(public.messages)
+            service_id = public.service_id
+            if "service_id" not in public.model_fields_set:
+                result = public.run.result
+                service_id = (
+                    result.checked_service_id
+                    if result is not None and result.answer_checked
+                    else None
+                )
             self._threads[str(record.thread_id)] = _ThreadState(
                 thread_id=record.thread_id,
                 created_at=thread_view.created_at,
                 updated_at=thread_view.updated_at,
                 messages=messages,
                 rolling_summary=public.rolling_summary,
+                service_id=service_id,
             )
             run_view = public.run
             state = _RunState(

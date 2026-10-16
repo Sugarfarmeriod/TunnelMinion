@@ -14,7 +14,11 @@ import {
 } from "vitest";
 
 import { ChatPage } from "./ChatPage";
-import { makeOperationListItem } from "../operations/testFixtures";
+import {
+  makeOperationDetail,
+  makeOperationListItem,
+} from "../operations/testFixtures";
+import type { ResourceOverview } from "../../api/schemas/overview";
 import type {
   RunEvent,
   RunStatus,
@@ -31,6 +35,37 @@ const runId = "run_1220d96035cc487ab102491376c665e7";
 const nodeId = "node_a93279a30fbd4597b9e2b755cd36629c";
 const toolRun2 = "toolrun_00000000000000000000000000000002";
 const toolRun3 = "toolrun_00000000000000000000000000000003";
+const program: ResourceOverview["services"]["items"][number] = {
+  service_id: `service_${"a".repeat(32)}`,
+  node_id: nodeId,
+  display_name: "gost · 805",
+  application: {
+    group_id: `application_${"a".repeat(32)}`,
+    name: "gost",
+    kind: "program",
+  },
+  protocol: "tcp",
+  port: 805,
+  access_address: "tcp://192.0.2.1:805",
+  accessibility: "network",
+  lifecycle: "active",
+  state: "available",
+  source: "local_observation",
+  evidence_at: timestamp,
+  freshness: "fresh",
+};
+const computers: ResourceOverview["nodes"]["items"] = [
+  {
+    node_id: nodeId,
+    display_name: "客厅 Mac",
+    platform: "macos",
+    state: "local",
+    source: "local_observation",
+    evidence_at: timestamp,
+    freshness: "fresh",
+    service_count: 1,
+  },
+];
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -118,6 +153,7 @@ interface Backend {
   messages: Map<string, ThreadMessage[]>;
   runs: Map<string, RunView>;
   runReads: number;
+  serviceIds: Map<string, string | null>;
 }
 
 function installBackend(initialMessages: ThreadMessage[] = []): Backend {
@@ -127,6 +163,7 @@ function installBackend(initialMessages: ThreadMessage[] = []): Backend {
     messages: new Map([[threadId, initialMessages]]),
     runs: new Map(),
     runReads: 0,
+    serviceIds: new Map(),
   };
   server.use(
     http.get("/api/threads", () =>
@@ -149,6 +186,18 @@ function installBackend(initialMessages: ThreadMessage[] = []): Backend {
       return HttpResponse.json({
         thread: makeThread(id, messages.length),
         messages,
+      });
+    }),
+    http.get("/api/ui/threads/:threadId", ({ params }) => {
+      const id = String(params.threadId);
+      if (!backend.threadIds.includes(id)) {
+        return HttpResponse.json({}, { status: 404 });
+      }
+      const messages = backend.messages.get(id) ?? [];
+      return HttpResponse.json({
+        thread: makeThread(id, messages.length),
+        messages,
+        service_id: backend.serviceIds.get(id) ?? null,
       });
     }),
     http.get("/api/runs/:runId", ({ params }) => {
@@ -278,6 +327,21 @@ async function waitForSource(index = 0) {
   return FakeEventSource.instances[index]!;
 }
 
+async function replayTerminalRun(status: RunStatus = "completed") {
+  const source = await waitForSource();
+  const eventType =
+    status === "failed" || status === "interrupted" ? status : "finished";
+  act(() => {
+    source.emit(
+      eventType,
+      makeEvent(1, eventType, {
+        stop_reason: status === "cancelled" ? "cancelled" : "completed",
+      }),
+    );
+  });
+  await waitFor(() => expect(source.closed).toBe(true));
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
@@ -298,6 +362,176 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it.each(["completed", "failed", "cancelled", "interrupted"] as const)(
+    "重开%s的检查后，显示当前程序名并带同一对象追问，不自动发送",
+    async (status) => {
+      const user = userEvent.setup();
+      const backend = installBackend([makeMessage("user", "刚才检查的程序")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(runId, makeRun(status));
+      let writes = 0;
+      server.use(
+        http.post("/api/ui/threads/:id/runs", async ({ request }) => {
+          writes += 1;
+          expect(await request.json()).toMatchObject({
+            question: "继续看刚才的问题",
+            service_id: program.service_id,
+          });
+          return HttpResponse.json(makeRun("completed"));
+        }),
+      );
+      render(<ChatPage workspace services={[program]} nodes={computers} />);
+      expect(await screen.findByLabelText("正在讨论的程序")).toHaveTextContent(
+        "客厅 Mac · gost",
+      );
+      await replayTerminalRun(status);
+      await user.type(
+        await screen.findByLabelText("问题", { exact: true }),
+        "继续看刚才的问题",
+      );
+      expect(writes).toBe(0);
+      await user.click(screen.getByRole("button", { name: "发送问题" }));
+      await waitFor(() => expect(writes).toBe(1));
+    },
+  );
+
+  it.each(["missing", "stale", "ambiguous", "unavailable"] as const)(
+    "原程序%s时保留消息和草稿，不悄悄变成无对象提问",
+    async (state) => {
+      const user = userEvent.setup();
+      const backend = installBackend([makeMessage("user", "已有检查记录")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(runId, makeRun("failed"));
+      const services =
+        state === "missing"
+          ? []
+          : state === "stale"
+            ? [{ ...program, freshness: "stale" as const }]
+            : state === "ambiguous"
+              ? [program, program]
+              : undefined;
+      const view = render(<ChatPage workspace services={services} />);
+      expect(
+        await screen.findByText("已有检查记录", { exact: true }),
+      ).toBeVisible();
+      await replayTerminalRun("failed");
+      expect(
+        screen.getByText(/暂时找不到这段对话原来检查的程序/),
+      ).toBeVisible();
+      const question = screen.getByLabelText("问题", { exact: true });
+      await user.type(question, "草稿不能丢");
+      expect(question).toHaveValue("草稿不能丢");
+      expect(screen.getByRole("button", { name: "发送问题" })).toBeDisabled();
+      expect(FakeEventSource.instances).toHaveLength(1);
+      view.rerender(
+        <ChatPage workspace services={[program]} nodes={computers} />,
+      );
+      expect(screen.getByLabelText("问题", { exact: true })).toHaveValue(
+        "草稿不能丢",
+      );
+      expect(screen.getByRole("button", { name: "发送问题" })).toBeEnabled();
+    },
+  );
+
+  it.each(["checked", "unchecked", "explicit-empty"] as const)(
+    "旧记录只从可信核对结果恢复，明确空关联不被覆盖（%s）",
+    async (state) => {
+      const backend = installBackend([makeMessage("user", "旧检查记录")]);
+      const run = completedRun("保留的结论");
+      run.result!.checked_service_id = program.service_id;
+      run.result!.answer_checked = state !== "unchecked";
+      backend.runs.set(runId, run);
+      if (state !== "explicit-empty") {
+        server.use(
+          http.get("/api/ui/threads/:id", () =>
+            HttpResponse.json({}, { status: 404 }),
+          ),
+        );
+      }
+      render(<ChatPage workspace services={[program]} nodes={computers} />);
+      await screen.findByText("旧检查记录", { exact: true });
+      await waitFor(() => expect(backend.runReads).toBeGreaterThan(0));
+      await replayTerminalRun();
+      if (state === "checked") {
+        expect(
+          await screen.findByLabelText("正在讨论的程序"),
+        ).toHaveTextContent("gost");
+      } else {
+        expect(screen.queryByLabelText("正在讨论的程序")).toBeNull();
+      }
+      await userEvent
+        .setup()
+        .type(screen.getByLabelText("问题", { exact: true }), "继续问");
+      expect(screen.getByRole("button", { name: "发送问题" })).toHaveProperty(
+        "disabled",
+        state === "unchecked",
+      );
+    },
+  );
+
+  it.each(["incident", "operation"] as const)(
+    "%s 不继承程序对话的对象，仍走原来的提问入口",
+    async (mode) => {
+      const backend = installBackend([makeMessage("user", "普通程序对话")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(runId, makeRun("completed"));
+      const incidentId = `incident_${"a".repeat(32)}`;
+      let writes = 0;
+      server.use(
+        http.post(
+          mode === "incident"
+            ? `/api/incidents/${incidentId}/follow-up`
+            : "/api/threads/:id/runs",
+          async ({ request }) => {
+            writes += 1;
+            const payload = await request.json();
+            expect(payload).not.toHaveProperty("service_id");
+            expect(payload).toHaveProperty(
+              "question",
+              expect.stringContaining("继续问这件事"),
+            );
+            return HttpResponse.json(makeRun("completed"));
+          },
+        ),
+      );
+      render(
+        <ChatPage
+          workspace
+          services={[program]}
+          serviceContext={program}
+          {...(mode === "incident"
+            ? { incidentId, incidentThreadId: threadId }
+            : { operationContext: makeOperationDetail() })}
+        />,
+      );
+      await replayTerminalRun();
+      await userEvent
+        .setup()
+        .type(
+          await screen.findByLabelText("问题", { exact: true }),
+          "继续问这件事",
+        );
+      expect(screen.queryByLabelText("正在讨论的程序")).toBeNull();
+      expect(writes).toBe(0);
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "发送问题" }));
+      await waitFor(() => expect(writes).toBe(1));
+    },
+  );
+
+  it("任务记录还没读到时，不显示上一段对话的程序", async () => {
+    const backend = installBackend();
+    backend.serviceIds.set(threadId, program.service_id);
+    const view = render(<ChatPage workspace services={[program]} />);
+    await screen.findByLabelText("正在讨论的程序");
+    view.rerender(<ChatPage workspace services={[program]} contextBlocked />);
+    expect(screen.queryByLabelText("正在讨论的程序")).toBeNull();
+    expect(
+      screen.getByText("还没读到这项任务的完整记录，暂时不能针对它提问。"),
+    ).toBeVisible();
+  });
+
   it("默认接上最近的对话，手动选择旧对话后刷新不跳走", async () => {
     const backend = installBackend([makeMessage("user", "以前的检查")]);
     const recentRunId = `run_${"4".repeat(32)}`;
@@ -369,6 +603,7 @@ describe("ChatPage", () => {
     async (freshness) => {
       const user = userEvent.setup();
       const backend = installBackend();
+      backend.serviceIds.set(threadId, program.service_id);
       let writes = 0;
       server.use(
         http.post("/api/ui/threads/:id/runs", async ({ request }) => {
@@ -396,31 +631,22 @@ describe("ChatPage", () => {
         }),
       );
       const service = {
-        service_id: `service_${"a".repeat(32)}`,
-        node_id: nodeId,
-        display_name: "gost · 805",
-        application: {
-          group_id: `application_${"a".repeat(32)}`,
-          name: "gost",
-          kind: "program" as const,
-        },
-        protocol: "tcp" as const,
-        port: 805,
-        access_address: "tcp://192.0.2.1:805",
-        accessibility: "network" as const,
-        lifecycle: "active" as const,
-        state: "available" as const,
-        source: "local_observation" as const,
-        evidence_at: timestamp,
+        ...program,
+        service_id: `service_${"b".repeat(32)}`,
         freshness,
       };
-      const view = render(<ChatPage workspace />);
+      const view = render(<ChatPage workspace services={[program]} />);
       await user.type(
         await screen.findByLabelText("问题", { exact: true }),
         "为什么别的电脑打不开？",
       );
       view.rerender(
-        <ChatPage workspace serviceContext={service} computerName="客厅 Mac">
+        <ChatPage
+          workspace
+          services={[program]}
+          serviceContext={service}
+          computerName="客厅 Mac"
+        >
           <p>当前请求</p>
         </ChatPage>,
       );
@@ -471,6 +697,8 @@ describe("ChatPage", () => {
 
   it("新建、选择并确认删除线程，同时明确长期记忆不受影响", async () => {
     const backend = installBackend();
+    const onThreadCreated = vi.fn();
+    const onThreadSelect = vi.fn();
     let createCalls = 0;
     let deleteCalls = 0;
     server.use(
@@ -496,7 +724,12 @@ describe("ChatPage", () => {
     );
     const user = userEvent.setup();
 
-    render(<ChatPage />);
+    render(
+      <ChatPage
+        onThreadCreated={onThreadCreated}
+        onThreadSelect={onThreadSelect}
+      />,
+    );
     await screen.findByRole("heading", { name: "继续当前线程" });
 
     await user.click(screen.getByRole("button", { name: "新建线程" }));
@@ -505,6 +738,7 @@ describe("ChatPage", () => {
       name: /继续对话 2/,
     });
     expect(second).toHaveAttribute("aria-pressed", "true");
+    expect(onThreadCreated).toHaveBeenCalledWith(secondThreadId);
 
     await user.click(screen.getByRole("button", { name: "删除所选线程" }));
     const dialog = screen.getByRole("alertdialog", {
@@ -520,6 +754,7 @@ describe("ChatPage", () => {
       await screen.findByText("线程及其短期消息已删除，独立长期记忆未受影响。"),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: /继续对话 2/ })).toBeNull();
+    expect(onThreadSelect).toHaveBeenCalledWith(threadId);
   });
 
   it("把恶意与超长消息作为可换行纯文本呈现", async () => {

@@ -175,9 +175,8 @@ class ScriptedProvider:
                 "transient invalid response",
                 retryable=True,
             )
-        if self.mode == "slow_after_tool" and len(self.requests) > 1:
-            await asyncio.sleep(1)
-            raise AssertionError("墙钟上限没有取消后续模型调用")
+        if self.mode == "timeout_after_tool" and len(self.requests) > 1:
+            raise TimeoutError("fixture timeout after completed tool")
         if self.mode == "invalid_after_tool" and len(self.requests) > 1:
             raise ValueError("post-tool invalid response")
         if self.mode == "unknown_tool":
@@ -1945,15 +1944,15 @@ def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> Non
     )
     assert asyncio.run(slow.run(_incident(slow_store))).status is IncidentStatus.BUDGET_EXHAUSTED
 
-    partial, partial_store, partial_adapter, _ = _runtime(
-        tmp_path,
-        "slow_after_tool",
-        limits=InvestigationLimits(timeout_seconds=0.2),
+    # 真实墙钟取消由 SlowRuntime 覆盖；此处在第二轮模型调用验证已完成证据保留。
+    partial, partial_store, partial_adapter, partial_provider = _runtime(
+        tmp_path, "timeout_after_tool"
     )
     partial_result = asyncio.run(
         partial.run(_incident(partial_store, event_type=IncidentEventType.SERVICE_ADDED))
     )
     assert partial_result.status is IncidentStatus.BUDGET_EXHAUSTED
+    assert len(partial_provider.requests) == 2
     assert partial_adapter.calls == [{}]
     assert partial_result.report is not None
     assert (

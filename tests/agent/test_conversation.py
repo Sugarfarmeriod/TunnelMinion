@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import pytest
+from tests.agent.test_connection_fact_check import connection_agent, connection_case
 from tests.agent.test_langchain_agent import ScriptedProvider, SlowProvider, build_agent
 
 from tunnelminion.agent.conversation import (
@@ -20,7 +21,7 @@ from tunnelminion.agent.conversation import (
     StartRunInput,
 )
 from tunnelminion.agent.runtime import AgentStopReason, CheckedAgentTurnResult
-from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ThreadId
+from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ServiceId, ThreadId
 from tunnelminion.memory.contracts import (
     CheckpointStatus,
     LongTermMemory,
@@ -329,6 +330,8 @@ def test_unknown_thread_and_run_are_rejected() -> None:
     with pytest.raises(KeyError, match="thread_not_found"):
         conversations.get_thread(ThreadId.new())
     with pytest.raises(KeyError, match="thread_not_found"):
+        conversations.get_thread_service_id(ThreadId.new())
+    with pytest.raises(KeyError, match="thread_not_found"):
         conversations.delete_thread(ThreadId.new())
 
 
@@ -429,3 +432,148 @@ def test_restart_marks_running_run_interrupted_without_replay(tmp_path: Path) ->
     checkpoint = stores.checkpoints.get(run_id)
     assert checkpoint is not None
     assert checkpoint.status is CheckpointStatus.INTERRUPTED
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled", "interrupted"])
+def test_program_context_survives_terminal_states_and_restart(tmp_path: Path, outcome: str) -> None:
+    """检查对象从接受请求时保存，不依赖模型成功，重启只读恢复。"""
+    target, _, _ = connection_case()
+    stores = SQLiteStores.open(tmp_path / f"program-{outcome}.sqlite3")
+    if outcome == "completed":
+        agent, _ = connection_agent()
+        tools = ("list_network_listeners",)
+    else:
+        agent = build_agent(SlowProvider())[0]
+        tools = ("missing_tool",) if outcome == "failed" else ("probe_service",)
+    original = InMemoryConversationService(target.node_id, lambda: agent, stores.checkpoints)
+    thread = original.create_thread()
+
+    async def scenario() -> RunId:
+        started = await original.start_run(
+            thread.thread_id, StartRunInput(question="继续检查", tool_names=tools), target
+        )
+        checkpoint = stores.checkpoints.get(started.run_id)
+        assert checkpoint is not None
+        assert checkpoint.public_state["service_id"] == str(target.service_id)
+        if outcome == "cancelled":
+            original.cancel_run(started.run_id)
+        if outcome != "interrupted":
+            _ = await collect(original.stream_events(started.run_id))
+        return started.run_id
+
+    identifier = run(scenario())
+    factory_calls = 0
+
+    def forbidden_factory() -> Any:
+        nonlocal factory_calls
+        factory_calls += 1
+        raise AssertionError("恢复关联不能启动 Agent")
+
+    restored = InMemoryConversationService(target.node_id, forbidden_factory, stores.checkpoints)
+    assert restored.get_thread_service_id(thread.thread_id) == target.service_id
+    assert restored.get_run(identifier).status.value == outcome
+    assert factory_calls == 0
+
+
+def test_program_context_changes_only_with_accepted_request(tmp_path: Path) -> None:
+    """主动换对象和普通请求更新关联，另一线程及被拒绝请求不串用。"""
+    target, _, _ = connection_case()
+    stores = SQLiteStores.open(tmp_path / "program-switch.sqlite3")
+    original = InMemoryConversationService(
+        target.node_id, lambda: build_agent()[0], stores.checkpoints
+    )
+    first = original.create_thread()
+    second = original.create_thread()
+
+    async def scenario() -> None:
+        started = await original.start_run(
+            first.thread_id,
+            StartRunInput(question="第一次", tool_names=("missing_tool",)),
+            target,
+        )
+        _ = await collect(original.stream_events(started.run_id))
+        assert original.get_thread_service_id(first.thread_id) == target.service_id
+        assert original.get_thread_service_id(second.thread_id) is None
+        with pytest.raises(ValueError, match="另一台电脑"):
+            await original.start_run(
+                first.thread_id,
+                StartRunInput(question="不允许的对象", tool_names=("missing_tool",)),
+                target.model_copy(update={"node_id": NodeId.new()}),
+            )
+        assert original.get_thread_service_id(first.thread_id) == target.service_id
+        changed = target.model_copy(update={"service_id": ServiceId.new()})
+        next_run = await original.start_run(
+            first.thread_id,
+            StartRunInput(question="换一个程序", tool_names=("missing_tool",)),
+            changed,
+        )
+        _ = await collect(original.stream_events(next_run.run_id))
+        assert original.get_thread_service_id(first.thread_id) == changed.service_id
+        ordinary = await original.start_run(
+            first.thread_id,
+            StartRunInput(question="不针对程序的问题", tool_names=("missing_tool",)),
+        )
+        _ = await collect(original.stream_events(ordinary.run_id))
+        assert original.get_thread_service_id(first.thread_id) is None
+        assert original.get_thread_service_id(second.thread_id) is None
+
+    run(scenario())
+    restored = InMemoryConversationService(
+        target.node_id, lambda: build_agent()[0], stores.checkpoints
+    )
+    assert restored.get_thread_service_id(first.thread_id) is None
+
+
+@pytest.mark.parametrize("record_kind", ["checked", "unchecked", "explicit-empty", "no-result"])
+def test_legacy_program_context_uses_only_checked_identity(
+    tmp_path: Path, record_kind: str
+) -> None:
+    """旧记录只从可信核对标记恢复，空关联与缺证据不猜测，也不改写原记录。"""
+    target, _, _ = connection_case()
+    stores = SQLiteStores.open(tmp_path / f"legacy-program-{record_kind}.sqlite3")
+    agent = build_agent()[0] if record_kind == "no-result" else connection_agent()[0]
+    original = InMemoryConversationService(target.node_id, lambda: agent, stores.checkpoints)
+    thread = original.create_thread()
+
+    async def scenario() -> RunId:
+        started = await original.start_run(
+            thread.thread_id,
+            StartRunInput(
+                question="原来的程序",
+                tool_names=("missing_tool",)
+                if record_kind == "no-result"
+                else ("list_network_listeners",),
+            ),
+            target,
+        )
+        _ = await collect(original.stream_events(started.run_id))
+        return started.run_id
+
+    identifier = run(scenario())
+    checkpoint = stores.checkpoints.get(identifier)
+    assert checkpoint is not None
+    public = dict(checkpoint.public_state)
+    public.pop("service_id")
+    if record_kind == "unchecked":
+        view = original.get_run(identifier)
+        assert view.result is not None
+        public["run"] = view.model_copy(
+            update={"result": view.result.model_copy(update={"answer_checked": False})}
+        ).model_dump(mode="json")
+    elif record_kind == "explicit-empty":
+        public["service_id"] = None
+    stores.checkpoints.put(checkpoint.model_copy(update={"public_state": public}))
+
+    def forbidden_factory() -> Any:
+        raise AssertionError("读取旧关联不能执行模型")
+
+    restored = InMemoryConversationService(target.node_id, forbidden_factory, stores.checkpoints)
+    assert restored.get_thread_service_id(thread.thread_id) == (
+        target.service_id if record_kind == "checked" else None
+    )
+    assert (
+        restored.get_thread(thread.thread_id).messages
+        == original.get_thread(thread.thread_id).messages
+    )
+    retained = stores.checkpoints.get(identifier)
+    assert retained is not None and retained.public_state == public

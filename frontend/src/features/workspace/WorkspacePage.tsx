@@ -59,7 +59,7 @@ export function WorkspacePage() {
     enabled: operationId !== undefined,
   });
   const matching =
-    overview.isError || isOperation
+    overview.isError || isOperation || selectedIncidentId !== null
       ? []
       : (overview.data?.services.items.filter(
           (service) => service.service_id === params.get("service_id"),
@@ -115,7 +115,23 @@ export function WorkspacePage() {
             overview.isError ? undefined : overview.data?.model.status
           }
           serviceContext={selected}
+          services={
+            overview.isError ? undefined : overview.data?.services.items
+          }
+          nodes={overview.isError ? undefined : overview.data?.nodes.items}
           computerName={computerName}
+          onThreadSelect={(threadId) =>
+            navigate(
+              threadId
+                ? `/app/overview?thread=${encodeURIComponent(threadId)}`
+                : "/app/overview",
+            )
+          }
+          onThreadCreated={(threadId) => {
+            const query = new URLSearchParams({ thread: threadId });
+            if (selected) query.set("service_id", selected.service_id);
+            navigate(`/app/overview?${query.toString()}`);
+          }}
           incidentId={
             incident.isError ? undefined : incident.data?.incident.incident_id
           }

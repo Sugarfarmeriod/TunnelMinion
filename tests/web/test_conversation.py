@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Protocol, Self, cast
 
 import httpx
@@ -16,6 +17,7 @@ from tunnelminion.agent.conversation import InMemoryConversationService, RunEven
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.services import ServiceApplication
 from tunnelminion.domain.identifiers import NodeId, RunId, ServiceId, ThreadId
+from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.contracts import ProviderError, ProviderErrorCode
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.overview import (
@@ -81,6 +83,9 @@ def test_conversation_http_and_sse_success(monkeypatch: pytest.MonkeyPatch) -> N
         assert cast(dict[str, object], final.json())["status"] == "completed"
         detail = cast(dict[str, object], client.get(f"/api/threads/{thread_id}").json())
         assert len(cast(list[object], detail["messages"])) == 2
+        private = client.get(f"/api/ui/threads/{thread_id}").json()
+        assert private["service_id"] is None
+        assert private["messages"] == detail["messages"]
         cancelled = cast(dict[str, object], client.post(f"/api/runs/{run_id}/cancel").json())
         assert cancelled["status"] == "completed"
 
@@ -243,3 +248,50 @@ def test_uncheckable_program_rejected_before_model_and_messages(invalid: str) ->
         assert response.status_code == 422
         assert conversations.get_thread(thread.thread_id).messages == ()
         assert provider.requests == []
+
+
+def test_program_thread_context_is_private_and_survives_restart(tmp_path: Path) -> None:
+    """重开对话保留所选对象，专用读取不扩展公开结构或重跑模型。"""
+    item = selected_program()
+    stores = SQLiteStores.open(tmp_path / "program-context.sqlite3")
+    agent, _ = connection_agent()
+    conversations = InMemoryConversationService(item.node_id, lambda: agent, stores.checkpoints)
+    client, _ = build_client(conversations, program_overview(item))
+    with client:
+        thread = conversations.create_thread()
+        response = client.post(
+            f"/api/ui/threads/{thread.thread_id}/runs",
+            json={
+                "question": "检查这个程序",
+                "service_id": str(item.service_id),
+                "tool_names": ["list_network_listeners"],
+            },
+        )
+        assert response.status_code == 200
+        run_id = cast(dict[str, object], response.json())["run_id"]
+        assert client.get(f"/api/runs/{run_id}/events").status_code == 200
+        public = client.get(f"/api/threads/{thread.thread_id}").json()
+        assert set(public) == {"thread", "messages"}
+        private = client.get(f"/api/ui/threads/{thread.thread_id}")
+        assert private.status_code == 200
+        assert private.json()["service_id"] == str(item.service_id)
+        assert private.json()["messages"] == public["messages"]
+        assert "/api/ui/threads/{value}" not in client.get("/openapi.json").json()["paths"]
+
+    factory_calls = 0
+
+    def forbidden_factory() -> LangChainReadOnlyAgent:
+        nonlocal factory_calls
+        factory_calls += 1
+        raise AssertionError("只读恢复不能调用模型")
+
+    restored = InMemoryConversationService(item.node_id, forbidden_factory, stores.checkpoints)
+    reopened, _ = build_client(restored, program_overview(item))
+    with reopened:
+        private = reopened.get(f"/api/ui/threads/{thread.thread_id}")
+        assert private.status_code == 200
+        assert private.json()["service_id"] == str(item.service_id)
+        assert private.json()["messages"] == public["messages"]
+        assert factory_calls == 0
+        assert reopened.get("/api/ui/threads/bad").status_code == 404
+        assert reopened.get(f"/api/ui/threads/{ThreadId.new()}").status_code == 404
