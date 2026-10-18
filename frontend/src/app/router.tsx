@@ -44,7 +44,9 @@ function ProductShell() {
             path === "/app" ? (
               <Link
                 key={path}
-                to={workspacePath ?? path}
+                to={
+                  pathname === "/app/settings" ? (workspacePath ?? path) : path
+                }
                 className={workspaceActive ? "active" : undefined}
                 aria-current={workspaceActive ? "page" : undefined}
               >

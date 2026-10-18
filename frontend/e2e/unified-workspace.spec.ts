@@ -242,5 +242,11 @@ for (const width of [1280, 881, 320]) {
         ({ impact }) => impact === "serious" || impact === "critical",
       ),
     ).toEqual([]);
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "工作台", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/app\/overview$/);
+    await expect(question).toHaveValue("帮我检查这个程序为什么打不开");
   });
 }
