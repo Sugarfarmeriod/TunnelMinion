@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 
 import {
   clearMemoryScope,
@@ -483,6 +484,7 @@ export function MemoriesPage() {
             <button
               className="memory-button--danger-outline"
               disabled={
+                isReadOnlyPreview() ||
                 writing ||
                 query.isFetching ||
                 memories === undefined ||
@@ -591,7 +593,7 @@ export function MemoriesPage() {
                             </dl>
                             <div className="memory-actions">
                               <button
-                                disabled={writing}
+                                disabled={isReadOnlyPreview() || writing}
                                 onClick={(event) =>
                                   setEditState({
                                     memory,
@@ -606,7 +608,7 @@ export function MemoriesPage() {
                               </button>
                               <button
                                 className="memory-button--danger-outline"
-                                disabled={writing}
+                                disabled={isReadOnlyPreview() || writing}
                                 onClick={(event) =>
                                   setConfirmation({
                                     kind: "delete",

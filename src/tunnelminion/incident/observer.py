@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -46,6 +46,7 @@ class IncidentObservationService:
         before_snapshot: Callable[[], Awaitable[None]] | None = None,
         interval_seconds: float = 30,
         watched_service_id: ServiceId | None = None,
+        read_only_preview: bool = False,
     ) -> None:
         if not 1 <= interval_seconds <= 3600:
             raise ValueError("观察周期必须位于 1 到 3600 秒")
@@ -56,6 +57,7 @@ class IncidentObservationService:
         self._before_snapshot = before_snapshot
         self._interval_seconds = interval_seconds
         self._watched_service_id = watched_service_id
+        self.read_only_preview = read_only_preview
         self._baseline: NormalizedSnapshot | None = None
         self._baseline_stabilized = False
         self._active: set[str] = set()
@@ -65,6 +67,12 @@ class IncidentObservationService:
         """保存一次快照，并串行调查本轮唯一事件集合。"""
         if self._before_snapshot is not None:
             await self._before_snapshot()
+        if self.read_only_preview:
+            return ObservationResult(
+                snapshot=assemble_overview_snapshot(
+                    self._overview(), revision=self._store.next_revision()
+                )
+            )
         if self._baseline is None:
             self._baseline = self._store.latest_snapshot()
             if self._baseline is not None:
@@ -152,8 +160,11 @@ def incident_observation_lifespan(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        async with base(app):
-            store.recover_interrupted(at=now())
+        async with AsyncExitStack() if observer.read_only_preview else base(app):
+            if observer.read_only_preview:
+                await observer.observe_once()
+            else:
+                store.recover_interrupted(at=now())
             stop = asyncio.Event()
             task = asyncio.create_task(observer.run(stop))
             try:

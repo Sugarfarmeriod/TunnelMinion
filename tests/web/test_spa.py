@@ -51,6 +51,22 @@ def test_spa_serves_entry_deep_routes_and_immutable_assets(tmp_path: Path) -> No
     assert asset.headers["x-content-type-options"] == "nosniff"
 
 
+def test_preview_marks_only_html_and_keeps_csp_and_asset_bytes(tmp_path: Path) -> None:
+    _client(tmp_path)
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><html><head></head><body>app</body></html>", encoding="utf-8"
+    )
+    app = FastAPI()
+    app.include_router(create_spa_router(tmp_path, read_only_preview=True))
+    client = cast(ApiClient, TestClient(app))
+    response = client.get("/app/overview")
+    assert '<meta name="tunnelminion-read-only-preview" content="true">' in response.text
+    assert response.text.startswith("<!doctype html>")
+    assert response.headers["cache-control"] == "no-store"
+    assert "'unsafe-inline'" not in response.headers["content-security-policy"]
+    assert client.get("/app-assets/assets/main-hash.js").text == "export {};"
+
+
 def test_default_entry_uses_react_and_supports_legacy_rollback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

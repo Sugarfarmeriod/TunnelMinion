@@ -146,7 +146,10 @@ def test_runtime_configure_and_status_use_versioned_profile_and_safe_output(
 
     manager = FakeManager(_report())
 
-    def build_manager(profile: RuntimeProfile, paths: RuntimePaths) -> FakeManager:
+    def build_manager(
+        profile: RuntimeProfile, paths: RuntimePaths, *, read_only_preview: bool = False
+    ) -> FakeManager:
+        assert not read_only_preview
         del profile, paths
         return manager
 
@@ -190,7 +193,10 @@ def test_runtime_reports_invalid_profile_and_busy_operation_without_paths(
     _ = capsys.readouterr()
     manager = FakeManager(_report(), busy=True)
 
-    def build_busy_manager(profile: RuntimeProfile, paths: RuntimePaths) -> FakeManager:
+    def build_busy_manager(
+        profile: RuntimeProfile, paths: RuntimePaths, *, read_only_preview: bool = False
+    ) -> FakeManager:
+        assert not read_only_preview
         del profile, paths
         return manager
 
@@ -237,7 +243,10 @@ def test_runtime_start_blocks_global_preflight_failure_without_spawning(
         )
     )
 
-    def build_manager(profile: RuntimeProfile, paths: RuntimePaths) -> FakeManager:
+    def build_manager(
+        profile: RuntimeProfile, paths: RuntimePaths, *, read_only_preview: bool = False
+    ) -> FakeManager:
+        assert not read_only_preview
         del profile, paths
         return manager
 
@@ -292,7 +301,10 @@ def test_runtime_start_reports_component_preflight_failure_but_preserves_isolati
         )
     )
 
-    def build_manager(profile: RuntimeProfile, paths: RuntimePaths) -> FakeManager:
+    def build_manager(
+        profile: RuntimeProfile, paths: RuntimePaths, *, read_only_preview: bool = False
+    ) -> FakeManager:
+        assert not read_only_preview
         del profile, paths
         return manager
 
@@ -356,6 +368,78 @@ def test_runtime_port_validation_keeps_help_compact(
     assert "1024 到 65535" in capsys.readouterr().err
 
 
+def test_preview_rejects_configuration_writes_and_gateway_profiles(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_path = tmp_path / "profile.json"
+    with pytest.raises(SystemExit) as rejected:
+        cli.main(["runtime", "configure", "--profile", str(profile_path), "--read-only-preview"])
+    assert rejected.value.code == 2
+    assert "不写入 profile" in capsys.readouterr().err
+    assert not profile_path.exists()
+    assert (
+        cli.main(
+            [
+                "runtime",
+                "configure",
+                "--profile",
+                str(profile_path),
+                "--data-dir",
+                str(tmp_path / "data"),
+                "--enable-gateway",
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    original = profile_path.read_bytes()
+    for action in ("start", "status", "stop"):
+        assert (
+            cli.main(["runtime", action, "--profile", str(profile_path), "--read-only-preview"])
+            == 2
+        )
+        assert json.loads(capsys.readouterr().out)["error_code"] == "preview_requires_local"
+        assert profile_path.read_bytes() == original
+    assert not (tmp_path / "data" / "runtime").exists()
+
+
+def test_preview_child_only_builds_local_application(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    application = FastAPI()
+    calls: list[str] = []
+
+    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+        assert data_dir == tmp_path and read_only_preview
+        calls.append("build")
+        return SimpleNamespace(app=application)
+
+    def run(app: FastAPI, **_kwargs: object) -> None:
+        assert app is application
+        calls.append("run")
+
+    monkeypatch.setattr("tunnelminion.app.build_windows_application", build_local)
+    monkeypatch.setattr("tunnelminion.macos_app.build_macos_local_application", build_local)
+    monkeypatch.setattr("uvicorn.run", run)
+    arguments = [
+        "--runtime-instance-id=00000000-0000-0000-0000-000000000001",
+        "--data-dir",
+        str(tmp_path),
+        "--local-port",
+        "8125",
+        "--runtime-log-file",
+        str(tmp_path / "local.log"),
+        "--read-only-preview",
+    ]
+    for platform in ("win32", "darwin"):
+        monkeypatch.setattr(cli.sys, "platform", platform)
+        assert cli.main(["runtime-child", "--runtime-component=local", *arguments]) == 0
+    assert calls == ["build", "run", "build", "run"]
+    assert cli.main(["runtime-child", "--runtime-component=gateway", *arguments]) == 2
+    assert json.loads(capsys.readouterr().err)["error_code"] == "component_start_failed"
+    assert calls == ["build", "run", "build", "run"]
+
+
 def test_runtime_child_builds_local_and_gateway_without_access_logs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -367,7 +451,8 @@ def test_runtime_child_builds_local_and_gateway_without_access_logs(
     monkeypatch.setattr("uvicorn.run", run)
     local_app = FastAPI()
 
-    def build_local(data_dir: Path) -> SimpleNamespace:
+    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+        assert not read_only_preview
         del data_dir
         return SimpleNamespace(app=local_app)
 
@@ -524,7 +609,8 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
     captured: list[FastAPI] = []
     managed_roots: list[Path] = []
 
-    def build_local(data_dir: Path) -> SimpleNamespace:
+    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+        assert not read_only_preview
         node_id = NodeId.new()
         status = ManagedPathStatus(
             network_id=NetworkId.new(),
@@ -638,7 +724,8 @@ def test_runtime_child_sanitizes_invalid_identity_and_builder_failure(
 ) -> None:
     secret = "https://user:password@model.invalid/private"
 
-    def fail(data_dir: Path) -> SimpleNamespace:
+    def fail(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+        assert not read_only_preview
         del data_dir
         raise RuntimeError(secret)
 
@@ -680,8 +767,9 @@ def test_runtime_child_sanitizes_invalid_identity_and_builder_failure(
     assert secret not in output
 
 
+@pytest.mark.parametrize("read_only_preview", [False, True])
 def test_real_local_runtime_start_status_stop(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], read_only_preview: bool
 ) -> None:
     profile_path = tmp_path / "profile.json"
     data_dir = tmp_path / "data"
@@ -703,18 +791,29 @@ def test_real_local_runtime_start_status_stop(
     FileModelConfigurationRepository(data_dir / "model.json").save(
         OpenAICompatibleConfig(endpoint="http://127.0.0.1:1/v1", model="offline")
     )
+    original_profile = profile_path.read_bytes()
+    original_model = (data_dir / "model.json").read_bytes()
+    arguments = ["--profile", str(profile_path)]
+    if read_only_preview:
+        arguments.append("--read-only-preview")
     try:
-        assert cli.main(["runtime", "start", "--profile", str(profile_path)]) == 0
+        assert cli.main(["runtime", "start", *arguments]) == 0
         started = json.loads(capsys.readouterr().out)
         assert started["runtime"]["state"] == "running"
         assert started["runtime"]["components"][0]["process_present"] is True
-        assert started["model"]["status"] == "unavailable"
+        assert started["model"]["status"] == ("not_checked" if read_only_preview else "unavailable")
+        if read_only_preview:
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False) as client:
+                assert client.get("/api/threads").status_code == 200
+                assert client.post("/api/threads").json()["detail"]["code"] == "read_only_preview"
 
-        assert cli.main(["runtime", "status", "--profile", str(profile_path)]) == 0
+        assert cli.main(["runtime", "status", *arguments]) == 0
         assert json.loads(capsys.readouterr().out)["runtime"]["state"] == "running"
 
-        assert cli.main(["runtime", "stop", "--profile", str(profile_path)]) == 0
+        assert cli.main(["runtime", "stop", *arguments]) == 0
         assert json.loads(capsys.readouterr().out)["runtime"]["state"] == "stopped"
+        assert profile_path.read_bytes() == original_profile
+        assert (data_dir / "model.json").read_bytes() == original_model
     finally:
         paths = RuntimePaths(
             profile_file=profile_path,

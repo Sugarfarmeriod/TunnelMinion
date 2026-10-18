@@ -298,6 +298,7 @@ def build_macos_local_application(
     *,
     interface_name: str | None = None,
     network_path: NetworkPathViewBindings | None = None,
+    read_only_preview: bool = False,
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
     node = _build_macos_node(data_dir, interface_name=interface_name)
@@ -308,6 +309,7 @@ def build_macos_local_application(
         lambda: _create_macos_read_only_agent(node),
         stores.checkpoints,
         memory_retriever=MemoryContextRetriever(stores.memories),
+        read_only_preview=read_only_preview,
     )
     memories = LongTermMemoryService(stores.memories, (conversations,))
     authorization = AuthorizationService(
@@ -362,12 +364,12 @@ def build_macos_local_application(
         raise ValueError("静态对端观察不能与目录观察同时启用")
     before_snapshot = None
     remote_observer = None
-    if managed.coordinator is not None:
+    if managed.coordinator is not None and not read_only_preview:
         remote_observer = RemoteServicePresentationObserver(
             node.node_id, managed.coordinator.coordinator_cache, remote_preparer
         )
         before_snapshot = remote_observer.refresh
-    if managed.coordinator is None:
+    if managed.coordinator is None or read_only_preview:
         local_observer = DeterministicServiceObserver(
             node.node_id,
             ServiceObservationConfig(),
@@ -378,7 +380,7 @@ def build_macos_local_application(
 
         async def refresh_local_services() -> None:
             service_cache.replace(await local_observer.observe())
-            if peer_observer is not None:
+            if peer_observer is not None and not read_only_preview:
                 await peer_observer.refresh()
 
         before_snapshot = refresh_local_services
@@ -412,6 +414,7 @@ def build_macos_local_application(
         ),
         before_snapshot=before_snapshot,
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
+        read_only_preview=read_only_preview,
     )
     app = FastAPI(
         title="TunnelMinion",
@@ -422,7 +425,7 @@ def build_macos_local_application(
             incident_store,
         ),
     )
-    install_local_request_guard(app)
+    install_local_request_guard(app, read_only_preview=read_only_preview)
     app.include_router(create_model_router(node.model_service))
     app.include_router(
         create_resource_router(
@@ -441,7 +444,7 @@ def build_macos_local_application(
     app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
-    app.include_router(create_spa_router())
+    app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return MacOSLocalApplication(
         app,
         node,

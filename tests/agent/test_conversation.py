@@ -397,7 +397,10 @@ def test_restart_restores_completed_thread_and_run(tmp_path: Path) -> None:
     assert stores.checkpoints.list_all() == ()
 
 
-def test_restart_marks_running_run_interrupted_without_replay(tmp_path: Path) -> None:
+@pytest.mark.parametrize("read_only_preview", [False, True])
+def test_restart_marks_running_run_interrupted_without_replay(
+    tmp_path: Path, read_only_preview: bool
+) -> None:
     """崩溃时的运行只标记中断，不调用 Agent factory，也不重放工具。"""
     stores = SQLiteStores.open(tmp_path / "interrupted.sqlite3")
     original = InMemoryConversationService(
@@ -420,7 +423,10 @@ def test_restart_marks_running_run_interrupted_without_replay(tmp_path: Path) ->
         factory_calls += 1
         raise AssertionError("恢复过程不应创建或执行 Agent")
 
-    restored = InMemoryConversationService(NodeId.new(), forbidden_factory, stores.checkpoints)
+    original_checkpoint = stores.checkpoints.get(run_id)
+    restored = InMemoryConversationService(
+        NodeId.new(), forbidden_factory, stores.checkpoints, read_only_preview=read_only_preview
+    )
     view = restored.get_run(run_id)
     events = run(collect(restored.stream_events(run_id)))
 
@@ -431,7 +437,10 @@ def test_restart_marks_running_run_interrupted_without_replay(tmp_path: Path) ->
     assert "未自动重放工具" in (events[-1].message or "")
     checkpoint = stores.checkpoints.get(run_id)
     assert checkpoint is not None
-    assert checkpoint.status is CheckpointStatus.INTERRUPTED
+    if read_only_preview:
+        assert checkpoint == original_checkpoint
+    else:
+        assert checkpoint.status is CheckpointStatus.INTERRUPTED
 
 
 @pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled", "interrupted"])
