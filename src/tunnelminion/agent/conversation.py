@@ -200,12 +200,15 @@ class InMemoryConversationService:
         checkpoints: CheckpointStore | None = None,
         history_assembler: ThreadHistoryAssembler | None = None,
         memory_retriever: MemoryContextRetriever | None = None,
+        *,
+        read_only_preview: bool = False,
     ) -> None:
         self._node_id = node_id
         self._agent_factory = agent_factory
         self._threads: dict[str, _ThreadState] = {}
         self._runs: dict[str, _RunState] = {}
         self._checkpoints = checkpoints
+        self._read_only_preview = read_only_preview
         self._history_assembler = history_assembler or ThreadHistoryAssembler()
         self._memory_retriever = memory_retriever
         self._restore()
@@ -453,7 +456,7 @@ class InMemoryConversationService:
 
     def _persist(self, state: _RunState) -> None:
         """保存公开状态；不保存取消令牌、后台任务或隐藏推理。"""
-        if self._checkpoints is None:
+        if self._checkpoints is None or self._read_only_preview:
             return
         thread = self._threads.get(str(state.thread_id))
         if thread is None:

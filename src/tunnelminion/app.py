@@ -245,6 +245,7 @@ def build_windows_application(
         create_agent,
         stores.checkpoints,
         memory_retriever=MemoryContextRetriever(stores.memories),
+        read_only_preview=read_only_preview,
     )
     memories = LongTermMemoryService(stores.memories, (conversations,))
     authorization = AuthorizationService(

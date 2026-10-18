@@ -309,6 +309,7 @@ def build_macos_local_application(
         lambda: _create_macos_read_only_agent(node),
         stores.checkpoints,
         memory_retriever=MemoryContextRetriever(stores.memories),
+        read_only_preview=read_only_preview,
     )
     memories = LongTermMemoryService(stores.memories, (conversations,))
     authorization = AuthorizationService(

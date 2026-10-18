@@ -16,16 +16,19 @@ from tests.incident.test_snapshot_and_storage import (
 )
 from tests.test_app import configured_managed_application, local_service
 
+from tunnelminion.agent.conversation import RunStatus, RunView, ThreadView
 from tunnelminion.agent.managed_application import ManagedNodeApplication
 from tunnelminion.agent.service_observation import ServiceObservationSnapshot
 from tunnelminion.app import build_windows_application
-from tunnelminion.domain.identifiers import NodeId, RunId
+from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import IncidentStatus
 from tunnelminion.incident.observer import IncidentObservationService
 from tunnelminion.incident.snapshot import SnapshotDiffDetector
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.macos_app import build_macos_local_application
+from tunnelminion.memory.contracts import CheckpointRecord, CheckpointStatus
+from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.configuration import ModelConfigurationService
 
 
@@ -36,6 +39,25 @@ def test_preview_refreshes_inventory_without_investigation_or_managed_startup(
 ) -> None:
     module = "tunnelminion.app" if platform == "windows" else "tunnelminion.macos_app"
     root = tmp_path / "preview"
+    checkpoints = SQLiteStores.open(root / "runtime.sqlite3").checkpoints
+    thread_id, run_id, at = ThreadId.new(), RunId.new(), datetime.now(UTC)
+    saved_run = CheckpointRecord(
+        thread_id=thread_id,
+        run_id=run_id,
+        status=CheckpointStatus.RUNNING,
+        public_state={
+            "thread": ThreadView(
+                thread_id=thread_id, created_at=at, updated_at=at, message_count=0
+            ).model_dump(mode="json"),
+            "run": RunView(
+                run_id=run_id, thread_id=thread_id, status=RunStatus.RUNNING, created_at=at
+            ).model_dump(mode="json"),
+            "messages": [],
+            "events": [],
+        },
+        updated_at=at,
+    )
+    checkpoints.put(saved_run)
     store = SQLiteIncidentStore(root / "incidents.sqlite3")
     baseline, current = _changed_pair()
     store.put_snapshot(baseline)
@@ -109,6 +131,8 @@ def test_preview_refreshes_inventory_without_investigation_or_managed_startup(
         assert observer is not None
         assert observer.read_only_preview
         assert store.get(original.incident_id) == original
+        assert checkpoints.get(run_id) == saved_run
+        assert client.get(f"/api/runs/{run_id}").json()["status"] == "interrupted"
         overview = client.get("/api/ui/overview").json()
         local = [
             item for item in overview["services"]["items"] if item["source"] == "local_observation"
@@ -122,7 +146,8 @@ def test_preview_refreshes_inventory_without_investigation_or_managed_startup(
             assert asyncio.run(observer.observe_once()).incidents == ()
         assert store.latest_snapshot() == current
         assert store.list_recent() == (original,)
-        assert client.get("/api/threads").json() == []
+        assert client.get("/api/threads").json()[0]["thread_id"] == str(thread_id)
+        assert checkpoints.get(run_id) == saved_run
         for path in ("/api/threads", "/api/model-config/validate", "/api/operations"):
             response = client.post(path)
             assert response.status_code == 403
