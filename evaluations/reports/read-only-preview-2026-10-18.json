@@ -1,0 +1,508 @@
+{
+  "schema_version": "read-only-preview-evidence/v1",
+  "status": "accepted",
+  "scope": "测试页以预览模式启动；仅更新 Mac 18767 并只读核对已有记录、程序名称和页面路径",
+  "implementation": {
+    "pull_request": "https://github.com/Sugarfarmeriod/TunnelMinion/pull/142",
+    "base_commit": "4f0cedd2911cc571988716ed4efd5ebab8f31bfe",
+    "head_commit": "3ccd94d37f2ae3fb1d2472b3402aaac5cdb49d23",
+    "merge_commit": "2dd175f6f9c966f5e741d410cb75a7ee77b74f57",
+    "merged_at": "2026-10-18T15:42:23Z",
+    "ci_url": "https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/39140858799",
+    "ci_passed_jobs": 8,
+    "ci_total_jobs": 8
+  },
+  "local_checks": {
+    "backend_tests_passed": 1785,
+    "backend_platform_skipped": 6,
+    "statement_and_branch_coverage_percent": 100,
+    "component_tests_passed": 253,
+    "browser_tests_passed": 110,
+    "preview_browser_tests_passed": 6,
+    "format_type_build_size_passed": true,
+    "initial_gzip_kib": 162.96,
+    "baseline_limit_kib": 171.16,
+    "preview_investigator_and_model_probe_spies_not_called": true,
+    "unfinished_checkpoint_unchanged_on_both_platforms": true,
+    "direct_write_and_access_routes_rejected": true,
+    "default_mode_regression_passed": true
+  },
+  "runtime_package": {
+    "artifact_id": 12141368461,
+    "artifact_zip_sha256": "9042510b018c77d1df6f4d3fea3f374d4c958d64ad9b173c6bf590b1088fcf06",
+    "archive_sha256": "90a4d149fe479a63771b4112b6ec27b40fe47218827520b487a8bedfa67064da",
+    "manifest_sha256": "419721d0e14442018eb2d544bc649dbc34c0489361d276e036a1bdfeef790157",
+    "source_revision": "cc9e1118fd6937d7f9426e400e266c70c9c7d5f2",
+    "source_tree_sha256": "4668beab0b8c3f312ac4a74abacac5a77223c033f018ba92172eb16369f4a110",
+    "frontend_sha256": "74656afcfc668601ceab0f6c338e153bddf706bf1038c395b7e1ac9b000663bf",
+    "file_count": 143,
+    "ci_run_id": 39140858799,
+    "pr": 142,
+    "final_head": "3ccd94d37f2ae3fb1d2472b3402aaac5cdb49d23",
+    "source_matches_checkout": true,
+    "closed_file_set_and_hashes_valid": true
+  },
+  "live": {
+    "before_at": "2026-10-18T15:37:25.416047+00:00",
+    "after_at": "2026-10-18T15:48:52.342192+00:00",
+    "origin": "http://127.0.0.1:18767",
+    "program": "/Users/mac/Working-Env/tunnelminion-20261018-read-only-preview/package/tunnelminion",
+    "previous_program": "/Users/mac/Working-Env/tunnelminion-20261015-workspace-continuity/package/tunnelminion",
+    "startup_flag": "--read-only-preview",
+    "runtime": {
+      "action": "start",
+      "exit_code": 0,
+      "runtime_state": "running",
+      "model_health": {
+        "status": "not_checked",
+        "code": "read_only_preview",
+        "http_status": null,
+        "latency_ms": null
+      },
+      "components": [
+        {
+          "component": "local",
+          "pid": 79260
+        }
+      ],
+      "preflight": {
+        "deterministic_ready": false,
+        "checks": [
+          {
+            "name": "package",
+            "status": "passed",
+            "code": "package_valid"
+          },
+          {
+            "name": "profile",
+            "status": "passed",
+            "code": "profile_valid"
+          },
+          {
+            "name": "data-dir",
+            "status": "passed",
+            "code": "data_dir_writable"
+          },
+          {
+            "name": "model-config",
+            "status": "passed",
+            "code": "model_config_valid"
+          },
+          {
+            "name": "managed-config",
+            "status": "warning",
+            "code": "managed_unconfigured"
+          },
+          {
+            "name": "gateway-config",
+            "status": "warning",
+            "code": "gateway_disabled"
+          },
+          {
+            "name": "local-instance",
+            "status": "failed",
+            "code": "existing_instance_record"
+          },
+          {
+            "name": "local-port",
+            "status": "passed",
+            "code": "port_available"
+          }
+        ]
+      }
+    },
+    "profile_sha256": "ef9561a7ad8ae702ae2d42cd01d9b428984844807bc66d1036ae8267fdf3b648",
+    "model_config_sha256": "7542d4f4b0c684a4731607d27a96cb9f6917b5c2a86b7a10b5ebdae9f5876c0a",
+    "profile_preserved": true,
+    "model_config_preserved": true,
+    "before_ports": {
+      "8080": [],
+      "8787": [
+        9291
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        48930
+      ]
+    },
+    "after_ports": {
+      "8080": [],
+      "8787": [
+        9291
+      ],
+      "18765": [
+        95881
+      ],
+      "18767": [
+        79260
+      ]
+    },
+    "protected_ports": [
+      8080,
+      8787,
+      18765
+    ],
+    "protected_pids_preserved": true,
+    "thread_count": 5,
+    "message_hashes_before": {
+      "thread_0ad920f78f174549b4aa2330f3acb6bd": "e498604f9e84eaddecde42c1135d328de1373c70b9dbd0992a2d9ac4a1021974",
+      "thread_27fb8ccdbd5e43d38fb417fed768bc0b": "fce456afe98d9f6d300ed20ba6b0902b573c0c08c5280741795e2b59cdf6e018",
+      "thread_b0e8623caf48471c9febac1c92eb6f66": "ec3d121c758315bd5de8710b62d3e691f2005b0cb7bb696d6f507b4eef3c6d23",
+      "thread_9205d772d6bc4995872008d37d003aa9": "b4590a5a3ef3ea93f121a86d4825a1abb68f41f829219cc239c55af4992e5a60",
+      "thread_2775f9ffe9f34e9cb31a24ae614d03da": "e1c0c6ae338a57a1e3f5a1e1ae52e82a22af3b8a6604bb6cd06c8868e31576ca"
+    },
+    "message_hashes_after": {
+      "thread_0ad920f78f174549b4aa2330f3acb6bd": "e498604f9e84eaddecde42c1135d328de1373c70b9dbd0992a2d9ac4a1021974",
+      "thread_27fb8ccdbd5e43d38fb417fed768bc0b": "fce456afe98d9f6d300ed20ba6b0902b573c0c08c5280741795e2b59cdf6e018",
+      "thread_b0e8623caf48471c9febac1c92eb6f66": "ec3d121c758315bd5de8710b62d3e691f2005b0cb7bb696d6f507b4eef3c6d23",
+      "thread_9205d772d6bc4995872008d37d003aa9": "b4590a5a3ef3ea93f121a86d4825a1abb68f41f829219cc239c55af4992e5a60",
+      "thread_2775f9ffe9f34e9cb31a24ae614d03da": "e1c0c6ae338a57a1e3f5a1e1ae52e82a22af3b8a6604bb6cd06c8868e31576ca"
+    },
+    "run_hashes_before": {
+      "run_1bc6116c322a4ceabb3cd0cc64ed26b0": "124827bde857e087ed1770be305aaedc9a8e7e81e97387b2d28a15b789e50c66",
+      "run_b75ba5402e0349eda19344008bab590f": "0100550be90d27a7671dd920ae5fbdd3a5f026960cfcf050e3664774c5e084f4",
+      "run_fc78b0dc68e849cbb657423e11ae3e5b": "8485355f39cad33edb0b0ce57f982cafd4b2b1c06e8aef4b9afc5bf0854cff6e",
+      "run_431e4705811c4315bd915f317c2dd3af": "481e43dec0ff1e766087892e2526583076f349d78be6df6ee3f7ae5ef0494ac5",
+      "run_c599a0203f064ed0b12fbdcd5fdde05a": "fb417ca7dcbf63e27b91ad9faaa5058745dee1311e7ad91d0203b5baeecbf0b1"
+    },
+    "run_hashes_after": {
+      "run_1bc6116c322a4ceabb3cd0cc64ed26b0": "124827bde857e087ed1770be305aaedc9a8e7e81e97387b2d28a15b789e50c66",
+      "run_b75ba5402e0349eda19344008bab590f": "0100550be90d27a7671dd920ae5fbdd3a5f026960cfcf050e3664774c5e084f4",
+      "run_fc78b0dc68e849cbb657423e11ae3e5b": "8485355f39cad33edb0b0ce57f982cafd4b2b1c06e8aef4b9afc5bf0854cff6e",
+      "run_431e4705811c4315bd915f317c2dd3af": "481e43dec0ff1e766087892e2526583076f349d78be6df6ee3f7ae5ef0494ac5",
+      "run_c599a0203f064ed0b12fbdcd5fdde05a": "fb417ca7dcbf63e27b91ad9faaa5058745dee1311e7ad91d0203b5baeecbf0b1"
+    },
+    "recent_incidents_checked": 50,
+    "incident_hashes_before": {
+      "incident_a822fcbeff9a201b3ea2fec124206aeb": "d737a2d17c1e89cecf9be9c9d0fc94a0634041a9228583df486249577dc27e6d",
+      "incident_d0c1fcb9c3e342627dc31800f5184212": "426817a5017d9e69d401aedf4b1102cab87cc4edf9228d7af31757601c399868",
+      "incident_ed405ba3422cbddf0d5c0da76452ec5e": "c972dd7e0b4a4f1c3bcfda9f8c33baec358a86220f3c645ceb2bdc02674b320d",
+      "incident_d017c0abd7f9a397f1c75da7f2b71342": "4c5d86e7c9702621561f20e32132e1193403ae933a631bea49095eb16ba57a12",
+      "incident_76fdcc429d4ff9b284618f5fe9c9f56e": "d374230a035fce29d3949c1a701c5661322401bb12081308361dacc76ba16feb",
+      "incident_8421d602bf258618bb933674be7717f3": "c3599d791b0b0cab021f0b79e8877b1de224080666d5eb9d1fc132d9c0965d07",
+      "incident_97771655f6c26530a9dacfc32cac9087": "bcbd5a526f6fbbeb58e3db9f350d693d3efaea1e40eb9884edc00af221ef1a67",
+      "incident_59ab6e96a78afff762ff16b2f8460449": "31ba97cf0dda43691f5fe8b060593c508170ee211cb8c64ee32e089afa31a431",
+      "incident_c0dc89c973f3ec37560689ec6ff41f6e": "3ed187af0f06ece11d0c5e8afc51ec11917e28ae7e4148aa739be1d63c7151c1",
+      "incident_281cb2f4a0054b9930d1a414c9961f2b": "a9f8e8faca7b52a17edafafcef1c01a8bba7b2b2a66ae8cdac9e4cc1416b963c",
+      "incident_6ac388f9b9b8b33f16a9f335c20035aa": "89d7a968d62073bbdcd003b1017bfaa409408561aaca6305c405fc94df0ca229",
+      "incident_716dd62e53dc02f57b6b5f8e03266753": "49472552dd52e558c2058f3301de90c2ce876b935b65856633d4a0ce76e45ae9",
+      "incident_ab0e460a2eaa54fd6ba6f4aa7bd9c21d": "0b712b99a0651c5e0ecd5677b5797623b36d6d214da0bfeef8949160cdabacf6",
+      "incident_93dfc64312c3d89dee371f7cbf0d605c": "37a6774c91375f39e9676f1a65135d382f43f1310aa2a9e53d7b8e4f6995b1f4",
+      "incident_93b990a82a343829d1be48c5b36b69c1": "033eb73d3c341cd3e8f44fb3182d1d99575886592010c9760db87b94027bfb13",
+      "incident_055f402ef98e4087a14dc52aeab6f7b8": "43fdd64f9f959ea4cb2b7a63b8a21122e16435e23e7bd0487ac5d06f65ddd6a9",
+      "incident_1da4673e9c88198746e9acea0e0c64ec": "14c68d6751098b1a820e029d8e2af6cbd5173457d57041975905a54ba8bfe2b4",
+      "incident_606227b7ef528c935592fcafbaff09cf": "d12f51099de5fba05f90d6359b3289fc6e1a47bd6a3194c17518a04c78bf6888",
+      "incident_a7196fe988dea4a95a60a1576673e56d": "d5821575a8b2dd5a7aec594ab5f0433004b32d96bb550191b1cb8f461234c2f6",
+      "incident_0dec3e295eae447595298e7b989f2c88": "4ed251db4fd195464d5413d3d5b51240941642e3b157930940b728cb179249c5",
+      "incident_c6414df109754f18abd55343e1290afe": "a34dd0d71f3e509a139884119cc9c4d214d0364dff9b4f073817a857548cdb27",
+      "incident_5b92cf88ec58313affedcaaf0dd0fd33": "f15933498428ab881b9763f2fcac6476a54e0ff7b1b86ffc9b7cd11121963ce5",
+      "incident_42ca0a1dab4429f0417271379f4c14e5": "cbf62dadb96b1cf7926fd9475c98ee8552fdafeff7711da99dbacc40e0117441",
+      "incident_7a090ef7ec53493eee803282f0109a43": "18d42a7340f79b9e72070fd8805d42ffbe13e5f94227c56c427ca780474ac6b7",
+      "incident_6013db2670f5c4075958e652b5767547": "309f0bb92899f2466795ce2eeffa354cc5e36e73a5eeb658fc902bb350520bb2",
+      "incident_4638588b5e6b52ef2e3187e35058f26a": "595cc26c5eb02c6a7b17c41e84dc733e762364c05f0596e3f7c6d629643d054d",
+      "incident_6c93246fee5df734c92d1bef65a7eb51": "69a7f8babbb5d8eba50d0aea9ee21247d1e5ae67c97720968e1a9daf4f596a69",
+      "incident_5eea49e35aa3b218cd547dc5b8677e62": "f4a4deb81e067686e269cab2898e5c0989b93f14ae6fe5ff3e8fe6bd77f04ae1",
+      "incident_cc821139bf9cf681bbdc2f1a07a58234": "7d1889c5019b50d367778b87f4588ebdc954a0df5ba6758876689f93abdef9cd",
+      "incident_2cacf870ac261b87b1330a50a83e11eb": "d9602548fae4796b848edc820a53b1c38708ace995cdd4cb8c3c5f88e5f3b2d3",
+      "incident_7303aca0df7a3efda0f8435cb11db254": "68c296df9345de3b68b6ebe9561ea378ea020194a9a950c46893b1169e0740f6",
+      "incident_5bf955fde03bd422068993b9852d1102": "464a043b149bc1a8d3d42c63cc23ff9901e4fd9eee20e333f7d8eae7fea13120",
+      "incident_2658d6dac716b39f3466a75684017170": "d0e2c6e80b585a07fd5b65b14269f4e1911692922db38eb43f6366bdcaa5e7cc",
+      "incident_f321e903085e9340454f250adb7d587c": "46a6b1a426f3c884927908c7f8b035fe5e1334e5df572224f07b9fafc43d8fa6",
+      "incident_aefd6e5af48e5b75e08457055e0538d3": "8402a3418d084815d442bf8aeb8624f2f15a80bb3c7ac2d85b9a5a33457f0f60",
+      "incident_44a34dc42e5b630244effbdd25741722": "b59ffcadb0c6211664741131b52907b82cef11f6b1a9e0da2a5c3e7a842eed41",
+      "incident_6c6197666e0e6ec42d5c163bd9b3425f": "f7c1bd89594f9004253eab9bdcf5bd9fb0c74646c98be088b8809e6cb37327e1",
+      "incident_736795edb4f1d9bd806f72bb5099a6fb": "aefc553d43ac130f523c04acaef7053e5ba6b8d63374a2e4fecf147f52fc6c0c",
+      "incident_6557c8cc9f5df13b7eeb67936d555567": "8a7f4886322f4be45452e0babca23b2c6f6e3873a7365aa8e1ad68497a6d19b1",
+      "incident_911b03977b39338c87d8326d5d8214da": "9d583a3b2fd86d923b84b2ae86312c513c69afcdfebbe7c6be0edf5e5f488931",
+      "incident_8828736193dd3076f5bf76017def9a9c": "485c094c58a67bc99131f907c72fe260b60ffc2bac5bf067880c0ab52f423266",
+      "incident_17bf559449581c02f8b70f428282c567": "852d2e694e1845ed074149f4ebe67fa45bf207eaf58edb78edbf405fcb900236",
+      "incident_f8faabee2861edf6c06050999f6b6a9c": "c15f25a7fb78573db3cadb386ac69eb2e209a074f02249765a729c5a9221c437",
+      "incident_94d45ff051c555bf78c53efa827c6cd4": "540d41dc6b9723b4f76c1740e59e0f499046dcbd41f70b9d99bf58cfb5cf6703",
+      "incident_9de1d433d5da5437e11571cae6ad4c77": "d5c0165c2c2ea2492ca699414edaa4a211880c4cf24663cf192d7e58aa91ed89",
+      "incident_5aeb1ae6aa3cb5f1801f2a2f205c2634": "2853f53730635e441a8b56d7eb03988bfb414ce7390a042b84ce3ce8139ce8f5",
+      "incident_be987e551d213f4da5aff0cb5d1bf81e": "5fa0523e4cde14b41c2d6f7618dec880713493904b86b1f698ef65cc72f65872",
+      "incident_d77e62563b9640e8bdf1e25a1c5bc084": "6be39e996eb54141131af07ff2865a6c85edacd29cdce40a5ad2b3df1501c88e",
+      "incident_47511dfcc035bbece73b51b4c4fc9b38": "3c08e736d7143c0c6caa980f502752c5462f87ef8203293525a5595bd80eeb4c",
+      "incident_3808670f3740630781c988b0b121423e": "7397ea45690bd79657d9214a345e54c73603f5e4f0ac1764177ccfdb95717535"
+    },
+    "incident_hashes_after": {
+      "incident_a822fcbeff9a201b3ea2fec124206aeb": "d737a2d17c1e89cecf9be9c9d0fc94a0634041a9228583df486249577dc27e6d",
+      "incident_d0c1fcb9c3e342627dc31800f5184212": "426817a5017d9e69d401aedf4b1102cab87cc4edf9228d7af31757601c399868",
+      "incident_ed405ba3422cbddf0d5c0da76452ec5e": "c972dd7e0b4a4f1c3bcfda9f8c33baec358a86220f3c645ceb2bdc02674b320d",
+      "incident_d017c0abd7f9a397f1c75da7f2b71342": "4c5d86e7c9702621561f20e32132e1193403ae933a631bea49095eb16ba57a12",
+      "incident_76fdcc429d4ff9b284618f5fe9c9f56e": "d374230a035fce29d3949c1a701c5661322401bb12081308361dacc76ba16feb",
+      "incident_8421d602bf258618bb933674be7717f3": "c3599d791b0b0cab021f0b79e8877b1de224080666d5eb9d1fc132d9c0965d07",
+      "incident_97771655f6c26530a9dacfc32cac9087": "bcbd5a526f6fbbeb58e3db9f350d693d3efaea1e40eb9884edc00af221ef1a67",
+      "incident_59ab6e96a78afff762ff16b2f8460449": "31ba97cf0dda43691f5fe8b060593c508170ee211cb8c64ee32e089afa31a431",
+      "incident_c0dc89c973f3ec37560689ec6ff41f6e": "3ed187af0f06ece11d0c5e8afc51ec11917e28ae7e4148aa739be1d63c7151c1",
+      "incident_281cb2f4a0054b9930d1a414c9961f2b": "a9f8e8faca7b52a17edafafcef1c01a8bba7b2b2a66ae8cdac9e4cc1416b963c",
+      "incident_6ac388f9b9b8b33f16a9f335c20035aa": "89d7a968d62073bbdcd003b1017bfaa409408561aaca6305c405fc94df0ca229",
+      "incident_716dd62e53dc02f57b6b5f8e03266753": "49472552dd52e558c2058f3301de90c2ce876b935b65856633d4a0ce76e45ae9",
+      "incident_ab0e460a2eaa54fd6ba6f4aa7bd9c21d": "0b712b99a0651c5e0ecd5677b5797623b36d6d214da0bfeef8949160cdabacf6",
+      "incident_93dfc64312c3d89dee371f7cbf0d605c": "37a6774c91375f39e9676f1a65135d382f43f1310aa2a9e53d7b8e4f6995b1f4",
+      "incident_93b990a82a343829d1be48c5b36b69c1": "033eb73d3c341cd3e8f44fb3182d1d99575886592010c9760db87b94027bfb13",
+      "incident_055f402ef98e4087a14dc52aeab6f7b8": "43fdd64f9f959ea4cb2b7a63b8a21122e16435e23e7bd0487ac5d06f65ddd6a9",
+      "incident_1da4673e9c88198746e9acea0e0c64ec": "14c68d6751098b1a820e029d8e2af6cbd5173457d57041975905a54ba8bfe2b4",
+      "incident_606227b7ef528c935592fcafbaff09cf": "d12f51099de5fba05f90d6359b3289fc6e1a47bd6a3194c17518a04c78bf6888",
+      "incident_a7196fe988dea4a95a60a1576673e56d": "d5821575a8b2dd5a7aec594ab5f0433004b32d96bb550191b1cb8f461234c2f6",
+      "incident_0dec3e295eae447595298e7b989f2c88": "4ed251db4fd195464d5413d3d5b51240941642e3b157930940b728cb179249c5",
+      "incident_c6414df109754f18abd55343e1290afe": "a34dd0d71f3e509a139884119cc9c4d214d0364dff9b4f073817a857548cdb27",
+      "incident_5b92cf88ec58313affedcaaf0dd0fd33": "f15933498428ab881b9763f2fcac6476a54e0ff7b1b86ffc9b7cd11121963ce5",
+      "incident_42ca0a1dab4429f0417271379f4c14e5": "cbf62dadb96b1cf7926fd9475c98ee8552fdafeff7711da99dbacc40e0117441",
+      "incident_7a090ef7ec53493eee803282f0109a43": "18d42a7340f79b9e72070fd8805d42ffbe13e5f94227c56c427ca780474ac6b7",
+      "incident_6013db2670f5c4075958e652b5767547": "309f0bb92899f2466795ce2eeffa354cc5e36e73a5eeb658fc902bb350520bb2",
+      "incident_4638588b5e6b52ef2e3187e35058f26a": "595cc26c5eb02c6a7b17c41e84dc733e762364c05f0596e3f7c6d629643d054d",
+      "incident_6c93246fee5df734c92d1bef65a7eb51": "69a7f8babbb5d8eba50d0aea9ee21247d1e5ae67c97720968e1a9daf4f596a69",
+      "incident_5eea49e35aa3b218cd547dc5b8677e62": "f4a4deb81e067686e269cab2898e5c0989b93f14ae6fe5ff3e8fe6bd77f04ae1",
+      "incident_cc821139bf9cf681bbdc2f1a07a58234": "7d1889c5019b50d367778b87f4588ebdc954a0df5ba6758876689f93abdef9cd",
+      "incident_2cacf870ac261b87b1330a50a83e11eb": "d9602548fae4796b848edc820a53b1c38708ace995cdd4cb8c3c5f88e5f3b2d3",
+      "incident_7303aca0df7a3efda0f8435cb11db254": "68c296df9345de3b68b6ebe9561ea378ea020194a9a950c46893b1169e0740f6",
+      "incident_5bf955fde03bd422068993b9852d1102": "464a043b149bc1a8d3d42c63cc23ff9901e4fd9eee20e333f7d8eae7fea13120",
+      "incident_2658d6dac716b39f3466a75684017170": "d0e2c6e80b585a07fd5b65b14269f4e1911692922db38eb43f6366bdcaa5e7cc",
+      "incident_f321e903085e9340454f250adb7d587c": "46a6b1a426f3c884927908c7f8b035fe5e1334e5df572224f07b9fafc43d8fa6",
+      "incident_aefd6e5af48e5b75e08457055e0538d3": "8402a3418d084815d442bf8aeb8624f2f15a80bb3c7ac2d85b9a5a33457f0f60",
+      "incident_44a34dc42e5b630244effbdd25741722": "b59ffcadb0c6211664741131b52907b82cef11f6b1a9e0da2a5c3e7a842eed41",
+      "incident_6c6197666e0e6ec42d5c163bd9b3425f": "f7c1bd89594f9004253eab9bdcf5bd9fb0c74646c98be088b8809e6cb37327e1",
+      "incident_736795edb4f1d9bd806f72bb5099a6fb": "aefc553d43ac130f523c04acaef7053e5ba6b8d63374a2e4fecf147f52fc6c0c",
+      "incident_6557c8cc9f5df13b7eeb67936d555567": "8a7f4886322f4be45452e0babca23b2c6f6e3873a7365aa8e1ad68497a6d19b1",
+      "incident_911b03977b39338c87d8326d5d8214da": "9d583a3b2fd86d923b84b2ae86312c513c69afcdfebbe7c6be0edf5e5f488931",
+      "incident_8828736193dd3076f5bf76017def9a9c": "485c094c58a67bc99131f907c72fe260b60ffc2bac5bf067880c0ab52f423266",
+      "incident_17bf559449581c02f8b70f428282c567": "852d2e694e1845ed074149f4ebe67fa45bf207eaf58edb78edbf405fcb900236",
+      "incident_f8faabee2861edf6c06050999f6b6a9c": "c15f25a7fb78573db3cadb386ac69eb2e209a074f02249765a729c5a9221c437",
+      "incident_94d45ff051c555bf78c53efa827c6cd4": "540d41dc6b9723b4f76c1740e59e0f499046dcbd41f70b9d99bf58cfb5cf6703",
+      "incident_9de1d433d5da5437e11571cae6ad4c77": "d5c0165c2c2ea2492ca699414edaa4a211880c4cf24663cf192d7e58aa91ed89",
+      "incident_5aeb1ae6aa3cb5f1801f2a2f205c2634": "2853f53730635e441a8b56d7eb03988bfb414ce7390a042b84ce3ce8139ce8f5",
+      "incident_be987e551d213f4da5aff0cb5d1bf81e": "5fa0523e4cde14b41c2d6f7618dec880713493904b86b1f698ef65cc72f65872",
+      "incident_d77e62563b9640e8bdf1e25a1c5bc084": "6be39e996eb54141131af07ff2865a6c85edacd29cdce40a5ad2b3df1501c88e",
+      "incident_47511dfcc035bbece73b51b4c4fc9b38": "3c08e736d7143c0c6caa980f502752c5462f87ef8203293525a5595bd80eeb4c",
+      "incident_3808670f3740630781c988b0b121423e": "7397ea45690bd79657d9214a345e54c73603f5e4f0ac1764177ccfdb95717535"
+    },
+    "operation_count_before": 0,
+    "operation_count_after": 0,
+    "latest_thread_restored": "thread_2775f9ffe9f34e9cb31a24ae614d03da",
+    "service_sample": {
+      "before_total": 34,
+      "after_total": 84,
+      "after_named_entries": 15,
+      "after_named_programs": 10,
+      "retained_original_service_ids": 28,
+      "missing_original": [
+        {
+          "name": null,
+          "port": 51413,
+          "protocol": "udp"
+        },
+        {
+          "name": null,
+          "port": 49238,
+          "protocol": "tcp"
+        },
+        {
+          "name": "llama.cpp",
+          "port": 8080,
+          "protocol": "tcp"
+        },
+        {
+          "name": null,
+          "port": 51413,
+          "protocol": "tcp"
+        },
+        {
+          "name": null,
+          "port": 52663,
+          "protocol": "udp"
+        },
+        {
+          "name": null,
+          "port": 53245,
+          "protocol": "udp"
+        }
+      ],
+      "priority_programs": [
+        {
+          "name": "Wireguard Panel",
+          "entries": 1,
+          "original_service_ids_preserved": true
+        },
+        {
+          "name": "gost",
+          "entries": 1,
+          "original_service_ids_preserved": true
+        },
+        {
+          "name": "n3n-supernode",
+          "entries": 2,
+          "original_service_ids_preserved": true
+        }
+      ],
+      "interpretation": "清单来自当前本机采集，不固定监听总数。8080 前后均无监听，旧 llama.cpp 记录未继续出现；其余缺少项没有可靠程序名，不推断用途或故障。"
+    },
+    "browser": [
+      {
+        "browser": "chromium",
+        "width": 1280,
+        "latest_thread_restored": true,
+        "preview_marker": true,
+        "question_and_new_thread_disabled": true,
+        "model_save_and_validate_disabled": true,
+        "settings_return_keeps_record": true,
+        "same_program_restored": true,
+        "workbench_navigation_returns_home": true,
+        "get_requests": 19,
+        "requested_paths": [
+          "/api/model-config",
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/resources/overview",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a/events",
+          "/api/threads",
+          "/api/ui/overview",
+          "/api/ui/threads/thread_2775f9ffe9f34e9cb31a24ae614d03da",
+          "/app-assets/assets/index-BLT8hevG.css",
+          "/app-assets/assets/index-ipElaGKI.js",
+          "/app/overview"
+        ],
+        "write_requests": 0,
+        "external_requests": 0,
+        "model_inference_requests": 0,
+        "script_errors": 0,
+        "horizontal_overflow": false
+      },
+      {
+        "browser": "chromium",
+        "width": 320,
+        "latest_thread_restored": true,
+        "preview_marker": true,
+        "question_and_new_thread_disabled": true,
+        "model_save_and_validate_disabled": true,
+        "settings_return_keeps_record": true,
+        "same_program_restored": true,
+        "workbench_navigation_returns_home": true,
+        "get_requests": 19,
+        "requested_paths": [
+          "/api/model-config",
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/resources/overview",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a/events",
+          "/api/threads",
+          "/api/ui/overview",
+          "/api/ui/threads/thread_2775f9ffe9f34e9cb31a24ae614d03da",
+          "/app-assets/assets/index-BLT8hevG.css",
+          "/app-assets/assets/index-ipElaGKI.js",
+          "/app/overview"
+        ],
+        "write_requests": 0,
+        "external_requests": 0,
+        "model_inference_requests": 0,
+        "script_errors": 0,
+        "horizontal_overflow": false
+      },
+      {
+        "browser": "webkit",
+        "width": 1280,
+        "latest_thread_restored": true,
+        "preview_marker": true,
+        "question_and_new_thread_disabled": true,
+        "model_save_and_validate_disabled": true,
+        "settings_return_keeps_record": true,
+        "same_program_restored": true,
+        "workbench_navigation_returns_home": true,
+        "get_requests": 19,
+        "requested_paths": [
+          "/api/model-config",
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/resources/overview",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a/events",
+          "/api/threads",
+          "/api/ui/overview",
+          "/api/ui/threads/thread_2775f9ffe9f34e9cb31a24ae614d03da",
+          "/app-assets/assets/index-BLT8hevG.css",
+          "/app-assets/assets/index-ipElaGKI.js",
+          "/app/overview"
+        ],
+        "write_requests": 0,
+        "external_requests": 0,
+        "model_inference_requests": 0,
+        "script_errors": 0,
+        "horizontal_overflow": false
+      },
+      {
+        "browser": "webkit",
+        "width": 320,
+        "latest_thread_restored": true,
+        "preview_marker": true,
+        "question_and_new_thread_disabled": true,
+        "model_save_and_validate_disabled": true,
+        "settings_return_keeps_record": true,
+        "same_program_restored": true,
+        "workbench_navigation_returns_home": true,
+        "get_requests": 19,
+        "requested_paths": [
+          "/api/model-config",
+          "/api/operations",
+          "/api/operations/eligible-peers",
+          "/api/resources/overview",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a",
+          "/api/runs/run_c599a0203f064ed0b12fbdcd5fdde05a/events",
+          "/api/threads",
+          "/api/ui/overview",
+          "/api/ui/threads/thread_2775f9ffe9f34e9cb31a24ae614d03da",
+          "/app-assets/assets/index-BLT8hevG.css",
+          "/app-assets/assets/index-ipElaGKI.js",
+          "/app/overview"
+        ],
+        "write_requests": 0,
+        "external_requests": 0,
+        "model_inference_requests": 0,
+        "script_errors": 0,
+        "horizontal_overflow": false
+      }
+    ],
+    "checked_record_hashes_unchanged": true,
+    "new_model_investigations": 0,
+    "access_or_approval_requests": 0,
+    "model_health": "not_checked/read_only_preview；配置记录不代表现场模型在线",
+    "cleanup": {
+      "owned_uploaded_archive_removed": true,
+      "owned_ssh_forward_stopped": true,
+      "browser_contexts_closed": true,
+      "test_program_retained": true,
+      "previous_program_retained": true
+    }
+  },
+  "screenshots": [
+    {
+      "path": "build/read-only-preview/mac-preview-workspace-chromium-1280.jpg",
+      "sha256": "9b30bfb1ac94b19df347a0a848b3021cfdcd78ea8873f49c210d7d411f34f328",
+      "fixture": false
+    },
+    {
+      "path": "build/read-only-preview/mac-preview-workspace-webkit-1280.jpg",
+      "sha256": "dd82648fb712f514ea31d2eb633ca116cabe5f0db434a0d3c35732773c648848",
+      "fixture": false
+    },
+    {
+      "path": "build/read-only-preview/mac-preview-program-chromium-320.jpg",
+      "sha256": "e604f1a32686e31f48eb5167a04384962714eba14f958382d4f23650abca0b45",
+      "fixture": false
+    },
+    {
+      "path": "build/read-only-preview/mac-preview-program-webkit-320.jpg",
+      "sha256": "1bd869730f09399b5920e462f7799d5cca2e94a921c83bd21a2ccad9584aaf9a",
+      "fixture": false
+    }
+  ],
+  "limits": [
+    "实机只读核对没有发送模型、访问或批准请求；接口拒绝能力由定向和正式构建浏览器场景验证。",
+    "仅比较接口提供的最近 50 条 Incident，不宣称审计全部历史。",
+    "没有验证模型连通性、业务网页或跨电脑访问，也不等同于老人用户或全产品易用性验收。",
+    "预览是本次启动方式，不写入持久 profile；以后重新启动仍须明确使用该开关。"
+  ]
+}
