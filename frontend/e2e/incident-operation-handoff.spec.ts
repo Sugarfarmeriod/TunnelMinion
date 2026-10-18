@@ -791,6 +791,19 @@ test("同页切换调查、返回历史和关闭详情不会遗留旧追问或�
   await page
     .getByRole("textbox", { name: "问题", exact: true })
     .fill("上一次的问题");
+  const incidentUrl = page.url();
+  await page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("link", { name: "设置", exact: true })
+    .click();
+  await page.getByRole("link", { name: "返回刚才的问题" }).click();
+  expect(page.url()).toBe(incidentUrl);
+  await expect(
+    page.getByRole("textbox", { name: "问题", exact: true }),
+  ).toHaveValue("上一次的问题");
+  await expect(
+    page.getByRole("textbox", { name: "问题", exact: true }),
+  ).toHaveAttribute("maxlength", "2000");
   await detail.getByRole("button", { name: "返回最近变化" }).click();
   await expect(page.getByRole("button", { name: "查看调查详情" })).toHaveCount(
     2,

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   NavLink,
   Navigate,
@@ -20,10 +21,17 @@ const navigation = [
 ] as const;
 
 function ProductShell() {
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const workspaceActive =
     pathname === "/app" ||
     /^\/app\/(overview|chat|operations)(\/|$)/.test(pathname);
+  const [workspacePath, setWorkspacePath] = useState<string | null>(
+    workspaceActive ? pathname + search + hash : null,
+  );
+  useEffect(() => {
+    if (workspaceActive) setWorkspacePath(pathname + search + hash);
+    else if (pathname !== "/app/settings") setWorkspacePath(null);
+  }, [workspaceActive, pathname, search, hash]);
   return (
     <div className="product-shell">
       <div className="product-chrome">
@@ -36,7 +44,9 @@ function ProductShell() {
             path === "/app" ? (
               <Link
                 key={path}
-                to={path}
+                to={
+                  pathname === "/app/settings" ? (workspacePath ?? path) : path
+                }
                 className={workspaceActive ? "active" : undefined}
                 aria-current={workspaceActive ? "page" : undefined}
               >
@@ -51,7 +61,7 @@ function ProductShell() {
         </nav>
       </div>
       <main id="main-content" tabIndex={-1}>
-        <Outlet />
+        <Outlet context={{ workspacePath, setWorkspacePath }} />
       </main>
     </div>
   );
@@ -71,13 +81,10 @@ export const router = createBrowserRouter([
           { path: "chat", element: null },
           { path: "operations", element: <OperationsPage /> },
           { path: "operations/:operationId", element: <OperationDetailPage /> },
+          { path: "settings", element: <SettingsPage /> },
         ],
       },
       { path: "memories", element: <MemoriesPage /> },
-      {
-        path: "settings",
-        element: <SettingsPage />,
-      },
     ],
   },
 ]);

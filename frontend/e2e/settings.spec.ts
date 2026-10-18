@@ -2,10 +2,19 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("窄窗口仍能找到脱敏诊断与恢复说明", async ({ page }) => {
+  const workspaceReads: string[] = [];
+  page.on("request", (request) => {
+    if (/\/api\/(ui\/overview|threads)$/.test(request.url()))
+      workspaceReads.push(request.url());
+  });
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto("/app/settings");
 
   await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回刚才的问题" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("heading", { name: "工作台" })).toHaveCount(0);
   const download = page.getByRole("link", { name: "下载脱敏诊断包" });
   await expect(download).toBeVisible();
   await expect(download).toHaveAttribute("href", "/api/diagnostics/export");
@@ -18,4 +27,5 @@ test("窄窗口仍能找到脱敏诊断与恢复说明", async ({ page }) => {
     ({ impact }) => impact === "serious" || impact === "critical",
   );
   expect(blocking).toEqual([]);
+  expect(workspaceReads).toEqual([]);
 });

@@ -39,7 +39,9 @@ for (const colorScheme of ["light", "dark"] as const) {
     });
     for (const label of ["记忆", "设置", "工作台"]) {
       await page.getByRole("link", { name: label, exact: true }).click();
-      await expect(page.locator("main h2").first()).toBeVisible();
+      await expect(
+        page.getByRole("heading", { level: 2 }).first(),
+      ).toBeVisible();
       const screen = await new AxeBuilder({ page }).analyze();
       expect(
         screen.violations.filter(

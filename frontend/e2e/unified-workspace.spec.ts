@@ -188,6 +188,16 @@ for (const width of [1280, 881, 320]) {
       path: testInfo.outputPath(`workspace-${width}.png`),
       fullPage: true,
     });
+    const serviceUrl = page.url();
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "设置", exact: true })
+      .click();
+    await page.getByRole("link", { name: "返回刚才的问题" }).click();
+    expect(page.url()).toBe(serviceUrl);
+    await expect(page.getByLabel("正在讨论的程序")).toContainText("gost");
+    await expect(question).toHaveValue("帮我检查这个程序为什么打不开");
+    await expect(question).toBeFocused();
     await page.getByRole("link", { name: "请求记录", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "操作", exact: true }),
@@ -204,6 +214,20 @@ for (const width of [1280, 881, 320]) {
         "下面的问题会带上这条请求的状态；聊天不能替你批准或执行。",
       ),
     ).toBeVisible();
+    const operationUrl = page.url();
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "设置", exact: true })
+      .click();
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "工作台", exact: true })
+      .click();
+    expect(page.url()).toBe(operationUrl);
+    await expect(
+      page.getByRole("heading", { name: "临时访问请求", exact: true }),
+    ).toBeVisible();
+    await expect(question).toHaveValue("帮我检查这个程序为什么打不开");
     expect(writes).toBe(0);
     expect(
       await page.evaluate(
@@ -218,5 +242,11 @@ for (const width of [1280, 881, 320]) {
         ({ impact }) => impact === "serious" || impact === "critical",
       ),
     ).toEqual([]);
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "工作台", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/app\/overview$/);
+    await expect(question).toHaveValue("帮我检查这个程序为什么打不开");
   });
 }

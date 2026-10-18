@@ -363,6 +363,74 @@ afterAll(() => {
 });
 
 describe("ChatPage", () => {
+  it.each(["delete", "cancel"])(
+    "临时查看设置时收起 %s 确认，不重连或自动操作",
+    async (action) => {
+      const backend = installBackend([makeMessage("user", "之前的问题")]);
+      backend.serviceIds.set(threadId, program.service_id);
+      backend.runs.set(
+        runId,
+        makeRun(action === "delete" ? "failed" : "running"),
+      );
+      let writes = 0;
+      server.use(
+        http.delete("/api/threads/:id", () => {
+          writes += 1;
+          return new HttpResponse(null, { status: 204 });
+        }),
+        http.post("/api/runs/:id/cancel", () => {
+          writes += 1;
+          return HttpResponse.json(makeRun("cancelled"));
+        }),
+      );
+      const content = (visible: boolean) => (
+        <>
+          <div hidden={!visible}>
+            <ChatPage
+              workspace
+              visible={visible}
+              locationSearch={`?thread=${threadId}`}
+              services={[program]}
+            />
+          </div>
+          <input aria-label="设置输入" />
+        </>
+      );
+      const view = render(content(true));
+      await waitForSource();
+      const user = userEvent.setup();
+      const draft = action === "delete" ? "暂时保留的问题" : "";
+      if (action === "delete") {
+        await replayTerminalRun("failed");
+        await user.type(screen.getByRole("textbox", { name: "问题" }), draft);
+      }
+      if (action === "delete")
+        await user.click(screen.getByText("以往对话", { exact: true }));
+      await user.click(
+        screen.getByRole("button", {
+          name: action === "delete" ? "删除所选线程" : "停止这次检查",
+        }),
+      );
+      expect(screen.getByRole("alertdialog")).toBeVisible();
+      const sources = FakeEventSource.instances.length;
+      const source = FakeEventSource.instances.at(-1)!;
+      const wasClosed = source.closed;
+      view.rerender(content(false));
+      expect(screen.queryByRole("alertdialog", { hidden: true })).toBeNull();
+      await user.click(screen.getByLabelText("设置输入"));
+      expect(screen.getByLabelText("设置输入")).toHaveFocus();
+      expect(source.closed).toBe(wasClosed);
+      view.rerender(content(true));
+      expect(screen.queryByRole("alertdialog", { hidden: true })).toBeNull();
+      expect(screen.getByRole("textbox", { name: "问题" })).toHaveValue(draft);
+      if (action === "delete")
+        expect(screen.getByRole("textbox", { name: "问题" })).toHaveFocus();
+      expect(screen.getByLabelText("正在讨论的程序")).toHaveTextContent("gost");
+      expect(FakeEventSource.instances).toHaveLength(sources);
+      expect(writes).toBe(0);
+    },
+  );
+
   it("工作台保留程序名，连接按需查看，继续入口定位原草稿且不发送", async () => {
     const backend = installBackend([makeMessage("user", "之前的问题")]);
     backend.serviceIds.set(threadId, program.service_id);
