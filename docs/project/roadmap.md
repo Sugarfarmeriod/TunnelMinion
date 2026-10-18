@@ -50,7 +50,7 @@ flowchart TB
     Q27 --> Q28["✅ 检查未完成时说清原因与下一步"]
     Q28 --> Q29["✅ 工作台阅读与提问路径收拢"]
     Q26 --> Q29
-    Q29 --> Q30["测试页只读预览"]
+    Q29 --> Q30["✅ 测试页只读预览与 Mac 更新"]
     Q30 --> UIFeedback["新版实际使用反馈"]
     Q30 -.独立实际使用范围.-> Q14
     Q29 -.明确现场范围.-> Q14
@@ -119,7 +119,8 @@ flowchart TB
     class Q27 done;
     class Q28 done;
     class Q29 done;
-    class Q30 current;
+    class Q30 done;
+    style Q30 stroke-width:6px;
     class UIFeedback next;
 ```
 
@@ -166,7 +167,7 @@ flowchart TB
 | 重开对话后继续检查原程序            | 已完成   | [PR #136](https://github.com/Sugarfarmeriod/TunnelMinion/pull/136) 已合并为 `069458f`，[最终 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38852188860)；[阶段结果](stages/2026-10-15-conversation-program-context.md)覆盖恢复、切换及失效，235 组件和104双浏览器通过，不更新 Mac |
 | 检查未完成时说清原因与下一步        | 已完成   | [PR #138](https://github.com/Sugarfarmeriod/TunnelMinion/pull/138) 已合并为 `42d998c`，[最新完整 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38872745187)；[阶段结果](stages/2026-10-16-investigation-run-feedback.md)覆盖原因、停止回执、切换和键盘位置，249 组件与104双浏览器通过，不更新 Mac |
 | 工作台阅读与提问路径收拢            | 已完成   | [PR #139](https://github.com/Sugarfarmeriod/TunnelMinion/pull/139) 已合并为 `d37b491`，[最新完整 CI 8/8](https://github.com/Sugarfarmeriod/TunnelMinion/actions/runs/38877914903)；[阶段结果](stages/2026-10-16-workspace-reading-flow.md)保留程序、事实与草稿，减少重复标题和卡片，250 组件与104双浏览器通过，不更新 Mac |
-| 测试页只读预览                      | 进行中   | [阶段记录](stages/2026-10-18-read-only-preview.md)：一次启动开关停用模型探针、自动调查、网络后台与写接口，保留本机清单和既有记录；检查合并后仅更新已获准的 Mac 18767，不改模型配置或其他服务 |
+| 测试页只读预览                      | 已完成   | [阶段结果](stages/2026-10-18-read-only-preview.md)：[PR #142](https://github.com/Sugarfarmeriod/TunnelMinion/pull/142) 已合并，最终 CI 8/8；Mac 18767 已以预览模式更新，五段对话、五次运行及最近50条调查摘要保留，四项实机只读检查通过；自有上传与转发已清理，未调用模型或发送访问、批准请求 |
 | 新版实际使用反馈                    | 下一步   | 查看新版截图或只读测试页，依据具体不顺手之处限定后续调整；真实使用仍需独立现场范围，不默认调用模型、申请访问或发送批准请求 |
 | 完整新版实机使用验收                | 条件触发 | 将服务浏览、调查返回和新首页作为同一套体验验收；隔离页只读更新不等于完整使用验收，不默认发推理、临时访问或批准请求，也不修改网络配置 |
 | 请求处理与批准决策复核              | 已完成   | [阶段记录](stages/2026-10-12-request-decision-flow.md)：已有请求优先、申请按需展开、双方等待关系与窄屏决策复核；155组件、80双浏览器及8项请求定向检查通过，完成状态仅在 PR #120 最新完整 CI 成功且合并后生效，Mac 更新不在当前范围 |
@@ -187,9 +188,12 @@ PR #137 合并为 `cbe1de5`，其最终 CI 8/8，不增加 MCP 产品能力。
 最新完整 CI 8/8；250 项组件与接口、104 项完整双浏览器及两端正式包流程通过，初始 gzip 162.41 KiB。
 重复标题、卡片和常驻技术说明已收拢；核对事实、程序关联、明确发送及批准边界保留。
 查看设置后保留原问题的小修已随 PR #141 合并为 `4f0cedd`，最终 CI 8/8；252 组件和104项完整双浏览器
-检查通过。当前推进[测试页只读预览](stages/2026-10-18-read-only-preview.md)：用户已允许补齐预览启动方式，
-检查合并后仅更新 Mac 18767。只刷新本机清单、读取既有记录，不调用模型、申请访问或发送批准请求，
-不改 Qwen、面板、旧页、模型配置或网络。随后依据新版截图或只读测试页的实际反馈限定交互调整；
+检查通过。[测试页只读预览](stages/2026-10-18-read-only-preview.md)已随 PR #142 合并为 `2dd175f`，
+最终 CI 8/8；本地 1,785 后端、253 组件与110项完整双浏览器检查通过。Mac 原18767已更新为预览模式，
+只刷新本机清单、读取既有记录；五段对话、五次运行、最近50条调查摘要保留，四项实机只读检查通过。
+不调用模型、申请访问或发送批准请求，不改 Qwen、面板、旧页、模型配置或网络；自有上传和转发已清理，
+测试程序与原回退程序保留。预览是本次启动方式，不写入持久 profile。
+下一步依据新版截图或只读测试页的实际反馈限定交互调整；
 完整实机使用仍需独立范围，不把固定数据截图或只读浏览等同于老人用户或完整跨设备使用验收。
 最近验收：[现有 Qwen 的只读 Agent 体验](stages/2026-10-15-qwen-readonly-experience.md)，PR #132 已合并为
 `30d62b3`，最终 CI 8/8。PR #130 已合并，
