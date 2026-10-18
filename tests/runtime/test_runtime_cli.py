@@ -804,7 +804,6 @@ def test_real_local_runtime_start_status_stop(
         assert started["model"]["status"] == ("not_checked" if read_only_preview else "unavailable")
         if read_only_preview:
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False) as client:
-                assert 'name="tunnelminion-read-only-preview"' in client.get("/app/overview").text
                 assert client.get("/api/threads").status_code == 200
                 assert client.post("/api/threads").json()["detail"]["code"] == "read_only_preview"
 

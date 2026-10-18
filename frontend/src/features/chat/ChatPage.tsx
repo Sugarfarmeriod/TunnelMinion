@@ -710,12 +710,12 @@ export function ChatPage({
           </button>
         ) : null}
       </header>
-      {workspace && modelStatus === "unconfigured" ? (
+      {workspace && !readOnlyPreview && modelStatus === "unconfigured" ? (
         <p className="chat-alert chat-alert--warning" role="status">
           还没连接模型，目前只能看程序和处理已有请求，不会自动调查。
           <Link to="/app/settings">连接模型</Link>
         </p>
-      ) : workspace && modelStatus === "unavailable" ? (
+      ) : workspace && !readOnlyPreview && modelStatus === "unavailable" ? (
         <p className="chat-alert chat-alert--warning" role="status">
           暂时联系不上模型；程序和已有请求仍可查看。
           <Link to="/app/settings">检查模型连接</Link>
@@ -942,9 +942,11 @@ export function ChatPage({
                       : "发送并开始运行"}
                 </button>
                 <p className="chat-composer__safety">
-                  {workspace
-                    ? "提问会使用模型额度。任何批准或执行仍要你确认。"
-                    : "网络结果未知时只复读线程与运行状态，不会自动重发问题、工具调用或取消请求。"}
+                  {readOnlyPreview
+                    ? "当前只展示记录。发送问题和操作已停用，不会使用模型额度。"
+                    : workspace
+                      ? "提问会使用模型额度。任何批准或执行仍要你确认。"
+                      : "网络结果未知时只复读线程与运行状态，不会自动重发问题、工具调用或取消请求。"}
                 </p>
               </form>
             </>
@@ -1172,6 +1174,7 @@ function RunPanel({
 }: RunPanelProps) {
   const requestCancelButtonRef = useRef<HTMLButtonElement>(null);
   const runHeadingRef = useRef<HTMLHeadingElement>(null);
+  const readOnlyPreview = isReadOnlyPreview();
 
   if (activeRun === null || effectiveStatus === null) {
     return null;
@@ -1270,7 +1273,9 @@ function RunPanel({
             {feedback}
           </p>
           <p>
-            {continuationBlocked ? (
+            {readOnlyPreview ? (
+              "这是已有的检查记录，预览模式不会继续提问或重新检查。"
+            ) : continuationBlocked ? (
               "先从程序列表重新选择程序，再继续问。"
             ) : (
               <>
@@ -1307,7 +1312,7 @@ function RunPanel({
         <button
           ref={requestCancelButtonRef}
           className="chat-button chat-button--secondary"
-          disabled={isReadOnlyPreview() || cancelling}
+          disabled={readOnlyPreview || cancelling}
           type="button"
           onClick={onRequestCancel}
         >

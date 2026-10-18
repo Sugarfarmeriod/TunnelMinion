@@ -96,6 +96,17 @@ for (const width of [1280, 320]) {
     await expect(
       page.getByRole("button", { name: "发送问题", exact: true }),
     ).toBeDisabled();
+    await expect(
+      page.getByText(
+        "当前只展示记录。发送问题和操作已停用，不会使用模型额度。",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "连接模型", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "继续提问", exact: true }),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "刷新这段对话" }).click();
     const navigation = page.getByRole("navigation", { name: "主要导航" });
     await navigation.getByRole("link", { name: "设置", exact: true }).click();
