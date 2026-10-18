@@ -402,10 +402,7 @@ describe("ChatPage", () => {
       const draft = action === "delete" ? "暂时保留的问题" : "";
       if (action === "delete") {
         await replayTerminalRun("failed");
-        await user.type(
-          screen.getByRole("textbox", { name: "问题" }),
-          draft,
-        );
+        await user.type(screen.getByRole("textbox", { name: "问题" }), draft);
       }
       if (action === "delete")
         await user.click(screen.getByText("以往对话", { exact: true }));
@@ -425,13 +422,9 @@ describe("ChatPage", () => {
       expect(source.closed).toBe(wasClosed);
       view.rerender(content(true));
       expect(screen.queryByRole("alertdialog", { hidden: true })).toBeNull();
-      expect(
-        screen.getByRole("textbox", { name: "问题" }),
-      ).toHaveValue(draft);
+      expect(screen.getByRole("textbox", { name: "问题" })).toHaveValue(draft);
       if (action === "delete")
-        expect(
-          screen.getByRole("textbox", { name: "问题" }),
-        ).toHaveFocus();
+        expect(screen.getByRole("textbox", { name: "问题" })).toHaveFocus();
       expect(screen.getByLabelText("正在讨论的程序")).toHaveTextContent("gost");
       expect(FakeEventSource.instances).toHaveLength(sources);
       expect(writes).toBe(0);
