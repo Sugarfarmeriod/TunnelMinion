@@ -19,6 +19,7 @@ class ModelHealthStatus(StrEnum):
     UNCONFIGURED = "unconfigured"
     REACHABLE = "reachable"
     UNAVAILABLE = "unavailable"
+    NOT_CHECKED = "not_checked"
 
 
 class ModelHealthResult(BaseModel):

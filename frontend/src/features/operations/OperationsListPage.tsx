@@ -21,6 +21,7 @@ import {
   operationQueryKeys,
 } from "./operationsApi";
 import "./operations.css";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 
 const incidentIdPattern = /^incident_[0-9a-f]{32}$/;
 const nodeIdPattern = /^node_[0-9a-f]{32}$/;
@@ -467,6 +468,7 @@ export function OperationsListPage() {
           </label>
           <button
             disabled={
+              isReadOnlyPreview() ||
               creating ||
               prefillBlocked ||
               !targetAvailable ||

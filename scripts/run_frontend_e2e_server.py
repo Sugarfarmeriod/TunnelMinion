@@ -16,13 +16,13 @@ from tunnelminion.app import build_windows_application
 from tunnelminion.macos_app import build_macos_local_application
 
 
-def build_application(data_dir: Path) -> FastAPI:
+def build_application(data_dir: Path, *, read_only_preview: bool = False) -> FastAPI:
     """按当前验收平台装配与产品入口相同的 FastAPI 应用。"""
     if sys.platform == "darwin":
-        application = build_macos_local_application(data_dir)
+        application = build_macos_local_application(data_dir, read_only_preview=read_only_preview)
         seed_operation(application.operation_control_service, application.node.node_id)
         return application.app
-    application = build_windows_application(data_dir)
+    application = build_windows_application(data_dir, read_only_preview=read_only_preview)
     seed_operation(application.operation_control_service, application.node_id)
     return application.app
 
@@ -32,6 +32,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4174)
+    parser.add_argument("--read-only-preview", action="store_true")
     args = parser.parse_args()
 
     repository = Path(__file__).resolve().parents[1]
@@ -40,7 +41,7 @@ def main() -> int:
         repository / "build" / "frontend-dist",
     )
     with TemporaryDirectory(prefix="tunnelminion-playwright-") as temporary:
-        application = build_application(Path(temporary))
+        application = build_application(Path(temporary), read_only_preview=args.read_only_preview)
         uvicorn.run(
             application,
             host=args.host,

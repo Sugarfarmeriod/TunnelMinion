@@ -154,6 +154,26 @@ def test_runtime_command_factory_contains_only_identity_and_local_paths(
     assert frozen[1] == "runtime-child"
 
 
+def test_preview_command_and_control_view_never_probe_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile, paths = _profile(tmp_path)
+    factory = RuntimeCommandFactory(profile, paths, read_only_preview=True)
+    assert factory(RuntimeComponent.LOCAL, UUID(int=1))[-1] == "--read-only-preview"
+    with pytest.raises(ComponentLaunchError, match="preview_requires_local"):
+        factory(RuntimeComponent.GATEWAY, UUID(int=2))
+
+    async def forbidden_probe(*_args: object) -> None:
+        raise AssertionError("预览控制命令不得探测模型")
+
+    monkeypatch.setattr(control, "probe_external_model", forbidden_probe)
+    report = LifecycleReport(state=OverallRuntimeState.STOPPED, components=(), exit_code=0)
+    view = runtime_control_view(report, profile, paths, read_only_preview=True)
+    assert view.model.status == "not_checked"
+    assert view.model.code == "read_only_preview"
+    assert "read_only_preview" not in profile.model_dump()
+
+
 def test_gateway_command_factory_fails_before_spawn_when_config_is_missing_or_invalid(
     tmp_path: Path,
 ) -> None:

@@ -15,11 +15,20 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
-  webServer: {
-    command:
-      "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4174",
-    url: "http://127.0.0.1:4174/app/overview",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command:
+        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4174",
+      url: "http://127.0.0.1:4174/app/overview",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command:
+        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4176 --read-only-preview",
+      url: "http://127.0.0.1:4176/app/overview",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

@@ -30,6 +30,7 @@ import {
 } from "./operationsApi";
 import type { OperationAction, OperationDetail } from "./schemas";
 import "./operations.css";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 
 interface ConfirmationState {
   action: OperationAction;
@@ -504,20 +505,24 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
             }
             type="button"
             onClick={() =>
-              void (unknownResult !== null
-                ? queryAfterUnknownResult()
-                : refreshVisibleDetail())
+              void (isReadOnlyPreview()
+                ? query.refetch()
+                : unknownResult !== null
+                  ? queryAfterUnknownResult()
+                  : refreshVisibleDetail())
             }
           >
-            {query.isFetching || preparingAction === "refresh"
-              ? resultUnknown
-                ? "正在查询……"
-                : "正在刷新……"
-              : resultUnknown
-                ? "查询这条请求"
-                : detail.role === "requester"
-                  ? operationActionLabels.refresh
-                  : "刷新详情"}
+            {isReadOnlyPreview()
+              ? "刷新记录"
+              : query.isFetching || preparingAction === "refresh"
+                ? resultUnknown
+                  ? "正在查询……"
+                  : "正在刷新……"
+                : resultUnknown
+                  ? "查询这条请求"
+                  : detail.role === "requester"
+                    ? operationActionLabels.refresh
+                    : "刷新详情"}
           </button>
         </div>
       </header>
@@ -736,6 +741,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
                         : "operation-button--secondary"
                     }
                     disabled={
+                      isReadOnlyPreview() ||
                       preparingAction !== null ||
                       submitting ||
                       query.isRefetchError
@@ -750,7 +756,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
                       : operationActionLabels[action]}
                   </button>
                 ))}
-                {canAccess ? (
+                {canAccess && !isReadOnlyPreview() ? (
                   <a
                     className="operation-link"
                     href={operationAccessUrl(summary.operation_id)}

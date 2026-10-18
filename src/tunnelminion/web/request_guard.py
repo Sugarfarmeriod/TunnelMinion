@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import AddressValueError, IPv6Address
@@ -28,6 +29,7 @@ class LocalRequestErrorCode(StrEnum):
     INVALID_ORIGIN = "invalid_origin"
     REQUEST_HEADER_REQUIRED = "request_header_required"
     INVALID_REQUEST_HEADER = "invalid_request_header"
+    READ_ONLY_PREVIEW = "read_only_preview"
 
 
 _ERROR_MESSAGES = {
@@ -36,6 +38,7 @@ _ERROR_MESSAGES = {
     LocalRequestErrorCode.INVALID_ORIGIN: "浏览器写请求 Origin 与当前本机来源不一致",
     LocalRequestErrorCode.REQUEST_HEADER_REQUIRED: "浏览器写请求缺少 TunnelMinion 同源请求头",
     LocalRequestErrorCode.INVALID_REQUEST_HEADER: "TunnelMinion 同源请求头无效",
+    LocalRequestErrorCode.READ_ONLY_PREVIEW: "预览模式只能查看记录，不能发送问题或执行操作",
 }
 
 
@@ -48,8 +51,9 @@ class _Authority:
 class LocalWebRequestGuardMiddleware:
     """在任何 FastAPI 路由或领域服务执行前校验本机请求。"""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, read_only_preview: bool = False) -> None:
         self._app = app
+        self._read_only_preview = read_only_preview
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -57,6 +61,15 @@ class LocalWebRequestGuardMiddleware:
             return
 
         error = _request_error(scope)
+        if (
+            error is None
+            and self._read_only_preview
+            and (
+                scope["method"] not in _SAFE_METHODS
+                or re.match(r"^/api/operations/[^/]+/access(?:/|$)", scope["path"])
+            )
+        ):
+            error = LocalRequestErrorCode.READ_ONLY_PREVIEW
         if error is None:
             await self._app(scope, receive, send)
             return
@@ -77,9 +90,9 @@ class LocalWebRequestGuardMiddleware:
         await response(scope, receive, send)
 
 
-def install_local_request_guard(app: FastAPI) -> None:
+def install_local_request_guard(app: FastAPI, *, read_only_preview: bool = False) -> None:
     """把本机请求守卫安装到 FastAPI 应用的路由层之外。"""
-    app.add_middleware(LocalWebRequestGuardMiddleware)
+    app.add_middleware(LocalWebRequestGuardMiddleware, read_only_preview=read_only_preview)
 
 
 def _request_error(scope: Scope) -> LocalRequestErrorCode | None:

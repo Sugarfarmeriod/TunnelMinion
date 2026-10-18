@@ -9,6 +9,7 @@ import {
 
 import { ApiError, requestJson } from "../../api/client";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 
 import {
   allowedToolNames,
@@ -183,6 +184,7 @@ export function ChatPage({
   modelStatus,
   children,
 }: ChatPageProps = {}) {
+  const readOnlyPreview = isReadOnlyPreview();
   const requestedThreadId = incidentId
     ? (incidentThreadId ?? undefined)
     : (new URLSearchParams(locationSearch).get("thread") ?? undefined);
@@ -387,7 +389,9 @@ export function ChatPage({
   const terminalReplayPending =
     eventState.terminalStatus !== null && eventState.phase !== "terminal";
   const composerLocked =
-    effectiveRunStatus === "running" || terminalReplayPending;
+    readOnlyPreview ||
+    effectiveRunStatus === "running" ||
+    terminalReplayPending;
   const programConversation =
     workspace && !incidentId && !operationContext && !contextBlocked;
   const currentDetail =
@@ -698,7 +702,7 @@ export function ChatPage({
         {workspace && !incidentId ? (
           <button
             className="chat-button--primary"
-            disabled={writeAction !== null}
+            disabled={readOnlyPreview || writeAction !== null}
             type="button"
             onClick={() => void handleCreateThread()}
           >
@@ -739,7 +743,7 @@ export function ChatPage({
             </h3>
             {!workspace ? (
               <button
-                disabled={writeAction !== null}
+                disabled={readOnlyPreview || writeAction !== null}
                 type="button"
                 onClick={() => void handleCreateThread()}
               >
@@ -779,7 +783,11 @@ export function ChatPage({
           <button
             ref={deleteButtonRef}
             className="chat-button chat-button--danger"
-            disabled={selectedThreadId === null || writeAction !== null}
+            disabled={
+              readOnlyPreview ||
+              selectedThreadId === null ||
+              writeAction !== null
+            }
             type="button"
             onClick={() => setConfirmingDelete(true)}
           >
@@ -1299,7 +1307,7 @@ function RunPanel({
         <button
           ref={requestCancelButtonRef}
           className="chat-button chat-button--secondary"
-          disabled={cancelling}
+          disabled={isReadOnlyPreview() || cancelling}
           type="button"
           onClick={onRequestCancel}
         >

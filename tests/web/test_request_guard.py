@@ -37,7 +37,9 @@ class ApiClient(Protocol):
     ) -> httpx.Response: ...
 
 
-def _build_client(calls: list[str], *, base_url: str = "http://localhost:8765") -> ApiClient:
+def _build_client(
+    calls: list[str], *, base_url: str = "http://localhost:8765", read_only_preview: bool = False
+) -> ApiClient:
     app = FastAPI()
 
     async def target() -> dict[str, str]:
@@ -57,7 +59,7 @@ def _build_client(calls: list[str], *, base_url: str = "http://localhost:8765") 
         methods=["GET", "HEAD", "OPTIONS", "TRACE", "POST", "PUT", "PATCH", "DELETE"],
     )
     app.add_api_route("/events", events, methods=["GET"])
-    install_local_request_guard(app)
+    install_local_request_guard(app, read_only_preview=read_only_preview)
     return cast(ApiClient, TestClient(app, base_url=base_url))
 
 
@@ -65,6 +67,37 @@ def _error_code(response: httpx.Response) -> str:
     body = cast(dict[str, object], response.json())
     detail = cast(dict[str, object], body["detail"])
     return cast(str, detail["code"])
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/target"),
+        ("PUT", "/target"),
+        ("PATCH", "/target"),
+        ("DELETE", "/target"),
+        ("GET", "/api/operations/example/access"),
+        ("GET", "/api/operations/example/access/file"),
+    ],
+)
+@pytest.mark.parametrize("browser", [False, True])
+def test_preview_rejects_actions_before_route_execution(
+    method: str, path: str, browser: bool
+) -> None:
+    calls: list[str] = []
+    client = _build_client(calls, read_only_preview=True)
+    headers = (
+        {"Origin": "http://localhost:8765", "X-TunnelMinion-Request": "same-origin"}
+        if browser
+        else None
+    )
+    response = client.request(method, path, headers=headers)
+    assert response.status_code == 403
+    assert _error_code(response) == "read_only_preview"
+    assert response.headers["cache-control"] == "no-store"
+    assert calls == []
+    assert client.request("GET", "/target").status_code == 200
+    assert calls == ["target"]
 
 
 def _invoke_scope(scope: Scope) -> tuple[list[Message], list[str]]:

@@ -14,7 +14,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.gateway.configuration import FileGatewayConfigurationRepository
-from tunnelminion.runtime.health import ModelHealthResult, probe_external_model
+from tunnelminion.runtime.health import ModelHealthResult, ModelHealthStatus, probe_external_model
 from tunnelminion.runtime.lifecycle import (
     ComponentLaunchError,
     ComponentReadinessProbe,
@@ -92,11 +92,16 @@ class RuntimeComponentHealthProbe:
 class RuntimeCommandFactory:
     """只生成非秘密子进程参数，并在 Gateway 未配置时提前分域失败。"""
 
-    def __init__(self, profile: RuntimeProfile, paths: RuntimePaths) -> None:
+    def __init__(
+        self, profile: RuntimeProfile, paths: RuntimePaths, *, read_only_preview: bool = False
+    ) -> None:
         self._profile = profile
         self._paths = paths
+        self._read_only_preview = read_only_preview
 
     def __call__(self, component: RuntimeComponent, instance_id: UUID) -> tuple[str, ...]:
+        if self._read_only_preview and component is not RuntimeComponent.LOCAL:
+            raise ComponentLaunchError("preview_requires_local")
         if component is RuntimeComponent.GATEWAY:
             try:
                 gateway = FileGatewayConfigurationRepository(
@@ -122,6 +127,7 @@ class RuntimeCommandFactory:
             str(self._profile.local_port),
             "--runtime-log-file",
             str(self._paths.log_dir / f"{component.value}.log"),
+            *(("--read-only-preview",) if self._read_only_preview else ()),
         )
 
 
@@ -146,6 +152,8 @@ def application_version() -> str:
 def build_lifecycle_manager(
     profile: RuntimeProfile,
     paths: RuntimePaths,
+    *,
+    read_only_preview: bool = False,
 ) -> ManualLifecycleManager:
     """组装真实 detached 进程、命令与零秘密健康探针。"""
     return ManualLifecycleManager(
@@ -153,7 +161,7 @@ def build_lifecycle_manager(
         paths,
         application_version(),
         DetachedProcessAdapter(),
-        RuntimeCommandFactory(profile, paths),
+        RuntimeCommandFactory(profile, paths, read_only_preview=read_only_preview),
         health=RuntimeComponentHealthProbe(
             profile,
             paths.data_dir,
@@ -187,12 +195,18 @@ def runtime_control_view(
     report: LifecycleReport,
     profile: RuntimeProfile,
     paths: RuntimePaths,
+    *,
+    read_only_preview: bool = False,
 ) -> RuntimeControlView:
     """合并生命周期、外部模型与受限日志位置。"""
-    model = asyncio.run(
-        probe_external_model(
-            paths.data_dir,
-            profile.budgets.model_health_timeout_seconds,
+    model = (
+        ModelHealthResult(status=ModelHealthStatus.NOT_CHECKED, code="read_only_preview")
+        if read_only_preview
+        else asyncio.run(
+            probe_external_model(
+                paths.data_dir,
+                profile.budgets.model_health_timeout_seconds,
+            )
         )
     )
     return RuntimeControlView(

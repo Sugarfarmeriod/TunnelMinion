@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 _DEFAULT_UI_ENV = "TUNNELMINION_DEFAULT_UI"
 _UI_ENTRYPOINTS = {
@@ -63,15 +63,24 @@ def default_ui_entrypoint(environment: Mapping[str, str] | None = None) -> str:
         raise ValueError(f"{_DEFAULT_UI_ENV} 必须是以下值之一：{allowed}") from error
 
 
-def create_spa_router(asset_root: Path | None = None) -> APIRouter:
+def create_spa_router(
+    asset_root: Path | None = None, *, read_only_preview: bool = False
+) -> APIRouter:
     """创建默认入口及只匹配 `/app/*` 与 `/app-assets/*` 的静态路由。"""
     root = (asset_root or default_spa_root()).resolve()
     index = root / "index.html"
     router = APIRouter()
 
-    def spa_entry() -> FileResponse:
+    def spa_entry() -> Response:
         if not index.is_file():
             raise HTTPException(status_code=503, detail={"code": "frontend_unavailable"})
+        if read_only_preview:
+            html = index.read_text(encoding="utf-8").replace(
+                "</head>",
+                '<meta name="tunnelminion-read-only-preview" content="true"></head>',
+                1,
+            )
+            return HTMLResponse(html, headers=_INDEX_HEADERS)
         return FileResponse(index, media_type="text/html", headers=_INDEX_HEADERS)
 
     def static_asset(asset_path: str) -> FileResponse:

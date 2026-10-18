@@ -6,6 +6,7 @@ import { ApiError } from "../../api/client";
 import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 
 import {
   deleteModelConfiguration,
@@ -421,7 +422,9 @@ export function SettingsPage() {
           </article>
 
           <form className="settings-form" onSubmit={reviewSave}>
-            <fieldset disabled={writing || deleteUncertain}>
+            <fieldset
+              disabled={isReadOnlyPreview() || writing || deleteUncertain}
+            >
               <legend>受限模型配置入口</legend>
               {data.profiles.length > 1 ? (
                 <>
@@ -539,7 +542,7 @@ export function SettingsPage() {
             )}
             <div className="settings-actions">
               <button
-                disabled={writing || deleteUncertain}
+                disabled={isReadOnlyPreview() || writing || deleteUncertain}
                 ref={saveButtonRef}
                 type="submit"
               >
@@ -547,7 +550,10 @@ export function SettingsPage() {
               </button>
               <button
                 disabled={
-                  writing || deleteUncertain || data.status === "unconfigured"
+                  isReadOnlyPreview() ||
+                  writing ||
+                  deleteUncertain ||
+                  data.status === "unconfigured"
                 }
                 onClick={() => void validateOnce()}
                 type="button"
@@ -557,6 +563,7 @@ export function SettingsPage() {
               <button
                 className="settings-button--danger-outline"
                 disabled={
+                  isReadOnlyPreview() ||
                   writing ||
                   (data.status === "unconfigured" && !deleteUncertain)
                 }

@@ -191,6 +191,7 @@ def build_windows_application(
     data_dir: Path | None = None,
     *,
     network_path: NetworkPathViewBindings | None = None,
+    read_only_preview: bool = False,
 ) -> WindowsApplication:
     """组装模型配置、六个真实只读工具和本机 Web 入口。"""
     root = data_dir or default_data_dir()
@@ -298,12 +299,12 @@ def build_windows_application(
         raise ValueError("静态对端观察不能与目录观察同时启用")
     before_snapshot = None
     remote_observer = None
-    if managed.coordinator is not None:
+    if managed.coordinator is not None and not read_only_preview:
         remote_observer = RemoteServicePresentationObserver(
             node_id, managed.coordinator.coordinator_cache, remote_preparer
         )
         before_snapshot = remote_observer.refresh
-    if managed.coordinator is None:
+    if managed.coordinator is None or read_only_preview:
         local_observer = DeterministicServiceObserver(
             node_id,
             ServiceObservationConfig(),
@@ -314,7 +315,7 @@ def build_windows_application(
 
         async def refresh_local_services() -> None:
             service_cache.replace(await local_observer.observe())
-            if peer_observer is not None:
+            if peer_observer is not None and not read_only_preview:
                 await peer_observer.refresh()
 
         before_snapshot = refresh_local_services
@@ -348,6 +349,7 @@ def build_windows_application(
         ),
         before_snapshot=before_snapshot,
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
+        read_only_preview=read_only_preview,
     )
     app = FastAPI(
         title="TunnelMinion",
@@ -358,7 +360,7 @@ def build_windows_application(
             incident_store,
         ),
     )
-    install_local_request_guard(app)
+    install_local_request_guard(app, read_only_preview=read_only_preview)
     app.include_router(create_model_router(model_service))
     app.include_router(
         create_resource_router(
@@ -377,7 +379,7 @@ def build_windows_application(
     app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))
     app.include_router(create_operation_router(operation_control))
-    app.include_router(create_spa_router())
+    app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return WindowsApplication(
         app,
         node_id,

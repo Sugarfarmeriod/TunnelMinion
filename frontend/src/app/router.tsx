@@ -13,6 +13,7 @@ import { MemoriesPage } from "../features/memories";
 import { OperationDetailPage, OperationsPage } from "../features/operations";
 import { SettingsPage } from "../features/settings";
 import { RouteErrorPage } from "./RouteErrorPage";
+import { isReadOnlyPreview } from "../shared/previewMode";
 
 const navigation = [
   ["工作台", "/app"],
@@ -38,6 +39,11 @@ function ProductShell() {
         <header className="product-header">
           <h1>TunnelMinion</h1>
           <p className="privacy-note">只连接这台电脑上的 TunnelMinion</p>
+          {isReadOnlyPreview() ? (
+            <p className="privacy-note" role="status">
+              预览模式：只看程序和已有记录，不自动调查，也不能发送问题或执行操作。
+            </p>
+          ) : null}
         </header>
         <nav aria-label="主要导航" className="primary-navigation">
           {navigation.map(([label, path]) =>

@@ -49,6 +49,7 @@ def _runtime_command(values: list[str]) -> int:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--local-port", type=_runtime_port, default=8000)
     parser.add_argument("--enable-gateway", action="store_true")
+    parser.add_argument("--read-only-preview", action="store_true")
     args = parser.parse_args(values)
 
     from tunnelminion.runtime.control import (
@@ -73,6 +74,8 @@ def _runtime_command(values: list[str]) -> int:
     profile_path = (args.profile or default_runtime_profile_path()).expanduser().resolve()
     repository = FileRuntimeProfileRepository(profile_path, current_program_dir())
     if args.action == "configure":
+        if args.read_only_preview:
+            parser.error("预览开关只用于运行，不写入 profile")
         components = {RuntimeComponent.LOCAL}
         if args.enable_gateway:
             components.add(RuntimeComponent.GATEWAY)
@@ -107,7 +110,10 @@ def _runtime_command(values: list[str]) -> int:
         )
         return 2
     paths = resolve_runtime_paths(profile.data_dir, profile_path)
-    manager = build_lifecycle_manager(profile, paths)
+    if args.read_only_preview and profile.enabled_components != frozenset({RuntimeComponent.LOCAL}):
+        print(json.dumps({"status": "failed", "error_code": "preview_requires_local"}))
+        return 2
+    manager = build_lifecycle_manager(profile, paths, read_only_preview=args.read_only_preview)
     preflight_report = None
     try:
         if args.action == "start":
@@ -148,7 +154,7 @@ def _runtime_command(values: list[str]) -> int:
             )
         )
         return 2
-    view = runtime_control_view(report, profile, paths)
+    view = runtime_control_view(report, profile, paths, read_only_preview=args.read_only_preview)
     if preflight_report is None:
         print(view.model_dump_json())
     else:
@@ -273,6 +279,7 @@ def _runtime_child(values: list[str]) -> int:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--local-port", type=int, required=True, choices=range(1024, 65536))
     parser.add_argument("--runtime-log-file", type=Path, required=True)
+    parser.add_argument("--read-only-preview", action="store_true")
     args = parser.parse_args(values)
 
     from uuid import UUID
@@ -282,6 +289,8 @@ def _runtime_child(values: list[str]) -> int:
     try:
         UUID(args.runtime_instance_id)
         if args.runtime_component == "gateway":
+            if args.read_only_preview:
+                raise ValueError("预览模式只允许本机页面")
             from tunnelminion.macos_app import build_macos_gateway_application
 
             bundle = build_macos_gateway_application(args.data_dir)
@@ -294,11 +303,15 @@ def _runtime_child(values: list[str]) -> int:
             if sys.platform == "darwin":
                 from tunnelminion.macos_app import build_macos_local_application
 
-                bundle = build_macos_local_application(args.data_dir)
+                bundle = build_macos_local_application(
+                    args.data_dir, read_only_preview=args.read_only_preview
+                )
             else:
                 from tunnelminion.app import build_windows_application
 
-                bundle = build_windows_application(args.data_dir)
+                bundle = build_windows_application(
+                    args.data_dir, read_only_preview=args.read_only_preview
+                )
             application = bundle.app
             _retain_local_application_owner(application, bundle)
         uvicorn.run(
