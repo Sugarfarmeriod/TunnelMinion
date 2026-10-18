@@ -148,6 +148,8 @@ export interface ChatPageProps {
   streamIdleTimeoutMs?: number;
   streamReconnectDelayMs?: number;
   workspace?: boolean;
+  visible?: boolean;
+  locationSearch?: string;
   serviceContext?: ResourceOverview["services"]["items"][number];
   services?: ResourceOverview["services"]["items"];
   nodes?: ResourceOverview["nodes"]["items"];
@@ -166,6 +168,8 @@ export function ChatPage({
   streamIdleTimeoutMs,
   streamReconnectDelayMs,
   workspace = false,
+  visible = true,
+  locationSearch = window.location.search,
   serviceContext,
   services,
   nodes,
@@ -181,7 +185,7 @@ export function ChatPage({
 }: ChatPageProps = {}) {
   const requestedThreadId = incidentId
     ? (incidentThreadId ?? undefined)
-    : (new URLSearchParams(window.location.search).get("thread") ?? undefined);
+    : (new URLSearchParams(locationSearch).get("thread") ?? undefined);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
@@ -201,6 +205,17 @@ export function ChatPage({
   const actionControllers = useRef(new Set<AbortController>());
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const threadsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const wasHidden = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      wasHidden.current = true;
+      setConfirmingDelete(false);
+      setConfirmingCancel(false);
+    } else if (wasHidden.current) {
+      wasHidden.current = false;
+      document.getElementById("chat-question")?.focus();
+    }
+  }, [visible]);
 
   const selectThread = useCallback((threadId: string | null) => {
     selectedThreadRef.current = threadId;
@@ -771,7 +786,7 @@ export function ChatPage({
             删除所选线程
           </button>
 
-          {confirmingDelete ? (
+          {visible && confirmingDelete ? (
             <DeleteThreadConfirmationDialog
               busy={writeAction !== null}
               fallbackFocus={threadsHeadingRef.current}
@@ -847,7 +862,7 @@ export function ChatPage({
                 effectiveStatus={effectiveRunStatus}
                 eventState={eventState}
                 cancelling={writeAction === "cancel"}
-                confirmingCancel={confirmingCancel}
+                confirmingCancel={visible && confirmingCancel}
                 continuationBlocked={programContextBlocked}
                 onRequestCancel={() => setConfirmingCancel(true)}
                 onDismissCancel={() => setConfirmingCancel(false)}

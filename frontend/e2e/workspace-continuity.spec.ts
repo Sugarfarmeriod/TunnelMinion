@@ -102,6 +102,10 @@ for (const width of [1280, 320]) {
     });
     let reads = 0;
     let writes = 0;
+    let releaseCreate = () => {};
+    const creation = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
     page.on("request", (request) => {
       if (request.method() !== "GET") writes += 1;
     });
@@ -114,8 +118,23 @@ for (const width of [1280, 320]) {
     await page.route("**/api/operations", (route) =>
       route.fulfill({ json: [] }),
     );
-    await page.route("**/api/threads", (route) => {
+    await page.route("**/api/model-config", (route) =>
+      route.fulfill({
+        json: {
+          endpoint: "http://127.0.0.1:8080/v1",
+          model: "qwen-local",
+          timeout_seconds: 30,
+          api_key_configured: false,
+          profiles: [],
+          status: "available",
+          error_code: null,
+          error_message: null,
+        },
+      }),
+    );
+    await page.route("**/api/threads", async (route) => {
       if (route.request().method() === "POST") {
+        await creation;
         threads.push(newThread);
         return route.fulfill({ json: newThread });
       }
@@ -268,6 +287,35 @@ for (const width of [1280, 320]) {
     await expect(
       page.getByRole("link", { name: "检查模型连接" }),
     ).toHaveAttribute("href", "/app/settings");
+    await page.getByRole("link", { name: "检查模型连接" }).click();
+    await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+    await expect(question).not.toBeVisible();
+    const returnToQuestion = page.getByRole("link", { name: "返回刚才的问题" });
+    await expect(returnToQuestion).toHaveAttribute("href", "/app/overview");
+    await page.getByLabel("新 API 密钥（可选）").fill("fixture-unsaved-key");
+    await page.screenshot({
+      path: testInfo.outputPath(`settings-with-return-${width}.png`),
+    });
+    expect(writes).toBe(0);
+    await page.goBack();
+    await question.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`settings-return-${width}.png`),
+    });
+    await expect(question).toHaveValue("我想继续刚才的检查");
+    await expect(question).toBeFocused();
+    await page.getByRole("link", { name: "检查模型连接" }).click();
+    await expect(page.getByLabel("新 API 密钥（可选）")).toHaveValue("");
+    await returnToQuestion.click();
+    await expect(question).toHaveValue("我想继续刚才的检查");
+    await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
+    expect(
+      await page.evaluate(() =>
+        [localStorage, sessionStorage, history.state].some((value) =>
+          /我想继续刚才的检查|fixture-unsaved-key/.test(JSON.stringify(value)),
+        ),
+      ),
+    ).toBe(false);
     await expect(page.getByText(checkedFact, { exact: true })).toBeVisible();
     const technicalMessage = page.getByText(run.error_message!, {
       exact: true,
@@ -377,6 +425,24 @@ for (const width of [1280, 320]) {
     await expect(
       page.getByText("以前的检查记录", { exact: true }),
     ).toBeVisible();
+    const oldConversationUrl = page.url();
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "设置", exact: true })
+      .click();
+    await expect(returnToQuestion).toHaveAttribute(
+      "href",
+      `/app/overview?thread=${oldThreadId}`,
+    );
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "工作台", exact: true })
+      .click();
+    expect(page.url()).toBe(oldConversationUrl);
+    await expect(
+      page.getByText("以前的检查记录", { exact: true }),
+    ).toBeVisible();
+    await expect(question).toHaveValue("我想继续刚才的检查");
     await page.getByRole("button", { name: /继续对话 1/ }).click();
     await expect(page).toHaveURL(new RegExp(`thread=${recentThreadId}$`));
     await expect(page.getByLabel("正在讨论的程序")).toContainText("相册");
@@ -387,6 +453,18 @@ for (const width of [1280, 320]) {
     await expect(question).toHaveValue("");
     expect(writes).toBe(2);
     await page.getByRole("button", { name: "开始新对话" }).click();
+    await page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "设置", exact: true })
+      .click();
+    releaseCreate();
+    await expect(returnToQuestion).toHaveAttribute(
+      "href",
+      `/app/overview?thread=${newThread.thread_id}`,
+    );
+    await expect(page).toHaveURL(/\/app\/settings$/);
+    await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+    await returnToQuestion.click();
     await expect(page).toHaveURL(new RegExp(`thread=${newThread.thread_id}$`));
     await expect(page.getByLabel("正在讨论的程序")).toHaveCount(0);
     await page.reload();
