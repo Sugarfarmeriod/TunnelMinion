@@ -24,7 +24,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
-from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer
+from tunnelminion.agent.remote import AgentRemoteToolPreparer, ConfiguredRemoteToolPreparer
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
@@ -220,12 +220,16 @@ def _gateway_lifespan(
     return lifespan
 
 
-def _create_macos_read_only_agent(node: MacOSNode) -> LangChainReadOnlyAgent:
+def _create_macos_read_only_agent(
+    node: MacOSNode, *, remote_tools: AgentRemoteToolPreparer | None = None
+) -> LangChainReadOnlyAgent:
     """把 macOS 节点依赖组合成受只读策略约束的 Agent。"""
     model = TunnelMinionChatModel(
         provider=node.model_service.create_provider(), artifact_manager=node.artifact_manager
     )
-    return LangChainReadOnlyAgent(model, node.tool_registry, node.tool_runtime, Platform.MACOS)
+    return LangChainReadOnlyAgent(
+        model, node.tool_registry, node.tool_runtime, Platform.MACOS, remote_tools=remote_tools
+    )
 
 
 def _build_macos_node(
@@ -306,7 +310,7 @@ def build_macos_local_application(
     stores = SQLiteStores.open(node.root / "runtime.sqlite3")
     conversations = InMemoryConversationService(
         node.node_id,
-        lambda: _create_macos_read_only_agent(node),
+        lambda: _create_macos_read_only_agent(node, remote_tools=remote_preparer),
         stores.checkpoints,
         memory_retriever=MemoryContextRetriever(stores.memories),
         read_only_preview=read_only_preview,

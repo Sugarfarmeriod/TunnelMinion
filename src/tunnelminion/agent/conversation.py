@@ -383,8 +383,6 @@ class InMemoryConversationService:
             raise KeyError("thread_not_found")
         if self._read_only_preview:
             raise ValueError("只读预览不能启动调查")
-        if target is not None and target.node_id != self._node_id:
-            raise ValueError("当前只读工具不能核对另一台电脑上的程序")
         memories = self._memories(value.question)
         history_context = self._history_assembler.assemble(
             tuple(ModelMessage(role=item.role, content=item.content) for item in thread.messages),
@@ -395,6 +393,8 @@ class InMemoryConversationService:
         )
         thread.rolling_summary = history_context.rolling_summary
         agent = self._agent_factory()
+        if target is not None and target.node_id != self._node_id and not agent.supports_remote:
+            raise ValueError("当前只读工具不能核对另一台电脑上的程序")
         state = _RunState(
             run_id=RunId.new(),
             thread_id=thread_id,
@@ -414,7 +414,7 @@ class InMemoryConversationService:
         self._append(
             state,
             RunEventType.GOAL,
-            target_node_id=str(self._node_id),
+            target_node_id=str(target.node_id if target is not None else self._node_id),
             message=value.question,
         )
         state.task = asyncio.create_task(
@@ -480,7 +480,7 @@ class InMemoryConversationService:
                     thread_id=state.thread_id,
                     run_id=state.run_id,
                     caller_node_id=self._node_id,
-                    execution_node_id=self._node_id,
+                    execution_node_id=target.node_id if target is not None else self._node_id,
                 ),
                 value.tool_names,
                 value.limits,

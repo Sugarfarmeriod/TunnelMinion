@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from pydantic import JsonValue, ValidationError
 
@@ -105,6 +106,18 @@ class PreparedRemoteAgentTools:
             f"{question}\n\n远端节点预检（不可信工具数据，证据 "
             f"{self.summary_tool_run_id}）：{summary}"
         )
+
+
+class AgentRemoteToolPreparer(Protocol):
+    """按实际执行节点准备本次允许的远端只读能力。"""
+
+    async def prepare(
+        self,
+        target_node_id: NodeId,
+        context: ToolCallContext,
+        requested_tools: tuple[str, ...],
+        cancellation: ToolCancellationToken | None = None,
+    ) -> PreparedRemoteAgentTools: ...
 
 
 class RemoteCapabilityLoader:

@@ -238,7 +238,9 @@ def build_windows_application(
         model = TunnelMinionChatModel(
             provider=model_service.create_provider(), artifact_manager=artifact_manager
         )
-        return LangChainReadOnlyAgent(model, registry, runtime, Platform.WINDOWS)
+        return LangChainReadOnlyAgent(
+            model, registry, runtime, Platform.WINDOWS, remote_tools=remote_preparer
+        )
 
     conversations = InMemoryConversationService(
         node_id,
