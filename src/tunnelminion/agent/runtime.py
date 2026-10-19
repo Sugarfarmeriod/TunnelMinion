@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import IPv6Address, ip_address
 from time import perf_counter
@@ -28,6 +29,7 @@ from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChat
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.agent.service_observation import compute_observed_service_id
+from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.coordinator.contracts import ServiceProtocol
 from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
@@ -224,6 +226,8 @@ class LangChainReadOnlyAgent:
         history_context: HistoryContext | None = None,
         memories: tuple[LongTermMemory, ...] = (),
         target: ServiceCheckTarget | None = None,
+        progress: TaskProgress | None = None,
+        progress_sink: Callable[[TaskProgress], None] | None = None,
     ) -> CheckedAgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
         budget = limits or AgentRunLimits()
@@ -265,8 +269,18 @@ class LangChainReadOnlyAgent:
         )
         evidence: list[EvidenceReference] = []
         results: list[tuple[ToolExecutionRequest, ToolExecutionResult]] = []
+        saved_progress = progress or TaskProgress()
+
+        def save_observation(request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
+            nonlocal saved_progress
+            saved_progress = saved_progress.record(request, result, datetime.now(UTC))
+            if progress_sink is not None:
+                progress_sink(saved_progress)
+
         tools = tuple(
-            self._build_tool(name, context, tool_token, evidence, tool_event_sink, results)
+            self._build_tool(
+                name, context, tool_token, evidence, tool_event_sink, results, save_observation
+            )
             for name in self._validate_tools(tool_names)
         )
         middleware = [
@@ -287,7 +301,7 @@ class LangChainReadOnlyAgent:
             middleware=middleware,
             name="tunnelminion-read-only",
         )
-        input_messages: list[dict[str, str]] = []
+        input_messages: list[dict[str, object]] = []
         if target is not None:
             input_messages.append(
                 {
@@ -299,6 +313,7 @@ class LangChainReadOnlyAgent:
                     ),
                 }
             )
+        input_messages.extend(saved_progress.messages(context, tool_names))
         input_messages.append({"role": "user", "content": question})
         graph_task = asyncio.create_task(graph.ainvoke({"messages": input_messages}))
         cancel_task = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
@@ -394,6 +409,7 @@ class LangChainReadOnlyAgent:
         evidence: list[EvidenceReference],
         event_sink: Callable[[AgentToolEvent], None] | None,
         results: list[tuple[ToolExecutionRequest, ToolExecutionResult]],
+        observation_sink: Callable[[ToolExecutionRequest, ToolExecutionResult], None],
     ) -> StructuredTool:
         async def execute(**arguments: Any) -> str:
             started = perf_counter()
@@ -412,6 +428,7 @@ class LangChainReadOnlyAgent:
                 arguments=cast(dict[str, JsonValue], arguments),
             )
             result = await self._runtime.execute(request, cancellation)
+            observation_sink(request, result)
             results.append((request, result))
             evidence.append(
                 EvidenceReference(

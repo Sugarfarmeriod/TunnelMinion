@@ -29,6 +29,7 @@ from tunnelminion.agent.runtime import (
     LangChainReadOnlyAgent,
     ServiceCheckTarget,
 )
+from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.domain.identifiers import MemoryId, NodeId, RunId, ServiceId, ThreadId, ToolRunId
 from tunnelminion.memory.context import ContextBudgets
 from tunnelminion.memory.contracts import (
@@ -146,6 +147,20 @@ class RunEvent(BaseModel):
     message: str | None = None
 
 
+class _TaskContinuation(BaseModel):
+    """续办所需的原始目标、对象与公开检查；不保存执行权限。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    original_run_id: RunId
+    node_id: NodeId
+    input: StartRunInput
+    agent_question: str
+    target: ServiceCheckTarget | None = None
+    progress: TaskProgress = Field(default_factory=TaskProgress)
+    resumed_by: RunId | None = None
+
+
 class _ConversationCheckpointState(BaseModel):
     """checkpoint 中可验证、可恢复的公开会话快照。"""
 
@@ -157,6 +172,7 @@ class _ConversationCheckpointState(BaseModel):
     events: tuple[RunEvent, ...]
     rolling_summary: RollingSummary | None = None
     service_id: ServiceId | None = None
+    continuation: _TaskContinuation | None = None
 
 
 @dataclass
@@ -176,6 +192,7 @@ class _RunState:
     events: list[RunEvent] = field(default_factory=lambda: [])
     changed: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task[None] | None = None
+    continuation: _TaskContinuation | None = None
 
 
 @dataclass
@@ -263,7 +280,79 @@ class InMemoryConversationService:
         self, thread_id: ThreadId, value: StartRunInput, target: ServiceCheckTarget | None = None
     ) -> RunView:
         """验证线程与模型后，在后台启动一次 Agent run。"""
+        pending = next(
+            (
+                state
+                for state in reversed(tuple(self._runs.values()))
+                if state.thread_id == thread_id
+                and state.status is RunStatus.INTERRUPTED
+                and state.continuation is not None
+                and state.continuation.resumed_by is None
+                and self._same_target(state.continuation.target, target)
+            ),
+            None,
+        )
+        if pending is not None:
+            return await self.resume_run(
+                pending.run_id, question=value.question, target=target, current_input=value
+            )
         return await self._start_run(thread_id, value, agent_question=value.question, target=target)
+
+    async def resume_run(
+        self,
+        run_id: RunId,
+        *,
+        question: str | None = None,
+        target: ServiceCheckTarget | None = None,
+        current_input: StartRunInput | None = None,
+    ) -> RunView:
+        """用户显式继续未完任务；新 run 复用目标和公开进度，不重放历史调用。"""
+        previous = self._get(run_id)
+        saved = previous.continuation
+        if self._read_only_preview or saved is None or saved.node_id != self._node_id:
+            raise ValueError("当前任务没有可使用的续办状态")
+        if saved.resumed_by is not None:
+            return self.get_run(saved.resumed_by)
+        if previous.status is RunStatus.RUNNING or (
+            previous.result is not None and previous.result.stop_reason is AgentStopReason.COMPLETED
+        ):
+            raise ValueError("只能继续尚未完成的任务")
+        if not self._same_target(saved.target, target):
+            raise ValueError("继续任务前必须重新核对同一个程序")
+        value = current_input or saved.input.model_copy(
+            update={"question": question or saved.input.question}
+        )
+        agent_question = saved.agent_question
+        if question is not None:
+            agent_question += f"\n用户补充：{question}"
+        started = await self._start_run(
+            previous.thread_id,
+            value,
+            agent_question=agent_question,
+            target=target,
+            continuation=saved.model_copy(update={"resumed_by": None, "target": target}),
+        )
+        previous.continuation = saved.model_copy(update={"resumed_by": started.run_id})
+        self._persist(previous)
+        return started
+
+    def get_resume_target(self, run_id: RunId) -> ServiceCheckTarget | None:
+        """提供原对象身份给当前清单重新解析，不把旧对象当成实时清单。"""
+        state = self._get(run_id)
+        if state.continuation is None:
+            raise ValueError("旧任务没有保存续办输入")
+        return state.continuation.target
+
+    @staticmethod
+    def _same_target(first: ServiceCheckTarget | None, second: ServiceCheckTarget | None) -> bool:
+        if first is None or second is None:
+            return first is second
+        return (first.service_id, first.node_id, first.protocol, first.port) == (
+            second.service_id,
+            second.node_id,
+            second.protocol,
+            second.port,
+        )
 
     async def start_incident_run(
         self,
@@ -287,10 +376,13 @@ class InMemoryConversationService:
         *,
         agent_question: str,
         target: ServiceCheckTarget | None = None,
+        continuation: _TaskContinuation | None = None,
     ) -> RunView:
         thread = self._threads.get(str(thread_id))
         if thread is None:
             raise KeyError("thread_not_found")
+        if self._read_only_preview:
+            raise ValueError("只读预览不能启动调查")
         if target is not None and target.node_id != self._node_id:
             raise ValueError("当前只读工具不能核对另一台电脑上的程序")
         memories = self._memories(value.question)
@@ -308,6 +400,13 @@ class InMemoryConversationService:
             thread_id=thread_id,
             created_at=datetime.now(UTC),
             cancellation=AgentCancellationToken(),
+        )
+        state.continuation = continuation or _TaskContinuation(
+            original_run_id=state.run_id,
+            node_id=self._node_id,
+            input=value,
+            agent_question=agent_question,
+            target=target,
         )
         self._runs[str(state.run_id)] = state
         thread.service_id = target.service_id if target is not None else None
@@ -369,6 +468,11 @@ class InMemoryConversationService:
                 tool_run_id=event.tool_run_id,
             )
 
+        def save_progress(progress: TaskProgress) -> None:
+            assert state.continuation is not None
+            state.continuation = state.continuation.model_copy(update={"progress": progress})
+            self._persist(state)
+
         try:
             result = await agent.run(
                 agent_question,
@@ -385,6 +489,8 @@ class InMemoryConversationService:
                 history_context,
                 memories,
                 target,
+                state.continuation.progress if state.continuation is not None else None,
+                save_progress,
             )
             if not result.answer_checked:
                 summary = "本次还没有形成能核对的程序结论。请先选择要检查的程序，再问一次。"
@@ -474,12 +580,15 @@ class InMemoryConversationService:
                     events=tuple(state.events),
                     rolling_summary=thread.rolling_summary,
                     service_id=thread.service_id,
+                    continuation=state.continuation,
                 ).model_dump(mode="json"),
-                tool_run_ids=(
-                    tuple(ToolRunId(item) for item in state.result.tool_run_ids)
-                    if state.result is not None
-                    else ()
-                ),
+                tool_run_ids=tuple(
+                    item.result.tool_run_id for item in state.continuation.progress.observations
+                )
+                if state.continuation is not None
+                else tuple(ToolRunId(item) for item in state.result.tool_run_ids)
+                if state.result is not None
+                else (),
                 updated_at=datetime.now(UTC),
             )
         )
@@ -521,6 +630,7 @@ class InMemoryConversationService:
                 error_message=run_view.error_message,
                 failure=run_view.failure,
                 events=list(public.events),
+                continuation=public.continuation,
             )
             self._runs[str(record.run_id)] = state
             if state.status is RunStatus.RUNNING:
@@ -540,6 +650,7 @@ class InMemoryConversationService:
             for item in self._runs.values()
             if item.thread_id == thread_id
             and item.status in {RunStatus.RUNNING, RunStatus.INTERRUPTED}
+            and (item.continuation is None or item.continuation.resumed_by is None)
         )
         if not pending:
             return None
