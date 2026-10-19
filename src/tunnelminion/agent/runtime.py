@@ -201,6 +201,28 @@ class AgentCancellationToken:
         await self._event.wait()
 
 
+class TaskAgent(Protocol):
+    """聊天检查与事件调查共用的任务执行接口。"""
+
+    @property
+    def supports_remote(self) -> bool: ...
+
+    async def run(
+        self,
+        question: str,
+        context: ToolCallContext,
+        tool_names: tuple[str, ...],
+        limits: AgentRunLimits | None = None,
+        cancellation: AgentCancellationToken | None = None,
+        tool_event_sink: Callable[[AgentToolEvent], None] | None = None,
+        history_context: HistoryContext | None = None,
+        memories: tuple[LongTermMemory, ...] = (),
+        target: ServiceCheckTarget | None = None,
+        progress: TaskProgress | None = None,
+        progress_sink: Callable[[TaskProgress], None] | None = None,
+    ) -> CheckedAgentTurnResult: ...
+
+
 class LangChainReadOnlyAgent:
     """每个 run 动态注入允许工具，而不是持有固定全量工具集。"""
 

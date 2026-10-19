@@ -40,6 +40,7 @@ from tunnelminion.incident.observer import (
 )
 from tunnelminion.incident.peer_observation import StaticPeerServiceObserver
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.incident.tasks import IncidentTaskHarness
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
@@ -338,10 +339,10 @@ def build_windows_application(
         if remote_observer is not None
         else None,
     )
-    incident_observer = IncidentObservationService(
-        views.overview_service.view,
+    incident_tasks = IncidentTaskHarness(
+        conversations,
         incident_store,
-        investigator=ConfiguredIncidentRunner(
+        ConfiguredIncidentRunner(
             model_service.create_provider,
             registry,
             runtime,
@@ -350,6 +351,13 @@ def build_windows_application(
             local_node_id=node_id,
             remote_tools=remote_preparer,
         ),
+        create_agent,
+        views.overview_service.view,
+    )
+    incident_observer = IncidentObservationService(
+        views.overview_service.view,
+        incident_store,
+        investigator=incident_tasks,
         before_snapshot=before_snapshot,
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
         read_only_preview=read_only_preview,
@@ -377,7 +385,7 @@ def build_windows_application(
         )
     )
     app.include_router(create_overview_router(views.overview_service))
-    app.include_router(create_incident_router(incident_store, conversations))
+    app.include_router(create_incident_router(incident_store, conversations, tasks=incident_tasks))
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))

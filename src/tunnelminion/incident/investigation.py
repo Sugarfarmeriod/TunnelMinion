@@ -6,8 +6,10 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from ipaddress import ip_address
+from time import perf_counter
 from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
@@ -23,8 +25,10 @@ from tunnelminion.agent.context_runtime import (
     ContextModelRuntime,
     make_context_reference,
 )
+from tunnelminion.agent.langchain_model import ModelRunMetrics
 from tunnelminion.agent.prompts import INCIDENT_INVESTIGATION_PROMPT
 from tunnelminion.agent.remote import PreparedRemoteAgentTools, RemotePreparationError
+from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import (
@@ -176,7 +180,7 @@ class InvestigationLimits(BaseModel):
 
     max_model_rounds: int = Field(default=6, ge=1, le=16)
     max_tool_calls: int = Field(default=8, ge=1, le=24)
-    timeout_seconds: float = Field(default=90, ge=0.1, le=600)
+    timeout_seconds: float = Field(default=90, ge=0.01, le=600)
     context: ContextBudgets = Field(default_factory=ContextBudgets)
 
 
@@ -194,6 +198,20 @@ class InvestigationCancellation:
     @property
     def cancelled(self) -> bool:
         return self.model.cancelled or self.tool.cancelled
+
+
+@dataclass
+class InvestigationTaskExecution:
+    """统一任务提供的本次执行身份、预算、取消和公开观察回调。"""
+
+    context: ToolCallContext
+    question: str
+    limits: InvestigationLimits
+    cancellation: InvestigationCancellation
+    metrics: ModelRunMetrics
+    progress: TaskProgress
+    allowed_tools: tuple[str, ...]
+    observe: Callable[[ToolExecutionRequest, ToolExecutionResult, float], None]
 
 
 class _DecisionHypothesis(BaseModel):
@@ -237,6 +255,7 @@ class IncidentInvestigator:
         limits: InvestigationLimits | None = None,
         clock: Callable[[], datetime] | None = None,
         skills_enabled: bool = True,
+        task_execution: InvestigationTaskExecution | None = None,
     ) -> None:
         if remote_tools is not None and local_node_id is None:
             raise ValueError("远端调查必须声明当前节点")
@@ -247,7 +266,10 @@ class IncidentInvestigator:
         self._platform = platform
         self._local_node_id = local_node_id
         self._remote_tools = remote_tools
-        self._limits = limits or InvestigationLimits()
+        self._task_execution = task_execution
+        self._limits = (
+            task_execution.limits if task_execution is not None else limits or InvestigationLimits()
+        )
         self._clock = clock or (lambda: datetime.now(UTC))
         self._skills_enabled = skills_enabled
 
@@ -258,15 +280,40 @@ class IncidentInvestigator:
         cancellation: InvestigationCancellation | None = None,
     ) -> Incident:
         """调查一个 incident，并在任意停止路径保存公开状态。"""
-        if incident.status not in {
+        resumable = {
             IncidentStatus.PENDING,
             IncidentStatus.INTERRUPTED,
             IncidentStatus.INVESTIGATION_UNAVAILABLE,
-        }:
+        }
+        if self._task_execution is not None:
+            resumable.update(
+                {
+                    IncidentStatus.BUDGET_EXHAUSTED,
+                    IncidentStatus.CANCELLED,
+                    IncidentStatus.FAILED,
+                }
+            )
+        if incident.status not in resumable:
             raise ValueError("只有待调查、中断或模型不可用的 incident 可以启动调查")
-        token = cancellation or InvestigationCancellation()
-        run_id = RunId.new()
-        thread_id = ThreadId.new()
+        task = self._task_execution
+        token = cancellation or (
+            task.cancellation if task is not None else InvestigationCancellation()
+        )
+        run_id = task.context.run_id if task is not None else RunId.new()
+        thread_id = task.context.thread_id if task is not None else ThreadId.new()
+        if task is not None and incident.investigation is not None:
+            incident = incident.model_copy(
+                update={
+                    "investigation": incident.investigation.model_copy(
+                        update={
+                            "model_rounds": 0,
+                            "tool_calls": 0,
+                            "phase": InvestigationPhase.COLLECTING,
+                            "stop_reason": None,
+                        }
+                    )
+                }
+            )
         started = self._now()
         current = self._with_initial_hypothesis(incident).transition(
             IncidentStatus.INVESTIGATING,
@@ -346,6 +393,8 @@ class IncidentInvestigator:
             ModelMessage(role="system", content=INCIDENT_INVESTIGATION_PROMPT.template),
             ModelMessage(role="user", content=self._incident_context(current)),
         ]
+        if self._task_execution is not None:
+            messages.append(ModelMessage(role="user", content=self._task_execution.question))
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
         tool_calls = current.investigation.tool_calls if current.investigation is not None else 0
@@ -371,6 +420,56 @@ class IncidentInvestigator:
             if remote
             else ()
         )
+        if self._task_execution is not None:
+            for observation in self._task_execution.progress.observations:
+                request, result = observation.request, observation.result
+                if (
+                    request.context.thread_id != thread_id
+                    or request.context.caller_node_id != self._task_execution.context.caller_node_id
+                    or request.context.execution_node_id not in (target_node_id, local_node_id)
+                    or request.tool_name not in evidence_path
+                    or result.status is not ToolExecutionStatus.SUCCESS
+                    or not self._has_usable_output(result.output)
+                ):
+                    continue
+                reference = EvidenceReference(
+                    tool_run_id=result.tool_run_id,
+                    observed_at=observation.observed_at,
+                    summary=f"历史检查 {request.tool_name} 的已保存结果",
+                )
+                attempted_tools.add(request.tool_name)
+                successful_tools[request.tool_name] = reference
+                tool_outputs[request.tool_name] = result.output
+                evidence[str(result.tool_run_id)] = reference
+                call_id = f"history-{result.tool_run_id}"
+                messages.append(
+                    ModelMessage(
+                        role="assistant",
+                        content="这是历史检查，只说明当时情况，不能代表当前实时状态。",
+                        tool_calls=(
+                            ToolCall(
+                                call_id=call_id, name=request.tool_name, arguments=request.arguments
+                            ),
+                        ),
+                    )
+                )
+                content = json.dumps(
+                    {
+                        "trust": "untrusted-historical-tool-data",
+                        "observed_at": observation.observed_at.isoformat(),
+                        "result": result.model_dump(mode="json"),
+                    },
+                    ensure_ascii=False,
+                )
+                tool_results.append(
+                    ToolResultContext(
+                        tool_run_id=result.tool_run_id,
+                        tool_call_id=call_id,
+                        tool_name=request.tool_name,
+                        content=content,
+                        content_bytes=len(content.encode()),
+                    )
+                )
         if remote:
             assert local_node_id is not None
             if self._remote_tools is None:
@@ -387,6 +486,7 @@ class IncidentInvestigator:
                 caller_node_id=local_node_id,
                 execution_node_id=target_node_id,
             )
+            preflight_started = perf_counter()
             try:
                 requested_remote_tools = (
                     tuple(
@@ -397,6 +497,20 @@ class IncidentInvestigator:
                     if skill is not None
                     else evidence_path
                 )
+                if self._task_execution is not None:
+                    requested_remote_tools = tuple(
+                        name
+                        for name in requested_remote_tools
+                        if name in self._task_execution.allowed_tools
+                    )
+                if not requested_remote_tools:
+                    return self._finish(
+                        current,
+                        IncidentStatus.INSUFFICIENT_EVIDENCE,
+                        InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                        "本次任务没有允许使用的远端调查工具",
+                        evidence=tuple(evidence.values()),
+                    )
                 prepared = await self._remote_tools.prepare(
                     target_node_id,
                     context,
@@ -423,6 +537,12 @@ class IncidentInvestigator:
                 status=ToolExecutionStatus.SUCCESS,
                 output=prepared.node_summary.model_dump(mode="json"),
             )
+            if self._task_execution is not None:
+                self._task_execution.observe(
+                    ToolExecutionRequest(context=context, tool_name="get_node_summary"),
+                    summary_result,
+                    (perf_counter() - preflight_started) * 1000,
+                )
             summary_content = self._tool_result_content(summary_result)
             summary_reference = EvidenceReference(
                 tool_run_id=prepared.summary_tool_run_id,
@@ -591,7 +711,9 @@ class IncidentInvestigator:
                 invocation = await self._model.invoke(
                     ContextRequest(
                         task_type=ContextTaskType.INCIDENT_INVESTIGATION,
-                        current_intent="调查当前 incident 并收敛证据",
+                        current_intent=self._task_execution.question
+                        if self._task_execution is not None
+                        else "调查当前 incident 并收敛证据",
                         thread_id=thread_id,
                         run_id=run_id,
                         prompt_id=INCIDENT_INVESTIGATION_PROMPT.prompt_id,
@@ -640,6 +762,8 @@ class IncidentInvestigator:
                     evidence=tuple(successful_tools.values()),
                 )
             response = invocation.response
+            if self._task_execution is not None:
+                self._task_execution.metrics.record(response, invocation.record)
             if not response.tool_calls and round_tools:
                 if not tool_contract_repaired:
                     tool_contract_repaired = True
@@ -715,25 +839,27 @@ class IncidentInvestigator:
                 caller_node_id: NodeId = (
                     local_node_id if local_node_id is not None else target_node_id
                 )
-                result = await executor.execute(
-                    ToolExecutionRequest(
-                        context=ToolCallContext(
-                            thread_id=thread_id,
-                            run_id=run_id,
-                            caller_node_id=caller_node_id,
-                            execution_node_id=execution_node_id,
-                        ),
-                        tool_name=call.name,
-                        arguments=call.arguments,
-                        required_arguments=(
-                            probe_arguments
-                            if call.name == "probe_service_reachability"
-                            and probe_arguments is not None
-                            else {}
-                        ),
+                request = ToolExecutionRequest(
+                    context=ToolCallContext(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        caller_node_id=caller_node_id,
+                        execution_node_id=execution_node_id,
                     ),
-                    cancellation.tool,
+                    tool_name=call.name,
+                    arguments=call.arguments,
+                    required_arguments=(
+                        probe_arguments
+                        if call.name == "probe_service_reachability" and probe_arguments is not None
+                        else {}
+                    ),
                 )
+                tool_started = perf_counter()
+                result = await executor.execute(request, cancellation.tool)
+                if self._task_execution is not None:
+                    self._task_execution.observe(
+                        request, result, (perf_counter() - tool_started) * 1000
+                    )
                 tool_calls += 1
                 attempted_tools.add(call.name)
                 reference = EvidenceReference(
@@ -1191,10 +1317,6 @@ class IncidentInvestigator:
         selected = next((item for item in state.steps if item.tool_name == tool_name), None)
         if selected is None:
             return incident
-        if selected.status is InvestigationStepStatus.SUCCEEDED:
-            updated = state.model_copy(update={"tool_calls": tool_calls, "updated_at": self._now()})
-            return Incident.model_validate(incident.model_dump() | {"investigation": updated})
-
         observations, facts = self._skill_observations(incident, tool_name, output)
         succeeded = evidence is not None and observations is not None
         next_step = selected.model_copy(
@@ -1379,7 +1501,7 @@ class IncidentInvestigator:
             for entry in latest.trace
             for reference in entry.evidence
         }
-        return latest, tuple(evidence_by_id.values())
+        return latest, tuple(evidence_by_id.values())[-24:]
 
     @staticmethod
     def _has_usable_output(output: JsonValue | None) -> bool:
@@ -1544,6 +1666,7 @@ class IncidentInvestigator:
             )
             for name in READ_ONLY_INVESTIGATION_TOOLS
             if name in available
+            and (self._task_execution is None or name in self._task_execution.allowed_tools)
         )
 
     def _with_initial_hypothesis(self, incident: Incident) -> Incident:
@@ -1658,7 +1781,9 @@ class IncidentInvestigator:
 
     @staticmethod
     def _append_trace(incident: Incident, entry: PublicTraceEntry) -> Incident:
-        return Incident.model_validate(incident.model_dump() | {"trace": (*incident.trace, entry)})
+        return Incident.model_validate(
+            incident.model_dump() | {"trace": (*incident.trace, entry)[-96:]}
+        )
 
     def _now(self) -> datetime:
         value = self._clock()
@@ -1693,18 +1818,37 @@ class ConfiguredIncidentRunner:
         self._remote_tools = remote_tools
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    async def run(self, incident: Incident) -> Incident:
+    async def run(
+        self, incident: Incident, *, task_execution: InvestigationTaskExecution | None = None
+    ) -> Incident:
         try:
             provider = self._provider_factory()
         except (ProviderError, OSError, ValueError):
+            if task_execution is not None:
+                incident = incident.model_copy(update={"run_id": task_execution.context.run_id})
             report = IncidentReport(
                 unknowns=("模型调查不可用",),
                 stop_reason=InvestigationStopReason.MODEL_UNAVAILABLE,
             )
-            updated = incident.transition(
+            if incident.status not in {
+                IncidentStatus.PENDING,
                 IncidentStatus.INVESTIGATION_UNAVAILABLE,
-                at=self._clock(),
-                report=report,
+            }:
+                incident = incident.transition(
+                    IncidentStatus.INVESTIGATING,
+                    at=self._clock(),
+                    run_id=task_execution.context.run_id
+                    if task_execution is not None
+                    else RunId.new(),
+                )
+            updated = (
+                incident
+                if incident.status is IncidentStatus.INVESTIGATION_UNAVAILABLE
+                else incident.transition(
+                    IncidentStatus.INVESTIGATION_UNAVAILABLE,
+                    at=self._clock(),
+                    report=report,
+                )
             )
             self._store.put_incident(updated)
             return updated
@@ -1722,6 +1866,7 @@ class ConfiguredIncidentRunner:
             local_node_id=self._local_node_id,
             remote_tools=self._remote_tools,
             clock=self._clock,
+            task_execution=task_execution,
         ).run(incident)
 
 

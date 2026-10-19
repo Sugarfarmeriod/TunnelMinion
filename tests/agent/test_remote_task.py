@@ -155,7 +155,10 @@ def test_remote_resume_rechecks_authorization_before_model(tmp_path: Path) -> No
     async def rejected() -> None:
         started = await restored.resume_run(identifier, target=target)
         await collect(restored.stream_events(started.run_id))
-        assert restored.get_run(started.run_id).status is RunStatus.FAILED
+        failed = restored.get_run(started.run_id)
+        assert failed.status is RunStatus.FAILED
+        assert failed.error_code == ErrorCode.FORBIDDEN.value
+        assert "授权" in (failed.error_message or "")
 
     run(rejected())
     assert next_provider.requests == []

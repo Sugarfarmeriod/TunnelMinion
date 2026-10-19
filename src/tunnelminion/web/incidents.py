@@ -16,6 +16,7 @@ from tunnelminion.domain.identifiers import IncidentId, ThreadId
 from tunnelminion.incident.contracts import Incident, IncidentEventType
 from tunnelminion.incident.investigation import READ_ONLY_INVESTIGATION_TOOLS
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.incident.tasks import INVESTIGATION_QUESTIONS, IncidentTaskHarness
 from tunnelminion.model.contracts import ProviderError
 from tunnelminion.web.overview import (
     IncidentOverviewItem,
@@ -32,14 +33,6 @@ _SEVERITIES = {
     IncidentEventType.SERVICE_REMOVED: IncidentSeverity.CRITICAL,
     IncidentEventType.NODE_OFFLINE: IncidentSeverity.CRITICAL,
     IncidentEventType.REMOTE_UNREACHABLE: IncidentSeverity.CRITICAL,
-}
-_FALLBACK_QUESTIONS = {
-    IncidentEventType.SERVICE_ADDED: "这个新增服务来自哪个进程或 Docker 容器？",
-    IncidentEventType.SERVICE_REMOVED: "服务消失前后，进程和监听端口发生了什么变化？",
-    IncidentEventType.NODE_OFFLINE: "节点离线时 WireGuard 和本机网络状态有什么证据？",
-    IncidentEventType.STATE_STALE: "哪些状态已经陈旧，还需要刷新什么只读证据？",
-    IncidentEventType.LOCAL_ONLY: "为什么这个服务只能从本机访问？",
-    IncidentEventType.REMOTE_UNREACHABLE: "远端不可达发生在监听、隧道还是服务探测哪一层？",
 }
 
 
@@ -91,13 +84,15 @@ def suggested_questions(incident: Incident) -> tuple[str, ...]:
         f"关于“{item}”，还缺少什么只读证据？"
         for item in (incident.report.unknowns if incident.report is not None else ())[:2]
     ]
-    values.append(_FALLBACK_QUESTIONS[incident.event.event_type])
+    values.append(INVESTIGATION_QUESTIONS[incident.event.event_type])
     return tuple(dict.fromkeys(values))[:3]
 
 
 def create_incident_router(
     store: SQLiteIncidentStore,
     conversations: InMemoryConversationService,
+    *,
+    tasks: IncidentTaskHarness | None = None,
 ) -> APIRouter:
     """创建本机只读详情与显式追问路由。"""
     router = APIRouter()
@@ -122,6 +117,17 @@ def create_incident_router(
 
     async def follow_up(value: str, payload: IncidentFollowUpInput) -> RunView:
         incident = get_incident(value)
+        if tasks is not None:
+            try:
+                return await tasks.follow_up(incident.incident_id, payload.question)
+            except ValueError as exc:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "当前调查仍在进行，或续办条件已变化，请查看原调查结果"
+                ) from exc
+            except KeyError as exc:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "原调查会话已删除，请重新从程序发起检查"
+                ) from exc
         thread_id = store.thread_for(incident.incident_id)
         if thread_id is None:
             thread_id = conversations.create_thread().thread_id
