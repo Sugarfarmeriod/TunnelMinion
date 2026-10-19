@@ -63,6 +63,7 @@ class LocalDiagnosticProvider:
                 tool_calls=tuple(
                     ToolCall(call_id=f"call-{index}", name=tool.name, arguments={})
                     for index, tool in enumerate(request.tools, start=1)
+                    if tool.name != "read_investigation_skill"
                 ),
                 usage=ModelUsage(input_tokens=20, output_tokens=8, total_tokens=28),
             )

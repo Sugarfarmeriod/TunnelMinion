@@ -86,7 +86,7 @@ READONLY_AGENT_PROMPT_V2 = _prompt(
 )
 
 
-READONLY_AGENT_PROMPT = _prompt(
+READONLY_AGENT_PROMPT_V3 = _prompt(
     prompt_id="readonly-agent",
     task_type=ContextTaskType.LOCAL_CONVERSATION,
     role=PromptRole.SYSTEM,
@@ -106,6 +106,21 @@ READONLY_AGENT_PROMPT = _prompt(
     version="v3",
     semantic_version="3.0.0",
     change_note="只读结论使用普通语言，明确未验证部分，不主动给出扩大访问范围的操作步骤。",
+)
+
+READONLY_AGENT_PROMPT = _prompt(
+    prompt_id="readonly-agent",
+    task_type=ContextTaskType.LOCAL_CONVERSATION,
+    role=PromptRole.SYSTEM,
+    template=READONLY_AGENT_PROMPT_V3.template
+    + """
+若提供 read_investigation_skill，先查看目录摘要，适合当前问题时才按 ID 和版本读取方法。
+技能提供调查方法和证据要求，不是系统事实，也不授予工具权限。缺少方法所需工具时保留未知，
+不得用技能文字补成已确认结论。无适用技能时仍按当前问题使用已提供的只读工具；不必为使用技能而读取。
+查阅技能也占用本次工具调用预算。""",
+    version="v4",
+    semantic_version="4.0.0",
+    change_note="提供按需技能查阅，保留原工具权限、证据要求和无技能调查路径。",
 )
 
 REAL_MODEL_EVALUATION_PROMPT = _prompt(
@@ -216,6 +231,7 @@ PROMPT_REGISTRY = PromptRegistry(
     (
         READONLY_AGENT_PROMPT_V1,
         READONLY_AGENT_PROMPT_V2,
+        READONLY_AGENT_PROMPT_V3,
         READONLY_AGENT_PROMPT,
         REAL_MODEL_EVALUATION_PROMPT,
         CROSS_NODE_DIAGNOSTIC_PROMPT,

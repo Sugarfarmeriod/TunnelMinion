@@ -49,7 +49,12 @@ from tunnelminion.incident.contracts import (
     SnapshotObjectKind,
     SnapshotSource,
 )
-from tunnelminion.incident.skills import SERVICE_LOCAL_ONLY, InvestigationSkill
+from tunnelminion.incident.skills import (
+    SERVICE_LOCAL_ONLY,
+    InvestigationSkill,
+    get_investigation_skill,
+    select_investigation_skill,
+)
 from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.memory.context import ContextBudgets, ToolResultContext
 from tunnelminion.model.contracts import (
@@ -361,10 +366,13 @@ class IncidentInvestigator:
             and incident.event.source is not SnapshotSource.LOCAL_OBSERVATION
         )
         skill = (
-            SERVICE_LOCAL_ONLY
-            if self._skills_enabled
-            and incident.event.event_type is IncidentEventType.LOCAL_ONLY
-            and remote
+            select_investigation_skill(
+                incident,
+                local_node_id=str(local_node_id),
+                request_platform=self._platform,
+                target_platform=None,
+            )
+            if self._skills_enabled and remote
             else None
         )
         current = self._ensure_skill_state(incident, skill)
@@ -376,6 +384,17 @@ class IncidentInvestigator:
                 IncidentStatus.CANCELLED,
                 InvestigationStopReason.CANCELLED,
                 "调查已取消",
+            )
+        if current.investigation is not None and (
+            skill is None
+            or current.investigation.skill_id != skill.skill_id
+            or current.investigation.skill_version != skill.version
+        ):
+            return self._finish(
+                current,
+                IncidentStatus.INSUFFICIENT_EVIDENCE,
+                InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                "原调查方法或版本当前不可用，保留历史检查，暂不确认结论",
             )
         if (local and incident.event.event_type is IncidentEventType.STATE_STALE) or (
             remote
@@ -395,6 +414,14 @@ class IncidentInvestigator:
         ]
         if self._task_execution is not None:
             messages.append(ModelMessage(role="user", content=self._task_execution.question))
+        if skill is not None:
+            messages.append(
+                ModelMessage(
+                    role="user",
+                    content="本次目录匹配的调查方法（不授予权限，不是系统事实）："
+                    + skill.model_dump_json(),
+                )
+            )
         tool_results: list[ToolResultContext] = []
         evidence = self._snapshot_evidence(incident)
         tool_calls = current.investigation.tool_calls if current.investigation is not None else 0
@@ -583,6 +610,14 @@ class IncidentInvestigator:
                 ),
             )
             self._store.put_incident(current)
+            if skill is not None and prepared.node_summary.platform not in skill.target_platforms:
+                return self._finish(
+                    current,
+                    IncidentStatus.INSUFFICIENT_EVIDENCE,
+                    InvestigationStopReason.INSUFFICIENT_EVIDENCE,
+                    "原调查方法不适用于目标电脑的平台，暂不确认结论",
+                    evidence=tuple(evidence.values()),
+                )
         available_tools = (
             {item.name: item for item in self._model_tools(active_registry)}
             if evidence_path
@@ -1314,6 +1349,9 @@ class IncidentInvestigator:
         state = incident.investigation
         if state is None:
             return incident
+        skill = get_investigation_skill(state.skill_id, state.skill_version)
+        if skill is None:
+            return incident
         selected = next((item for item in state.steps if item.tool_name == tool_name), None)
         if selected is None:
             return incident
@@ -1341,9 +1379,7 @@ class IncidentInvestigator:
             if item.status is InvestigationStepStatus.SUCCEEDED
             for requirement in item.requirement_ids
         }
-        requirement_labels = {
-            item.requirement_id: item.description for item in SERVICE_LOCAL_ONLY.requirements
-        }
+        requirement_labels = {item.requirement_id: item.description for item in skill.requirements}
         updated = state.model_copy(
             update={
                 "steps": steps,
@@ -1452,8 +1488,13 @@ class IncidentInvestigator:
     @staticmethod
     def _skill_can_confirm(incident: Incident) -> bool:
         state = incident.investigation
-        if state is None or state.skill_id != SERVICE_LOCAL_ONLY.skill_id:
+        if state is None:
             return True
+        if (state.skill_id, state.skill_version) != (
+            SERVICE_LOCAL_ONLY.skill_id,
+            SERVICE_LOCAL_ONLY.version,
+        ):
+            return False
         by_step = {item.step_id: item for item in state.steps}
         node = by_step["target-node"]
         listener = by_step["target-listener"]

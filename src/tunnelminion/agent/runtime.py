@@ -34,6 +34,8 @@ from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.coordinator.contracts import ServiceProtocol
 from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.incident.contracts import EvidenceExecution
+from tunnelminion.incident.skills import InvestigationTopology, available_investigation_skills
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import CancellationToken
 from tunnelminion.platforms.windows.models import Availability, CollectionResult, NetworkListener
@@ -314,6 +316,11 @@ class LangChainReadOnlyAgent:
             nonlocal selected_tools
             active = self
             current_question = question
+            target_platform = (
+                self._platform.value
+                if context.execution_node_id == context.caller_node_id
+                else None
+            )
             if context.execution_node_id != context.caller_node_id and not isinstance(
                 self._runtime, RemoteToolExecutor
             ):
@@ -326,6 +333,7 @@ class LangChainReadOnlyAgent:
                     model, prepared.registry, prepared.executor, self._platform
                 )
                 selected_tools = prepared.tool_names
+                target_platform = prepared.node_summary.platform
                 summary_request = ToolExecutionRequest(
                     context=context, tool_name="get_node_summary"
                 )
@@ -358,7 +366,7 @@ class LangChainReadOnlyAgent:
                     entry, context, tool_token, evidence, tool_event_sink, results, save_observation
                 )
                 for entry in active._validate_tools(selected_tools)
-            )
+            ) + self._skill_tools(context, selected_tools, target_platform)
             factory = cast(Callable[..., _AgentGraph], create_agent)
             graph = factory(
                 model=model,
@@ -476,6 +484,65 @@ class LangChainReadOnlyAgent:
                 raise ValueError(f"工具 {name} 未注册或不允许向模型暴露")
             selected.append(entry)
         return tuple(selected)
+
+    def _skill_tools(
+        self,
+        context: ToolCallContext,
+        tool_names: tuple[str, ...],
+        target_platform: str | None,
+    ) -> tuple[StructuredTool, ...]:
+        remote = context.execution_node_id != context.caller_node_id
+        skills = tuple(
+            skill
+            for skill in available_investigation_skills(
+                topology=InvestigationTopology.REMOTE if remote else InvestigationTopology.LOCAL,
+                request_platform=self._platform,
+                target_platform=target_platform,
+            )
+            if any(step.tool_name in tool_names for step in skill.steps)
+        )
+        if not skills:
+            return ()
+        catalogue = tuple(
+            {
+                "skill_id": skill.skill_id,
+                "version": skill.version,
+                "title": skill.title,
+                "description": skill.description,
+            }
+            for skill in skills
+        )
+
+        async def read_skill(skill_id: str, version: str) -> str:
+            skill = next(
+                (item for item in skills if item.skill_id == skill_id and item.version == version),
+                None,
+            )
+            if skill is None:
+                return json.dumps({"available": False, "reason": "技能或版本不在本次目录中"})
+            return json.dumps(
+                {
+                    "kind": "investigation-method-not-evidence",
+                    "grants_permissions": False,
+                    "skill": skill.model_dump(mode="json"),
+                    "missing_checks": [
+                        {"tool_name": step.tool_name, "execution": step.execution.value}
+                        for step in skill.steps
+                        if step.tool_name not in tool_names
+                        or (remote and step.execution is EvidenceExecution.REQUESTER)
+                    ],
+                },
+                ensure_ascii=False,
+            )
+
+        return (
+            StructuredTool.from_function(
+                coroutine=read_skill,
+                name="read_investigation_skill",
+                description="按需查阅调查方法；不执行检查、不生成事实证据、不扩大权限。目录："
+                + json.dumps(catalogue, ensure_ascii=False),
+            ),
+        )
 
     def _build_tool(
         self,
