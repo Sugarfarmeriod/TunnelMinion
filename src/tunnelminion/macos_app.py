@@ -24,7 +24,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
-from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer
+from tunnelminion.agent.remote import AgentRemoteToolPreparer, ConfiguredRemoteToolPreparer
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
@@ -51,6 +51,7 @@ from tunnelminion.incident.observer import (
 )
 from tunnelminion.incident.peer_observation import StaticPeerServiceObserver
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.incident.tasks import IncidentTaskHarness
 from tunnelminion.memory.context import ArtifactContextManager
 from tunnelminion.memory.service import LongTermMemoryService, MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
@@ -220,12 +221,16 @@ def _gateway_lifespan(
     return lifespan
 
 
-def _create_macos_read_only_agent(node: MacOSNode) -> LangChainReadOnlyAgent:
+def _create_macos_read_only_agent(
+    node: MacOSNode, *, remote_tools: AgentRemoteToolPreparer | None = None
+) -> LangChainReadOnlyAgent:
     """把 macOS 节点依赖组合成受只读策略约束的 Agent。"""
     model = TunnelMinionChatModel(
         provider=node.model_service.create_provider(), artifact_manager=node.artifact_manager
     )
-    return LangChainReadOnlyAgent(model, node.tool_registry, node.tool_runtime, Platform.MACOS)
+    return LangChainReadOnlyAgent(
+        model, node.tool_registry, node.tool_runtime, Platform.MACOS, remote_tools=remote_tools
+    )
 
 
 def _build_macos_node(
@@ -304,9 +309,13 @@ def build_macos_local_application(
     node = _build_macos_node(data_dir, interface_name=interface_name)
 
     stores = SQLiteStores.open(node.root / "runtime.sqlite3")
+
+    def create_agent() -> LangChainReadOnlyAgent:
+        return _create_macos_read_only_agent(node, remote_tools=remote_preparer)
+
     conversations = InMemoryConversationService(
         node.node_id,
-        lambda: _create_macos_read_only_agent(node),
+        create_agent,
         stores.checkpoints,
         memory_retriever=MemoryContextRetriever(stores.memories),
         read_only_preview=read_only_preview,
@@ -400,10 +409,10 @@ def build_macos_local_application(
         if remote_observer is not None
         else None,
     )
-    incident_observer = IncidentObservationService(
-        views.overview_service.view,
+    incident_tasks = IncidentTaskHarness(
+        conversations,
         incident_store,
-        investigator=ConfiguredIncidentRunner(
+        ConfiguredIncidentRunner(
             node.model_service.create_provider,
             node.tool_registry,
             node.tool_runtime,
@@ -412,6 +421,13 @@ def build_macos_local_application(
             local_node_id=node.node_id,
             remote_tools=remote_preparer,
         ),
+        create_agent,
+        views.overview_service.view,
+    )
+    incident_observer = IncidentObservationService(
+        views.overview_service.view,
+        incident_store,
+        investigator=incident_tasks,
         before_snapshot=before_snapshot,
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
         read_only_preview=read_only_preview,
@@ -439,7 +455,7 @@ def build_macos_local_application(
         )
     )
     app.include_router(create_overview_router(views.overview_service))
-    app.include_router(create_incident_router(incident_store, conversations))
+    app.include_router(create_incident_router(incident_store, conversations, tasks=incident_tasks))
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))

@@ -336,8 +336,9 @@ def test_macos_local_resources_degrade_without_model(
         Any,
         observers[0]._investigator,  # pyright: ignore[reportPrivateUsage]
     )
-    assert incident_runner._local_node_id == bundle.node.node_id
-    assert isinstance(incident_runner._remote_tools, ConfiguredRemoteToolPreparer)
+    assert incident_runner.conversations is bundle.conversation_service
+    assert incident_runner.runner._local_node_id == bundle.node.node_id
+    assert isinstance(incident_runner.runner._remote_tools, ConfiguredRemoteToolPreparer)
     overview = client.get("/api/resources/overview", headers={})
     overview_body = cast(dict[str, object], overview.json())
     assert overview.status_code == 200

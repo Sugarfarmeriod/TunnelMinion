@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import IPv6Address, ip_address
 from time import perf_counter
@@ -27,10 +28,14 @@ from tunnelminion.agent.context_contracts import (
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
+from tunnelminion.agent.remote import AgentRemoteToolPreparer, RemoteToolExecutor
 from tunnelminion.agent.service_observation import compute_observed_service_id
+from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.coordinator.contracts import ServiceProtocol
 from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.incident.contracts import EvidenceExecution
+from tunnelminion.incident.skills import InvestigationTopology, available_investigation_skills
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import CancellationToken
 from tunnelminion.platforms.windows.models import Availability, CollectionResult, NetworkListener
@@ -198,20 +203,11 @@ class AgentCancellationToken:
         await self._event.wait()
 
 
-class LangChainReadOnlyAgent:
-    """每个 run 动态注入允许工具，而不是持有固定全量工具集。"""
+class TaskAgent(Protocol):
+    """聊天检查与事件调查共用的任务执行接口。"""
 
-    def __init__(
-        self,
-        model: TunnelMinionChatModel,
-        registry: ToolRegistry,
-        runtime: AgentToolExecutor,
-        platform: Platform,
-    ) -> None:
-        self._model = model
-        self._registry = registry
-        self._runtime = runtime
-        self._platform = platform
+    @property
+    def supports_remote(self) -> bool: ...
 
     async def run(
         self,
@@ -224,6 +220,47 @@ class LangChainReadOnlyAgent:
         history_context: HistoryContext | None = None,
         memories: tuple[LongTermMemory, ...] = (),
         target: ServiceCheckTarget | None = None,
+        progress: TaskProgress | None = None,
+        progress_sink: Callable[[TaskProgress], None] | None = None,
+    ) -> CheckedAgentTurnResult: ...
+
+
+class LangChainReadOnlyAgent:
+    """每个 run 动态注入允许工具，而不是持有固定全量工具集。"""
+
+    def __init__(
+        self,
+        model: TunnelMinionChatModel,
+        registry: ToolRegistry,
+        runtime: AgentToolExecutor,
+        platform: Platform,
+        *,
+        remote_tools: AgentRemoteToolPreparer | None = None,
+    ) -> None:
+        self._model = model
+        self._registry = registry
+        self._runtime = runtime
+        self._platform = platform
+        self._remote_tools = remote_tools
+
+    @property
+    def supports_remote(self) -> bool:
+        """是否已接入每次运行重新校验的远端能力准备器。"""
+        return self._remote_tools is not None or isinstance(self._runtime, RemoteToolExecutor)
+
+    async def run(
+        self,
+        question: str,
+        context: ToolCallContext,
+        tool_names: tuple[str, ...],
+        limits: AgentRunLimits | None = None,
+        cancellation: AgentCancellationToken | None = None,
+        tool_event_sink: Callable[[AgentToolEvent], None] | None = None,
+        history_context: HistoryContext | None = None,
+        memories: tuple[LongTermMemory, ...] = (),
+        target: ServiceCheckTarget | None = None,
+        progress: TaskProgress | None = None,
+        progress_sink: Callable[[TaskProgress], None] | None = None,
     ) -> CheckedAgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
         budget = limits or AgentRunLimits()
@@ -265,42 +302,104 @@ class LangChainReadOnlyAgent:
         )
         evidence: list[EvidenceReference] = []
         results: list[tuple[ToolExecutionRequest, ToolExecutionResult]] = []
-        tools = tuple(
-            self._build_tool(name, context, tool_token, evidence, tool_event_sink, results)
-            for name in self._validate_tools(tool_names)
-        )
-        middleware = [
-            ModelCallLimitMiddleware(
-                run_limit=budget.max_model_rounds,
-                exit_behavior="end",
-            ),
-            ToolCallLimitMiddleware(
-                run_limit=budget.max_tool_calls,
-                exit_behavior="end",
-            ),
-        ]
-        factory = cast(Callable[..., _AgentGraph], create_agent)
-        graph = factory(
-            model=model,
-            tools=tools,
-            system_prompt=READONLY_AGENT_PROMPT.template,
-            middleware=middleware,
-            name="tunnelminion-read-only",
-        )
-        input_messages: list[dict[str, str]] = []
-        if target is not None:
-            input_messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        f"用户选择了这台电脑上的“{target.display_name}”（类型："
-                        f"{target.application_kind or '未知'}；{target.protocol.value.upper()} "
-                        f"{target.port}）。名称来自当前程序清单，连接事实必须用工具核对。"
-                    ),
-                }
+        saved_progress = progress or TaskProgress()
+
+        def save_observation(request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
+            nonlocal saved_progress
+            saved_progress = saved_progress.record(request, result, datetime.now(UTC))
+            if progress_sink is not None:
+                progress_sink(saved_progress)
+
+        selected_tools = tool_names
+
+        async def invoke() -> dict[str, Any]:
+            nonlocal selected_tools
+            active = self
+            current_question = question
+            target_platform = (
+                self._platform.value
+                if context.execution_node_id == context.caller_node_id
+                else None
             )
-        input_messages.append({"role": "user", "content": question})
-        graph_task = asyncio.create_task(graph.ainvoke({"messages": input_messages}))
+            if context.execution_node_id != context.caller_node_id and not isinstance(
+                self._runtime, RemoteToolExecutor
+            ):
+                if self._remote_tools is None:
+                    raise ValueError("目标节点没有可用的远端只读能力准备器")
+                prepared = await self._remote_tools.prepare(
+                    context.execution_node_id, context, tool_names, tool_token
+                )
+                active = LangChainReadOnlyAgent(
+                    model, prepared.registry, prepared.executor, self._platform
+                )
+                selected_tools = prepared.tool_names
+                target_platform = prepared.node_summary.platform
+                summary_request = ToolExecutionRequest(
+                    context=context, tool_name="get_node_summary"
+                )
+                summary_result = ToolExecutionResult(
+                    tool_run_id=prepared.summary_tool_run_id,
+                    status=ToolExecutionStatus.SUCCESS,
+                    output=prepared.node_summary.model_dump(mode="json"),
+                )
+                save_observation(summary_request, summary_result)
+                evidence.append(
+                    EvidenceReference(
+                        tool_run_id=str(summary_result.tool_run_id),
+                        tool_name="get_node_summary",
+                        status=summary_result.status.value,
+                    )
+                )
+                if tool_event_sink is not None:
+                    tool_event_sink(
+                        AgentToolEvent(
+                            target_node_id=str(context.execution_node_id),
+                            tool_name="get_node_summary",
+                            status=summary_result.status.value,
+                            elapsed_ms=round((perf_counter() - started) * 1000, 2),
+                            tool_run_id=str(summary_result.tool_run_id),
+                        )
+                    )
+                current_question = prepared.augment_question(question)
+            tools = tuple(
+                active._build_tool(
+                    entry, context, tool_token, evidence, tool_event_sink, results, save_observation
+                )
+                for entry in active._validate_tools(selected_tools)
+            ) + self._skill_tools(context, selected_tools, target_platform)
+            factory = cast(Callable[..., _AgentGraph], create_agent)
+            graph = factory(
+                model=model,
+                tools=tools,
+                system_prompt=READONLY_AGENT_PROMPT.template,
+                middleware=[
+                    ModelCallLimitMiddleware(
+                        run_limit=budget.max_model_rounds, exit_behavior="end"
+                    ),
+                    ToolCallLimitMiddleware(
+                        run_limit=budget.max_tool_calls - len(evidence), exit_behavior="end"
+                    ),
+                ],
+                name="tunnelminion-read-only",
+            )
+            input_messages: list[dict[str, object]] = []
+            if target is not None:
+                location = "这台电脑" if target.node_id == context.caller_node_id else "另一台电脑"
+                input_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"用户选择了{location}上的“{target.display_name}”（类型："
+                            f"{target.application_kind or '未知'}；{target.protocol.value.upper()} "
+                            f"{target.port}）。名称来自当前程序清单，连接事实必须用工具核对。"
+                        ),
+                    }
+                )
+            input_messages.extend(saved_progress.messages(context, selected_tools))
+            input_messages.append({"role": "user", "content": current_question})
+            return await graph.ainvoke({"messages": input_messages})
+
+        graph_task = asyncio.create_task(invoke())
         cancel_task = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
         waiters: set[asyncio.Task[Any]] = {graph_task}
         if cancel_task is not None:
@@ -318,7 +417,7 @@ class LangChainReadOnlyAgent:
                 tool_token,
                 metrics,
                 evidence,
-                tool_names,
+                selected_tools,
                 budget,
                 started,
                 AgentStopReason.CANCELLED,
@@ -331,7 +430,7 @@ class LangChainReadOnlyAgent:
                 tool_token,
                 metrics,
                 evidence,
-                tool_names,
+                selected_tools,
                 budget,
                 started,
                 AgentStopReason.TIMEOUT,
@@ -362,7 +461,7 @@ class LangChainReadOnlyAgent:
             model_rounds=metrics.model_rounds,
             tool_calls=len(executed_ids),
             tool_run_ids=tuple(executed_ids),
-            selected_tools=tool_names,
+            selected_tools=selected_tools,
             stop_reason=stop_reason,
             elapsed_ms=round((perf_counter() - started) * 1000, 2),
             usage=self._usage(metrics),
@@ -386,6 +485,65 @@ class LangChainReadOnlyAgent:
             selected.append(entry)
         return tuple(selected)
 
+    def _skill_tools(
+        self,
+        context: ToolCallContext,
+        tool_names: tuple[str, ...],
+        target_platform: str | None,
+    ) -> tuple[StructuredTool, ...]:
+        remote = context.execution_node_id != context.caller_node_id
+        skills = tuple(
+            skill
+            for skill in available_investigation_skills(
+                topology=InvestigationTopology.REMOTE if remote else InvestigationTopology.LOCAL,
+                request_platform=self._platform,
+                target_platform=target_platform,
+            )
+            if any(step.tool_name in tool_names for step in skill.steps)
+        )
+        if not skills:
+            return ()
+        catalogue = tuple(
+            {
+                "skill_id": skill.skill_id,
+                "version": skill.version,
+                "title": skill.title,
+                "description": skill.description,
+            }
+            for skill in skills
+        )
+
+        async def read_skill(skill_id: str, version: str) -> str:
+            skill = next(
+                (item for item in skills if item.skill_id == skill_id and item.version == version),
+                None,
+            )
+            if skill is None:
+                return json.dumps({"available": False, "reason": "技能或版本不在本次目录中"})
+            return json.dumps(
+                {
+                    "kind": "investigation-method-not-evidence",
+                    "grants_permissions": False,
+                    "skill": skill.model_dump(mode="json"),
+                    "missing_checks": [
+                        {"tool_name": step.tool_name, "execution": step.execution.value}
+                        for step in skill.steps
+                        if step.tool_name not in tool_names
+                        or (remote and step.execution is EvidenceExecution.REQUESTER)
+                    ],
+                },
+                ensure_ascii=False,
+            )
+
+        return (
+            StructuredTool.from_function(
+                coroutine=read_skill,
+                name="read_investigation_skill",
+                description="按需查阅调查方法；不执行检查、不生成事实证据、不扩大权限。目录："
+                + json.dumps(catalogue, ensure_ascii=False),
+            ),
+        )
+
     def _build_tool(
         self,
         entry: RegisteredTool,
@@ -394,6 +552,7 @@ class LangChainReadOnlyAgent:
         evidence: list[EvidenceReference],
         event_sink: Callable[[AgentToolEvent], None] | None,
         results: list[tuple[ToolExecutionRequest, ToolExecutionResult]],
+        observation_sink: Callable[[ToolExecutionRequest, ToolExecutionResult], None],
     ) -> StructuredTool:
         async def execute(**arguments: Any) -> str:
             started = perf_counter()
@@ -412,6 +571,7 @@ class LangChainReadOnlyAgent:
                 arguments=cast(dict[str, JsonValue], arguments),
             )
             result = await self._runtime.execute(request, cancellation)
+            observation_sink(request, result)
             results.append((request, result))
             evidence.append(
                 EvidenceReference(

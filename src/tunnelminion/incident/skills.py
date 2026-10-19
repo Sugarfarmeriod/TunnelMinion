@@ -45,6 +45,8 @@ class InvestigationSkill(BaseModel):
 
     skill_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,79}$")
     version: str = Field(pattern=r"^[1-9][0-9]*$")
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=240)
     event_types: frozenset[IncidentEventType]
     topologies: frozenset[InvestigationTopology]
     request_platforms: frozenset[Platform]
@@ -72,6 +74,8 @@ class InvestigationSkill(BaseModel):
 SERVICE_LOCAL_ONLY = InvestigationSkill(
     skill_id="service.local-only",
     version="1",
+    title="服务只能从本机访问",
+    description="核对目标进程、监听范围、私网接口和请求端探测，区分访问限制与证据不足。",
     event_types=frozenset({IncidentEventType.LOCAL_ONLY}),
     topologies=frozenset({InvestigationTopology.LOCAL, InvestigationTopology.REMOTE}),
     request_platforms=frozenset({Platform.WINDOWS, Platform.MACOS, Platform.LINUX}),
@@ -136,26 +140,60 @@ SERVICE_LOCAL_ONLY = InvestigationSkill(
     output_schema="incident-report/v1",
 )
 
+INVESTIGATION_SKILLS = (SERVICE_LOCAL_ONLY,)
+
+
+def available_investigation_skills(
+    *,
+    topology: InvestigationTopology,
+    request_platform: Platform,
+    target_platform: str | None,
+    event_type: IncidentEventType | None = None,
+) -> tuple[InvestigationSkill, ...]:
+    """按已知任务条件列目录；远端预检后还须核对实际目标平台和工具。"""
+    return tuple(
+        skill
+        for skill in INVESTIGATION_SKILLS
+        if topology in skill.topologies
+        and request_platform in skill.request_platforms
+        and (target_platform is None or target_platform in skill.target_platforms)
+        and (event_type is None or event_type in skill.event_types)
+    )
+
+
+def get_investigation_skill(skill_id: str, version: str) -> InvestigationSkill | None:
+    """只精确读取受版本控制的内置方法，不解析文件路径或执行方法中的文字。"""
+    return next(
+        (
+            skill
+            for skill in INVESTIGATION_SKILLS
+            if skill.skill_id == skill_id and skill.version == version
+        ),
+        None,
+    )
+
 
 def select_investigation_skill(
     incident: Incident,
     *,
     local_node_id: str | None,
     request_platform: Platform,
-    target_platform: Platform,
+    target_platform: str | None,
 ) -> InvestigationSkill | None:
-    """从唯一内置 Skill 中做确定性匹配。"""
+    """事件调查与聊天共用目录，不匹配时保留既有无技能调查路径。"""
     topology = (
         InvestigationTopology.LOCAL
         if local_node_id is None or str(incident.event.target_node_id) == local_node_id
         else InvestigationTopology.REMOTE
     )
-    skill = SERVICE_LOCAL_ONLY
-    if (
-        incident.event.event_type in skill.event_types
-        and topology in skill.topologies
-        and request_platform in skill.request_platforms
-        and target_platform in skill.target_platforms
-    ):
-        return skill
-    return None
+    return next(
+        iter(
+            available_investigation_skills(
+                topology=topology,
+                request_platform=request_platform,
+                target_platform=target_platform,
+                event_type=incident.event.event_type,
+            )
+        ),
+        None,
+    )

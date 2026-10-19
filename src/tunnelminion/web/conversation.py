@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.agent.conversation import InMemoryConversationService, StartRunInput
 from tunnelminion.agent.runtime import ServiceCheckTarget
@@ -51,6 +52,14 @@ class StartProgramRunInput(StartRunInput):
     """工作台专用的所选程序身份，不改变既有对话请求契约。"""
 
     service_id: ServiceId
+
+
+class ResumeRunInput(BaseModel):
+    """继续未完任务时可补充问题，工具与对象仍由原任务和当前清单界定。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    question: str | None = Field(default=None, min_length=1, max_length=20_000)
 
 
 def create_conversation_router(
@@ -110,8 +119,11 @@ def create_conversation_router(
         return await begin_run(value, payload)
 
     async def start_program_run(value: str, payload: StartProgramRunInput) -> dict[str, object]:
+        return await begin_run(value, payload, current_target(payload.service_id))
+
+    def current_target(service_id: ServiceId) -> ServiceCheckTarget:
         items = overview.view_for_programs().services.items if overview is not None else ()
-        selected = next((item for item in items if item.service_id == payload.service_id), None)
+        selected = next((item for item in items if item.service_id == service_id), None)
         if (
             selected is None
             or selected.protocol is None
@@ -121,7 +133,7 @@ def create_conversation_router(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, "程序记录不可核对，请刷新后重试"
             )
-        target = ServiceCheckTarget(
+        return ServiceCheckTarget(
             service_id=selected.service_id,
             node_id=selected.node_id,
             protocol=selected.protocol,
@@ -135,7 +147,26 @@ def create_conversation_router(
                 else selected.display_name or "所选程序"
             ),
         )
-        return await begin_run(value, payload, target)
+
+    async def resume_run(value: str, payload: ResumeRunInput | None = None) -> dict[str, object]:
+        try:
+            identifier = run_id(value)
+            saved_target = service.get_resume_target(identifier)
+            target = current_target(saved_target.service_id) if saved_target is not None else None
+            result = await service.resume_run(
+                identifier,
+                question=payload.question if payload is not None else None,
+                target=target,
+            )
+            return result.model_dump(mode="json")
+        except KeyError as exc:
+            raise not_found(exc) from exc
+        except ProviderError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "模型调查当前不可用") from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "当前任务不能继续，请核对对象和任务状态"
+            ) from exc
 
     async def begin_run(
         value: str, payload: StartRunInput, target: ServiceCheckTarget | None = None
@@ -197,6 +228,9 @@ def create_conversation_router(
     )
     router.add_api_route("/api/runs/{value}", get_run, methods=["GET"])
     router.add_api_route("/api/runs/{value}/cancel", cancel_run, methods=["POST"])
+    router.add_api_route(
+        "/api/ui/runs/{value}/resume", resume_run, methods=["POST"], include_in_schema=False
+    )
     router.add_api_route("/api/runs/{value}/events", events, methods=["GET"])
     router.add_api_route("/chat", chat_page, methods=["GET"], response_class=HTMLResponse)
     router.add_api_route(

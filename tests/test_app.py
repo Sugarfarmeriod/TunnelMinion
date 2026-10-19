@@ -335,8 +335,9 @@ def test_node_id_is_created_once_and_application_is_composed(
         Any,
         observers[0]._investigator,  # pyright: ignore[reportPrivateUsage]
     )
-    assert incident_runner._local_node_id == bundle.node_id
-    assert isinstance(incident_runner._remote_tools, ConfiguredRemoteToolPreparer)
+    assert incident_runner.conversations is bundle.conversation_service
+    assert incident_runner.runner._local_node_id == bundle.node_id
+    assert isinstance(incident_runner.runner._remote_tools, ConfiguredRemoteToolPreparer)
 
     local_client: Any = TestClient(bundle.app, base_url="http://127.0.0.1")
     overview = local_client.get("/api/resources/overview")

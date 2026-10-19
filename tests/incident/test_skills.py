@@ -22,6 +22,9 @@ from tunnelminion.incident.contracts import (
 from tunnelminion.incident.skills import (
     SERVICE_LOCAL_ONLY,
     InvestigationSkill,
+    InvestigationTopology,
+    available_investigation_skills,
+    get_investigation_skill,
     select_investigation_skill,
 )
 
@@ -77,6 +80,25 @@ def test_skill_selection_matches_event_topology_and_platform() -> None:
             target_platform=Platform.MACOS,
         )
         is SERVICE_LOCAL_ONLY
+    )
+
+
+def test_shared_catalogue_matches_known_conditions_and_exact_version() -> None:
+    assert get_investigation_skill("service.local-only", "1") is SERVICE_LOCAL_ONLY
+    assert get_investigation_skill("service.local-only", "2") is None
+    assert get_investigation_skill("../SKILL.md", "1") is None
+    assert available_investigation_skills(
+        topology=InvestigationTopology.LOCAL,
+        request_platform=Platform.WINDOWS,
+        target_platform=None,
+    ) == (SERVICE_LOCAL_ONLY,)
+    assert (
+        available_investigation_skills(
+            topology=InvestigationTopology.REMOTE,
+            request_platform=Platform.WINDOWS,
+            target_platform="unsupported-platform",
+        )
+        == ()
     )
     assert (
         select_investigation_skill(

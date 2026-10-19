@@ -479,6 +479,9 @@ class Incident(BaseModel):
                 IncidentStatus.INVESTIGATING,
                 IncidentStatus.CLOSED,
             },
+            IncidentStatus.BUDGET_EXHAUSTED: {IncidentStatus.INVESTIGATING, IncidentStatus.CLOSED},
+            IncidentStatus.CANCELLED: {IncidentStatus.INVESTIGATING, IncidentStatus.CLOSED},
+            IncidentStatus.FAILED: {IncidentStatus.INVESTIGATING, IncidentStatus.CLOSED},
         }
         if status not in allowed.get(self.status, set()):
             raise ValueError(f"不允许从 {self.status.value} 迁移到 {status.value}")

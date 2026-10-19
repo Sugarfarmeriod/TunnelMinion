@@ -414,7 +414,10 @@ def test_prepared_remote_tools_run_through_langchain_agent() -> None:
 
     assert result.selected_tools == ("list_network_listeners",)
     assert result.tool_calls == 1
-    assert [tool.name for tool in provider.requests[0].tools] == ["list_network_listeners"]
+    assert [tool.name for tool in provider.requests[0].tools] == [
+        "list_network_listeners",
+        "read_investigation_skill",
+    ]
     assert "远端节点预检" in provider.requests[0].messages[-1].content
 
 
