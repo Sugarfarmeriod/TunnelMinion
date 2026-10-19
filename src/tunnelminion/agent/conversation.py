@@ -329,21 +329,22 @@ class InMemoryConversationService:
                 pending.run_id, question=value.question, target=target, current_input=value
             )
         thread = self._threads.get(str(thread_id))
-        if thread is not None and thread.incident_id is not None and target is None:
+        if thread is not None and thread.incident_id is not None:
             previous = next(
                 state
                 for state in reversed(tuple(self._runs.values()))
                 if state.thread_id == thread_id and state.continuation is not None
             )
             assert previous.continuation is not None
-            return await self.start_incident_run(
-                thread_id,
-                value,
-                "{}",
-                incident_id=thread.incident_id,
-                target=previous.continuation.target,
-                execution_node_id=previous.continuation.execution_node_id,
-            )
+            if target is None or self._same_target(previous.continuation.target, target):
+                return await self.start_incident_run(
+                    thread_id,
+                    value,
+                    "{}",
+                    incident_id=thread.incident_id,
+                    target=target or previous.continuation.target,
+                    execution_node_id=previous.continuation.execution_node_id,
+                )
         return await self._start_run(thread_id, value, agent_question=value.question, target=target)
 
     async def resume_run(

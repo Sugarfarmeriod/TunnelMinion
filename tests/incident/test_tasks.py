@@ -330,10 +330,16 @@ def test_failed_tool_is_kept_as_failed_evidence_without_confirmed_fact(
     assert "不可用" in result.answer
 
 
-def test_expired_program_returns_unknown_without_reusing_old_success(tmp_path: Path) -> None:
+@pytest.mark.parametrize("keep_report", [True, False])
+def test_expired_program_returns_unknown_without_reusing_old_success(
+    tmp_path: Path, keep_report: bool
+) -> None:
     harness, _, provider, _ = task_harness(tmp_path)
     incident = _incident(harness.store, event_type=IncidentEventType.SERVICE_ADDED)
     completed = run(harness.run(incident))
+    if not keep_report:
+        completed = completed.model_copy(update={"status": IncidentStatus.CLOSED, "report": None})
+        harness.store.put_incident(completed)
     previous = harness.overview()
     harness.overview = lambda: previous.model_copy(
         update={"services": previous.services.model_copy(update={"items": ()})}
