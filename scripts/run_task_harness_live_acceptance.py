@@ -45,11 +45,6 @@ from tunnelminion.platforms.windows.adapters import NetworkListenersAdapter
 from tunnelminion.platforms.windows.definitions import windows_tool_definitions
 from tunnelminion.platforms.windows.models import NetworkListener
 from tunnelminion.platforms.windows.system import PsutilSystemReader
-from tunnelminion.runtime.profile import (
-    RuntimeProfile,
-    default_runtime_data_dir,
-    default_runtime_profile_path,
-)
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -158,7 +153,7 @@ async def investigate(
 
 
 async def evaluate(
-    root: Path, reader: FixtureReader, provider: RecordingProvider
+    root: Path, reader: FixtureReader, provider: RecordingProvider, *, prior_failed: bool
 ) -> dict[str, Any]:
     node = NodeId.new()
     target = ServiceCheckTarget(
@@ -178,36 +173,37 @@ async def evaluate(
         )
 
     service = InMemoryConversationService(node, create_agent, stores.checkpoints)
-    first = await investigate(
-        service,
-        await service.start_run(
-            service.create_thread().thread_id,
-            StartRunInput(
-                question="服务是否已经启动？请核对所选临时服务的监听。",
-                tool_names=TOOLS,
-                limits=LIMITS,
+    runs: list[dict[str, Any]] = []
+    checks: dict[str, bool] = {}
+    if not prior_failed:
+        first = await investigate(
+            service,
+            await service.start_run(
+                service.create_thread().thread_id,
+                StartRunInput(
+                    question="服务是否已经启动？请核对所选临时服务的监听。",
+                    tool_names=TOOLS,
+                    limits=LIMITS,
+                ),
+                target,
             ),
-            target,
-        ),
-    )
-    runs = [public_run(first)]
-    checks = {
-        "normal_question_completed": bool(
+        )
+        runs.append(public_run(first))
+        checks["normal_question_completed"] = bool(
             first.result and first.result.stop_reason is AgentStopReason.COMPLETED
-        ),
-        "normal_question_used_real_tool": bool(first.result and first.result.tool_calls),
-        "normal_question_has_checked_fact": bool(
+        )
+        checks["normal_question_used_real_tool"] = bool(first.result and first.result.tool_calls)
+        checks["normal_question_has_checked_fact"] = bool(
             first.result and first.result.evidence_answer.confirmed_facts
-        ),
-    }
-    if any("error_type" in call for call in provider.calls):
-        return {"runs": runs, "checks": checks, "stopped": "model_request_failed"}
+        )
+        if any("error_type" in call for call in provider.calls):
+            return {"runs": runs, "checks": checks, "stopped": "model_request_failed"}
     second = await investigate(
         service,
         await service.start_run(
             service.create_thread().thread_id,
             StartRunInput(
-                question="请先查阅目录中适用的调查技能，再检查所选临时服务为什么只能本机连接。缺少的证据请保留未知。",
+                question="服务是否已经启动？请先查阅目录中适用的调查技能，再核对所选临时服务的监听与本机连接范围。缺少的证据请保留未知。",
                 tool_names=TOOLS,
                 limits=LIMITS,
             ),
@@ -216,6 +212,9 @@ async def evaluate(
         interrupt=True,
     )
     runs.append(public_run(second))
+    checks["status_question_entered_investigation"] = bool(
+        second.result and second.result.tool_calls
+    )
     checkpoint = stores.checkpoints.get(second.run_id)
     checks["interruption_preserved_actual_tool"] = bool(checkpoint and checkpoint.tool_run_ids)
     checks["second_run_cancelled"] = bool(
@@ -231,7 +230,7 @@ async def evaluate(
         restored,
         await restored.resume_run(
             second.run_id,
-            question="继续原任务，说明上次检查和当前新检查各自能证明什么。",
+            question="继续原任务，重新核对当前监听，并区分上次检查和当前新检查各自能证明什么。",
             target=target,
         ),
     )
@@ -244,6 +243,9 @@ async def evaluate(
     )
     checks["resume_completed"] = bool(
         third.result and third.result.stop_reason is AgentStopReason.COMPLETED
+    )
+    checks["resume_has_fresh_checked_fact"] = bool(
+        third.result and third.result.tool_calls and third.result.evidence_answer.confirmed_facts
     )
     checks["history_not_promoted_to_current_fact"] = bool(
         checkpoint
@@ -259,10 +261,25 @@ async def evaluate(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--model-data-dir", type=Path)
+    parser.add_argument("--prior-failure", type=Path)
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
-    if not args.self_check and (sys.platform != "win32" or args.output is None):
-        parser.error("真实验收仅支持 Windows，且必须提供 --output")
+    if not args.self_check and (
+        sys.platform != "win32" or args.output is None or args.model_data_dir is None
+    ):
+        parser.error("真实验收仅支持 Windows，必须明确提供 --model-data-dir 与 --output")
+    prior = None
+    if args.prior_failure is not None:
+        prior = json.loads(args.prior_failure.read_text(encoding="utf-8"))
+        if not (
+            prior.get("executed_investigations") == 1
+            and prior.get("maximum_investigations") == 3
+            and prior.get("remaining_investigations") == 2
+            and len(prior.get("runs", [])) == 1
+            and prior["runs"][0]["status"] == "failed"
+        ):
+            parser.error("前次报告必须明确记录一次失败调查及剩余两次预算")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
@@ -277,13 +294,7 @@ def main() -> int:
         if args.self_check:
             print("临时监听与允许工具范围自检通过；未调用模型。")
             return 0
-        profile = default_runtime_profile_path()
-        source = (
-            RuntimeProfile.model_validate_json(profile.read_text(encoding="utf-8")).data_dir
-            if profile.exists()
-            else default_runtime_data_dir()
-        )
-        model_path = source / "model.json"
+        model_path = args.model_data_dir.resolve() / "model.json"
         original_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
         configuration = FileModelConfigurationRepository(model_path)
         config = configuration.load()
@@ -292,12 +303,21 @@ def main() -> int:
             ModelConfigurationService(configuration, KeyringSecretStore()).create_provider()
         )
         with tempfile.TemporaryDirectory(prefix="tm-task-live-") as temporary:
-            result = asyncio.run(evaluate(Path(temporary), reader, provider))
+            result = asyncio.run(
+                evaluate(Path(temporary), reader, provider, prior_failed=prior is not None)
+            )
         result["model"] = config.model.rsplit("/", 1)[-1]
         result["source_revision"] = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True
         ).strip()
         result["recorded_at"] = datetime.now(UTC).isoformat()
+        result["executed_investigations"] = len(result["runs"])
+        result["total_investigations"] = len(result["runs"]) + (1 if prior else 0)
+        result["maximum_investigations"] = 3
+        result["prior_failure_report"] = (
+            args.prior_failure.as_posix() if args.prior_failure is not None else None
+        )
+        result["success_scope"] = "current_source_checks_only"
         result["provider_calls"] = provider.calls
         result["temporary_state_removed"] = not Path(temporary).exists()
         result["model_configuration_unchanged"] = (
@@ -309,7 +329,7 @@ def main() -> int:
     result["temporary_listener_closed"] = reader.listeners() == ()
     checks = cast(dict[str, bool], result["checks"])
     result["passed"] = (
-        len(result["runs"]) == 3
+        len(result["runs"]) == (2 if prior else 3)
         and all(checks.values())
         and result["skill_read"]
         and result["temporary_state_removed"]
