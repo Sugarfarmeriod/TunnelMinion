@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -150,12 +152,17 @@ class _SQLiteDatabase:
                 """
             )
 
-    def connect(self) -> sqlite3.Connection:
-        """创建启用 WAL 和忙等待的本地连接。"""
+    @contextmanager
+    def connect(self) -> Generator[sqlite3.Connection, None, None]:
+        """创建短连接，结束时提交或回滚并立即释放文件句柄。"""
         connection = sqlite3.connect(self._path, timeout=5)
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        return connection
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA foreign_keys=ON")
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
 
 class SQLiteCheckpointStore:
