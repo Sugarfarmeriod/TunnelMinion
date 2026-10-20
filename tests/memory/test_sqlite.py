@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from tunnelminion.domain.identifiers import (
     ArtifactId,
@@ -24,7 +28,30 @@ from tunnelminion.memory.contracts import (
     ToolArtifact,
     ToolArtifactStore,
 )
-from tunnelminion.memory.sqlite import SQLiteStores
+from tunnelminion.memory.sqlite import (
+    SQLiteStores,
+    _SQLiteDatabase,  # pyright: ignore[reportPrivateUsage]
+)
+
+
+@pytest.mark.parametrize("abort", [False, True])
+def test_short_connection_closes_and_preserves_transaction_result(
+    tmp_path: Path, abort: bool
+) -> None:
+    """成功提交、异常回滚后均立即关闭连接，持有 Python 引用也不占用数据库。"""
+    database = _SQLiteDatabase(tmp_path / "runtime.sqlite3")
+    with (
+        pytest.raises(RuntimeError, match="abort") if abort else nullcontext(),
+        database.connect() as connection,
+    ):
+        connection.execute("INSERT INTO tool_artifacts VALUES (?, ?)", ("fixture", "{}"))
+        if abort:
+            raise RuntimeError("abort")
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")
+    with database.connect() as reopened:
+        count = reopened.execute("SELECT COUNT(*) FROM tool_artifacts").fetchone()[0]
+    assert count == (0 if abort else 1)
 
 
 def checkpoint(
