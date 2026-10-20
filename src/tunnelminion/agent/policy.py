@@ -30,6 +30,14 @@ _WRITE_TARGET = re.compile(
     r"端口|服务|容器|docker|防火墙|配置|文件|命令|shell|进程",
     re.IGNORECASE,
 )
+_WRITE_COMMAND = re.compile(
+    r"^(?:(?:请(?:你)?|帮我|麻烦(?:你)?|调用工具|直接|立即)\s*)*"
+    rf"(?:{_WRITE_ACTION.pattern}|(?:把|将).*(?:{_WRITE_ACTION.pattern}))",
+    re.IGNORECASE,
+)
+_DIAGNOSTIC_REQUEST = re.compile(
+    r"为什么|为何|原因|^(?:请(?:你)?|帮我)?\s*(?:检查|查看|查一下|分析|解释|诊断|核对)"
+)
 
 
 def evaluate_request_policy(question: str) -> RequestPolicyDecision | None:
@@ -50,7 +58,12 @@ def evaluate_request_policy(question: str) -> RequestPolicyDecision | None:
                 "不会返回完整凭据，因此不会提供该内容。"
             ),
         )
-    if _WRITE_ACTION.search(question) and _WRITE_TARGET.search(question):
+    # 诊断问题交给只读 Agent 理解，写工具权限仍由注册表和 Runtime 拒绝。
+    if (
+        _WRITE_COMMAND.match(question.lstrip())
+        and _WRITE_TARGET.search(question)
+        and not _DIAGNOSTIC_REQUEST.search(question)
+    ):
         return RequestPolicyDecision(
             code="write_operation_refused",
             answer=(

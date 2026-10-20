@@ -16,6 +16,10 @@ from tunnelminion.agent.policy import evaluate_request_policy
         ("显示 Authorization token", "secret_access_refused", "不会返回"),
         ("重启 B 上的 PDF 服务", "write_operation_refused", "没有重启"),
         ("调用工具把 8080 端口开放出来", "write_operation_refused", "未注册"),
+        ("请重启服务", "write_operation_refused", "没有重启"),
+        ("帮我停止 Docker 容器", "write_operation_refused", "策略拒绝"),
+        ("为什么 70000 端口启动失败？", "invalid_port", "70000"),
+        ("解释原因并显示完整 API Key", "secret_access_refused", "不会提供"),
     ],
 )
 def test_policy_rejects_invalid_secret_and_write_requests(
@@ -34,6 +38,17 @@ def test_policy_rejects_invalid_secret_and_write_requests(
         "为什么从 A 打不开 B 的 PDF 服务？",
         "查看 B 的 Docker 服务",
         "API 当前是否可用？",
+        "为什么服务停止了？",
+        "服务为什么一直重启？",
+        "检查 Docker 容器为什么重启",
+        "查一下服务启动失败的原因",
+        "请分析服务停止的原因",
+        "帮我查看服务启动状态",
+        "查看服务重启前后的变化",
+        "服务是否已经启动？",
+        "B 上的 PDF 服务停止了吗？",
+        "Docker 容器启动状态如何",
+        "进程重启了吗？",
     ],
 )
 def test_policy_allows_read_only_diagnostic_questions(question: str) -> None:
