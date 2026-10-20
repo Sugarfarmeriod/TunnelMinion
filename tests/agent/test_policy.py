@@ -45,6 +45,10 @@ def test_policy_rejects_invalid_secret_and_write_requests(
         "请分析服务停止的原因",
         "帮我查看服务启动状态",
         "查看服务重启前后的变化",
+        "服务是否已经启动？",
+        "B 上的 PDF 服务停止了吗？",
+        "Docker 容器启动状态如何",
+        "进程重启了吗？",
     ],
 )
 def test_policy_allows_read_only_diagnostic_questions(question: str) -> None:

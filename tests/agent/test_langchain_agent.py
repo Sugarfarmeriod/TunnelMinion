@@ -290,10 +290,13 @@ def test_agent_policy_refuses_write_request_before_model_or_tool() -> None:
     assert adapter.calls == []
 
 
-def test_agent_investigates_stopped_service_instead_of_treating_question_as_command() -> None:
+@pytest.mark.parametrize("question", ["为什么服务停止了？", "服务是否已经启动？"])
+def test_agent_investigates_service_question_instead_of_treating_it_as_command(
+    question: str,
+) -> None:
     agent, provider, adapter = build_agent()
 
-    result = run(agent.run("为什么服务停止了？", context(), ("probe_service",)))
+    result = run(agent.run(question, context(), ("probe_service",)))
 
     assert result.model_rounds == len(provider.requests) == 2
     assert result.tool_calls == 1 and adapter.calls == [{"port": 8082}]
