@@ -1,4 +1,4 @@
-"""使用当前模型和本进程临时监听，验收三次有界任务及显式续办。"""
+"""使用当前模型和本进程临时监听，验收有界任务及显式续办。"""
 
 from __future__ import annotations
 
@@ -262,7 +262,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--model-data-dir", type=Path)
-    parser.add_argument("--prior-failure", type=Path)
+    prior_reports = parser.add_mutually_exclusive_group()
+    prior_reports.add_argument("--prior-failure", type=Path)
+    prior_reports.add_argument("--recheck-report", type=Path)
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
     if not args.self_check and (
@@ -280,6 +282,17 @@ def main() -> int:
             and prior["runs"][0]["status"] == "failed"
         ):
             parser.error("前次报告必须明确记录一次失败调查及剩余两次预算")
+    recheck = args.recheck_report is not None
+    if recheck:
+        assessment = json.loads(args.recheck_report.read_text(encoding="utf-8"))
+        if not (
+            assessment.get("total_investigations") == 3
+            and assessment.get("maximum_investigations") == 3
+            and assessment.get("executed_investigations") == 2
+            and assessment.get("passed") is False
+        ):
+            parser.error("复验报告必须记录已用完三次额度且未通过的原评测")
+    two_runs = prior is not None or recheck
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
@@ -303,20 +316,21 @@ def main() -> int:
             ModelConfigurationService(configuration, KeyringSecretStore()).create_provider()
         )
         with tempfile.TemporaryDirectory(prefix="tm-task-live-") as temporary:
-            result = asyncio.run(
-                evaluate(Path(temporary), reader, provider, prior_failed=prior is not None)
-            )
+            result = asyncio.run(evaluate(Path(temporary), reader, provider, prior_failed=two_runs))
         result["model"] = config.model.rsplit("/", 1)[-1]
         result["source_revision"] = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True
         ).strip()
         result["recorded_at"] = datetime.now(UTC).isoformat()
         result["executed_investigations"] = len(result["runs"])
-        result["total_investigations"] = len(result["runs"]) + (1 if prior else 0)
-        result["maximum_investigations"] = 3
+        result["total_investigations"] = len(result["runs"]) + (3 if recheck else 1 if prior else 0)
+        result["maximum_investigations"] = 5 if recheck else 3
         result["prior_failure_report"] = (
             args.prior_failure.as_posix() if args.prior_failure is not None else None
         )
+        if recheck:
+            result["previous_assessment_report"] = args.recheck_report.as_posix()
+            result["additional_investigation_limit"] = 2
         result["success_scope"] = "current_source_checks_only"
         result["provider_calls"] = provider.calls
         result["temporary_state_removed"] = not Path(temporary).exists()
@@ -329,7 +343,7 @@ def main() -> int:
     result["temporary_listener_closed"] = reader.listeners() == ()
     checks = cast(dict[str, bool], result["checks"])
     result["passed"] = (
-        len(result["runs"]) == (2 if prior else 3)
+        len(result["runs"]) == (2 if two_runs else 3)
         and all(checks.values())
         and result["skill_read"]
         and result["temporary_state_removed"]
