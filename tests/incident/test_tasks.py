@@ -232,7 +232,9 @@ def test_process_rebuild_continues_unfinished_event_without_repeating_completed_
     restored_service = InMemoryConversationService(
         NODE, lambda: pytest.fail("事件续办不得使用默认本机 Agent"), stores.checkpoints
     )
-    restored, provider, _, _ = task_harness(tmp_path, conversations=restored_service)
+    restored, provider, follow_up_provider, _ = task_harness(
+        tmp_path, conversations=restored_service
+    )
     assert provider.requests == []
     assert restored_service.get_run(identifier).status is RunStatus.INTERRUPTED
     pending = restored.store.get(incident.incident_id)
@@ -246,8 +248,13 @@ def test_process_rebuild_continues_unfinished_event_without_repeating_completed_
         assert restored_service.get_run(started.run_id).status is RunStatus.COMPLETED
         result = restored_service.get_run(started.run_id).result
         assert result is not None and result.tool_calls == 1
+        explanation = await restored.follow_up(incident.incident_id, "解释上次检查")
+        await collect(restored_service.stream_events(explanation.run_id))
+        explained = restored_service.get_run(explanation.run_id).result
+        assert explained is not None and explained.model_rounds == 1
 
     run(finish())
+    assert len(follow_up_provider.requests) == 1
     assert provider.requests[0].tools[0].name == "get_process_summary"
 
 

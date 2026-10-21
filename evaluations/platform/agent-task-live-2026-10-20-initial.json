@@ -1,0 +1,75 @@
+{
+  "acceptance": "windows-local-task-harness",
+  "source_revision": "f6a3632c8d5f562a2a0405d4bdd3a1d92f0d4db4",
+  "passed": false,
+  "executed_investigations": 1,
+  "maximum_investigations": 3,
+  "remaining_investigations": 2,
+  "runs": [
+    {
+      "run_id": "run_c467415b234143b0b4137f1cdcea7bf6",
+      "thread_id": "thread_e930a866364544b185f32e30104972df",
+      "status": "failed",
+      "created_at": "2026-10-20T14:23:39.086758Z",
+      "finished_at": "2026-10-20T14:23:42.911052Z",
+      "result": null,
+      "error_code": "model_network_unreachable",
+      "error_message": "Agent run 执行失败",
+      "failure": {
+        "category": "prompt_or_model",
+        "phase": "agent-runtime",
+        "reason": "model_network_unreachable",
+        "retryable": true,
+        "occurred_at": "2026-10-20T14:23:42.910548Z",
+        "source_refs": [
+          "run:run_c467415b234143b0b4137f1cdcea7bf6"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "sequence": 1,
+      "event_type": "goal",
+      "created_at": "2026-10-20T14:23:39.086758Z",
+      "run_id": "run_c467415b234143b0b4137f1cdcea7bf6",
+      "target_node_id": "node_9c6049895c66430e81f35725936f859b",
+      "tool_name": null,
+      "tool_status": null,
+      "elapsed_ms": null,
+      "tool_run_id": null,
+      "stop_reason": null,
+      "message": "服务是否已经启动？请核对所选临时服务的监听。"
+    },
+    {
+      "sequence": 2,
+      "event_type": "failed",
+      "created_at": "2026-10-20T14:23:42.911052Z",
+      "run_id": "run_c467415b234143b0b4137f1cdcea7bf6",
+      "target_node_id": null,
+      "tool_name": null,
+      "tool_status": null,
+      "elapsed_ms": null,
+      "tool_run_id": null,
+      "stop_reason": null,
+      "message": "Agent run 执行失败"
+    }
+  ],
+  "target": {
+    "service_id": "service_0891f869a8b7cd3de3af68bc14bb473a",
+    "node_id": "node_9c6049895c66430e81f35725936f859b",
+    "display_name": "本机临时验收服务",
+    "protocol": "tcp",
+    "port": 52981,
+    "application_kind": null
+  },
+  "actual_tool_executions": 0,
+  "skill_exercised": false,
+  "continuation_exercised": false,
+  "provider_telemetry": "not_recovered_after_cleanup_failure",
+  "cleanup": {
+    "initial_failure": "sqlite_file_still_open",
+    "temporary_state_removed": true,
+    "temporary_port_rebind_verified": true
+  }
+}

@@ -380,7 +380,15 @@ class InMemoryConversationService:
             value,
             agent_question=agent_question,
             target=target,
-            continuation=saved.model_copy(update={"resumed_by": None, "target": target}),
+            continuation=saved.model_copy(
+                update={
+                    "resumed_by": None,
+                    "target": target,
+                    "progress": saved.progress.model_copy(
+                        update={"current_listener_check_required": target is not None}
+                    ),
+                }
+            ),
             incident_id=saved.incident_id,
             execution_node_id=saved.execution_node_id,
         )
@@ -451,6 +459,9 @@ class InMemoryConversationService:
                         "target": target,
                         "agent_question": question,
                         "resumed_by": None,
+                        "progress": previous.continuation.progress.model_copy(
+                            update={"current_listener_check_required": False}
+                        ),
                     }
                 )
         return await self._start_run(
