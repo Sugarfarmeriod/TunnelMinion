@@ -1,4 +1,4 @@
-"""持续任务保存的公开工具观察，不包含模型隐藏推理或授权。"""
+"""持续任务保存的公开观察与当前检查要求，不包含模型隐藏推理或授权。"""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ class TaskProgress(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     observations: tuple[TaskObservation, ...] = ()
+    current_listener_check_required: bool = False
 
     def record(
         self, request: ToolExecutionRequest, result: ToolExecutionResult, at: datetime

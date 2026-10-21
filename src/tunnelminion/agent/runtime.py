@@ -13,10 +13,12 @@ from typing import Any, Literal, Protocol, cast
 
 from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariableType]
 from langchain.agents.middleware import (  # pyright: ignore[reportUnknownVariableType]
+    AgentState,
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
+    after_model,
 )
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -367,12 +369,43 @@ class LangChainReadOnlyAgent:
                 )
                 for entry in active._validate_tools(selected_tools)
             ) + self._skill_tools(context, selected_tools, target_platform)
+            historical_messages = saved_progress.messages(context, selected_tools)
+            requires_current_check = bool(
+                progress
+                and progress.current_listener_check_required
+                and progress.messages(context, selected_tools)
+            )
+
+            @after_model(can_jump_to=["model"])
+            def verify_current_check(state: AgentState, runtime: object) -> dict[str, Any] | None:
+                """续办的服务检查不能用历史观察或技能说明代替本轮工具执行。"""
+                del runtime
+                if (
+                    target is None
+                    or not requires_current_check
+                    or "list_network_listeners" not in selected_tools
+                    or cast(AIMessage, state["messages"][-1]).tool_calls
+                    or any(request.tool_name == "list_network_listeners" for request, _ in results)
+                ):
+                    return None
+                return {
+                    "messages": [
+                        HumanMessage(
+                            "任务尚缺少所选入口的本轮监听检查。请使用本次允许的检查工具重新核对；"
+                            "技能说明和历史记录不能代替这次检查。若检查失败，保留未知并说明原因。"
+                        )
+                    ],
+                    "jump_to": "model",
+                }
+
             factory = cast(Callable[..., _AgentGraph], create_agent)
             graph = factory(
                 model=model,
                 tools=tools,
                 system_prompt=READONLY_AGENT_PROMPT.template,
                 middleware=[
+                    # after_model 按逆序运行，必须先计入预算再决定是否继续。
+                    verify_current_check,
                     ModelCallLimitMiddleware(
                         run_limit=budget.max_model_rounds, exit_behavior="end"
                     ),
@@ -395,7 +428,7 @@ class LangChainReadOnlyAgent:
                         ),
                     }
                 )
-            input_messages.extend(saved_progress.messages(context, selected_tools))
+            input_messages.extend(historical_messages)
             input_messages.append({"role": "user", "content": current_question})
             return await graph.ainvoke({"messages": input_messages})
 
