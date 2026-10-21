@@ -10,6 +10,10 @@ Runtime，以及可恢复的 `local_only` 跨节点调查纵切。当前总流�
 [《项目推进方式》](docs/project/README.md)。历史 `openspec/` 内容完整保留，但不再创建新的
 OpenSpec change。
 
+两台电脑上的开发者或 AI 通过 GitHub 协作时，从 `main` 开始，按
+[《跨电脑通过 GitHub 协作》](docs/project/README.md#跨电脑通过-github-协作)确认任务、文件分工和合并人。
+当前任务与讨论放在 GitHub Issue / PR，产品进度仍以总路线图为准。
+
 如果希望先用非框架术语理解产品、当前进度以及 FastAPI、LangChain、LangGraph 的分工，
 请阅读[《从零理解 TunnelMinion》](docs/guide/从零理解-tunnelminion.md)。
 实现边界、跨节点调用链和全部架构决策入口见[《TunnelMinion MVP 架构》](docs/architecture.md)。
