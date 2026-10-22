@@ -96,6 +96,8 @@ class RemoteServiceSummary(BaseModel):
     python_project_name: str | None = None
     program_name: str | None = None
     origin: ProcessOrigin | None = None
+    has_web_page: bool | None = None
+    web_title: str | None = None
     container_id: str | None = None
     container_name: str | None = None
     compose_project: str | None = None
@@ -326,6 +328,8 @@ class RemoteServiceInventoryBuilder:
             python_project_name=listener.python_project_name,
             program_name=listener.program_name,
             origin=listener.origin,
+            has_web_page=listener.has_web_page,
+            web_title=listener.web_title,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,
             compose_project=docker.compose_project if docker is not None else None,

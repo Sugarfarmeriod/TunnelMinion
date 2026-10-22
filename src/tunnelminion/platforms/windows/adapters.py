@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, wait
 from time import perf_counter
 from typing import cast
 
@@ -19,10 +21,12 @@ from tunnelminion.platforms.python_entrypoint import (
     read_python_entrypoint,
     read_python_project_name,
 )
+from tunnelminion.platforms.web_page import WebPage, probe_host, probe_web_page
 from tunnelminion.platforms.windows.models import (
     Availability,
     CollectionResult,
     DockerService,
+    NetworkListener,
     NodeSummary,
     ReachabilityResult,
     WireGuardPeerSummary,
@@ -175,6 +179,7 @@ class NetworkListenersAdapter:
                 arguments.get("include_program_names") is True,
                 arguments.get("include_python_project_name") is True,
                 arguments.get("include_process_origin") is True,
+                arguments.get("include_web_title") is True,
             )
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
@@ -191,24 +196,53 @@ class NetworkListenersAdapter:
         include_program_names: bool,
         include_python_project_name: bool,
         include_process_origin: bool = False,
+        include_web_title: bool = False,
     ) -> tuple[dict[str, object], ...]:
         items: list[dict[str, object]] = []
+        listeners = self._reader.listeners()
         entrypoints: dict[tuple[int | None, str | None], str | None] = {}
         programs: dict[tuple[int | None, str | None], str | None] = {}
         projects: dict[tuple[int | None, str | None], str | None] = {}
         origins: dict[tuple[int | None, str | None], ProcessOrigin | None] = {}
-        for listener in self._reader.listeners():
-            item = listener.model_dump(
-                mode="json",
-                exclude={"python_entrypoint", "program_name", "python_project_name", "origin"},
-            )
-            key = (listener.pid, listener.process_name)
-            if include_process_origin and listener.pid is not None:
-                if key not in origins:
+        if include_process_origin:
+            for listener in listeners:
+                key = (listener.pid, listener.process_name)
+                if listener.pid is not None and key not in origins:
                     # 路径和父进程只在本机用于判断，输出里只有来历类别。
                     origins[key] = read_process_origin(listener.pid, listener.process_name)
-                if origins[key] is not None:
-                    item["origin"] = origins[key]
+        pages = (
+            _probe_web_pages(
+                tuple(
+                    listener
+                    for listener in listeners
+                    # 系统程序和桌面应用不会是用户的服务，不去访问它们的端口。
+                    if origins.get((listener.pid, listener.process_name)) not in _NOT_SERVICES
+                )
+            )
+            if include_web_title
+            else {}
+        )
+        for listener in listeners:
+            item = listener.model_dump(
+                mode="json",
+                exclude={
+                    "python_entrypoint",
+                    "program_name",
+                    "python_project_name",
+                    "origin",
+                    "has_web_page",
+                    "web_title",
+                },
+            )
+            key = (listener.pid, listener.process_name)
+            page_key = (listener.address, listener.port)
+            if listener.protocol == "tcp" and page_key in pages:
+                page = pages[page_key]
+                item["has_web_page"] = page is not None
+                if page is not None and page.title is not None:
+                    item["web_title"] = page.title
+            if origins.get(key) is not None:
+                item["origin"] = origins[key]
             if include_program_names:
                 if key not in programs:
                     programs[key] = read_program_name(listener)
@@ -255,6 +289,42 @@ class ProcessSummaryAdapter:
                 error_message="当前账户无法读取进程摘要",
             )
         return _json_value(result.model_dump(mode="json"))
+
+
+_NOT_SERVICES = frozenset({ProcessOrigin.SYSTEM, ProcessOrigin.DESKTOP_APP})
+_WEB_PROBE_LIMIT = 32
+_WEB_PROBE_WORKERS = 8
+_WEB_PROBE_DEADLINE_SECONDS = 4.0
+
+
+def _probe_web_pages(
+    listeners: tuple[NetworkListener, ...],
+) -> dict[tuple[str, int], WebPage | None]:
+    """并发访问候选端口的首页；超出数量或总时限的端口不探测，结果里也不出现。"""
+    candidates: list[tuple[str, int]] = []
+    for listener in listeners:
+        key = (listener.address, listener.port)
+        if (
+            listener.protocol != "tcp"
+            or listener.pid == os.getpid()
+            or key in candidates
+            or probe_host(listener.address) is None
+        ):
+            continue
+        candidates.append(key)
+    candidates = candidates[:_WEB_PROBE_LIMIT]
+    if not candidates:
+        return {}
+    results: dict[tuple[str, int], WebPage | None] = {}
+    executor = ThreadPoolExecutor(max_workers=_WEB_PROBE_WORKERS)
+    try:
+        futures = {executor.submit(probe_web_page, *key): key for key in candidates}
+        done, _ = wait(futures, timeout=_WEB_PROBE_DEADLINE_SECONDS)
+        for future in done:
+            results[futures[future]] = future.result()
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    return results
 
 
 def _compose_project(labels: str) -> str | None:

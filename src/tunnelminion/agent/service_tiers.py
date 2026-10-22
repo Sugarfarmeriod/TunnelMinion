@@ -37,10 +37,12 @@ def decide_tier(
     process_name: str | None,
     origin: ProcessOrigin | None,
     container_running: bool | None = None,
+    has_web_page: bool | None = None,
 ) -> ServiceTier:
     """按固定顺序决定分档。
 
-    `container_running` 为 None 表示端口不属于任何容器。
+    `container_running` 为 None 表示端口不属于任何容器；
+    `has_web_page` 为 None 表示没有探测过首页。
     """
     if container_running is not None:
         return ServiceTier.SHOW if container_running else ServiceTier.HIDE
@@ -57,6 +59,9 @@ def decide_tier(
     if origin is ProcessOrigin.UNKNOWN:
         return ServiceTier.REVIEW
     if origin is ProcessOrigin.APP_SERVICE or origin is None:
-        # 应用自启服务或读不到来历的程序：只有监听所有网卡时才值得让用户看一眼。
-        return ServiceTier.REVIEW if is_wildcard_address(address) else ServiceTier.HIDE
+        # 应用自启服务或读不到来历的程序：只有监听所有网卡、且不确定不是网页时，
+        # 才值得让用户看一眼；探测过首页、确认不是网页的就不打扰。
+        if not is_wildcard_address(address) or has_web_page is False:
+            return ServiceTier.HIDE
+        return ServiceTier.REVIEW
     return ServiceTier.HIDE

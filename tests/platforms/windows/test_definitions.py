@@ -61,6 +61,7 @@ def test_registers_exact_windows_read_only_tool_set() -> None:
         "include_program_names": {"type": "boolean"},
         "include_python_project_name": {"type": "boolean"},
         "include_process_origin": {"type": "boolean"},
+        "include_web_title": {"type": "boolean"},
     }
     assert registry.model_tools(Platform.WINDOWS) == definitions
     registered = tuple(registry.lookup(item.name) for item in definitions)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
 from collections.abc import Coroutine
 from threading import get_ident
 from typing import Any, TypeVar, cast
@@ -13,6 +15,7 @@ from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.process_origin import ProcessOrigin
+from tunnelminion.platforms.web_page import WebPage
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
     NetworkListenersAdapter,
@@ -375,6 +378,111 @@ def test_process_origin_is_opt_in_cached_and_exports_only_the_category(
     )
     assert calls == [(101, "supernode"), (102, None)]
     assert [item.get("origin") for item in marked.items] == ["terminal", "terminal", None, None]
+
+
+def test_web_pages_are_opt_in_and_skip_system_desktop_udp_own_and_public_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probed: list[tuple[str, int]] = []
+
+    def listener(protocol: str, address: str, port: int, pid: int, name: str) -> NetworkListener:
+        return NetworkListener(
+            protocol=protocol, address=address, port=port, pid=pid, process_name=name
+        )
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return (
+                listener("tcp", "0.0.0.0", 8787, 101, "python"),
+                listener("tcp", "::", 8787, 101, "python"),
+                listener("tcp", "0.0.0.0", 8787, 101, "python"),
+                listener("tcp", "0.0.0.0", 9000, 102, "agent"),
+                listener("tcp", "0.0.0.0", 445, 4, "System"),
+                listener("tcp", "0.0.0.0", 27036, 5, "steam"),
+                listener("udp", "0.0.0.0", 5353, 101, "python"),
+                listener("tcp", "127.0.0.1", 7000, os.getpid(), "me"),
+                listener("tcp", "8.8.8.8", 80, 103, "odd"),
+            )
+
+    origins = {
+        101: ProcessOrigin.TERMINAL,
+        4: ProcessOrigin.SYSTEM,
+        5: ProcessOrigin.DESKTOP_APP,
+        103: ProcessOrigin.UNKNOWN,
+    }
+
+    def origin(pid: int, expected_name: str | None) -> ProcessOrigin | None:
+        return origins.get(pid)
+
+    def probe(address: str, port: int) -> WebPage | None:
+        probed.append((address, port))
+        if port != 8787:
+            return None
+        return WebPage(title="WireGuard Panel" if address == "0.0.0.0" else None)
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.read_process_origin", origin)
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.probe_web_page", probe)
+    adapter = NetworkListenersAdapter(Reader())
+    plain = CollectionResult.model_validate(
+        run(adapter.execute({"include_process_origin": True}, token()))
+    )
+    assert probed == [] and all("has_web_page" not in item for item in plain.items)
+    marked = CollectionResult.model_validate(
+        run(adapter.execute({"include_process_origin": True, "include_web_title": True}, token()))
+    )
+    assert sorted(probed) == [("0.0.0.0", 8787), ("0.0.0.0", 9000), ("::", 8787)]
+    summary = [
+        (item["address"], item["port"], item.get("has_web_page"), item.get("web_title"))
+        for item in marked.items
+    ]
+    assert summary[:4] == [
+        ("0.0.0.0", 8787, True, "WireGuard Panel"),
+        ("::", 8787, True, None),
+        ("0.0.0.0", 8787, True, "WireGuard Panel"),
+        ("0.0.0.0", 9000, False, None),
+    ]
+    assert all(item.get("has_web_page") is None for item in marked.items[4:])
+
+
+def test_web_probing_respects_count_and_time_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return tuple(
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=port, pid=port)
+                for port in range(2000, 2040)
+            )
+
+    release = threading.Event()
+
+    def probe(address: str, port: int) -> WebPage | None:
+        if port == 2000:
+            release.wait(2)
+        return WebPage(title=None)
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.probe_web_page", probe)
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters._WEB_PROBE_DEADLINE_SECONDS", 0.5)
+    result = CollectionResult.model_validate(
+        run(NetworkListenersAdapter(Reader()).execute({"include_web_title": True}, token()))
+    )
+    release.set()
+    probed = {item["port"] for item in result.items if "has_web_page" in item}
+    # 只探前 32 个；卡住的那个超过总时限，不给出结论。
+    assert 2000 not in probed and probed == set(range(2001, 2032))
+
+
+def test_web_probing_with_no_candidates_does_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def probe(address: str, port: int) -> WebPage | None:
+        raise AssertionError("不应探测")
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return (NetworkListener(protocol="udp", address="0.0.0.0", port=53, pid=9),)
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.probe_web_page", probe)
+    result = CollectionResult.model_validate(
+        run(NetworkListenersAdapter(Reader()).execute({"include_web_title": True}, token()))
+    )
+    assert "has_web_page" not in result.items[0]
 
 
 def test_docker_adapter_reads_compose_project_from_labels() -> None:
