@@ -134,5 +134,6 @@ a {
   .primary-navigation a {
     flex: 1;
     padding-inline: var(--space-1);
+    white-space: nowrap;
   }
 }
