@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>界面样式草图</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.5; }
+  button { font: inherit; cursor: pointer; }
+  input { font: inherit; }
+  a { color: inherit; }
+
+  /* 草图切换条：所有风格共用 */
+  .switcher { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 16px; background: #fffbe6; border-bottom: 1px solid #e8dca0; color: #5c4b00; font-size: 13px; }
+  .switcher b { margin-right: 4px; }
+  .switcher button { border: 1px solid #d6c56a; background: #fff; color: #5c4b00; border-radius: 6px; padding: 3px 10px; }
+  .switcher button.on { background: #5c4b00; color: #fffbe6; border-color: #5c4b00; }
+  .switcher .hint { margin-left: auto; opacity: .8; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff;
+    padding: 8px 16px; border-radius: 8px; z-index: 100; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.ok { background: #2e9d5b; } .dot.down { background: #d64545; } .dot.stopped { background: #9aa0a6; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+  .steps { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12.5px; opacity: .75; }
+  .steps li::before { content: "· "; }
+  details > summary { cursor: pointer; font-size: 12.5px; opacity: .75; }
+  .typing { opacity: .6; font-style: italic; }
+
+  /* 详情抽屉：所有风格共用骨架 */
+  .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 60; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100%); z-index: 61; padding: 24px; overflow: auto;
+    box-shadow: -8px 0 30px rgba(0,0,0,.2); }
+  .drawer h2 { margin: 0 0 4px; font-size: 20px; }
+  .drawer .row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .drawer .row span:first-child { opacity: .65; }
+  .drawer .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+  .drawer .close { float: right; border: none; background: none; font-size: 20px; color: inherit; opacity: .6; }
+
+  /* ========== 草图 A：卡片，明亮 ========== */
+  .sa { --bg: #f5f4f1; --card: #fff; --text: #1f2328; --muted: #6b7280; --line: #e7e5e0; --accent: #3a5ccc; --warn-bg: #fff4e5; --warn: #b45309;
+    background: var(--bg); color: var(--text); min-height: 100vh; }
+  .sa .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  .sa header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+  .sa header h1 { margin: 0; font-size: 22px; letter-spacing: .5px; }
+  .sa header .sub { color: var(--muted); font-size: 13px; }
+  .sa .linkbtn { border: none; background: none; color: var(--muted); text-decoration: underline; }
+  .sa .ask { display: flex; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .sa .ask input { flex: 1; border: none; outline: none; padding: 8px 10px; background: transparent; color: var(--text); font-size: 15px; }
+  .sa .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 9px; padding: 6px 14px; }
+  .sa .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .sa .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .sa .chip { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+  .sa .chat { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 16px; }
+  .sa .msg { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .sa .msg:last-child { border-bottom: none; }
+  .sa .msg .who { font-size: 12px; color: var(--muted); }
+  .sa .pending { margin-top: 20px; background: var(--warn-bg); border: 1px solid #f3d3a6; border-radius: 14px; padding: 14px 16px; }
+  .sa .pending .t { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
+  .sa .pending .acts { display: flex; gap: 8px; margin-top: 10px; }
+  .sa section.machine { margin-top: 28px; }
+  .sa section.machine h3 { margin: 0 0 10px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+  .sa section.machine h3 small { color: var(--muted); font-weight: 400; }
+  .sa .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .sa .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; transition: box-shadow .15s, transform .15s; }
+  .sa .card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.07); transform: translateY(-1px); }
+  .sa .card .top { display: flex; justify-content: space-between; align-items: center; }
+  .sa .card .name { font-weight: 600; font-size: 15px; }
+  .sa .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+  .sa .card .desc { color: var(--muted); font-size: 13px; margin: 4px 0 10px; min-height: 20px; }
+  .sa .card .bottom { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  .sa .card .bottom .st { display: flex; align-items: center; gap: 6px; }
+  .sa .maybe { margin-top: 28px; background: var(--card); border: 1px dashed #d3d0c8; border-radius: 14px; padding: 12px 16px; }
+  .sa .maybe .item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .sa .drawer { background: var(--card); }
+
+  /* ========== 草图 B：列表 + 右侧对话，深色 ========== */
+  .sb { --bg: #0f1216; --panel: #171b21; --panel2: #1e232b; --text: #e6e8eb; --muted: #8b93a1; --line: #2a3039; --accent: #6aa8ff; --warn: #f2b35b;
+    background: var(--bg); color: var(--text); min-height: 100vh; }
+  .sb .layout { display: grid; grid-template-columns: 1fr 380px; min-height: calc(100vh - 41px); }
+  .sb main { padding: 20px 24px 48px; min-width: 0; }
+  .sb aside { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .sb header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .sb header h1 { margin: 0; font-size: 18px; }
+  .sb header .sub { color: var(--muted); font-size: 13px; }
+  .sb .linkbtn { border: none; background: none; color: var(--muted); text-decoration: underline; }
+  .sb .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sb .filters button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 7px; padding: 4px 12px; }
+  .sb .filters button.on { background: var(--panel2); color: var(--text); border-color: #3a414c; }
+  .sb .btn { border: 1px solid #3a414c; background: var(--panel2); color: var(--text); border-radius: 7px; padding: 5px 12px; }
+  .sb .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b1a2e; font-weight: 600; }
+  .sb .pending { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    background: #2a2216; border: 1px solid #4d3b1d; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  .sb .pending .t { color: var(--warn); font-weight: 600; }
+  .sb table { width: 100%; border-collapse: collapse; }
+  .sb th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .sb td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .sb tbody tr { cursor: pointer; }
+  .sb tbody tr:hover { background: var(--panel); }
+  .sb td .name { font-weight: 600; }
+  .sb td .desc { color: var(--muted); font-size: 12.5px; }
+  .sb .st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .sb .maybe { margin-top: 24px; border: 1px dashed var(--line); border-radius: 10px; padding: 10px 14px; }
+  .sb .maybe .item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .sb aside .head { padding: 16px 18px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .sb aside .head small { display: block; font-weight: 400; color: var(--muted); }
+  .sb aside .msgs { flex: 1; overflow: auto; padding: 12px 18px; }
+  .sb .msg { margin: 10px 0; }
+  .sb .msg.user .bubble { background: #24344d; margin-left: 40px; }
+  .sb .msg .bubble { background: var(--panel2); border-radius: 10px; padding: 9px 12px; }
+  .sb .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .sb aside .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 18px 10px; }
+  .sb aside .chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
+  .sb aside form { display: flex; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); }
+  .sb aside input { flex: 1; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; outline: none; }
+  .sb .drawer { background: var(--panel); color: var(--text); }
+  @media (max-width: 860px) { .sb .layout { grid-template-columns: 1fr; } .sb aside { border-left: none; border-top: 1px solid var(--line); min-height: 420px; } .sb .hide-sm { display: none; } }
+
+  /* ========== 草图 C：对话为主 ========== */
+  .sc { --bg: #fbfbfa; --side: #f1f2ef; --card: #fff; --text: #22261f; --muted: #6d7468; --line: #e2e4de; --accent: #2f7d5b; --warn-bg: #fdf3e7; --warn: #a3580f;
+    background: var(--bg); color: var(--text); min-height: 100vh; }
+  .sc .layout { display: grid; grid-template-columns: 270px 1fr; min-height: calc(100vh - 41px); }
+  .sc nav { background: var(--side); border-right: 1px solid var(--line); padding: 18px 14px; overflow: auto; }
+  .sc nav h1 { font-size: 16px; margin: 0 0 16px 6px; }
+  .sc nav .m { margin-bottom: 14px; }
+  .sc nav .m .mh { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 6px 4px; }
+  .sc nav .s { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .sc nav .s:hover { background: #e6e8e2; }
+  .sc nav .s .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sc nav .s .k { font-size: 11.5px; color: var(--muted); }
+  .sc nav .more { margin-top: 12px; border: 1px dashed #cdd0c7; background: transparent; color: var(--muted); border-radius: 8px; padding: 6px 10px; width: 100%; text-align: left; }
+  .sc nav .linkbtn { border: none; background: none; color: var(--muted); text-decoration: underline; margin: 8px 0 0 6px; padding: 0; }
+  .sc main { display: flex; flex-direction: column; min-width: 0; }
+  .sc .msgs { flex: 1; overflow: auto; padding: 28px 16px 12px; }
+  .sc .col { max-width: 720px; margin: 0 auto; }
+  .sc .msg { margin: 0 0 18px; }
+  .sc .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .sc .msg.user { text-align: right; }
+  .sc .msg.user .bubble { display: inline-block; background: #e3efe8; border-radius: 14px; padding: 8px 14px; text-align: left; }
+  .sc .msg.agent .bubble { background: transparent; }
+  .sc .inline-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 8px; }
+  .sc .inline-card.warn { background: var(--warn-bg); border-color: #efd2ad; }
+  .sc .inline-card .t { font-weight: 600; color: var(--warn); }
+  .sc .inline-card .acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .sc .item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .sc .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 9px; padding: 5px 13px; }
+  .sc .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .sc .composer { border-top: 1px solid var(--line); background: var(--bg); padding: 12px 16px 18px; }
+  .sc .composer .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .sc .composer .chip { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px; padding: 2px 11px; font-size: 13px; }
+  .sc .composer form { display: flex; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 6px; }
+  .sc .composer input { flex: 1; border: none; outline: none; padding: 8px 10px; background: transparent; color: var(--text); font-size: 15px; }
+  .sc .drawer { background: var(--card); }
+  @media (max-width: 760px) { .sc .layout { grid-template-columns: 1fr; } .sc nav { border-right: none; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div class="switcher">
+  <b>界面样式草图</b>
+  <button data-style="A">A · 卡片</button>
+  <button data-style="B">B · 列表 + 对话（深色）</button>
+  <button data-style="C">C · 对话为主</button>
+  <a href="pixel.html" style="color:#5c4b00">D · 像素拓扑（新）</a>
+  <span class="hint">内容和功能完全一样，只是风格不同。数据是假的，可以随便点。</span>
+</div>
+<div id="app"></div>
+<div id="overlay"></div>
+
+<script>
+const MACHINES = [
+  { id: "win", name: "这台电脑", os: "Windows" },
+  { id: "lap", name: "Sugarfarmer-LAP", os: "Windows" },
+  { id: "mac", name: "Mac mini", os: "macOS" },
+];
+
+const INITIAL = () => ({
+  services: [
+    { id: "photos", name: "相册", kind: "Docker", desc: "家庭照片备份与浏览", machine: "mac", url: "http://10.77.0.1:2283", status: "down", event: "3 分钟前容器退出（内存不足）" },
+    { id: "qwen", name: "本地大模型 Qwen", kind: "程序", desc: "兼容 OpenAI 接口的本机模型", machine: "mac", url: "http://10.77.0.1:8082", status: "ok" },
+    { id: "dash", name: "数据看板", kind: "Python", desc: "Streamlit 做的收支统计", machine: "mac", url: "http://10.77.0.1:8501", status: "ok" },
+    { id: "dl", name: "下载管理", kind: "Docker", desc: "qBittorrent 网页界面", machine: "mac", url: "http://10.77.0.1:8080", status: "ok" },
+    { id: "jupyter", name: "Jupyter", kind: "Python", desc: "实验笔记本", machine: "lap", url: "http://Sugarfarmer-LAP:8888", status: "ok" },
+    { id: "blog", name: "博客预览", kind: "Node", desc: "本地写作实时预览", machine: "win", url: "http://localhost:4000", status: "stopped", event: "昨天 23:10 你手动关闭" },
+  ],
+  pending: [
+    { id: "p1", service: "photos", machine: "mac", title: "相册打不开了",
+      text: "Mac mini 的 Agent 发现：相册容器 3 分钟前退出，日志显示内存不足被系统终止。建议：重启容器。",
+      state: "waiting" },
+  ],
+  maybe: [
+    { id: "m1", machine: "win", proc: "GameViewerServer.exe", port: 15128,
+      what: "这是网易 UU 远程的后台组件，用来接收远程控制连接。一般不需要放在首页，建议隐藏。" },
+    { id: "m2", machine: "mac", proc: "node", port: 5173,
+      what: "这是一个 Vite 开发服务器，从 ~/code/notes-app 启动。看起来是你在写的网页项目，如果想随时打开它，可以标记为你的服务。" },
+  ],
+  chat: [],
+  filter: "all",
+  detail: null,
+  maybeOpen: false,
+  advanced: false,
+});
+
+let state = INITIAL();
+let style = "A";
+try { style = localStorage.getItem("tm-mock-style") || "A"; } catch (e) {}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const machine = id => MACHINES.find(m => m.id === id);
+const STATUS = { ok: "正常", down: "打不开", stopped: "已停止" };
+const SUGGEST = ["相册在哪？", "为什么相册打不开？", "Mac mini 上哪个容器最占内存？"];
+
+function toast(text) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+/* ---------- 交互逻辑（三种风格共用） ---------- */
+function ask(q) {
+  q = q.trim(); if (!q) return;
+  state.chat.push({ role: "user", text: q });
+  const reply = { role: "agent", from: "这台电脑的 Agent", typing: true, text: "", steps: [] };
+  state.chat.push(reply);
+  render();
+  const plan = answerFor(q);
+  let i = 0;
+  const tick = () => {
+    if (i < plan.steps.length) { reply.steps.push(plan.steps[i++]); render(); setTimeout(tick, 550); return; }
+    Object.assign(reply, plan, { typing: false, steps: plan.steps });
+    render();
+  };
+  setTimeout(tick, 400);
+}
+
+function answerFor(q) {
+  const photos = state.services.find(s => s.id === "photos");
+  if (/相册/.test(q) && /(在哪|地址|怎么打开)/.test(q)) {
+    return { from: "这台电脑的 Agent", steps: ["查服务地图：相册在 Mac mini 上"],
+      text: `相册在 Mac mini 上，地址是 <span class="mono">${photos.url}</span>。` +
+        (photos.status === "ok" ? "现在可以正常打开。" : "不过它现在打不开，Mac mini 的 Agent 已经查过原因，见上面需要你处理的事。"),
+      evidence: ["服务地图（刚刚更新）"] };
+  }
+  if (/(内存|占用|最占)/.test(q)) {
+    return { from: "Mac mini 的 Agent", steps: ["判断：这是 Mac mini 上的问题", "交给 Mac mini 的 Agent", "Mac mini 查了：容器资源占用、进程资源占用"],
+      text: "Mac mini 上最占内存的是「本地大模型 Qwen」，约 21 GB；容器里最占内存的是「下载管理」，约 1.4 GB。相册的容器刚才就是因为内存不够被系统终止的。",
+      evidence: ["容器资源占用（Mac mini，刚刚）", "进程资源占用（Mac mini，刚刚）"] };
+  }
+  if (/(打不开|为什么|怎么了|坏了)/.test(q)) {
+    if (photos.status === "ok") {
+      return { from: "Mac mini 的 Agent", steps: ["交给 Mac mini 的 Agent", "Mac mini 查了：容器状态、端口"],
+        text: "相册现在是正常的：容器在运行，端口 2283 有响应，从这台电脑也能打开。", evidence: ["容器状态（Mac mini，刚刚）", "从这台电脑访问（刚刚）"] };
+    }
+    return { from: "Mac mini 的 Agent", steps: ["交给 Mac mini 的 Agent", "Mac mini 查了：容器状态、容器日志、端口"],
+      text: "相册的容器在 3 分钟前退出了，日志里写着内存不足被系统终止。建议先重启容器；如果经常发生，可以给它设一个内存上限，或者把大模型换小一点。",
+      evidence: ["容器状态：已退出，退出码 137（Mac mini）", "容器日志最后 50 行（只在 Mac mini 上读取，原文不外传）", "端口 2283 无响应（Mac mini）"],
+      action: "p1" };
+  }
+  const m = state.maybe.find(x => q.includes(x.proc));
+  if (m) return { from: `${machine(m.machine).name} 的 Agent`, steps: [`交给 ${machine(m.machine).name} 的 Agent`, "查了：进程信息、启动位置"], text: m.what, evidence: ["进程信息（刚刚）"] };
+  return { from: "这台电脑的 Agent", steps: [], text: "（这是样式草图，只演示上面几个示例问题。真实版本里，这句话会交给合适的那台电脑的 Agent 去处理。）" };
+}
+
+function approve(pid) {
+  const p = state.pending.find(x => x.id === pid);
+  if (!p || p.state !== "waiting") return;
+  p.state = "running"; render();
+  setTimeout(() => {
+    const s = state.services.find(x => x.id === p.service);
+    s.status = "ok"; delete s.event;
+    state.pending = state.pending.filter(x => x.id !== pid);
+    state.chat.push({ role: "agent", from: "Mac mini 的 Agent", text: "相册已经重启。这台电脑复验：能正常打开 ✓", steps: ["Mac mini 重启了相册容器", "这台电脑访问 http://10.77.0.1:2283 → 正常"], evidence: [] });
+    render(); toast("相册已恢复");
+  }, 1800);
+}
+function dismiss(pid) { state.pending = state.pending.filter(x => x.id !== pid); render(); toast("好的，先不处理"); }
+function markMine(mid) {
+  const m = state.maybe.find(x => x.id === mid);
+  state.maybe = state.maybe.filter(x => x.id !== mid);
+  state.services.push({ id: "s-" + mid, name: m.proc === "node" ? "笔记网页（开发中）" : m.proc, kind: m.proc === "node" ? "Node" : "程序",
+    desc: "你标记的服务", machine: m.machine, url: `http://${m.machine === "mac" ? "10.77.0.1" : "localhost"}:${m.port}`, status: "ok" });
+  render(); toast("已加入你的服务，以后会一直显示");
+}
+function hide(mid) { state.maybe = state.maybe.filter(x => x.id !== mid); render(); toast("已隐藏，以后不会再出现"); }
+function whatIs(mid) { const m = state.maybe.find(x => x.id === mid); ask(`${m.proc} 是什么？`); }
+function openDetail(sid) { state.detail = sid; render(); }
+function closeDetail() { state.detail = null; render(); }
+function hideService(sid) { state.services = state.services.filter(s => s.id !== sid); state.detail = null; render(); toast("已从首页移除"); }
+function askAbout(sid) { const s = state.services.find(x => x.id === sid); state.detail = null; ask(`${s.name}怎么了？`); }
+
+/* ---------- 共用片段 ---------- */
+const statusHtml = s => `<span class="st"><span class="dot ${s.status}"></span>${STATUS[s.status]}</span>`;
+function msgBody(m) {
+  if (m.role === "user") return esc(m.text);
+  let h = m.typing ? `<div class="typing">正在处理…</div>` : `<div>${m.text}</div>`;
+  if (m.steps && m.steps.length) h += m.typing
+    ? `<ul class="steps">${m.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ul>`
+    : `<details><summary>过程（${m.steps.length} 步）</summary><ul class="steps">${m.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ul></details>`;
+  if (!m.typing && m.evidence && m.evidence.length) h += `<details><summary>依据（${m.evidence.length} 项）</summary><ul class="steps">${m.evidence.map(s => `<li>${esc(s)}</li>`).join("")}</ul></details>`;
+  if (!m.typing && m.action && state.pending.some(p => p.id === m.action && p.state === "waiting"))
+    h += `<div style="margin-top:8px;display:flex;gap:8px"><button class="btn primary" onclick="approve('${m.action}')">批准重启</button><button class="btn" onclick="dismiss('${m.action}')">先不用</button></div>`;
+  return h;
+}
+function pendingButtons(p) {
+  return p.state === "running"
+    ? `<span class="typing">Mac mini 正在重启相册…</span>`
+    : `<button class="btn primary" onclick="approve('${p.id}')">批准重启</button><button class="btn" onclick="dismiss('${p.id}')">先不用</button>`;
+}
+function maybeItems() {
+  return state.maybe.map(m => `<div class="item"><span><b>${esc(m.proc)}</b> <span class="mono" style="opacity:.7">· ${machine(m.machine).name} · 端口 ${m.port}</span></span>
+    <span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="markMine('${m.id}')">是我的服务</button><button class="btn" onclick="hide('${m.id}')">隐藏</button><button class="btn" onclick="whatIs('${m.id}')">这是什么？</button></span></div>`).join("");
+}
+function advancedHtml() {
+  return state.advanced ? `<div style="margin-top:12px;font-size:13px;opacity:.75">高级：完整端口清单（131 项）、各机器运行状态、模型用量……真实版本放在这里，默认不出现。</div>` : "";
+}
+function drawerHtml() {
+  const s = state.services.find(x => x.id === state.detail); if (!s) return "";
+  const m = machine(s.machine);
+  return `<div class="drawer-mask" onclick="closeDetail()"></div><div class="drawer">
+    <button class="close" onclick="closeDetail()">×</button>
+    <h2>${esc(s.name)}</h2><div style="opacity:.65">${esc(s.desc)}</div>
+    <div style="margin-top:16px">
+      <div class="row"><span>状态</span>${statusHtml(s)}</div>
+      <div class="row"><span>在哪台</span><span>${esc(m.name)}（${m.os}）</span></div>
+      <div class="row"><span>地址</span><span class="mono">${esc(s.url)}</span></div>
+      <div class="row"><span>类型</span><span>${esc(s.kind)}</span></div>
+      ${s.event ? `<div class="row"><span>最近发生</span><span>${esc(s.event)}</span></div>` : ""}
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="#" onclick="toast('真实版本会在新标签页打开');return false" style="text-decoration:none">打开</a>
+      <button class="btn" onclick="navigator.clipboard&&navigator.clipboard.writeText('${s.url}');toast('地址已复制')">复制地址</button>
+      <button class="btn" onclick="askAbout('${s.id}')">问问 ${esc(m.name)} 的 Agent</button>
+      <button class="btn" onclick="hideService('${s.id}')">不再显示</button>
+    </div></div>`;
+}
+
+/* ---------- 草图 A：卡片 ---------- */
+function renderA() {
+  const chat = state.chat.length ? `<div class="chat">${state.chat.map(m => `<div class="msg"><div class="who">${m.role === "user" ? "你" : esc(m.from)}</div>${msgBody(m)}</div>`).join("")}</div>` : "";
+  const pend = state.pending.map(p => `<div class="pending"><div class="t">需要你处理 · ${esc(p.title)}</div><div>${esc(p.text)}</div><div class="acts">${pendingButtons(p)}</div></div>`).join("");
+  const sections = MACHINES.map(m => {
+    const list = state.services.filter(s => s.machine === m.id);
+    return `<section class="machine"><h3><span class="dot ok"></span>${esc(m.name)} <small>${m.os} · ${list.length} 个服务</small></h3>
+      <div class="grid">${list.map(s => `<div class="card" onclick="openDetail('${s.id}')">
+        <div class="top"><span class="name">${esc(s.name)}</span><span class="tag">${esc(s.kind)}</span></div>
+        <div class="desc">${esc(s.desc)}</div>
+        <div class="bottom">${statusHtml(s)}<span class="mono" style="color:var(--muted)">${esc(s.url.replace(/^https?:\/\//, ""))}</span></div></div>`).join("") || `<div style="color:var(--muted)">还没有服务</div>`}</div></section>`;
+  }).join("");
+  const maybe = state.maybe.length ? `<div class="maybe"><button class="linkbtn" style="padding:0" onclick="state.maybeOpen=!state.maybeOpen;render()">还有 ${state.maybe.length} 个程序可能是服务 ${state.maybeOpen ? "▾" : "▸"}</button>${state.maybeOpen ? `<div style="margin-top:8px">${maybeItems()}</div>` : ""}</div>` : "";
+  return `<div class="sa"><div class="wrap">
+    <header><div><h1>我的服务</h1><div class="sub">3 台电脑在线 · ${state.services.length} 个服务</div></div><button class="linkbtn" onclick="state.advanced=!state.advanced;render()">高级</button></header>
+    ${advancedHtml()}
+    <form class="ask" onsubmit="ask(this.q.value);this.q.value='';return false"><input name="q" placeholder="问点什么，比如：相册在哪？" autocomplete="off"><button class="btn primary">问</button></form>
+    <div class="chips">${SUGGEST.map(s => `<button class="chip" onclick="ask('${s}')">${s}</button>`).join("")}</div>
+    ${chat}${pend}${sections}${maybe}
+  </div></div>`;
+}
+
+/* ---------- 草图 B：列表 + 对话 ---------- */
+function renderB() {
+  const list = state.services.filter(s => state.filter === "all" || s.machine === state.filter);
+  const filters = [{ id: "all", name: "全部" }, ...MACHINES].map(f => `<button class="${state.filter === f.id ? "on" : ""}" onclick="state.filter='${f.id}';render()">${esc(f.name)}</button>`).join("");
+  const pend = state.pending.map(p => `<div class="pending"><div><div class="t">需要你处理 · ${esc(p.title)}</div><div style="color:var(--muted);font-size:13px">${esc(p.text)}</div></div><div style="display:flex;gap:8px">${pendingButtons(p)}</div></div>`).join("");
+  const rows = list.map(s => `<tr onclick="openDetail('${s.id}')"><td>${statusHtml(s)}</td><td><div class="name">${esc(s.name)}</div><div class="desc">${esc(s.desc)}</div></td>
+    <td class="hide-sm">${esc(s.kind)}</td><td class="hide-sm">${esc(machine(s.machine).name)}</td><td class="mono hide-sm">${esc(s.url.replace(/^https?:\/\//, ""))}</td>
+    <td style="text-align:right"><button class="btn" onclick="event.stopPropagation();toast('真实版本会在新标签页打开')">打开</button></td></tr>`).join("");
+  const maybe = state.maybe.length ? `<div class="maybe"><button class="linkbtn" style="padding:0" onclick="state.maybeOpen=!state.maybeOpen;render()">${state.maybe.length} 个程序可能是服务 ${state.maybeOpen ? "▾" : "▸"}</button>${state.maybeOpen ? `<div style="margin-top:8px">${maybeItems()}</div>` : ""}</div>` : "";
+  const msgs = state.chat.length ? state.chat.map(m => `<div class="msg ${m.role}"><div class="who">${m.role === "user" ? "你" : esc(m.from)}</div><div class="bubble">${msgBody(m)}</div></div>`).join("")
+    : `<div style="color:var(--muted);font-size:13px;margin-top:8px">问任何关于你服务的问题。问题会交给管那台电脑的 Agent 去处理。</div>`;
+  return `<div class="sb"><div class="layout"><main>
+    <header><div><h1>我的服务</h1><div class="sub">3 台电脑在线 · ${state.services.length} 个服务</div></div><button class="linkbtn" onclick="state.advanced=!state.advanced;render()">高级</button></header>
+    ${advancedHtml()}${pend}<div class="filters">${filters}</div>
+    <table><thead><tr><th>状态</th><th>服务</th><th class="hide-sm">类型</th><th class="hide-sm">在哪台</th><th class="hide-sm">地址</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${maybe}</main>
+    <aside><div class="head">问点什么<small>由对应电脑的 Agent 回答</small></div><div class="msgs" id="msgs">${msgs}</div>
+      <div class="chips">${SUGGEST.map(s => `<button class="chip" onclick="ask('${s}')">${s}</button>`).join("")}</div>
+      <form onsubmit="ask(this.q.value);this.q.value='';return false"><input name="q" placeholder="比如：相册在哪？" autocomplete="off"><button class="btn primary">发送</button></form></aside>
+  </div></div>`;
+}
+
+/* ---------- 草图 C：对话为主 ---------- */
+function renderC() {
+  const nav = MACHINES.map(m => {
+    const list = state.services.filter(s => s.machine === m.id);
+    return `<div class="m"><div class="mh"><span>${esc(m.name)}</span><span>${m.os}</span></div>
+      ${list.map(s => `<div class="s" onclick="openDetail('${s.id}')"><span class="dot ${s.status}"></span><span class="n">${esc(s.name)}</span><span class="k">${esc(s.kind)}</span></div>`).join("")}</div>`;
+  }).join("");
+  const welcome = `<div class="msg agent"><div class="who">这台电脑的 Agent</div><div class="bubble">你好。3 台电脑都在线，共 ${state.services.length} 个服务。${state.pending.length ? "有 1 件事需要你处理：" : "目前一切正常。"}
+    ${state.pending.map(p => `<div class="inline-card warn"><div class="t">${esc(p.title)}</div><div>${esc(p.text)}</div><div class="acts">${pendingButtons(p)}</div></div>`).join("")}
+    ${state.maybe.length ? `<div class="inline-card"><div>另外，我发现 ${state.maybe.length} 个程序可能是服务，你看看要不要加进来：</div>${maybeItems()}</div>` : ""}
+  </div></div>`;
+  const msgs = state.chat.map(m => `<div class="msg ${m.role}"><div class="who">${m.role === "user" ? "你" : esc(m.from)}</div><div class="bubble">${msgBody(m)}</div></div>`).join("");
+  return `<div class="sc"><div class="layout"><nav><h1>我的服务</h1>${nav}
+      <button class="linkbtn" onclick="state.advanced=!state.advanced;render()">高级</button>${advancedHtml()}</nav>
+    <main><div class="msgs" id="msgs"><div class="col">${welcome}${msgs}</div></div>
+      <div class="composer"><div class="col"><div class="chips">${SUGGEST.map(s => `<button class="chip" onclick="ask('${s}')">${s}</button>`).join("")}</div>
+      <form onsubmit="ask(this.q.value);this.q.value='';return false"><input name="q" placeholder="问点什么，比如：相册在哪？" autocomplete="off"><button class="btn primary">发送</button></form></div></div></main>
+  </div></div>`;
+}
+
+function render() {
+  const focused = document.activeElement && document.activeElement.name === "q";
+  document.getElementById("app").innerHTML = style === "A" ? renderA() : style === "B" ? renderB() : renderC();
+  const host = document.getElementById("app").firstElementChild;
+  const drawer = drawerHtml();
+  document.getElementById("overlay").innerHTML = drawer
+    ? `<div class="${host.className}" style="min-height:0;background:transparent">${drawer}</div>` : "";
+  document.querySelectorAll(".switcher button").forEach(b => b.classList.toggle("on", b.dataset.style === style));
+  const msgs = document.getElementById("msgs"); if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  if (focused) { const q = document.querySelector("input[name=q]"); if (q) q.focus(); }
+}
+
+document.querySelectorAll(".switcher button").forEach(b => b.addEventListener("click", () => {
+  style = b.dataset.style; state = INITIAL();
+  try { localStorage.setItem("tm-mock-style", style); } catch (e) {}
+  render(); window.scrollTo(0, 0);
+}));
+render();
+</script>
+</body>
+</html>
