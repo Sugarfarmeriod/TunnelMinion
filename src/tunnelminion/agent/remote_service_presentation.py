@@ -161,6 +161,7 @@ class RemoteServicePresentationObserver:
                                 "include_program_names",
                                 "include_python_project_name",
                                 "include_process_origin",
+                                "include_web_title",
                             ):
                                 if option in properties:
                                     arguments[option] = True

@@ -15,8 +15,10 @@ def tier(
     address: str = "0.0.0.0",
     name: str | None = "server",
     container_running: bool | None = None,
+    has_web_page: bool | None = None,
 ) -> ServiceTier:
     return decide_tier(
+        has_web_page=has_web_page,
         protocol=protocol,
         address=address,
         process_name=name,
@@ -67,3 +69,11 @@ def test_system_desktop_and_runtime_processes_hide(origin: ProcessOrigin) -> Non
 def test_wildcard_addresses() -> None:
     assert is_wildcard_address("0.0.0.0") and is_wildcard_address("::")
     assert not is_wildcard_address("127.0.0.1") and not is_wildcard_address("10.77.0.1")
+
+
+@pytest.mark.parametrize("origin", [ProcessOrigin.APP_SERVICE, None])
+def test_app_services_confirmed_not_to_be_web_pages_stay_hidden(
+    origin: ProcessOrigin | None,
+) -> None:
+    assert tier(origin, has_web_page=True) is ServiceTier.REVIEW
+    assert tier(origin, has_web_page=False) is ServiceTier.HIDE

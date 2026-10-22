@@ -113,6 +113,7 @@ def service_tier(item: RemoteServiceSummary) -> ServiceTier:
         process_name=item.process_name if item.process_pid is not None else None,
         origin=item.origin,
         container_running=item.container_running,
+        has_web_page=item.has_web_page,
     )
 
 
@@ -121,7 +122,8 @@ def _application_id(node_id: NodeId, kind: str, key: str) -> str:
 
 
 def _program_name(item: RemoteServiceSummary) -> str:
-    raw = (item.program_name or item.process_name or "").strip()
+    # 网页标题最能说明这是什么，其次才是程序名。
+    raw = (item.web_title or item.program_name or item.process_name or "").strip()
     name = raw[:-4] if raw.lower().endswith(".exe") else raw
     return name[:80] or "程序"
 
@@ -150,12 +152,15 @@ def _presentation(
     if is_python_process(item.process_name):
         entry = item.python_entrypoint
         short = entry[:54] + "…" if entry and len(entry) > 55 else entry
-        name = f"Python · {entry} · {item.port}" if entry else f"Python 服务 · {item.port}"
-        label = f"Python · {short} · {item.port}" if short else name
+        if item.web_title:
+            name = label = f"{item.web_title} · {item.port}"
+        else:
+            name = f"Python · {entry} · {item.port}" if entry else f"Python 服务 · {item.port}"
+            label = f"Python · {short} · {item.port}" if short else name
         application = (
             ServiceApplication(
                 group_id=_application_id(node_id, "python", str(item.process_pid)),
-                name=item.python_project_name or entry or "Python 程序",
+                name=item.web_title or item.python_project_name or entry or "Python 程序",
                 kind="python",
             )
             if item.process_pid is not None
@@ -288,6 +293,7 @@ class DeterministicServiceObserver:
                             "include_program_names": True,
                             "include_python_project_name": True,
                             "include_process_origin": True,
+                            "include_web_title": True,
                         },
                     )
                     process = await self._collect(

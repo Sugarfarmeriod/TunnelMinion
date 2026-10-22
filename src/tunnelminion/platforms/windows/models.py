@@ -74,6 +74,8 @@ class NetworkListener(BaseModel):
         default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
     )
     origin: ProcessOrigin | None = None
+    has_web_page: bool | None = None
+    web_title: str | None = Field(default=None, min_length=1, max_length=60)
 
 
 class ProcessInfo(BaseModel):

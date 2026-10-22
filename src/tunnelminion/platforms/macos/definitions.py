@@ -79,6 +79,7 @@ def register_macos_tools(
                     "include_program_names": {"type": "boolean"},
                     "include_python_project_name": {"type": "boolean"},
                     "include_process_origin": {"type": "boolean"},
+                    "include_web_title": {"type": "boolean"},
                 },
                 "additionalProperties": False,
             },

@@ -252,6 +252,7 @@ def test_python_entry_names_do_not_change_service_identity_or_leave_snapshot() -
                 "include_program_names": True,
                 "include_python_project_name": True,
                 "include_process_origin": True,
+                "include_web_title": True,
             }
         ]
         * 2
@@ -354,6 +355,7 @@ def test_application_groups_use_process_and_container_identity_not_entry_name() 
             "include_program_names": True,
             "include_python_project_name": True,
             "include_process_origin": True,
+            "include_web_title": True,
         }
     ]
 
@@ -745,3 +747,52 @@ def test_timeout_concurrency_cancellation_and_invalid_clock_fail_closed() -> Non
     with pytest.raises(ServiceObservationError) as clock_error:
         asyncio.run(invalid.observe())
     assert clock_error.value.code == "invalid_clock"
+
+
+def test_web_titles_name_programs_and_python_services() -> None:
+    listeners = FakeAdapter(
+        collection(
+            NetworkListener(
+                protocol="tcp",
+                address="127.0.0.1",
+                port=8787,
+                pid=101,
+                process_name="python",
+                python_entrypoint="app.py",
+                origin=ProcessOrigin.TERMINAL,
+                has_web_page=True,
+                web_title="WireGuard Panel",
+            ),
+            NetworkListener(
+                protocol="tcp",
+                address="0.0.0.0",
+                port=8080,
+                pid=102,
+                process_name="server.exe",
+                origin=ProcessOrigin.USER_INSTALL,
+                has_web_page=True,
+                web_title="Model UI",
+            ),
+            NetworkListener(
+                protocol="tcp",
+                address="0.0.0.0",
+                port=13688,
+                pid=103,
+                process_name="vendor.exe",
+                origin=ProcessOrigin.APP_SERVICE,
+                has_web_page=False,
+            ),
+        )
+    )
+    snapshot = asyncio.run(
+        observer(listeners, FakeAdapter(collection()), FakeAdapter(collection())).observe()
+    )
+    by_port = {item.port: str(item.service_id) for item in snapshot.services}
+    assert snapshot.display_names[by_port[8787]] == "WireGuard Panel · 8787"
+    assert snapshot.applications[by_port[8787]].name == "WireGuard Panel"
+    assert snapshot.applications[by_port[8787]].kind == "python"
+    assert snapshot.display_names[by_port[8080]] == "Model UI · 8080"
+    assert snapshot.applications[by_port[8080]].kind == "program"
+    assert by_port[13688] not in snapshot.display_names
+    assert by_port[13688] not in snapshot.review_names
+    assert "WireGuard Panel" not in snapshot.model_dump_json()

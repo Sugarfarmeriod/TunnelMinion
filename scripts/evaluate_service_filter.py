@@ -58,14 +58,21 @@ def tier_by_port(facts: dict[str, Any]) -> dict[int, tuple[ServiceTier, str, str
         raw = facts["facts"].get(str(listener["pid"]))
         origin = classify_origin(ProcessFacts(**raw)) if raw else None
         container = containers.get(port)
+        web_key = f"{listener['address']}:{port}"
+        probed = web_key in facts.get("web", {})
+        page = facts.get("web", {}).get(web_key)
         tier = decide_tier(
             protocol=listener["protocol"],
             address=listener["address"],
             process_name=listener["name"],
             origin=origin,
             container_running=container[1] if container else None,
+            has_web_page=(page is not None) if probed else None,
         )
-        label = f"容器 {container[0]}" if container else f"{listener['name']}（{origin}）"
+        title = f" 「{page['title']}」" if page and page.get("title") else ""
+        label = (
+            f"容器 {container[0]}{title}" if container else f"{listener['name']}（{origin}）{title}"
+        )
         group = container[2] if container else f"pid:{listener['pid']}"
         current = result.get(port)
         if current is None or _RANK[tier] > _RANK[current[0]]:
