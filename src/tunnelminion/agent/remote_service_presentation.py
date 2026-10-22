@@ -160,6 +160,7 @@ class RemoteServicePresentationObserver:
                                 "include_python_entrypoint",
                                 "include_program_names",
                                 "include_python_project_name",
+                                "include_process_origin",
                             ):
                                 if option in properties:
                                     arguments[option] = True

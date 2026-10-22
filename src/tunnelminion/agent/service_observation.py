@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol, cast
@@ -14,6 +13,7 @@ from typing import Protocol, cast
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.service_tiers import ServiceTier, decide_tier
 from tunnelminion.agent.services import (
     EvidenceConfidence,
     RemoteServiceInventoryBuilder,
@@ -62,6 +62,8 @@ class ServiceObservationSnapshot(BaseModel):
     services: tuple[ServiceSummary, ...]
     display_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     applications: dict[str, ServiceApplication] = Field(default_factory=dict, exclude=True)
+    # "可能是服务"：等待用户一键确认；界面接入前只在本机保存，不对外输出。
+    review_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     degraded_sources: tuple[str, ...] = ()
     disabled_sources: tuple[str, ...] = ()
     complete: bool = True
@@ -99,87 +101,123 @@ def compute_static_peer_service_id(node_id: NodeId, port: int) -> ServiceId:
     return ServiceId(f"service_{digest}")
 
 
+def service_tier(item: RemoteServiceSummary) -> ServiceTier:
+    """按来历和监听方式给一个端口分档，规则见 `decide_tier`。"""
+    if item.container_running is not None and not (item.container_name or "").strip():
+        # 没有可用名字的容器无法让用户认出来。
+        return ServiceTier.HIDE
+    return decide_tier(
+        protocol=item.protocol,
+        address=item.address,
+        # 没有进程号时名字无法对应到真实进程，不能单凭名字判断。
+        process_name=item.process_name if item.process_pid is not None else None,
+        origin=item.origin,
+        container_running=item.container_running,
+    )
+
+
+def _application_id(node_id: NodeId, kind: str, key: str) -> str:
+    return "application_" + hashlib.sha256(f"{node_id}:{kind}:{key}".encode()).hexdigest()[:32]
+
+
+def _program_name(item: RemoteServiceSummary) -> str:
+    raw = (item.program_name or item.process_name or "").strip()
+    name = raw[:-4] if raw.lower().endswith(".exe") else raw
+    return name[:80] or "程序"
+
+
+def _presentation(
+    node_id: NodeId, item: RemoteServiceSummary
+) -> tuple[str, str, ServiceApplication | None]:
+    """返回（用于判断归属冲突的完整名称, 显示名称, 所属应用）。"""
+    if item.container_running is not None:
+        # 同一 compose 项目的多个容器合并成一项；没有项目时按单个容器。
+        group = (item.compose_project or item.container_name or "").strip()
+        name = f"Docker · {group[:55]} · {item.port}"
+        key = (
+            f"compose:{item.compose_project}"
+            if item.compose_project
+            else (item.container_id or "").strip()
+        )
+        application = (
+            ServiceApplication(
+                group_id=_application_id(node_id, "docker", key), name=group[:80], kind="docker"
+            )
+            if key
+            else None
+        )
+        return name, name, application
+    if is_python_process(item.process_name):
+        entry = item.python_entrypoint
+        short = entry[:54] + "…" if entry and len(entry) > 55 else entry
+        name = f"Python · {entry} · {item.port}" if entry else f"Python 服务 · {item.port}"
+        label = f"Python · {short} · {item.port}" if short else name
+        application = (
+            ServiceApplication(
+                group_id=_application_id(node_id, "python", str(item.process_pid)),
+                name=item.python_project_name or entry or "Python 程序",
+                kind="python",
+            )
+            if item.process_pid is not None
+            else None
+        )
+        return name, label, application
+    program = _program_name(item)
+    name = f"{program} · {item.port}"
+    application = (
+        ServiceApplication(
+            group_id=_application_id(node_id, "program", str(item.process_pid)),
+            name=program,
+            kind="program",
+        )
+        if item.process_pid is not None
+        else None
+    )
+    return name, name, application
+
+
+def select_review_services(
+    node_id: NodeId,
+    services: tuple[RemoteServiceSummary, ...],
+    *,
+    excluded_pid: int | None = None,
+) -> dict[str, str]:
+    """ "可能是服务"：看不出是不是服务、需要用户一键确认的端口。"""
+    return {
+        str(
+            compute_observed_service_id(
+                node_id, ServiceProtocol(item.protocol), item.address, item.port
+            )
+        ): (_presentation(node_id, item)[1])
+        for item in services
+        if (excluded_pid is None or item.process_pid != excluded_pid)
+        and service_tier(item) is ServiceTier.REVIEW
+    }
+
+
 def select_service_presentations(
     node_id: NodeId,
     services: tuple[RemoteServiceSummary, ...],
     *,
     excluded_pid: int | None = None,
 ) -> tuple[dict[str, str], dict[str, ServiceApplication]]:
-    """只按实际进程或容器归属精选，不推断业务用途。"""
+    """首页直接显示的服务：只按来历和容器归属判断，不按程序名写特例。"""
     names: dict[str, set[str]] = {}
     labels: dict[str, str] = {}
     applications: dict[str, set[ServiceApplication | None]] = {}
     for item in services:
         if excluded_pid is not None and item.process_pid == excluded_pid:
             continue
-        name = None
-        label = None
-        application = None
-        if item.container_name and item.container_name.strip():
-            name = f"Docker · {item.container_name.strip()[:55]} · {item.port}"
-            if item.container_id and item.container_id.strip():
-                identity = hashlib.sha256(
-                    f"{node_id}:docker:{item.container_id}".encode()
-                ).hexdigest()[:32]
-                application = ServiceApplication(
-                    group_id=f"application_{identity}",
-                    name=item.container_name.strip()[:80],
-                    kind="docker",
-                )
-        elif (
-            item.protocol == "tcp"
-            and item.process_pid is not None
-            and is_python_process(item.process_name)
-        ):
-            label_entry = item.python_entrypoint
-            if label_entry and len(label_entry) > 55:
-                label_entry = label_entry[:54] + "…"
-            name = (
-                f"Python · {item.python_entrypoint} · {item.port}"
-                if item.python_entrypoint
-                else f"Python 服务 · {item.port}"
-            )
-            label = (
-                f"Python · {label_entry} · {item.port}"
-                if label_entry
-                else f"Python 服务 · {item.port}"
-            )
-            identity = hashlib.sha256(f"{node_id}:python:{item.process_pid}".encode()).hexdigest()[
-                :32
-            ]
-            application = ServiceApplication(
-                group_id=f"application_{identity}",
-                name=item.python_project_name or item.python_entrypoint or "Python 程序",
-                kind="python",
-            )
-        elif (
-            item.protocol == "tcp"
-            and item.process_pid is not None
-            and re.fullmatch(r"llama-server(?:\.exe)?", item.process_name or "", re.I)
-        ):
-            name = f"模型服务 · llama.cpp · {item.port}"
-            identity = hashlib.sha256(f"{node_id}:model:{item.process_pid}".encode()).hexdigest()[
-                :32
-            ]
-            application = ServiceApplication(
-                group_id=f"application_{identity}", name="llama.cpp", kind="model"
-            )
-        elif item.process_pid is not None and item.program_name:
-            name = f"{item.program_name} · {item.port}"
-            identity = hashlib.sha256(f"{node_id}:program:{item.process_pid}".encode()).hexdigest()[
-                :32
-            ]
-            application = ServiceApplication(
-                group_id=f"application_{identity}", name=item.program_name, kind="program"
-            )
-        if name is not None:
-            service_id = compute_observed_service_id(
-                node_id, ServiceProtocol(item.protocol), item.address, item.port
-            )
-            names.setdefault(str(service_id), set()).add(name)
-            # 显示裁剪不参与归属冲突判定。
-            labels[str(service_id)] = label or name
-            applications.setdefault(str(service_id), set()).add(application)
+        if service_tier(item) is not ServiceTier.SHOW:
+            continue
+        name, label, application = _presentation(node_id, item)
+        service_id = compute_observed_service_id(
+            node_id, ServiceProtocol(item.protocol), item.address, item.port
+        )
+        names.setdefault(str(service_id), set()).add(name)
+        # 显示裁剪不参与归属冲突判定。
+        labels[str(service_id)] = label
+        applications.setdefault(str(service_id), set()).add(application)
     selected_names = {
         service_id: labels[service_id] for service_id, values in names.items() if len(values) == 1
     }
@@ -249,6 +287,7 @@ class DeterministicServiceObserver:
                             "include_python_entrypoint": True,
                             "include_program_names": True,
                             "include_python_project_name": True,
+                            "include_process_origin": True,
                         },
                     )
                     process = await self._collect(
@@ -271,6 +310,9 @@ class DeterministicServiceObserver:
                     services=services,
                     display_names=names,
                     applications=applications,
+                    review_names=select_review_services(
+                        self._node_id, inventory.services, excluded_pid=os.getpid()
+                    ),
                     degraded_sources=inventory.unavailable_sources,
                     disabled_sources=self._disabled_sources(),
                 )

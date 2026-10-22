@@ -11,6 +11,7 @@ from typing import Literal, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.domain.identifiers import NodeId, ToolRunId
+from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.models import (
     CollectionResult,
     DockerService,
@@ -94,8 +95,11 @@ class RemoteServiceSummary(BaseModel):
     python_entrypoint: str | None = None
     python_project_name: str | None = None
     program_name: str | None = None
+    origin: ProcessOrigin | None = None
     container_id: str | None = None
     container_name: str | None = None
+    compose_project: str | None = None
+    container_running: bool | None = None
     image: str | None = None
     container_port: int | None = None
     accessibility: ServiceAccessibility
@@ -185,6 +189,8 @@ class RemoteServiceInventoryBuilder:
                     port=host_port,
                     container_id=service.container_id,
                     container_name=service.name,
+                    compose_project=service.compose_project,
+                    container_running=service.running,
                     image=service.image,
                     container_port=container_port,
                     accessibility=self._accessibility(host),
@@ -319,8 +325,11 @@ class RemoteServiceInventoryBuilder:
             python_entrypoint=listener.python_entrypoint,
             python_project_name=listener.python_project_name,
             program_name=listener.program_name,
+            origin=listener.origin,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,
+            compose_project=docker.compose_project if docker is not None else None,
+            container_running=docker.running if docker is not None else None,
             image=docker.image if docker is not None else None,
             container_port=container[3] if container is not None else None,
             accessibility=self._accessibility(listener.address),

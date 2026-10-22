@@ -84,6 +84,7 @@ def windows_tool_definitions() -> tuple[ToolDefinition, ...]:
                     "include_python_entrypoint": {"type": "boolean"},
                     "include_program_names": {"type": "boolean"},
                     "include_python_project_name": {"type": "boolean"},
+                    "include_process_origin": {"type": "boolean"},
                 },
                 "additionalProperties": False,
             },

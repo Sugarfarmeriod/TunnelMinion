@@ -17,6 +17,7 @@ from tunnelminion.agent.service_observation import (
 )
 from tunnelminion.coordinator.contracts import ServiceAccessibility, ServiceProtocol
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.models import (
     Availability,
     CollectionResult,
@@ -250,6 +251,7 @@ def test_python_entry_names_do_not_change_service_identity_or_leave_snapshot() -
                 "include_python_entrypoint": True,
                 "include_program_names": True,
                 "include_python_project_name": True,
+                "include_process_origin": True,
             }
         ]
         * 2
@@ -351,6 +353,7 @@ def test_application_groups_use_process_and_container_identity_not_entry_name() 
             "include_python_entrypoint": True,
             "include_program_names": True,
             "include_python_project_name": True,
+            "include_process_origin": True,
         }
     ]
 
@@ -379,7 +382,7 @@ def test_project_name_labels_program_without_replacing_entry_or_service_id() -> 
     assert "Wireguard Panel" not in named.model_dump_json()
 
 
-def test_user_programs_keep_tcp_udp_identity_and_group_by_owner() -> None:
+def test_user_programs_group_by_owner_and_udp_endpoints_stay_hidden() -> None:
     listeners = [
         NetworkListener(
             protocol=protocol,
@@ -388,12 +391,13 @@ def test_user_programs_keep_tcp_udp_identity_and_group_by_owner() -> None:
             pid=pid,
             process_name=name,
             program_name=name,
+            origin=ProcessOrigin.TERMINAL,
         )
         for protocol, port, pid, name in (
             ("tcp", 9527, 101, "n3n-supernode"),
             ("udp", 9527, 101, "n3n-supernode"),
             ("tcp", 805, 102, "gost"),
-            ("tcp", 806, 103, "gost"),
+            ("tcp", 806, 103, "gost.exe"),
         )
     ]
     plain = asyncio.run(
@@ -413,16 +417,26 @@ def test_user_programs_keep_tcp_udp_identity_and_group_by_owner() -> None:
         ).observe()
     )
     assert named.services == plain.services
-    tcp, udp = [
-        named.applications[str(item.service_id)] for item in named.services if item.port == 9527
-    ]
-    assert tcp == udp and tcp.name == "n3n-supernode" and tcp.kind == "program"
+    tcp = next(
+        named.applications[str(item.service_id)]
+        for item in named.services
+        if item.port == 9527 and item.protocol is ServiceProtocol.TCP
+    )
+    udp = next(
+        item
+        for item in named.services
+        if item.port == 9527 and item.protocol is ServiceProtocol.UDP
+    )
+    assert tcp.name == "n3n-supernode" and tcp.kind == "program"
+    assert str(udp.service_id) not in named.applications
+    assert str(udp.service_id) not in named.display_names
     gosts = [
         named.applications[str(item.service_id)]
         for item in named.services
         if item.port in {805, 806}
     ]
     assert gosts[0].group_id != gosts[1].group_id
+    assert {item.name for item in gosts} == {"gost"}
     assert "n3n-supernode" not in named.model_dump_json()
 
 
@@ -481,31 +495,32 @@ def test_long_entry_name_preserves_application_name_and_bounds_endpoint_label() 
 
 
 @pytest.mark.parametrize(
-    "process_name,pid,protocol,selected",
+    "origin,expected",
     [
-        ("llama-server", 101, "tcp", True),
-        ("llama-server.exe", 101, "tcp", True),
-        ("LLAMA-SERVER.EXE", 101, "tcp", True),
-        ("llama-ser", 101, "tcp", False),
-        ("llama-server-helper", 101, "tcp", False),
-        ("system", 101, "tcp", False),
-        ("llama-server", None, "tcp", False),
-        ("llama-server", 101, "udp", False),
+        (ProcessOrigin.TERMINAL, "show"),
+        (ProcessOrigin.USER_INSTALL, "show"),
+        (ProcessOrigin.UNKNOWN, "review"),
+        (ProcessOrigin.APP_SERVICE, "review"),
+        (None, "review"),
+        (ProcessOrigin.DESKTOP_APP, "hide"),
+        (ProcessOrigin.SYSTEM, "hide"),
+        (ProcessOrigin.CONTAINER_RUNTIME, "hide"),
     ],
 )
-def test_model_names_require_exact_process_identity_not_a_known_port(
-    process_name: str, pid: int | None, protocol: str, selected: bool
+def test_tiers_follow_origin_not_a_known_program_name(
+    origin: ProcessOrigin | None, expected: str
 ) -> None:
     snapshot = asyncio.run(
         observer(
             FakeAdapter(
                 collection(
                     NetworkListener(
-                        protocol=protocol,
+                        protocol="tcp",
                         address="0.0.0.0",
                         port=18080,
-                        pid=pid,
-                        process_name=process_name,
+                        pid=101,
+                        process_name="llama-server",
+                        origin=origin,
                     )
                 )
             ),
@@ -513,11 +528,63 @@ def test_model_names_require_exact_process_identity_not_a_known_port(
             FakeAdapter(collection()),
         ).observe()
     )
-    assert len(snapshot.services) == 1
-    assert set(snapshot.display_names.values()) == (
-        {"模型服务 · llama.cpp · 18080"} if selected else set()
+    (service,) = snapshot.services
+    shown = snapshot.display_names.get(str(service.service_id))
+    review = snapshot.review_names.get(str(service.service_id))
+    assert (shown, review) == {
+        "show": ("llama-server · 18080", None),
+        "review": (None, "llama-server · 18080"),
+        "hide": (None, None),
+    }[expected]
+    assert "llama-server" not in snapshot.model_dump_json()
+
+
+def test_compose_project_merges_containers_and_stopped_or_unnamed_containers_hide() -> None:
+    docker = FakeAdapter(
+        collection(
+            DockerService(
+                container_id="frontend",
+                name="penpot-frontend-1",
+                image="frontend",
+                ports="0.0.0.0:9001->8080/tcp",
+                status="Up 5 days",
+                compose_project="penpot",
+            ),
+            DockerService(
+                container_id="mail",
+                name="penpot-mail-1",
+                image="mail",
+                ports="127.0.0.1:1080->1080/tcp",
+                status="Up 5 days",
+                compose_project="penpot",
+            ),
+            DockerService(
+                container_id="old",
+                name="old-tool",
+                image="tool",
+                ports="0.0.0.0:7000->80/tcp",
+                status="Exited (0) 8 weeks ago",
+            ),
+            DockerService(
+                container_id="blank",
+                name=" ",
+                image="tool",
+                ports="0.0.0.0:7001->80/tcp",
+                status="Up",
+            ),
+        )
     )
-    assert "llama.cpp" not in snapshot.model_dump_json()
+    snapshot = asyncio.run(
+        observer(FakeAdapter(collection()), FakeAdapter(collection()), docker).observe()
+    )
+    by_port = {item.port: str(item.service_id) for item in snapshot.services}
+    assert snapshot.display_names[by_port[9001]] == "Docker · penpot · 9001"
+    assert snapshot.display_names[by_port[1080]] == "Docker · penpot · 1080"
+    assert snapshot.applications[by_port[9001]] == snapshot.applications[by_port[1080]]
+    assert snapshot.applications[by_port[9001]].name == "penpot"
+    assert by_port[7000] not in snapshot.display_names
+    assert by_port[7001] not in snapshot.display_names
+    assert snapshot.review_names == {}
 
 
 def test_conflicting_container_names_do_not_choose_a_product_identity() -> None:

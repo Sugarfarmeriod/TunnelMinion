@@ -13,6 +13,7 @@ from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.platforms.process_origin import ProcessOrigin, read_process_origin
 from tunnelminion.platforms.program_name import read_program_name
 from tunnelminion.platforms.python_entrypoint import (
     read_python_entrypoint,
@@ -173,6 +174,7 @@ class NetworkListenersAdapter:
                 arguments.get("include_python_entrypoint") is True,
                 arguments.get("include_program_names") is True,
                 arguments.get("include_python_project_name") is True,
+                arguments.get("include_process_origin") is True,
             )
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
@@ -188,16 +190,25 @@ class NetworkListenersAdapter:
         include_python_entrypoint: bool,
         include_program_names: bool,
         include_python_project_name: bool,
+        include_process_origin: bool = False,
     ) -> tuple[dict[str, object], ...]:
         items: list[dict[str, object]] = []
         entrypoints: dict[tuple[int | None, str | None], str | None] = {}
         programs: dict[tuple[int | None, str | None], str | None] = {}
         projects: dict[tuple[int | None, str | None], str | None] = {}
+        origins: dict[tuple[int | None, str | None], ProcessOrigin | None] = {}
         for listener in self._reader.listeners():
             item = listener.model_dump(
-                mode="json", exclude={"python_entrypoint", "program_name", "python_project_name"}
+                mode="json",
+                exclude={"python_entrypoint", "program_name", "python_project_name", "origin"},
             )
             key = (listener.pid, listener.process_name)
+            if include_process_origin and listener.pid is not None:
+                if key not in origins:
+                    # 路径和父进程只在本机用于判断，输出里只有来历类别。
+                    origins[key] = read_process_origin(listener.pid, listener.process_name)
+                if origins[key] is not None:
+                    item["origin"] = origins[key]
             if include_program_names:
                 if key not in programs:
                     programs[key] = read_program_name(listener)
@@ -246,6 +257,15 @@ class ProcessSummaryAdapter:
         return _json_value(result.model_dump(mode="json"))
 
 
+def _compose_project(labels: str) -> str | None:
+    """从 `docker ps` 的标签串里取 compose 项目名，同一项目的容器在首页合并成一项。"""
+    for pair in labels.split(","):
+        key, _, value = pair.partition("=")
+        if key.strip() == "com.docker.compose.project" and 0 < len(value.strip()) <= 80:
+            return value.strip()
+    return None
+
+
 class DockerServicesAdapter:
     """只调用 `docker ps -a`，不读取环境变量或执行控制操作。"""
 
@@ -284,6 +304,7 @@ class DockerServicesAdapter:
                     image=str(item.get("Image", "")),
                     ports=str(item.get("Ports", "")),
                     status=str(item.get("Status", "")),
+                    compose_project=_compose_project(str(item.get("Labels", ""))),
                 ).model_dump(mode="json")
             )
         return _json_value(
