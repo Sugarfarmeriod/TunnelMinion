@@ -70,6 +70,8 @@ class GatewayPeerConfig(BaseModel):
     port: int = Field(default=8787, ge=1024, le=65535)
     allowed_tools: frozenset[str] = Field(min_length=1)
     allowed_operations: frozenset[str] = frozenset()
+    # 是否允许这个对端把问题交给本机的 Agent 处理；默认关闭，由本机明确打开。
+    allow_delegation: bool = False
 
     def endpoint(self) -> str:
         """返回只含私网地址的 HTTP endpoint。"""
@@ -112,6 +114,7 @@ class GatewayPeerView(BaseModel):
     port: int
     allowed_tools: frozenset[str]
     allowed_operations: frozenset[str]
+    allow_delegation: bool = False
     credential_configured: bool
 
 
@@ -266,6 +269,7 @@ class GatewayConfigurationService:
                 port=item.port,
                 allowed_tools=item.allowed_tools,
                 allowed_operations=item.allowed_operations,
+                allow_delegation=item.allow_delegation,
                 credential_configured=(
                     self._secrets.get(gateway_token_name(item.node_id)) is not None
                 ),
@@ -316,6 +320,23 @@ class GatewayConfigurationService:
             token=token,
         )
 
+    def resolve_delegation_peer(self, node_id: NodeId) -> GatewayToolPeer:
+        """解析可以发起委派的对端；对端是否接受由它自己决定。"""
+        config = self._require_config()
+        peer = next((item for item in config.peers if item.node_id == node_id), None)
+        if peer is None or peer.platform is None:
+            raise KeyError("gateway_delegation_peer_not_found")
+        token = self._secrets.get(gateway_token_name(node_id))
+        if token is None:
+            raise RuntimeError(f"peer {node_id} 缺少网关凭据")
+        return GatewayToolPeer(
+            node_id=node_id,
+            platform=peer.platform,
+            endpoint=peer.endpoint(),
+            allowed_tools=(),
+            token=token,
+        )
+
     def resolve_operation_peer(
         self,
         node_id: NodeId,
@@ -363,6 +384,7 @@ class GatewayConfigurationService:
                     peer.allowed_tools,
                     peer.allowed_operations,
                     source_host=peer.host,
+                    allow_delegation=peer.allow_delegation,
                 )
             )
         return GatewaySecurityPolicy(policies, config.limits)

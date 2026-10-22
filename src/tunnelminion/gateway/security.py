@@ -76,6 +76,7 @@ class GatewayPeerPolicy:
     allowed_operations: frozenset[str] = frozenset()
     source_host: str | None = None
     authentication_kind: GatewayAuthenticationKind = GatewayAuthenticationKind.STATIC
+    allow_delegation: bool = False
 
     @classmethod
     def from_token(
@@ -86,6 +87,7 @@ class GatewayPeerPolicy:
         allowed_operations: Iterable[str] = (),
         *,
         source_host: str | None = None,
+        allow_delegation: bool = False,
     ) -> GatewayPeerPolicy:
         """把独立应用令牌立即转换为 SHA-256 摘要。"""
         if len(token) < 32:
@@ -99,6 +101,7 @@ class GatewayPeerPolicy:
             tools,
             frozenset(allowed_operations),
             source_host,
+            allow_delegation=allow_delegation,
         )
 
 

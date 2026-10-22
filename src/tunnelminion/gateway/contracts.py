@@ -36,6 +36,10 @@ class GatewayErrorCode(StrEnum):
     OPERATION_STATE_CONFLICT = "operation_state_conflict"
     PLAN_TAMPERED = "plan_tampered"
     RESPONSE_TOO_LARGE = "response_too_large"
+    DELEGATION_NOT_ALLOWED = "delegation_not_allowed"
+    DELEGATION_BUSY = "delegation_busy"
+    DELEGATION_NOT_FOUND = "delegation_not_found"
+    DELEGATION_UNAVAILABLE = "delegation_unavailable"
 
 
 class GatewayError(BaseModel):

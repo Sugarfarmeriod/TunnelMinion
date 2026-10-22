@@ -134,3 +134,9 @@ class ResourceId(_Identifier):
     """TunnelMinion 自有临时资源的稳定标识。"""
 
     prefix = "resource"
+
+
+class DelegationId(_Identifier):
+    """一次跨节点委派的身份标识。"""
+
+    prefix = "delegation"

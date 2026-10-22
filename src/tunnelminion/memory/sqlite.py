@@ -9,10 +9,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tunnelminion.domain.delegation import DelegationRecord, DelegationStatus
 from tunnelminion.domain.identifiers import (
     ArtifactId,
     AuthorizationId,
+    DelegationId,
     MemoryId,
+    NodeId,
     OperationId,
     RunId,
     ThreadId,
@@ -54,6 +57,15 @@ class _SQLiteDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS checkpoints_thread
                     ON checkpoints(thread_id);
+                CREATE TABLE IF NOT EXISTS delegations (
+                    delegation_id TEXT PRIMARY KEY,
+                    caller_node_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS delegations_caller_status
+                    ON delegations(caller_node_id, status);
                 CREATE TABLE IF NOT EXISTS service_marks (
                     mark_key TEXT PRIMARY KEY,
                     mark TEXT NOT NULL,
@@ -584,6 +596,54 @@ class SQLiteServiceMarkStore:
             connection.execute("DELETE FROM service_marks WHERE mark_key=?", (key,))
 
 
+class SQLiteDelegationStore:
+    """被委派方保存的委派记录：谁问的、问了什么、查到了什么。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, record: DelegationRecord) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO delegations(
+                    delegation_id, caller_node_id, status, created_at, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(delegation_id) DO UPDATE SET
+                    status=excluded.status, payload=excluded.payload""",
+                (
+                    str(record.delegation_id),
+                    str(record.caller_node_id),
+                    record.status.value,
+                    record.created_at.isoformat(),
+                    record.model_dump_json(),
+                ),
+            )
+
+    def get(self, delegation_id: DelegationId) -> DelegationRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM delegations WHERE delegation_id=?", (str(delegation_id),)
+            ).fetchone()
+        return DelegationRecord.model_validate_json(row[0]) if row is not None else None
+
+    def running_for(self, caller_node_id: NodeId) -> tuple[DelegationRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM delegations WHERE caller_node_id=? AND status=?",
+                (str(caller_node_id), DelegationStatus.RUNNING.value),
+            ).fetchall()
+        return tuple(DelegationRecord.model_validate_json(row[0]) for row in rows)
+
+    def recent(self, limit: int = 50) -> tuple[DelegationRecord, ...]:
+        """最近的委派，最新的在前。"""
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM delegations ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return tuple(DelegationRecord.model_validate_json(row[0]) for row in rows)
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -595,6 +655,7 @@ class SQLiteStores:
     requester_operations: RequesterOperationStore
     preauthorizations: PreauthorizationStore
     service_marks: SQLiteServiceMarkStore
+    delegations: SQLiteDelegationStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -608,4 +669,5 @@ class SQLiteStores:
             requester_operations=SQLiteRequesterOperationStore(database),
             preauthorizations=SQLitePreauthorizationStore(database),
             service_marks=SQLiteServiceMarkStore(database),
+            delegations=SQLiteDelegationStore(database),
         )

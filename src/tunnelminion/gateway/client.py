@@ -9,8 +9,9 @@ from typing import cast
 import httpx
 from pydantic import JsonValue, ValidationError
 
+from tunnelminion.domain.delegation import DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import NodeId, OperationId, ToolRunId
+from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId, ToolRunId
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.contracts import (
     GATEWAY_PROTOCOL,
@@ -53,6 +54,10 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.OPERATION_STATE_CONFLICT: ErrorCode.INVALID_ARGUMENT,
     GatewayErrorCode.PLAN_TAMPERED: ErrorCode.FORBIDDEN,
     GatewayErrorCode.RESPONSE_TOO_LARGE: ErrorCode.RESULT_TOO_LARGE,
+    GatewayErrorCode.DELEGATION_NOT_ALLOWED: ErrorCode.FORBIDDEN,
+    GatewayErrorCode.DELEGATION_BUSY: ErrorCode.RATE_LIMITED,
+    GatewayErrorCode.DELEGATION_NOT_FOUND: ErrorCode.INVALID_ARGUMENT,
+    GatewayErrorCode.DELEGATION_UNAVAILABLE: ErrorCode.OPERATION_NOT_SUPPORTED,
 }
 
 
@@ -206,6 +211,55 @@ class FixedGatewayClient:
         if result.summary.operation_id != operation_id:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")
         return result
+
+    async def submit_delegation(
+        self, question: str, service_key: str | None = None
+    ) -> DelegationRecord:
+        """把一个问题交给对端的 Agent；只发问题和相关服务，不发命令。"""
+        request = DelegationRequest(
+            caller_node_id=self._local_node_id, question=question, service_key=service_key
+        )
+        return await self._request_delegation(
+            "POST", "/v1/delegations", content=request.model_dump_json()
+        )
+
+    async def get_delegation(self, delegation_id: DelegationId) -> DelegationRecord:
+        """读取对端对这次委派的处理进度和结论。"""
+        return await self._request_delegation("GET", f"/v1/delegations/{delegation_id}")
+
+    async def cancel_delegation(self, delegation_id: DelegationId) -> DelegationRecord:
+        """请对端停止处理这次委派。"""
+        return await self._request_delegation("DELETE", f"/v1/delegations/{delegation_id}")
+
+    async def _request_delegation(
+        self, method: str, path: str, *, content: str | None = None
+    ) -> DelegationRecord:
+        async with self._http_client() as client:
+            try:
+                response = await client.request(
+                    method,
+                    path,
+                    content=content,
+                    headers={"Content-Type": "application/json"} if content is not None else None,
+                    timeout=30,
+                )
+            except httpx.TimeoutException as exc:
+                raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "远端委派请求超时") from exc
+            except httpx.RequestError as exc:
+                raise RemoteGatewayError(ErrorCode.NODE_UNREACHABLE, "远端节点不可达") from exc
+        self._check_response_size(response)
+        if not response.is_success:
+            raise self._protocol_error(response)
+        try:
+            record = DelegationRecord.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端委派响应格式无效") from exc
+        if (
+            record.executing_node_id != self._remote_node_id
+            or record.caller_node_id != self._local_node_id
+        ):
+            raise RemoteGatewayError(ErrorCode.FORBIDDEN, "远端委派响应节点身份不匹配")
+        return record
 
     def _validate_operation_nodes(self, plan: OperationPlan) -> None:
         if plan.request_node_id != self._local_node_id:
