@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from tests.platforms.macos.test_adapters import FakeMacReader, successful_runner
 
@@ -56,6 +58,7 @@ def test_registers_exact_macos_read_only_tool_set() -> None:
         "include_python_entrypoint": {"type": "boolean"},
         "include_program_names": {"type": "boolean"},
         "include_python_project_name": {"type": "boolean"},
+        "include_process_origin": {"type": "boolean"},
     }
     assert registry.model_tools(Platform.MACOS) == definitions
     registered = tuple(registry.lookup(item.name) for item in definitions)
@@ -92,6 +95,30 @@ def test_macos_command_paths_prefer_path_and_have_safe_fallbacks(
     assert default_wg_path() == "/custom/wg"
     assert default_docker_path() == "/custom/docker"
 
+    def no_file(_path: Path) -> bool:
+        return False
+
     monkeypatch.setattr("tunnelminion.platforms.macos.system.shutil.which", missing_path)
+    monkeypatch.setattr("tunnelminion.platforms.macos.system.Path.is_file", no_file)
     assert default_wg_path() == "/opt/homebrew/bin/wg"
     assert default_docker_path() == "/usr/local/bin/docker"
+
+
+def test_background_start_finds_orbstack_docker_outside_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """后台启动时 PATH 里没有 docker，仍要找到 OrbStack 装在用户目录里的命令。"""
+
+    def missing_path(_name: str) -> None:
+        return None
+
+    def home() -> Path:
+        return Path("/Users/mac")
+
+    def only_orbstack(path: Path) -> bool:
+        return path.as_posix() == "/Users/mac/.orbstack/bin/docker"
+
+    monkeypatch.setattr("tunnelminion.platforms.macos.system.shutil.which", missing_path)
+    monkeypatch.setattr("tunnelminion.platforms.macos.system.Path.home", home)
+    monkeypatch.setattr("tunnelminion.platforms.macos.system.Path.is_file", only_orbstack)
+    assert Path(default_docker_path()).as_posix() == "/Users/mac/.orbstack/bin/docker"

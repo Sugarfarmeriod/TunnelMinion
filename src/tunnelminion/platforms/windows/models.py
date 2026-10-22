@@ -6,6 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tunnelminion.platforms.process_origin import ProcessOrigin
+
 
 class Availability(StrEnum):
     """平台能力的可用程度。"""
@@ -71,6 +73,7 @@ class NetworkListener(BaseModel):
     python_project_name: str | None = Field(
         default=None, min_length=1, max_length=80, pattern=r"^[^/\\\x00-\x1f\x7f]+$"
     )
+    origin: ProcessOrigin | None = None
 
 
 class ProcessInfo(BaseModel):
@@ -95,6 +98,11 @@ class DockerService(BaseModel):
     image: str
     ports: str
     status: str
+    compose_project: str | None = Field(default=None, min_length=1, max_length=80)
+
+    @property
+    def running(self) -> bool:
+        return self.status.startswith("Up")
 
 
 class CollectionResult(BaseModel):

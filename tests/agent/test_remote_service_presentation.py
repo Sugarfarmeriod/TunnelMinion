@@ -98,6 +98,7 @@ class Remote:
         self.supports_entrypoint = False
         self.supports_program_names = False
         self.supports_project_name = False
+        self.supports_process_origin = False
         self.prepared: list[str] = []
         self.executed: list[str] = []
         self.outputs: dict[str, JsonValue] = {
@@ -148,7 +149,12 @@ class Remote:
         if self.error is not None:
             raise self.error
         registry = ToolRegistry()
-        if self.supports_entrypoint or self.supports_program_names or self.supports_project_name:
+        if (
+            self.supports_entrypoint
+            or self.supports_program_names
+            or self.supports_project_name
+            or self.supports_process_origin
+        ):
             definition = windows_tool_definitions()[1]
             supported_properties = definition.input_schema["properties"]
             assert isinstance(supported_properties, dict)
@@ -158,6 +164,7 @@ class Remote:
                 if (key == "include_python_entrypoint" and self.supports_entrypoint)
                 or (key == "include_program_names" and self.supports_program_names)
                 or (key == "include_python_project_name" and self.supports_project_name)
+                or (key == "include_process_origin" and self.supports_process_origin)
             }
             registry.register(
                 definition.model_copy(
@@ -200,6 +207,8 @@ class Remote:
             expected["include_program_names"] = True
         if self.supports_project_name and request.tool_name == TOOLS[0]:
             expected["include_python_project_name"] = True
+        if self.supports_process_origin and request.tool_name == TOOLS[0]:
+            expected["include_process_origin"] = True
         assert request.arguments == expected and request.tool_name in self.tools
         self.executed.append(request.tool_name)
         if self.failed:
@@ -240,29 +249,34 @@ def test_exact_endpoint_names_without_port_guessing_or_local_pid_exclusion() -> 
     }
 
 
-def test_remote_model_identity_uses_existing_listener_permission_only() -> None:
+def test_remote_program_is_shown_by_reported_origin_not_by_its_name() -> None:
     remote = Remote()
     remote.tools = (TOOLS[0],)
+    remote.supports_process_origin = True
+    listener: dict[str, JsonValue] = {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 8088,
+        "pid": 101,
+        "process_name": "llama-server",
+    }
     remote.outputs[TOOLS[0]] = {
         "availability": "available",
-        "items": [
-            {
-                "protocol": "tcp",
-                "address": "0.0.0.0",
-                "port": 8088,
-                "pid": 101,
-                "process_name": "llama-server",
-            }
-        ],
+        "items": [{**listener, "origin": "terminal"}],
     }
     target = node()
     view = observer(remote, cache(target))
     asyncio.run(view.refresh())
-    assert view.names() == {
-        (str(REMOTE), str(target.services[1].service_id)): "模型服务 · llama.cpp · 8088"
-    }
+    key = (str(REMOTE), str(target.services[1].service_id))
+    assert view.names() == {key: "llama-server · 8088"}
+    application = view.presentations()[key][1]
+    assert application is not None and application.kind == "program"
     assert remote.executed == [TOOLS[0]]
-    remote.outputs[TOOLS[0]] = {"availability": "available", "items": []}
+    # 同一个程序名，来历是桌面应用时不直接显示：不按名字写特例。
+    remote.outputs[TOOLS[0]] = {
+        "availability": "available",
+        "items": [{**listener, "origin": "desktop_app"}],
+    }
     asyncio.run(view.refresh())
     assert view.names() == {}
 
@@ -289,9 +303,10 @@ def test_remote_container_without_identity_keeps_endpoint_without_application() 
     }
 
 
-def test_remote_program_name_requires_advertised_capability_and_keeps_service_id() -> None:
+def test_remote_program_requires_advertised_origin_and_keeps_service_id() -> None:
     remote = Remote()
     remote.supports_program_names = True
+    remote.supports_process_origin = True
     remote.outputs[TOOLS[0]] = {
         "availability": "available",
         "items": [
@@ -302,6 +317,7 @@ def test_remote_program_name_requires_advertised_capability_and_keeps_service_id
                 "pid": 101,
                 "process_name": "gost",
                 "program_name": "gost",
+                "origin": "terminal",
             }
         ],
     }
@@ -313,6 +329,7 @@ def test_remote_program_name_requires_advertised_capability_and_keeps_service_id
     application = view.presentations()[key][1]
     assert application is not None and application.kind == "program"
     remote.supports_program_names = False
+    remote.supports_process_origin = False
     remote.outputs[TOOLS[0]] = {
         "availability": "available",
         "items": [

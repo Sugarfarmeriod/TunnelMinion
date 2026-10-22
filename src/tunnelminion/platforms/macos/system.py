@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 from tunnelminion.platforms.windows.models import NetworkListener
 from tunnelminion.platforms.windows.system import (
@@ -112,5 +113,14 @@ def default_wg_path() -> str:
 
 
 def default_docker_path() -> str:
-    """优先使用当前 macOS PATH 中的 Docker CLI。"""
-    return shutil.which("docker") or "/usr/local/bin/docker"
+    """优先用 PATH 中的 Docker CLI；后台启动时 PATH 很短，再依次找 OrbStack、Homebrew 的位置。"""
+    found = shutil.which("docker")
+    if found:
+        return found
+    for candidate in (
+        Path.home() / ".orbstack" / "bin" / "docker",
+        Path("/opt/homebrew/bin/docker"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return "/usr/local/bin/docker"

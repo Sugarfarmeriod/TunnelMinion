@@ -12,6 +12,7 @@ import pytest
 from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
     NetworkListenersAdapter,
@@ -337,6 +338,60 @@ def test_python_project_name_is_separate_opt_in_and_cached(monkeypatch: pytest.M
         item["python_entrypoint"] == "app.py" and "python_project_name" not in item
         for item in unknown.items
     )
+
+
+def test_process_origin_is_opt_in_cached_and_exports_only_the_category(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, str | None]] = []
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return (
+                *tuple(
+                    NetworkListener(
+                        protocol=protocol,
+                        address="0.0.0.0",
+                        port=9527,
+                        pid=101,
+                        process_name="supernode",
+                    )
+                    for protocol in ("tcp", "udp")
+                ),
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=7000, pid=102),
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=805),
+            )
+
+    def origin(pid: int, expected_name: str | None) -> ProcessOrigin | None:
+        calls.append((pid, expected_name))
+        return ProcessOrigin.TERMINAL if pid == 101 else None
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.read_process_origin", origin)
+    adapter = NetworkListenersAdapter(Reader())
+    plain = CollectionResult.model_validate(run(adapter.execute({}, token())))
+    assert calls == [] and all("origin" not in item for item in plain.items)
+    marked = CollectionResult.model_validate(
+        run(adapter.execute({"include_process_origin": True}, token()))
+    )
+    assert calls == [(101, "supernode"), (102, None)]
+    assert [item.get("origin") for item in marked.items] == ["terminal", "terminal", None, None]
+
+
+def test_docker_adapter_reads_compose_project_from_labels() -> None:
+    lines = "\n".join(
+        (
+            '{"ID":"a","Names":"penpot-web-1","Image":"web","Ports":"","Status":"Up",'
+            '"Labels":"com.docker.compose.service=web, com.docker.compose.project=penpot"}',
+            '{"ID":"b","Names":"solo","Image":"solo","Ports":"","Status":"Exited (0)"}',
+            '{"ID":"c","Names":"long","Image":"x","Ports":"","Status":"Up",'
+            f'"Labels":"com.docker.compose.project={"x" * 81}"}}',
+        )
+    )
+    adapter = DockerServicesAdapter(FakeRunner({"{{json .}}": command_result(lines)}), "docker")
+    result = CollectionResult.model_validate(run(adapter.execute({}, token())))
+    services = [DockerService.model_validate(item) for item in result.items]
+    assert [item.compose_project for item in services] == ["penpot", None, None]
+    assert [item.running for item in services] == [True, False, True]
 
 
 def test_docker_adapter_only_returns_allowed_fields_and_handles_offline() -> None:
