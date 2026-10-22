@@ -6,13 +6,14 @@ import asyncio
 import hashlib
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.service_marks import ServiceMark, service_mark_key
 from tunnelminion.agent.service_tiers import ServiceTier, decide_tier
 from tunnelminion.agent.services import (
     EvidenceConfidence,
@@ -64,6 +65,8 @@ class ServiceObservationSnapshot(BaseModel):
     applications: dict[str, ServiceApplication] = Field(default_factory=dict, exclude=True)
     # "可能是服务"：等待用户一键确认；界面接入前只在本机保存，不对外输出。
     review_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    # 合并后的端口清单：用户改了标记时据此立即重新分档，不必等下一轮观察。
+    inventory: tuple[RemoteServiceSummary, ...] = Field(default=(), exclude=True)
     degraded_sources: tuple[str, ...] = ()
     disabled_sources: tuple[str, ...] = ()
     complete: bool = True
@@ -101,8 +104,15 @@ def compute_static_peer_service_id(node_id: NodeId, port: int) -> ServiceId:
     return ServiceId(f"service_{digest}")
 
 
-def service_tier(item: RemoteServiceSummary) -> ServiceTier:
-    """按来历和监听方式给一个端口分档，规则见 `decide_tier`。"""
+def service_tier(
+    item: RemoteServiceSummary, marks: Mapping[str, ServiceMark] | None = None
+) -> ServiceTier:
+    """按来历和监听方式给一个端口分档，规则见 `decide_tier`；用户的标记优先。"""
+    mark = marks.get(service_mark_key(item)) if marks else None
+    if mark is ServiceMark.HIDDEN:
+        return ServiceTier.HIDE
+    if mark is ServiceMark.MINE and (item.protocol == "tcp" or item.container_running is not None):
+        return ServiceTier.SHOW
     if item.container_running is not None and not (item.container_name or "").strip():
         # 没有可用名字的容器无法让用户认出来。
         return ServiceTier.HIDE
@@ -128,7 +138,7 @@ def _program_name(item: RemoteServiceSummary) -> str:
     return name[:80] or "程序"
 
 
-def _presentation(
+def service_presentation(
     node_id: NodeId, item: RemoteServiceSummary
 ) -> tuple[str, str, ServiceApplication | None]:
     """返回（用于判断归属冲突的完整名称, 显示名称, 所属应用）。"""
@@ -186,6 +196,7 @@ def select_review_services(
     services: tuple[RemoteServiceSummary, ...],
     *,
     excluded_pid: int | None = None,
+    marks: Mapping[str, ServiceMark] | None = None,
 ) -> dict[str, str]:
     """ "可能是服务"：看不出是不是服务、需要用户一键确认的端口。"""
     return {
@@ -193,10 +204,10 @@ def select_review_services(
             compute_observed_service_id(
                 node_id, ServiceProtocol(item.protocol), item.address, item.port
             )
-        ): (_presentation(node_id, item)[1])
+        ): (service_presentation(node_id, item)[1])
         for item in services
         if (excluded_pid is None or item.process_pid != excluded_pid)
-        and service_tier(item) is ServiceTier.REVIEW
+        and service_tier(item, marks) is ServiceTier.REVIEW
     }
 
 
@@ -205,6 +216,7 @@ def select_service_presentations(
     services: tuple[RemoteServiceSummary, ...],
     *,
     excluded_pid: int | None = None,
+    marks: Mapping[str, ServiceMark] | None = None,
 ) -> tuple[dict[str, str], dict[str, ServiceApplication]]:
     """首页直接显示的服务：只按来历和容器归属判断，不按程序名写特例。"""
     names: dict[str, set[str]] = {}
@@ -213,9 +225,9 @@ def select_service_presentations(
     for item in services:
         if excluded_pid is not None and item.process_pid == excluded_pid:
             continue
-        if service_tier(item) is not ServiceTier.SHOW:
+        if service_tier(item, marks) is not ServiceTier.SHOW:
             continue
-        name, label, application = _presentation(node_id, item)
+        name, label, application = service_presentation(node_id, item)
         service_id = compute_observed_service_id(
             node_id, ServiceProtocol(item.protocol), item.address, item.port
         )
@@ -236,6 +248,28 @@ def select_service_presentations(
     return selected_names, selected_applications
 
 
+def apply_service_marks(
+    node_id: NodeId,
+    snapshot: ServiceObservationSnapshot,
+    marks: Mapping[str, ServiceMark],
+    *,
+    excluded_pid: int | None = None,
+) -> ServiceObservationSnapshot:
+    """按最新标记重新算出首页名称、应用分组和"可能是服务"，端口事实不变。"""
+    names, applications = select_service_presentations(
+        node_id, snapshot.inventory, excluded_pid=excluded_pid, marks=marks
+    )
+    return snapshot.model_copy(
+        update={
+            "display_names": names,
+            "applications": applications,
+            "review_names": select_review_services(
+                node_id, snapshot.inventory, excluded_pid=excluded_pid, marks=marks
+            ),
+        }
+    )
+
+
 class DeterministicServiceObserver:
     """固定顺序采集监听、进程和 Docker，并拒绝部分或超预算快照。"""
 
@@ -248,8 +282,10 @@ class DeterministicServiceObserver:
         docker: CollectionAdapter,
         *,
         clock: Callable[[], datetime] | None = None,
+        marks: Callable[[], Mapping[str, ServiceMark]] | None = None,
     ) -> None:
         self._node_id = node_id
+        self._marks = marks
         self._config = config
         self._listeners = listeners
         self._processes = processes
@@ -308,19 +344,17 @@ class DeterministicServiceObserver:
                 )
                 services = self._summaries(inventory.services)
                 self._validate_budget(services)
-                names, applications = select_service_presentations(
-                    self._node_id, inventory.services, excluded_pid=os.getpid()
-                )
-                snapshot = ServiceObservationSnapshot(
-                    observed_at=now,
-                    services=services,
-                    display_names=names,
-                    applications=applications,
-                    review_names=select_review_services(
-                        self._node_id, inventory.services, excluded_pid=os.getpid()
+                snapshot = apply_service_marks(
+                    self._node_id,
+                    ServiceObservationSnapshot(
+                        observed_at=now,
+                        services=services,
+                        inventory=inventory.services,
+                        degraded_sources=inventory.unavailable_sources,
+                        disabled_sources=self._disabled_sources(),
                     ),
-                    degraded_sources=inventory.unavailable_sources,
-                    disabled_sources=self._disabled_sources(),
+                    self._marks() if self._marks is not None else {},
+                    excluded_pid=os.getpid(),
                 )
             except TimeoutError as exc:
                 self._mark_failure("observation_timeout")

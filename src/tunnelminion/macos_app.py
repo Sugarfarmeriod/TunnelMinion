@@ -105,6 +105,7 @@ from tunnelminion.web.operations import OperationControlService, create_operatio
 from tunnelminion.web.overview import create_overview_router
 from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
+from tunnelminion.web.service_map import create_service_map_router
 from tunnelminion.web.spa import create_spa_router
 
 
@@ -385,6 +386,7 @@ def build_macos_local_application(
             node.listeners,
             node.processes,
             node.docker,
+            marks=stores.service_marks.all,
         )
 
         async def refresh_local_services() -> None:
@@ -459,6 +461,11 @@ def build_macos_local_application(
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
     app.include_router(create_conversation_router(conversations, views.overview_service))
     app.include_router(create_memory_router(memories))
+    app.include_router(
+        create_service_map_router(
+            node.node_id, stores.service_marks, service_cache.read, service_cache.replace
+        )
+    )
     app.include_router(create_operation_router(operation_control))
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return MacOSLocalApplication(

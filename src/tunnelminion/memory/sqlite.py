@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tunnelminion.domain.identifiers import (
@@ -17,6 +17,7 @@ from tunnelminion.domain.identifiers import (
     RunId,
     ThreadId,
 )
+from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     LongTermMemory,
@@ -53,6 +54,11 @@ class _SQLiteDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS checkpoints_thread
                     ON checkpoints(thread_id);
+                CREATE TABLE IF NOT EXISTS service_marks (
+                    mark_key TEXT PRIMARY KEY,
+                    mark TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
                     artifact_id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL
@@ -553,6 +559,31 @@ class SQLitePreauthorizationStore:
         )
 
 
+class SQLiteServiceMarkStore:
+    """用户对本机服务的"是我的服务 / 隐藏"标记。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def all(self) -> dict[str, ServiceMark]:
+        with self._database.connect() as connection:
+            rows = connection.execute("SELECT mark_key, mark FROM service_marks").fetchall()
+        return {str(key): ServiceMark(mark) for key, mark in rows}
+
+    def set(self, key: str, mark: ServiceMark) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO service_marks(mark_key, mark, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(mark_key) DO UPDATE SET
+                    mark=excluded.mark, updated_at=excluded.updated_at""",
+                (key, mark.value, datetime.now(UTC).isoformat()),
+            )
+
+    def clear(self, key: str) -> None:
+        with self._database.connect() as connection:
+            connection.execute("DELETE FROM service_marks WHERE mark_key=?", (key,))
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -563,6 +594,7 @@ class SQLiteStores:
     operations: OperationStore
     requester_operations: RequesterOperationStore
     preauthorizations: PreauthorizationStore
+    service_marks: SQLiteServiceMarkStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -575,4 +607,5 @@ class SQLiteStores:
             operations=SQLiteOperationStore(database),
             requester_operations=SQLiteRequesterOperationStore(database),
             preauthorizations=SQLitePreauthorizationStore(database),
+            service_marks=SQLiteServiceMarkStore(database),
         )
