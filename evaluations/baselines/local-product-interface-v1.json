@@ -42,8 +42,8 @@
     }
   ],
   "openapi": {
-    "canonical_json_bytes": 102660,
-    "sha256": "0fd2a787111a311f8fb63221c8981aac49a6a935c52f555bf54954bbe6796a01",
+    "canonical_json_bytes": 106312,
+    "sha256": "a211bee5eb7b38acb0b82ede12f8314f45be4221b399c5055b568b64998ac51a",
     "critical_paths": [
       "/api/resources/overview",
       "/api/incidents/{value}",
@@ -58,7 +58,9 @@
       "/api/memories",
       "/api/diagnostics/export",
       "/app/{route_path}",
-      "/app-assets/{asset_path}"
+      "/app-assets/{asset_path}",
+      "/api/services/local",
+      "/api/services/marks/{key}"
     ]
   },
   "production_spa": {
