@@ -24,8 +24,7 @@
   .bar .right { margin-left: auto; display: flex; gap: 16px; }
   .bar .right a, .bar .right button { color: var(--fog); background: none; border: none; text-decoration: underline; cursor: pointer; padding: 0; }
 
-  .layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px 20px 20px; }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .layout { max-width: 1180px; margin: 0 auto; padding: 16px 20px 20px; }
 
   .stage { position: relative; background: var(--night); border: 4px solid var(--deep); min-width: 0; overflow: hidden; }
   .stage svg { display: block; width: 100%; height: auto; }
@@ -63,10 +62,27 @@
   .btn.go { background: var(--green); color: var(--ink); }
   .btn:disabled { opacity: .5; cursor: default; }
 
-  /* 右侧面板 */
-  .panel h2 { margin: 0; font-size: 28px; color: var(--gold); }
-  .panel .meta { color: var(--fog); margin-bottom: 10px; }
-  .svc { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 0; border-top: 3px dashed var(--deep); }
+  /* 节点旁弹出的服务对话框 */
+  .pop { position: absolute; z-index: 10; width: 340px; overflow-y: auto; padding: 12px 14px 10px; }
+  .pop::-webkit-scrollbar { width: 8px; } .pop::-webkit-scrollbar-thumb { background: var(--steel); }
+  .pop[hidden] { display: none; }
+  .poptail { position: absolute; z-index: 11; width: 18px; height: 18px; background: var(--ink); transform: rotate(45deg); }
+  .poptail[hidden] { display: none; }
+  .poptail.right { border-left: 4px solid var(--white); border-bottom: 4px solid var(--white); }
+  .poptail.left { border-right: 4px solid var(--white); border-top: 4px solid var(--white); }
+  .pop .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .pop h2 { margin: 0; font-size: 26px; color: var(--gold); }
+  .pop .x { background: none; border: none; color: var(--fog); font-size: 24px; cursor: pointer; padding: 0 2px; }
+  .pop .meta { color: var(--fog); margin-bottom: 6px; }
+  .pop .search { width: 100%; background: var(--night); color: var(--white); border: 3px solid var(--steel); padding: 2px 8px; margin: 2px 0 6px; outline: none; }
+  .pop .group { color: var(--fog); font-size: 17px; margin-top: 6px; }
+  .pop .more { width: 100%; margin-top: 6px; background: none; border: 3px dashed var(--steel); color: var(--fog); cursor: pointer; }
+  .pop .foot { margin-top: 8px; padding-top: 8px; border-top: 3px solid var(--deep); }
+  @media (max-width: 700px) {
+    .pop { position: relative; width: auto; left: 0 !important; top: 0 !important; max-height: none !important; margin: 0 8px 8px; }
+    .poptail { display: none; }
+  }
+  .svc { display: grid; grid-template-columns: 14px 1fr auto; gap: 2px 10px; align-items: center; padding: 6px 0; border-top: 3px dashed var(--deep); }
   .svc .sq { width: 12px; height: 12px; }
   .svc .n { font-size: 22px; }
   .svc .d { grid-column: 2 / 4; color: var(--fog); font-size: 17px; }
@@ -77,8 +93,6 @@
   .muted { color: var(--fog); }
 
   /* 底部对话框（RPG 风格） */
-  .left { min-width: 0; }
-  .panel { align-self: start; }
   .dialog { display: flex; gap: 14px; margin-top: 16px; min-height: 120px; }
   .dialog .face { flex: none; width: 88px; height: 88px; background: var(--night); border: 3px solid var(--deep); display: flex; align-items: center; justify-content: center; }
   .dialog .who { color: var(--gold); }
@@ -98,7 +112,7 @@
 <div class="bar">
   <h1>我的服务网络</h1>
   <span class="sub" id="summary"></span>
-  <div class="right"><a href="index.html">看另外三种样式</a><button onclick="toast('高级：完整端口清单、运行状态、模型用量……默认不出现')">高级</button></div>
+  <div class="right"><button id="many" onclick="toggleMany()">模拟：Mac mini 服务很多</button><a href="index.html">看另外三种样式</a><button onclick="toast('高级：完整端口清单、运行状态、模型用量……默认不出现')">高级</button></div>
 </div>
 
 <div class="layout">
@@ -119,6 +133,8 @@
       <g id="nodes"></g>
       <g id="packets"></g>
     </svg>
+    <div class="box pop" id="pop" hidden></div>
+    <div class="poptail" id="poptail" hidden></div>
   </div>
   <div class="left-bottom">
     <div class="box dialog" id="dialog"></div>
@@ -129,7 +145,6 @@
     <div class="chips" id="chips"></div>
   </div>
   </div>
-  <div class="box panel" id="panel"></div>
 </div>
 
 <script>
@@ -165,9 +180,23 @@ const state = {
     { id: "m1", machine: "win", proc: "GameViewerServer.exe", port: 15128, what: "这是网易 UU 远程的后台组件，用来接收远程控制连接。一般不需要放在首页，建议隐藏。" },
     { id: "m2", machine: "mac", proc: "node", port: 5173, what: "这是一个 Vite 开发服务器，从 ~/code/notes-app 启动，看起来是你在写的网页项目。想随时打开它的话，可以标记为你的服务。" },
   ],
-  selected: "mac",
+  selected: null,
+  query: "",
+  showAll: false,
+  many: false,
   busy: false,
 };
+
+// "服务很多"模拟用的额外服务
+const EXTRA = [
+  ["Home Assistant", "Docker", "智能家居中控", 8123], ["Grafana", "Docker", "监控图表", 3000], ["Prometheus", "Docker", "指标采集", 9090],
+  ["Nginx 反向代理", "Docker", "统一入口", 80], ["Gitea", "Docker", "自建 Git 仓库", 3001], ["Vaultwarden", "Docker", "密码管理", 8222],
+  ["Jellyfin", "Docker", "影音库", 8096], ["Syncthing", "程序", "多设备文件同步", 8384], ["Uptime Kuma", "Docker", "服务在线监控", 3002],
+  ["Portainer", "Docker", "容器管理面板", 9443], ["Redis", "Docker", "缓存", 6379], ["PostgreSQL", "Docker", "数据库", 5432],
+  ["MinIO", "Docker", "对象存储", 9000], ["n8n 自动化", "Docker", "工作流自动化", 5678], ["Navidrome", "Docker", "音乐库", 4533],
+  ["Calibre 书库", "Docker", "电子书管理", 8083], ["RSSHub", "Docker", "RSS 生成", 1200], ["FreshRSS", "Docker", "RSS 阅读器", 8084],
+  ["Paperless", "Docker", "扫描文档归档", 8010], ["爬虫调度", "Python", "定时抓取脚本的管理页", 5555],
+].map(([name, kind, desc, port], i) => ({ id: "x" + i, name, kind, desc, machine: "mac", url: `10.77.0.1:${port}`, status: i === 7 ? "stopped" : "ok", extra: true }));
 
 const STATUS = { ok: ["正常", "#a7f070"], down: ["打不开", "#e05265"], stopped: ["已停止", "#94b0c2"] };
 const SUGGEST = ["相册在哪？", "为什么相册打不开？", "Mac mini 上哪个容器最占内存？"];
@@ -333,28 +362,112 @@ function showTip(e, id) {
 }
 function hideTip() { if (tipEl) { tipEl.remove(); tipEl = null; } }
 
-/* ---------- 右侧面板 ---------- */
-function select(id) { state.selected = id; drawNodes(); drawPanel(); }
+/* ---------- 点击电脑后，旁边弹出的服务对话框 ---------- */
+const SHOW_FIRST = 8;      // 默认只列前 8 个
+const SEARCH_FROM = 8;     // 超过 8 个出现搜索框
+const ORDER = { down: 0, ok: 1, stopped: 2 };
+const GROUP = { down: "需要处理", ok: "正常", stopped: "已停止" };
+
+function select(id) {
+  if (state.selected === id) return closePop();
+  state.selected = id; state.query = ""; state.showAll = false;
+  drawNodes(); drawPanel();
+}
+function closePop() { state.selected = null; drawNodes(); drawPanel(); }
+
 function drawPanel() {
-  const n = node(state.selected), p = document.getElementById("panel");
+  const p = document.getElementById("pop");
+  if (!state.selected) { p.hidden = true; document.getElementById("poptail").hidden = true; return; }
+  const n = node(state.selected);
+  p.hidden = false;
   if (!n.online) {
-    p.innerHTML = `<h2>${esc(n.name)}</h2><div class="meta">${n.os} · 离线（上次在线 ${n.last}）</div>
+    p.innerHTML = `<div class="head"><h2>${esc(n.name)}</h2><button class="x" onclick="closePop()">×</button></div>
+      <div class="meta">${n.os} · 离线（上次在线 ${n.last}）</div>
       <div class="muted">这台电脑现在不在线，它上面的服务暂时看不到。开机并启动 TunnelMinion 后会自动出现。</div>`;
-    return;
+    return placePop();
   }
   const list = state.services.filter(s => s.machine === n.id);
+  const bad = list.filter(s => s.status === "down").length;
   const pend = state.pending[n.id];
   const maybe = state.maybe.filter(m => m.machine === n.id);
-  p.innerHTML = `<h2>${esc(n.name)}</h2><div class="meta">${n.os} · 在线 · ${list.length} 个服务</div>
-    ${pend ? `<div class="box warn"><div class="t">! ${esc(pend.title)}</div><div>${esc(pend.text)}</div>
-      <div class="acts" style="display:flex;gap:10px;margin-top:8px"><button class="btn go" ${state.busy ? "disabled" : ""} onclick="approve()">批准重启</button><button class="btn" onclick="dismiss()">先不用</button></div></div>` : ""}
-    ${list.map(s => `<div class="svc"><span class="sq" style="background:${STATUS[s.status][1]}"></span><span class="n">${esc(s.name)}</span>
-      <button class="btn" onclick="toast('真实版本会打开 ${esc(s.url)}')">打开</button>
-      <span class="d">${esc(s.kind)} · ${esc(s.url)} · ${STATUS[s.status][0]}<br>${esc(s.desc)}</span></div>`).join("") || `<div class="muted">还没有服务</div>`}
-    ${maybe.length ? `<div class="maybe">可能是服务：${maybe.map(m => `<div class="item"><span>${esc(m.proc)} · ${m.port}</span>
-      <span style="display:flex;gap:6px"><button class="btn" onclick="markMine('${m.id}')">是</button><button class="btn" onclick="hideMaybe('${m.id}')">隐藏</button><button class="btn" onclick="whatIs('${m.id}')">?</button></span></div>`).join("")}</div>` : ""}
-    <div style="margin-top:14px"><button class="btn" onclick="ask('${esc(n.name)} 上现在怎么样？')">问问 ${esc(n.name)} 的 Agent</button></div>`;
+  p.innerHTML = `<div class="head"><h2>${esc(n.name)}</h2><button class="x" onclick="closePop()" title="关闭">×</button></div>
+    <div class="meta">${n.os} · ${list.length} 个服务${bad ? ` · <span style="color:var(--red)">${bad} 个打不开</span>` : ""}</div>
+    ${pend ? `<div class="box warn" style="padding:8px 10px;box-shadow:none;border-width:3px"><div class="t">! ${esc(pend.title)}</div><div style="font-size:18px">${esc(pend.text)}</div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="btn go" ${state.busy ? "disabled" : ""} onclick="approve()">批准重启</button><button class="btn" onclick="dismiss()">先不用</button></div></div>` : ""}
+    ${list.length > SEARCH_FROM ? `<input class="search" placeholder="搜索 ${list.length} 个服务" value="${esc(state.query)}" oninput="state.query=this.value; drawList()">` : ""}
+    <div class="list" id="poplist"></div>
+    <div class="foot">
+      ${maybe.length ? `<div class="maybe" style="margin-top:0">可能是服务：${maybe.map(m => `<div class="item"><span>${esc(m.proc)} · ${m.port}</span>
+        <span style="display:flex;gap:6px"><button class="btn" onclick="markMine('${m.id}')">是</button><button class="btn" onclick="hideMaybe('${m.id}')">隐藏</button><button class="btn" onclick="whatIs('${m.id}')">?</button></span></div>`).join("")}</div>` : ""}
+      <button class="btn" style="margin-top:6px" onclick="ask('${esc(n.name)} 上现在怎么样？')">问问 ${esc(n.name)} 的 Agent</button>
+    </div>`;
+  drawList();
+  placePop();
 }
+
+function drawList() {
+  const el = document.getElementById("poplist"); if (!el) return;
+  const all = state.services.filter(s => s.machine === state.selected)
+    .sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name, "zh"));
+  const q = state.query.trim().toLowerCase();
+  const hit = q ? all.filter(s => (s.name + s.desc + s.kind + s.url).toLowerCase().includes(q)) : all;
+  const shown = q || state.showAll ? hit : hit.slice(0, SHOW_FIRST);
+  const grouped = all.length > SEARCH_FROM;
+  let html = "", last = null;
+  for (const s of shown) {
+    if (grouped && s.status !== last) { html += `<div class="group">${GROUP[s.status]}</div>`; last = s.status; }
+    // 服务多时每个只占一行，简介放进悬停提示
+    html += grouped
+      ? `<div class="svc" title="${esc(s.desc)} · ${esc(s.url)}"><span class="sq" style="background:${STATUS[s.status][1]}"></span>
+          <span class="n">${esc(s.name)} <span class="muted" style="font-size:17px">${esc(s.kind)} · ${esc(s.url.split(":").pop())}</span></span>
+          <button class="btn" onclick="toast('真实版本会打开 ${esc(s.url)}')">打开</button></div>`
+      : `<div class="svc"><span class="sq" style="background:${STATUS[s.status][1]}"></span><span class="n">${esc(s.name)}</span>
+          <button class="btn" onclick="toast('真实版本会打开 ${esc(s.url)}')">打开</button>
+          <span class="d">${esc(s.kind)} · ${esc(s.url)} · ${esc(s.desc)}</span></div>`;
+  }
+  if (!shown.length) html = `<div class="muted" style="padding:8px 0">${q ? "没有找到" : "还没有服务"}</div>`;
+  if (!q && !state.showAll && hit.length > SHOW_FIRST)
+    html += `<button class="more" onclick="state.showAll=true; drawList(); placePop()">显示其余 ${hit.length - SHOW_FIRST} 个 ▾</button>`;
+  el.innerHTML = html;
+}
+
+// 把对话框摆在电脑图标旁边：右边放得下放右边，否则放左边；高度不超出拓扑图
+function placePop() {
+  const p = document.getElementById("pop"), tail = document.getElementById("poptail");
+  if (p.hidden || window.innerWidth <= 700) { p.style.maxHeight = ""; tail.hidden = true; return; }
+  const svg = document.getElementById("map"), stage = document.getElementById("stage");
+  const n = node(state.selected), m = svg.getScreenCTM(), st = stage.getBoundingClientRect();
+  const pt = svg.createSVGPoint(); pt.x = n.x; pt.y = n.y - 50;
+  const a = pt.matrixTransform(m), ax = a.x - st.left, ay = a.y - st.top, half = 62 * m.a;
+  const maxH = stage.clientHeight - 16;
+  p.style.maxHeight = maxH + "px";
+  const w = p.offsetWidth, h = Math.min(p.offsetHeight, maxH);
+  let left = ax + half + 18, side = "right";
+  if (left + w > stage.clientWidth - 8) { left = ax - half - 18 - w; side = "left"; }
+  left = Math.max(8, left);
+  const top = Math.min(Math.max(8, ay - 50), stage.clientHeight - h - 8);
+  p.style.left = left + "px"; p.style.top = top + "px";
+  // 小尾巴压在对话框边框上，指向电脑
+  tail.hidden = false;
+  tail.className = "poptail " + side;
+  tail.style.left = (side === "right" ? left - 7 : left + w - 11) + "px";
+  tail.style.top = (Math.min(Math.max(ay, top + 24), top + h - 24) - 9) + "px";
+}
+
+function toggleMany() {
+  state.many = !state.many;
+  state.services = state.many ? state.services.concat(EXTRA) : state.services.filter(s => !s.extra);
+  document.getElementById("many").textContent = state.many ? "恢复：正常数量" : "模拟：Mac mini 服务很多";
+  state.selected = "mac"; state.query = ""; state.showAll = false;
+  drawNodes(); drawPanel(); updateSummary();
+}
+
+document.addEventListener("mousedown", e => {
+  const p = document.getElementById("pop");
+  if (!p.hidden && !p.contains(e.target) && !e.target.closest(".node") && !e.target.closest("#many")) closePop();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && state.selected) closePop(); });
+window.addEventListener("resize", () => placePop());
 
 /* ---------- 底部对话框 ---------- */
 function face(id) {
@@ -471,7 +584,7 @@ function updateSummary() {
 
 document.getElementById("chips").innerHTML = SUGGEST.map(s => `<button class="chip" onclick="ask('${s}')">${s}</button>`).join("");
 drawLinks(); drawNodes(); drawPanel(); updateSummary();
-say("win", "你好。3 台电脑在线，Mac mini 上有一件事需要你处理（看它头上的红色感叹号）。把鼠标放到电脑上看看，或者直接问我。");
+say("win", "你好。3 台电脑在线，Mac mini 上有一件事需要你处理（看它头上的红色感叹号）。点一下电脑，就能看到它上面的服务；也可以直接问我。");
 </script>
 </body>
 </html>
