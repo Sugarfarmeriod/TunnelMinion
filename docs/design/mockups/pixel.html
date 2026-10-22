@@ -26,7 +26,7 @@
 
   .layout { max-width: 1180px; margin: 0 auto; padding: 16px 20px 20px; }
 
-  .stage { position: relative; background: var(--night); border: 4px solid var(--deep); min-width: 0; overflow: hidden; }
+  .stage { position: relative; background: var(--night); border: 4px solid var(--deep); min-width: 0; }
   .stage svg { display: block; width: 100%; height: auto; }
   .legend { position: absolute; left: 12px; top: 10px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 18px; color: var(--fog); pointer-events: none; }
   .legend i { display: inline-block; width: 22px; height: 4px; vertical-align: middle; margin-right: 6px; }
@@ -63,8 +63,19 @@
   .btn:disabled { opacity: .5; cursor: default; }
 
   /* 节点旁弹出的服务对话框 */
-  .pop { position: absolute; z-index: 10; width: 340px; overflow-y: auto; padding: 12px 14px 10px; }
-  .pop::-webkit-scrollbar { width: 8px; } .pop::-webkit-scrollbar-thumb { background: var(--steel); }
+  .pop { position: absolute; z-index: 10; width: min(380px, calc(100% - 16px)); overflow-y: auto; padding: 12px 14px 10px; }
+  /* 滚动条加粗加亮，避免看不见 */
+  .pop { scrollbar-color: var(--fog) var(--night); }
+  .pop::-webkit-scrollbar { width: 14px; }
+  .pop::-webkit-scrollbar-track { background: var(--night); border-left: 3px solid var(--deep); }
+  .pop::-webkit-scrollbar-thumb { background: var(--fog); border: 3px solid var(--night); min-height: 32px; }
+  .pop::-webkit-scrollbar-thumb:hover { background: var(--white); }
+  .scrollhint { position: sticky; bottom: -10px; margin: 6px -14px -10px; padding: 4px 0 6px; text-align: center; color: var(--gold);
+    background: linear-gradient(transparent, var(--ink) 40%); animation: bob 1s steps(2) infinite; pointer-events: none; }
+  .scrollhint[hidden] { display: none; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 4px; }
+  .pager span { color: var(--gold); }
+  .pager .btn { padding: 0 14px; }
   .pop[hidden] { display: none; }
   .poptail { position: absolute; z-index: 11; width: 18px; height: 18px; background: var(--ink); transform: rotate(45deg); }
   .poptail[hidden] { display: none; }
@@ -76,7 +87,6 @@
   .pop .meta { color: var(--fog); margin-bottom: 6px; }
   .pop .search { width: 100%; background: var(--night); color: var(--white); border: 3px solid var(--steel); padding: 2px 8px; margin: 2px 0 6px; outline: none; }
   .pop .group { color: var(--fog); font-size: 17px; margin-top: 6px; }
-  .pop .more { width: 100%; margin-top: 6px; background: none; border: 3px dashed var(--steel); color: var(--fog); cursor: pointer; }
   .pop .foot { margin-top: 8px; padding-top: 8px; border-top: 3px solid var(--deep); }
   @media (max-width: 700px) {
     .pop { position: relative; width: auto; left: 0 !important; top: 0 !important; max-height: none !important; margin: 0 8px 8px; }
@@ -182,7 +192,8 @@ const state = {
   ],
   selected: null,
   query: "",
-  showAll: false,
+  page: 0,
+  pageSize: 6,
   many: false,
   busy: false,
 };
@@ -363,14 +374,15 @@ function showTip(e, id) {
 function hideTip() { if (tipEl) { tipEl.remove(); tipEl = null; } }
 
 /* ---------- 点击电脑后，旁边弹出的服务对话框 ---------- */
-const SHOW_FIRST = 8;      // 默认只列前 8 个
-const SEARCH_FROM = 8;     // 超过 8 个出现搜索框
+const PAGED_FROM = 8;      // 超过 8 个服务：出现搜索框、按状态分组、每个只占一行
+const PAGE_SIZE = 6;       // 每页最多 6 个；对话框放不下时自动减少，最少 3 个
 const ORDER = { down: 0, ok: 1, stopped: 2 };
 const GROUP = { down: "需要处理", ok: "正常", stopped: "已停止" };
 
+function resetPaging() { state.query = ""; state.page = 0; state.pageSize = PAGE_SIZE; }
 function select(id) {
   if (state.selected === id) return closePop();
-  state.selected = id; state.query = ""; state.showAll = false;
+  state.selected = id; resetPaging();
   drawNodes(); drawPanel();
 }
 function closePop() { state.selected = null; drawNodes(); drawPanel(); }
@@ -394,16 +406,30 @@ function drawPanel() {
     <div class="meta">${n.os} · ${list.length} 个服务${bad ? ` · <span style="color:var(--red)">${bad} 个打不开</span>` : ""}</div>
     ${pend ? `<div class="box warn" style="padding:8px 10px;box-shadow:none;border-width:3px"><div class="t">! ${esc(pend.title)}</div><div style="font-size:18px">${esc(pend.text)}</div>
       <div style="display:flex;gap:8px;margin-top:6px"><button class="btn go" ${state.busy ? "disabled" : ""} onclick="approve()">批准重启</button><button class="btn" onclick="dismiss()">先不用</button></div></div>` : ""}
-    ${list.length > SEARCH_FROM ? `<input class="search" placeholder="搜索 ${list.length} 个服务" value="${esc(state.query)}" oninput="state.query=this.value; drawList()">` : ""}
+    ${list.length > PAGED_FROM ? `<input class="search" placeholder="搜索 ${list.length} 个服务" value="${esc(state.query)}" oninput="state.query=this.value; state.page=0; refreshList()">` : ""}
     <div class="list" id="poplist"></div>
     <div class="foot">
       ${maybe.length ? `<div class="maybe" style="margin-top:0">可能是服务：${maybe.map(m => `<div class="item"><span>${esc(m.proc)} · ${m.port}</span>
         <span style="display:flex;gap:6px"><button class="btn" onclick="markMine('${m.id}')">是</button><button class="btn" onclick="hideMaybe('${m.id}')">隐藏</button><button class="btn" onclick="whatIs('${m.id}')">?</button></span></div>`).join("")}</div>` : ""}
       <button class="btn" style="margin-top:6px" onclick="ask('${esc(n.name)} 上现在怎么样？')">问问 ${esc(n.name)} 的 Agent</button>
-    </div>`;
-  drawList();
-  placePop();
+    </div>
+    <div class="scrollhint" id="scrollhint" hidden>▼ 下面还有</div>`;
+  refreshList();
 }
+
+// 重画列表并重新摆放；若对话框高度放不下，就减少每页条数，尽量不用滚动
+function refreshList() {
+  drawList(); placePop();
+  const p = document.getElementById("pop");
+  let guard = 8;
+  while (!p.hidden && window.innerWidth > 700 && isPaged() && state.pageSize > 3 && p.scrollHeight > p.clientHeight + 1 && guard--) {
+    state.pageSize--; drawList(); placePop();
+  }
+  updateHint();
+}
+const isPaged = () => state.services.filter(s => s.machine === state.selected).length > 3;
+function turn(d) { state.page += d; refreshList(); }
+function goPage(i) { state.page = i; refreshList(); }
 
 function drawList() {
   const el = document.getElementById("poplist"); if (!el) return;
@@ -411,8 +437,11 @@ function drawList() {
     .sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name, "zh"));
   const q = state.query.trim().toLowerCase();
   const hit = q ? all.filter(s => (s.name + s.desc + s.kind + s.url).toLowerCase().includes(q)) : all;
-  const shown = q || state.showAll ? hit : hit.slice(0, SHOW_FIRST);
-  const grouped = all.length > SEARCH_FROM;
+  const grouped = all.length > PAGED_FROM;
+  const size = state.pageSize;
+  const pages = Math.max(1, Math.ceil(hit.length / size));
+  state.page = Math.min(Math.max(0, state.page), pages - 1);
+  const shown = hit.slice(state.page * size, state.page * size + size);
   let html = "", last = null;
   for (const s of shown) {
     if (grouped && s.status !== last) { html += `<div class="group">${GROUP[s.status]}</div>`; last = s.status; }
@@ -426,9 +455,19 @@ function drawList() {
           <span class="d">${esc(s.kind)} · ${esc(s.url)} · ${esc(s.desc)}</span></div>`;
   }
   if (!shown.length) html = `<div class="muted" style="padding:8px 0">${q ? "没有找到" : "还没有服务"}</div>`;
-  if (!q && !state.showAll && hit.length > SHOW_FIRST)
-    html += `<button class="more" onclick="state.showAll=true; drawList(); placePop()">显示其余 ${hit.length - SHOW_FIRST} 个 ▾</button>`;
-  el.innerHTML = html;
+  // 翻页条放在列表上方，不用滚动也能翻
+  const pager = pages > 1 ? `<div class="pager">
+      <button class="btn" onclick="turn(-1)" ${state.page === 0 ? "disabled" : ""} title="上一页（←）">◀</button>
+      <span>第 ${state.page + 1} / ${pages} 页</span>
+      <button class="btn" onclick="turn(1)" ${state.page === pages - 1 ? "disabled" : ""} title="下一页（→）">▶</button>
+    </div>` : "";
+  el.innerHTML = pager + html;
+}
+
+// 万一屏幕太小还需要滚动，底部给出明显提示
+function updateHint() {
+  const p = document.getElementById("pop"), hint = document.getElementById("scrollhint");
+  if (hint) hint.hidden = p.scrollHeight - p.scrollTop - p.clientHeight <= 4;
 }
 
 // 把对话框摆在电脑图标旁边：右边放得下放右边，否则放左边；高度不超出拓扑图
@@ -439,13 +478,14 @@ function placePop() {
   const n = node(state.selected), m = svg.getScreenCTM(), st = stage.getBoundingClientRect();
   const pt = svg.createSVGPoint(); pt.x = n.x; pt.y = n.y - 50;
   const a = pt.matrixTransform(m), ax = a.x - st.left, ay = a.y - st.top, half = 62 * m.a;
-  const maxH = stage.clientHeight - 16;
+  // 拓扑图太矮时允许向下超出，悬浮在下方对话框之上
+  const maxH = Math.max(stage.clientHeight - 16, 540);
   p.style.maxHeight = maxH + "px";
   const w = p.offsetWidth, h = Math.min(p.offsetHeight, maxH);
   let left = ax + half + 18, side = "right";
   if (left + w > stage.clientWidth - 8) { left = ax - half - 18 - w; side = "left"; }
   left = Math.max(8, left);
-  const top = Math.min(Math.max(8, ay - 50), stage.clientHeight - h - 8);
+  const top = Math.min(Math.max(8, ay - 50), Math.max(8, stage.clientHeight - h - 8));
   p.style.left = left + "px"; p.style.top = top + "px";
   // 小尾巴压在对话框边框上，指向电脑
   tail.hidden = false;
@@ -458,7 +498,7 @@ function toggleMany() {
   state.many = !state.many;
   state.services = state.many ? state.services.concat(EXTRA) : state.services.filter(s => !s.extra);
   document.getElementById("many").textContent = state.many ? "恢复：正常数量" : "模拟：Mac mini 服务很多";
-  state.selected = "mac"; state.query = ""; state.showAll = false;
+  state.selected = "mac"; resetPaging();
   drawNodes(); drawPanel(); updateSummary();
 }
 
@@ -466,8 +506,15 @@ document.addEventListener("mousedown", e => {
   const p = document.getElementById("pop");
   if (!p.hidden && !p.contains(e.target) && !e.target.closest(".node") && !e.target.closest("#many")) closePop();
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && state.selected) closePop(); });
-window.addEventListener("resize", () => placePop());
+document.addEventListener("keydown", e => {
+  if (!state.selected) return;
+  if (e.key === "Escape") return closePop();
+  if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft") turn(-1);
+  if (e.key === "ArrowRight") turn(1);
+});
+document.getElementById("pop").addEventListener("scroll", updateHint);
+window.addEventListener("resize", () => { if (state.selected) { state.pageSize = PAGE_SIZE; refreshList(); } });
 
 /* ---------- 底部对话框 ---------- */
 function face(id) {
