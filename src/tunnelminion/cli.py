@@ -291,9 +291,14 @@ def _runtime_child(values: list[str]) -> int:
         if args.runtime_component == "gateway":
             if args.read_only_preview:
                 raise ValueError("预览模式只允许本机页面")
-            from tunnelminion.macos_app import build_macos_gateway_application
+            if sys.platform == "darwin":
+                from tunnelminion.macos_app import build_macos_gateway_application
 
-            bundle = build_macos_gateway_application(args.data_dir)
+                bundle = build_macos_gateway_application(args.data_dir)
+            else:
+                from tunnelminion.app import build_windows_gateway_application
+
+                bundle = build_windows_gateway_application(args.data_dir)
             application = bundle.app
             host = bundle.bind.host
             port = bundle.bind.port
@@ -474,7 +479,7 @@ def _uninstall_data(values: list[str]) -> int:
 
 def _configure_gateway(values: list[str]) -> int:
     """从标准输入接收一次性 token，配置 B 网关而不回显秘密。"""
-    parser = argparse.ArgumentParser(description="配置 macOS 只读 Tool Gateway")
+    parser = argparse.ArgumentParser(description="配置只读 Tool Gateway 与对端")
     parser.add_argument("gateway-configure")
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bind-host", required=True)
@@ -488,6 +493,11 @@ def _configure_gateway(values: list[str]) -> int:
         "--allowed-operation",
         action="append",
         choices=_SUPPORTED_REMOTE_OPERATIONS,
+    )
+    parser.add_argument(
+        "--allow-delegation",
+        action="store_true",
+        help="允许这个对端把问题交给本机的 Agent 处理（默认不允许）",
     )
     parser.add_argument(
         "--secret-store",
@@ -526,6 +536,7 @@ def _configure_gateway(values: list[str]) -> int:
                 port=args.peer_port,
                 allowed_tools=frozenset(args.allowed_tool or _MACOS_READ_ONLY_TOOLS),
                 allowed_operations=frozenset(args.allowed_operation or ()),
+                allow_delegation=args.allow_delegation,
             ),
             token=token,
         )
@@ -642,7 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if values and values[0] == "operation-preauthorize":
         return _create_operation_preauthorization(values)
     if values and values[0] == "gateway":
-        parser = argparse.ArgumentParser(description="启动 macOS 只读 Tool Gateway")
+        parser = argparse.ArgumentParser(description="启动只读 Tool Gateway")
         parser.add_argument("gateway")
         parser.add_argument("--data-dir", type=Path)
         parser.add_argument("--enable-safe-sharing", action="store_true")
@@ -651,6 +662,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.add_argument("--sharing-max-duration", type=int, default=3600)
         parser.add_argument("--sharing-gateway-port", type=int)
         args = parser.parse_args(values)
+        if sys.platform != "darwin":
+            if args.enable_safe_sharing:
+                raise SystemExit("Windows 网关暂不支持临时 HTTP 共享")
+            from tunnelminion.app import build_windows_gateway_application
+
+            windows = build_windows_gateway_application(args.data_dir)
+            uvicorn.run(windows.app, host=windows.bind.host, port=windows.bind.port)
+            return 0
         from tunnelminion.macos_app import (
             SafeSharingGatewaySettings,
             build_macos_gateway_application,

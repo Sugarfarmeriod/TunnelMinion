@@ -737,10 +737,39 @@ def test_gateway_cli_uses_validated_wireguard_binding(
         captured.update(kwargs)
 
     monkeypatch.setattr("tunnelminion.macos_app.build_macos_gateway_application", build)
+    monkeypatch.setattr("tunnelminion.cli.sys.platform", "darwin")
     monkeypatch.setattr("uvicorn.run", fake_run)
 
     assert cli.main(["gateway", "--data-dir", str(tmp_path)]) == 0
     assert captured == {"app": Bundle.app, "host": "10.77.0.1", "port": 8787}
+
+
+def test_gateway_cli_starts_windows_gateway_and_rejects_safe_sharing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Windows 上的 gateway 子命令启动 Windows 网关；临时 HTTP 共享只在 macOS 提供。"""
+    captured: dict[str, object] = {}
+
+    class Bundle:
+        app = object()
+        bind = GatewayBindConfig(host="10.77.0.5", port=8787)
+
+    def build(path: Path | None) -> Bundle:
+        assert path == tmp_path
+        return Bundle()
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        captured["app"] = app
+        captured.update(kwargs)
+
+    monkeypatch.setattr("tunnelminion.app.build_windows_gateway_application", build)
+    monkeypatch.setattr("tunnelminion.cli.sys.platform", "win32")
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    assert cli.main(["gateway", "--data-dir", str(tmp_path)]) == 0
+    assert captured == {"app": Bundle.app, "host": "10.77.0.5", "port": 8787}
+    with pytest.raises(SystemExit):
+        cli.main(["gateway", "--data-dir", str(tmp_path), "--enable-safe-sharing"])
 
 
 def test_gateway_cli_passes_explicit_safe_sharing_settings(
@@ -763,6 +792,7 @@ def test_gateway_cli_passes_explicit_safe_sharing_settings(
         return Bundle()
 
     monkeypatch.setattr("tunnelminion.macos_app.build_macos_gateway_application", build)
+    monkeypatch.setattr("tunnelminion.cli.sys.platform", "darwin")
 
     def fake_run(app: object, **kwargs: object) -> None:
         captured.update({"app": app, **kwargs})

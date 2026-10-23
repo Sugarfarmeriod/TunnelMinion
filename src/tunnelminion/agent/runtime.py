@@ -34,6 +34,7 @@ from tunnelminion.agent.remote import AgentRemoteToolPreparer, RemoteToolExecuto
 from tunnelminion.agent.service_observation import compute_observed_service_id
 from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.coordinator.contracts import ServiceProtocol
+from tunnelminion.domain.delegation import DELEGATE_TOOL_NAME
 from tunnelminion.domain.identifiers import NodeId, ServiceId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.incident.contracts import EvidenceExecution
@@ -369,6 +370,20 @@ class LangChainReadOnlyAgent:
                 )
                 for entry in active._validate_tools(selected_tools)
             ) + self._skill_tools(context, selected_tools, target_platform)
+            delegate = active._delegate_tool(selected_tools)
+            if active is self and delegate is not None:
+                # 本机对话总能把问题交给别的电脑；委派方自己的工具集里没有这个工具，不会转手。
+                tools += (
+                    active._build_tool(
+                        delegate,
+                        context,
+                        tool_token,
+                        evidence,
+                        tool_event_sink,
+                        results,
+                        save_observation,
+                    ),
+                )
             historical_messages = saved_progress.messages(context, selected_tools)
             requires_current_check = bool(
                 progress
@@ -517,6 +532,14 @@ class LangChainReadOnlyAgent:
                 raise ValueError(f"工具 {name} 未注册或不允许向模型暴露")
             selected.append(entry)
         return tuple(selected)
+
+    def _delegate_tool(self, tool_names: tuple[str, ...]) -> RegisteredTool | None:
+        """配置了可委派的对端时注册了委派工具；已经显式选中的不重复加入。"""
+        if DELEGATE_TOOL_NAME in tool_names:
+            return None
+        entry = self._registry.lookup(DELEGATE_TOOL_NAME)
+        allowed = {item.name for item in self._registry.model_tools(self._platform)}
+        return entry if entry is not None and DELEGATE_TOOL_NAME in allowed else None
 
     def _skill_tools(
         self,

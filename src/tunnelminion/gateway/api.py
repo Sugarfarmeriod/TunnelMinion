@@ -6,14 +6,15 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, Query, Request, status
 from fastapi.responses import JSONResponse
 
+from tunnelminion.domain.delegation import DelegationBusyError, DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.identifiers import DelegationId, NodeId
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion, VersionCompatibility
 from tunnelminion.gateway.audit import GatewaySecurityAuditSink, security_event
@@ -41,6 +42,9 @@ from tunnelminion.tools.contracts import (
 )
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+
+if TYPE_CHECKING:
+    from tunnelminion.agent.delegation import DelegationService
 
 
 def _error(status_code: int, code: GatewayErrorCode, message: str) -> JSONResponse:
@@ -121,6 +125,7 @@ def create_gateway_router(
     security_policy: GatewaySecurityPolicy,
     security_audit_sink: GatewaySecurityAuditSink,
     operation_service: TargetOperationGatewayService | None = None,
+    delegation_service: DelegationService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter()
@@ -469,6 +474,106 @@ def create_gateway_router(
             )
         return operation_response(record)
 
+    def delegation_peer(
+        authorization: str | None, action: str
+    ) -> tuple[GatewayPeerPolicy, DelegationService] | JSONResponse:
+        peer = authenticate(authorization, action)
+        if isinstance(peer, JSONResponse):
+            return peer
+        if delegation_service is None:
+            return reject(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                GatewayErrorCode.DELEGATION_UNAVAILABLE,
+                "本机没有开启委派处理",
+                action,
+                peer,
+            )
+        if not peer.allow_delegation:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.DELEGATION_NOT_ALLOWED,
+                "本机没有允许这台电脑委派",
+                action,
+                peer,
+            )
+        return peer, delegation_service
+
+    def delegation_id(value: str) -> DelegationId | None:
+        try:
+            return DelegationId(value)
+        except ValueError:
+            return None
+
+    def not_found(action: str, peer: GatewayPeerPolicy) -> JSONResponse:
+        return reject(
+            status.HTTP_404_NOT_FOUND,
+            GatewayErrorCode.DELEGATION_NOT_FOUND,
+            "委派不存在",
+            action,
+            peer,
+        )
+
+    async def submit_delegation(
+        request: DelegationRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> DelegationRecord | JSONResponse:
+        allowed = delegation_peer(authorization, "delegation_submit")
+        if isinstance(allowed, JSONResponse):
+            return allowed
+        peer, service = allowed
+        if request.caller_node_id != peer.node_id:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "调用节点身份与认证凭据不一致",
+                "delegation_submit",
+                peer,
+            )
+        try:
+            record = service.submit(request)
+        except DelegationBusyError:
+            return reject(
+                status.HTTP_409_CONFLICT,
+                GatewayErrorCode.DELEGATION_BUSY,
+                "这台电脑已有一个委派在处理中",
+                "delegation_submit",
+                peer,
+            )
+        return JSONResponse(record.model_dump(mode="json"), status_code=status.HTTP_202_ACCEPTED)
+
+    async def delegation_status(
+        value: str,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> DelegationRecord | JSONResponse:
+        allowed = delegation_peer(authorization, "delegation_status")
+        if isinstance(allowed, JSONResponse):
+            return allowed
+        peer, service = allowed
+        identifier = delegation_id(value)
+        record = service.get(identifier, peer.node_id) if identifier is not None else None
+        return record if record is not None else not_found("delegation_status", peer)
+
+    async def cancel_delegation(
+        value: str,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> DelegationRecord | JSONResponse:
+        allowed = delegation_peer(authorization, "delegation_cancel")
+        if isinstance(allowed, JSONResponse):
+            return allowed
+        peer, service = allowed
+        identifier = delegation_id(value)
+        record = await service.cancel(identifier, peer.node_id) if identifier is not None else None
+        return record if record is not None else not_found("delegation_cancel", peer)
+
+    router.add_api_route(
+        "/v1/delegations", submit_delegation, methods=["POST"], response_model=None
+    )
+    router.add_api_route(
+        "/v1/delegations/{value}", delegation_status, methods=["GET"], response_model=None
+    )
+    router.add_api_route(
+        "/v1/delegations/{value}", cancel_delegation, methods=["DELETE"], response_model=None
+    )
     router.add_api_route("/v1/capabilities", capabilities, methods=["GET"], response_model=None)
     router.add_api_route(
         "/v1/tools/{tool_name}:call", call_tool, methods=["POST"], response_model=None

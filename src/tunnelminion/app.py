@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from tunnelminion.agent.conversation import InMemoryConversationService
+from tunnelminion.agent.delegation import DelegationService
+from tunnelminion.agent.delegation_tool import register_delegate_tool
 from tunnelminion.agent.diagnostics import CrossNodeDiagnosticAgent, CrossNodeDiagnosticWorkflow
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.managed_application import (
@@ -26,6 +28,8 @@ from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.gateway.api import create_gateway_router
+from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
 from tunnelminion.gateway.client import FixedGatewayClient
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
@@ -33,6 +37,7 @@ from tunnelminion.gateway.configuration import (
     GatewayOperationPeer,
     gateway_secret_store,
 )
+from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.incident.investigation import ConfiguredIncidentRunner
 from tunnelminion.incident.observer import (
     IncidentObservationService,
@@ -189,13 +194,34 @@ def build_requester_operation_service(
     )
 
 
-def build_windows_application(
-    data_dir: Path | None = None,
-    *,
-    network_path: NetworkPathViewBindings | None = None,
-    read_only_preview: bool = False,
-) -> WindowsApplication:
-    """组装模型配置、六个真实只读工具和本机 Web 入口。"""
+@dataclass(frozen=True)
+class WindowsNode:
+    """Windows 本地面板与网关共享的节点依赖：模型配置、只读工具和本机存储。"""
+
+    root: Path
+    node_id: NodeId
+    model_service: ModelConfigurationService
+    tool_registry: ToolRegistry
+    tool_runtime: ToolRuntime
+    audit_sink: InMemoryAuditSink
+    listeners: NetworkListenersAdapter
+    processes: ProcessSummaryAdapter
+    docker: DockerServicesAdapter
+    stores: SQLiteStores
+    artifact_manager: ArtifactContextManager
+
+    def create_read_only_agent(self) -> LangChainReadOnlyAgent:
+        """只用本机工具的 Agent；处理别的电脑交来的委派时使用。"""
+        model = TunnelMinionChatModel(
+            provider=self.model_service.create_provider(), artifact_manager=self.artifact_manager
+        )
+        return LangChainReadOnlyAgent(
+            model, self.tool_registry, self.tool_runtime, Platform.WINDOWS
+        )
+
+
+def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
+    """组装 Windows 节点的模型配置、六个只读工具和本机存储。"""
     root = data_dir or default_data_dir()
     node_id = load_or_create_node_id(root / "node-id")
     model_service = ModelConfigurationService(
@@ -235,6 +261,104 @@ def build_windows_application(
         audit,
         artifact_manager=artifact_manager,
     )
+    return WindowsNode(
+        root=root,
+        node_id=node_id,
+        model_service=model_service,
+        tool_registry=registry,
+        tool_runtime=runtime,
+        audit_sink=audit,
+        listeners=listeners,
+        processes=processes,
+        docker=docker,
+        stores=stores,
+        artifact_manager=artifact_manager,
+    )
+
+
+@dataclass(frozen=True)
+class WindowsGatewayApplication:
+    """只包含跨节点端点的 Windows 网关：只读工具调用与委派处理。"""
+
+    app: FastAPI
+    bind: GatewayBindConfig
+    node_id: NodeId
+    gateway_service: GatewayConfigurationService
+    delegation_service: DelegationService | None = None
+
+
+def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGatewayApplication:
+    """组装只绑定 WireGuard 地址的认证网关，让别的电脑能把问题交给这台电脑。"""
+    node = build_windows_node(data_dir)
+    gateway_service = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(node.root / "gateway.json"),
+        gateway_secret_store(node.root),
+    )
+    view = gateway_service.view()
+    if not view.configured or view.bind is None:
+        raise RuntimeError("尚未配置 Windows Tool Gateway WireGuard 监听地址")
+    # 只有本机明确允许了至少一个对端委派时，才在网关里处理委派。
+    delegation_service = (
+        DelegationService(
+            node.node_id,
+            node.stores.delegations,
+            node.create_read_only_agent,
+            lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.WINDOWS)),
+        )
+        if any(peer.allow_delegation for peer in view.peers)
+        else None
+    )
+    app = FastAPI(
+        title="TunnelMinion Tool Gateway", docs_url=None, redoc_url=None, openapi_url=None
+    )
+    app.include_router(
+        create_gateway_router(
+            node.node_id,
+            Platform.WINDOWS,
+            node.tool_registry,
+            node.tool_runtime,
+            gateway_service.build_security_policy(),
+            InMemoryGatewaySecurityAuditSink(),
+            delegation_service=delegation_service,
+        )
+    )
+    return WindowsGatewayApplication(
+        app=app,
+        bind=view.bind,
+        node_id=node.node_id,
+        gateway_service=gateway_service,
+        delegation_service=delegation_service,
+    )
+
+
+def build_windows_application(
+    data_dir: Path | None = None,
+    *,
+    network_path: NetworkPathViewBindings | None = None,
+    read_only_preview: bool = False,
+) -> WindowsApplication:
+    """组装模型配置、六个真实只读工具和本机 Web 入口。"""
+    node = build_windows_node(data_dir)
+    root = node.root
+    register_delegate_tool(
+        node.tool_registry,
+        Platform.WINDOWS,
+        GatewayConfigurationService(
+            FileGatewayConfigurationRepository(root / "gateway.json"), gateway_secret_store(root)
+        ),
+        node.node_id,
+        node.audit_sink,
+    )
+    node_id = node.node_id
+    model_service = node.model_service
+    registry = node.tool_registry
+    audit = node.audit_sink
+    listeners = node.listeners
+    processes = node.processes
+    docker = node.docker
+    stores = node.stores
+    artifact_manager = node.artifact_manager
+    runtime = node.tool_runtime
 
     def create_agent() -> LangChainReadOnlyAgent:
         model = TunnelMinionChatModel(

@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.types import Lifespan
 
 from tunnelminion.agent.conversation import InMemoryConversationService
+from tunnelminion.agent.delegation import DelegationService
+from tunnelminion.agent.delegation_tool import register_delegate_tool
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
@@ -157,6 +159,7 @@ class MacOSGatewayApplication:
     gateway_service: GatewayConfigurationService
     operation_service: TargetOperationGatewayService | None = None
     operation_workflow: OperationWorkflow | None = None
+    delegation_service: DelegationService | None = None
 
 
 class SafeSharingGatewaySettings(BaseModel):
@@ -308,6 +311,16 @@ def build_macos_local_application(
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
     node = _build_macos_node(data_dir, interface_name=interface_name)
+    register_delegate_tool(
+        node.tool_registry,
+        Platform.MACOS,
+        GatewayConfigurationService(
+            FileGatewayConfigurationRepository(node.root / "gateway.json"),
+            gateway_secret_store(node.root),
+        ),
+        node.node_id,
+        node.audit_sink,
+    )
 
     stores = SQLiteStores.open(node.root / "runtime.sqlite3")
 
@@ -514,13 +527,24 @@ def build_macos_gateway_application(
     operation_service: TargetOperationGatewayService | None = None
     operation_workflow: OperationWorkflow | None = None
     lifespan = None
+    stores = SQLiteStores.open(node.root / "runtime.sqlite3")
+    # 只有本机明确允许了至少一个对端委派时，才在网关里处理委派。
+    delegation_service = (
+        DelegationService(
+            node.node_id,
+            stores.delegations,
+            lambda: _create_macos_read_only_agent(node),
+            lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.MACOS)),
+        )
+        if any(peer.allow_delegation for peer in view.peers)
+        else None
+    )
     if safe_sharing is not None:
         operation_peers = tuple(
             peer for peer in view.peers if "share_local_http_service" in peer.allowed_operations
         )
         if not operation_peers:
             raise RuntimeError("没有 peer 被本地配置允许请求临时 HTTP 共享")
-        stores = SQLiteStores.open(node.root / "runtime.sqlite3")
         authorization = AuthorizationService(
             stores.operations,
             stores.preauthorizations,
@@ -571,6 +595,7 @@ def build_macos_gateway_application(
             security_policy,
             security_audit,
             operation_service,
+            delegation_service,
         )
     )
     return MacOSGatewayApplication(
@@ -584,4 +609,5 @@ def build_macos_gateway_application(
         gateway_service=gateway_service,
         operation_service=operation_service,
         operation_workflow=operation_workflow,
+        delegation_service=delegation_service,
     )
