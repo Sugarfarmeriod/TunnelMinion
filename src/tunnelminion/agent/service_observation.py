@@ -13,7 +13,7 @@ from typing import Protocol, cast
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
-from tunnelminion.agent.service_marks import ServiceMark, service_mark_key
+from tunnelminion.agent.service_marks import ServiceMark, service_mark_keys
 from tunnelminion.agent.service_tiers import ServiceTier, decide_tier
 from tunnelminion.agent.services import (
     EvidenceConfidence,
@@ -105,10 +105,16 @@ def compute_static_peer_service_id(node_id: NodeId, port: int) -> ServiceId:
 
 
 def service_tier(
-    item: RemoteServiceSummary, marks: Mapping[str, ServiceMark] | None = None
+    item: RemoteServiceSummary,
+    marks: Mapping[str, ServiceMark] | None = None,
+    *,
+    key: str | None = None,
 ) -> ServiceTier:
-    """按来历和监听方式给一个端口分档，规则见 `decide_tier`；用户的标记优先。"""
-    mark = marks.get(service_mark_key(item)) if marks else None
+    """按来历和监听方式给一个端口分档，规则见 `decide_tier`；用户的标记优先。
+
+    `key` 是这个端口的服务身份，由 `service_mark_keys` 按整份清单算出；没有时不看标记。
+    """
+    mark = marks.get(key) if marks and key is not None else None
     if mark is ServiceMark.HIDDEN:
         return ServiceTier.HIDE
     if mark is ServiceMark.MINE and (item.protocol == "tcp" or item.container_running is not None):
@@ -205,9 +211,9 @@ def select_review_services(
                 node_id, ServiceProtocol(item.protocol), item.address, item.port
             )
         ): (service_presentation(node_id, item)[1])
-        for item in services
+        for item, key in zip(services, service_mark_keys(services), strict=True)
         if (excluded_pid is None or item.process_pid != excluded_pid)
-        and service_tier(item, marks) is ServiceTier.REVIEW
+        and service_tier(item, marks, key=key) is ServiceTier.REVIEW
     }
 
 
@@ -222,10 +228,10 @@ def select_service_presentations(
     names: dict[str, set[str]] = {}
     labels: dict[str, str] = {}
     applications: dict[str, set[ServiceApplication | None]] = {}
-    for item in services:
+    for item, key in zip(services, service_mark_keys(services), strict=True):
         if excluded_pid is not None and item.process_pid == excluded_pid:
             continue
-        if service_tier(item, marks) is not ServiceTier.SHOW:
+        if service_tier(item, marks, key=key) is not ServiceTier.SHOW:
             continue
         name, label, application = service_presentation(node_id, item)
         service_id = compute_observed_service_id(
