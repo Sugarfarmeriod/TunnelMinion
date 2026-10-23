@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const pages = [
+  ["/app/map", "服务地图"],
   ["/app/overview", "工作台"],
   ["/app/chat", "工作台"],
   ["/app/operations", "操作"],
@@ -19,7 +20,7 @@ async function expectOperable(page: import("@playwright/test").Page) {
     ).toBeVisible();
     const navigation = page.getByRole("navigation", { name: "主要导航" });
     const links = await navigation.getByRole("link").all();
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     const positions = await Promise.all(
       links.map((link) => link.boundingBox()),
     );

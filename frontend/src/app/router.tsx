@@ -12,20 +12,22 @@ import { WorkspacePage } from "../features/workspace/WorkspacePage";
 import { MemoriesPage } from "../features/memories";
 import { OperationDetailPage, OperationsPage } from "../features/operations";
 import { SettingsPage } from "../features/settings";
+import { ServiceMapPage } from "../features/service-map/ServiceMapPage";
 import { RouteErrorPage } from "./RouteErrorPage";
 import { isReadOnlyPreview } from "../shared/previewMode";
 
 const navigation = [
-  ["工作台", "/app"],
+  ["服务地图", "/app/map"],
+  ["工作台", "/app/overview"],
   ["记忆", "/app/memories"],
   ["设置", "/app/settings"],
 ] as const;
 
 function ProductShell() {
   const { pathname, search, hash } = useLocation();
-  const workspaceActive =
-    pathname === "/app" ||
-    /^\/app\/(overview|chat|operations)(\/|$)/.test(pathname);
+  const workspaceActive = /^\/app\/(overview|chat|operations)(\/|$)/.test(
+    pathname,
+  );
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     workspaceActive ? pathname + search + hash : null,
   );
@@ -47,7 +49,7 @@ function ProductShell() {
         </header>
         <nav aria-label="主要导航" className="primary-navigation">
           {navigation.map(([label, path]) =>
-            path === "/app" ? (
+            path === "/app/overview" ? (
               <Link
                 key={path}
                 to={
@@ -79,10 +81,11 @@ export const router = createBrowserRouter([
     element: <ProductShell />,
     errorElement: <RouteErrorPage />,
     children: [
+      { index: true, element: <Navigate replace to="map" /> },
+      { path: "map", element: <ServiceMapPage /> },
       {
         element: <WorkspacePage />,
         children: [
-          { index: true, element: <Navigate replace to="overview" /> },
           { path: "overview", element: null },
           { path: "chat", element: null },
           { path: "operations", element: <OperationsPage /> },

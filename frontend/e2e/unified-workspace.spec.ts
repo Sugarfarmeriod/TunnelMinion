@@ -107,7 +107,7 @@ for (const width of [1280, 881, 320]) {
     await page.goto("/app/overview");
     await expect(
       page.getByRole("navigation", { name: "主要导航" }).getByRole("link"),
-    ).toHaveCount(3);
+    ).toHaveCount(4);
     const question = page.getByRole("textbox", { name: "问题", exact: true });
     await question.fill("帮我检查这个程序为什么打不开");
     if (width === 320)
