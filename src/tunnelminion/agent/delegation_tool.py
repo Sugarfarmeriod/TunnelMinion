@@ -55,10 +55,14 @@ class DelegationPeer(Protocol):
     def host(self) -> str: ...
 
 
+_PLATFORM_NAMES = {Platform.WINDOWS: "Windows 电脑", Platform.MACOS: "macOS 电脑（Mac）"}
+
+
 def delegate_tool_definition(peers: Sequence[DelegationPeer], platform: Platform) -> ToolDefinition:
-    """委派工具的定义；描述里列出可以交给的电脑，模型据此填写 node_id。"""
+    """委派工具的定义；描述里写明本机是哪台、能交给哪几台，模型据此判断和填写 node_id。"""
     listing = "；".join(
-        f"{peer.node_id}（{peer.platform.value if peer.platform else '未知平台'}，{peer.host}）"
+        f"{_PLATFORM_NAMES[peer.platform] if peer.platform else '未知平台的电脑'}"
+        f"，地址 {peer.host}，node_id={peer.node_id}"
         for peer in peers
     )
     return ToolDefinition.model_validate(
@@ -66,9 +70,10 @@ def delegate_tool_definition(peers: Sequence[DelegationPeer], platform: Platform
             "name": DELEGATE_TOOL_NAME,
             "version": ProtocolVersion(major=1, minor=0),
             "description": (
-                "把问题交给另一台电脑上的 TunnelMinion Agent，由它用那台电脑的本机工具查清楚，"
-                "回报结论、确认的事实、未知和证据摘要。问题发生在另一台电脑上时使用。"
-                f"可以交给的电脑：{listing}。"
+                f"你所在的是一台{_PLATFORM_NAMES[platform]}，其他工具只能查看这台电脑。"
+                "问题涉及另一台电脑上的程序或服务时，必须用本工具把问题交给那台电脑的 "
+                "TunnelMinion Agent，由它用那台电脑的本机工具查清楚，回报结论、确认的事实、"
+                f"未知和证据摘要；不要用本机工具去查别的电脑。可以交给的电脑：{listing}。"
             )[:1000],
             "input_schema": {
                 "type": "object",

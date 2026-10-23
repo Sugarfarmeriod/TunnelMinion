@@ -613,8 +613,9 @@ def test_tool_definition_lists_the_computers_it_can_ask() -> None:
     unknown = peer.model_copy(update={"node_id": OTHER, "platform": None})
     definition = delegate_tool_definition([peer, unknown], Platform.WINDOWS)
     assert definition.name == DELEGATE_TOOL_NAME
-    assert str(B) in definition.description and "macos" in definition.description
-    assert "未知平台" in definition.description
+    assert str(B) in definition.description and "macOS 电脑（Mac）" in definition.description
+    assert "Windows 电脑" in definition.description
+    assert "未知平台的电脑" in definition.description
     assert definition.platforms == frozenset({Platform.WINDOWS})
 
 
