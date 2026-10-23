@@ -47,6 +47,23 @@ class InterruptedProvider(ScriptedProvider):
         raise AssertionError("等待应随进程退出取消")
 
 
+# 只作挂起保护：顺序由 report_started 事件保证，上限留足慢速 CI 跑完完整工具循环的时间。
+REPORT_STARTED_TIMEOUT_SECONDS = 30
+
+
+async def wait_report_started(provider: InterruptedProvider) -> None:
+    """等待真实工具循环进入报告阶段，超时给出明确原因。"""
+    try:
+        await asyncio.wait_for(
+            provider.report_started.wait(), timeout=REPORT_STARTED_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        pytest.fail(
+            f"工具循环在 {REPORT_STARTED_TIMEOUT_SECONDS} 秒内没有进入报告阶段，"
+            f"已收到 {len(provider.requests)} 次模型请求"
+        )
+
+
 class ContinueProvider(ScriptedProvider):
     """使用上次的历史检查生成说明，不重复调用已执行的工具。"""
 
@@ -232,7 +249,7 @@ def test_explicit_resume_rechecks_after_rebuilding_task_service(
             StartRunInput(question="检查当前入口", tool_names=("list_network_listeners",)),
             target,
         )
-        await asyncio.wait_for(initial_provider.report_started.wait(), timeout=3)
+        await wait_report_started(initial_provider)
         original.cancel_run(started.run_id)
         await collect(original.stream_events(started.run_id))
         return started.run_id
@@ -283,7 +300,7 @@ def interrupted_task(
             StartRunInput(question="查清 8082 的连接情况", tool_names=("probe_service",)),
             target,
         )
-        await asyncio.wait_for(provider.report_started.wait(), timeout=3)
+        await wait_report_started(provider)
         return started.run_id
 
     identifier = run(interrupt())

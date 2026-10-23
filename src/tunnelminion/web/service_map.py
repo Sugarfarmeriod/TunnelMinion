@@ -17,7 +17,7 @@ from tunnelminion.agent.service_marks import (
     ServiceMark,
     ServiceMarkStore,
     is_mark_key,
-    service_mark_key,
+    service_mark_keys,
 )
 from tunnelminion.agent.service_observation import (
     ServiceObservationSnapshot,
@@ -92,7 +92,7 @@ def _entry(
     items: list[RemoteServiceSummary],
     marks: Mapping[str, ServiceMark],
 ) -> ServiceEntry | None:
-    tiers = [service_tier(item, marks) for item in items]
+    tiers = [service_tier(item, marks, key=key) for item in items]
     mark = marks.get(key)
     tier: EntryTier
     if ServiceTier.SHOW in tiers:
@@ -147,10 +147,11 @@ def build_local_service_map(
     if snapshot is None:
         return LocalServiceMap(node_id=node_id)
     groups: dict[str, list[RemoteServiceSummary]] = {}
-    for item in snapshot.inventory:
+    keys = service_mark_keys(snapshot.inventory)
+    for item, key in zip(snapshot.inventory, keys, strict=True):
         if excluded_pid is not None and item.process_pid == excluded_pid:
             continue
-        groups.setdefault(service_mark_key(item), []).append(item)
+        groups.setdefault(key, []).append(item)
     entries = [
         entry
         for key, items in groups.items()

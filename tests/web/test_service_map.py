@@ -180,9 +180,9 @@ def test_list_merges_ports_by_service_and_orders_by_tier() -> None:
     assert body["node_id"] == str(NODE) and body["observed_at"].startswith("2026-10-22")
     assert summary(body) == [
         ("docker:compose:penpot", "penpot", "show", None, [1080, 9001]),
-        ("python:app.py", "WireGuard Panel", "show", None, [8787, 8787]),
+        ("python:app.py@8787", "WireGuard Panel", "show", None, [8787, 8787]),
         ("port:tcp:9000", "mystery", "review", None, [9000]),
-        ("program:sunshine", "sunshine", "review", None, [47990]),
+        ("program:sunshine@47984", "sunshine", "review", None, [47990]),
     ]
     penpot, panel = body["services"][0], body["services"][1]
     assert penpot["kind"] == "docker" and penpot["web_title"] == "Penpot"
@@ -198,8 +198,8 @@ def test_marking_moves_service_and_updates_the_home_page_immediately() -> None:
     api = client(cache, marks)
     before = dict(cache.snapshot.display_names) if cache.snapshot else {}
 
-    mine = api.put("/api/services/marks/program:sunshine", json={"mark": "mine"}).json()
-    entry = next(e for e in mine["services"] if e["key"] == "program:sunshine")
+    mine = api.put("/api/services/marks/program:sunshine@47984", json={"mark": "mine"}).json()
+    entry = next(e for e in mine["services"] if e["key"] == "program:sunshine@47984")
     assert entry["tier"] == "show" and entry["mark"] == "mine"
     assert [e["port"] for e in entry["endpoints"]] == [47984, 47990]
     assert cache.replaced == 1 and cache.snapshot is not None
@@ -214,19 +214,20 @@ def test_marking_moves_service_and_updates_the_home_page_immediately() -> None:
         [1080, 9001],
     )
 
-    steam = api.put("/api/services/marks/program:steam", json={"mark": "hidden"}).json()
-    assert summary(steam)[-1] == ("program:steam", "steam", "hidden", "hidden", [27036])
-    udp_only = api.put("/api/services/marks/program:mdns", json={"mark": "hidden"}).json()
-    assert ("program:mdns", "mdns", "hidden", "hidden", [5353]) in summary(udp_only)
+    steam = api.put("/api/services/marks/program:steam@27036", json={"mark": "hidden"}).json()
+    assert summary(steam)[-1] == ("program:steam@27036", "steam", "hidden", "hidden", [27036])
+    udp_only = api.put("/api/services/marks/program:mdns@5353", json={"mark": "hidden"}).json()
+    assert ("program:mdns@5353", "mdns", "hidden", "hidden", [5353]) in summary(udp_only)
 
-    cleared = api.delete("/api/services/marks/program:sunshine").json()
+    cleared = api.delete("/api/services/marks/program:sunshine@47984").json()
     assert (
-        next(e for e in cleared["services"] if e["key"] == "program:sunshine")["tier"] == "review"
+        next(e for e in cleared["services"] if e["key"] == "program:sunshine@47984")["tier"]
+        == "review"
     )
     assert marks.all() == {
         "docker:compose:penpot": ServiceMark.HIDDEN,
-        "program:steam": ServiceMark.HIDDEN,
-        "program:mdns": ServiceMark.HIDDEN,
+        "program:steam@27036": ServiceMark.HIDDEN,
+        "program:mdns@5353": ServiceMark.HIDDEN,
     }
 
 

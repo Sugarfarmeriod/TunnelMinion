@@ -11,7 +11,8 @@ from tunnelminion.agent.service_marks import (
     InMemoryServiceMarkStore,
     ServiceMark,
     is_mark_key,
-    service_mark_key,
+    process_anchor_ports,
+    service_mark_keys,
 )
 from tunnelminion.agent.service_observation import (
     ServiceObservationSnapshot,
@@ -65,23 +66,23 @@ def service(**values: object) -> RemoteServiceSummary:
         ),
         ({"container_running": True, "container_name": " gimp "}, "docker:gimp"),
         ({"container_running": False, "container_name": " "}, "port:tcp:47990"),
-        ({"process_name": "python3.12", "python_entrypoint": "app.py"}, "python:app.py"),
+        ({"process_name": "python3.12", "python_entrypoint": "app.py"}, "python:app.py@47990"),
         ({"process_name": "python3.12"}, "port:tcp:47990"),
-        ({"process_name": "Sunshine.EXE"}, "program:sunshine"),
+        ({"process_name": "Sunshine.EXE"}, "program:sunshine@47990"),
         ({"process_name": None}, "port:tcp:47990"),
     ],
 )
 def test_mark_keys_follow_the_program_not_the_process_id(
     values: dict[str, object], expected: str
 ) -> None:
-    key = service_mark_key(service(**values))
+    (key,) = service_mark_keys([service(**values)])
     assert key == expected and is_mark_key(key)
     # 进程号变了，身份不变。
-    assert service_mark_key(service(**{**values, "process_pid": 999})) == expected
+    assert service_mark_keys([service(**{**values, "process_pid": 999})]) == [expected]
 
 
 def test_without_process_id_the_name_is_not_trusted_as_identity() -> None:
-    assert service_mark_key(service(process_pid=None)) == "port:tcp:47990"
+    assert service_mark_keys([service(process_pid=None)]) == ["port:tcp:47990"]
 
 
 @pytest.mark.parametrize(
@@ -95,21 +96,54 @@ def test_marks_override_rules_for_every_port_of_the_program() -> None:
     web = service()
     stream = service(port=47984, has_web_page=False)
     udp = service(protocol="udp", port=47998)
-    assert [service_tier(item) for item in (web, stream, udp)] == [
+    items = [web, stream, udp]
+    keys = service_mark_keys(items)
+    # 同一个进程的所有端口共用一个身份，锚点是它最小的 TCP 端口。
+    assert keys == ["program:sunshine@47984"] * 3
+    assert [service_tier(item) for item in items] == [
         ServiceTier.REVIEW,
         ServiceTier.HIDE,
         ServiceTier.HIDE,
     ]
-    mine = {"program:sunshine": ServiceMark.MINE}
+    mine = {"program:sunshine@47984": ServiceMark.MINE}
     # UDP 端口仍然不显示：它们是底层通信，不是可以打开的入口。
-    assert [service_tier(item, mine) for item in (web, stream, udp)] == [
+    assert [service_tier(item, mine, key=key) for item, key in zip(items, keys, strict=True)] == [
         ServiceTier.SHOW,
         ServiceTier.SHOW,
         ServiceTier.HIDE,
     ]
-    hidden = {"program:sunshine": ServiceMark.HIDDEN}
-    assert service_tier(service(origin=ProcessOrigin.TERMINAL), hidden) is ServiceTier.HIDE
-    assert service_tier(service(origin=ProcessOrigin.TERMINAL), {}) is ServiceTier.SHOW
+    # 没给身份时不看标记。
+    assert service_tier(web, mine) is ServiceTier.REVIEW
+    terminal = service(origin=ProcessOrigin.TERMINAL)
+    hidden = {"program:sunshine@47990": ServiceMark.HIDDEN}
+    assert service_tier(terminal, hidden, key="program:sunshine@47990") is ServiceTier.HIDE
+    assert service_tier(terminal, {}, key="program:sunshine@47990") is ServiceTier.SHOW
+
+
+def test_two_copies_of_the_same_program_are_two_services() -> None:
+    """实测问题：两个 `python -m http.server` 曾被合并成一项。"""
+    first = service(
+        process_pid=1, process_name="python", python_entrypoint="http.server", port=8898
+    )
+    second = service(
+        process_pid=2, process_name="python", python_entrypoint="http.server", port=8899
+    )
+    gost_a = service(process_pid=3, process_name="gost", port=805)
+    gost_b = service(process_pid=4, process_name="gost", port=806)
+    assert service_mark_keys([first, second, gost_a, gost_b]) == [
+        "python:http.server@8898",
+        "python:http.server@8899",
+        "program:gost@805",
+        "program:gost@806",
+    ]
+
+
+def test_anchor_port_prefers_tcp_and_ignores_containers() -> None:
+    udp_only = service(process_pid=5, process_name="mdns", protocol="udp", port=5353)
+    mixed_udp = service(process_pid=6, process_name="agent", protocol="udp", port=100)
+    mixed_tcp = service(process_pid=6, process_name="agent", port=9000)
+    container = service(process_pid=7, container_running=True, container_name="web", port=80)
+    assert process_anchor_ports([udp_only, mixed_udp, mixed_tcp, container]) == {5: 5353, 6: 9000}
 
 
 def test_apply_marks_moves_a_service_between_tiers_without_new_observation() -> None:
@@ -124,14 +158,14 @@ def test_apply_marks_moves_a_service_between_tiers_without_new_observation() -> 
         inventory=items,
     )
     assert snapshot.display_names == {} and len(snapshot.review_names) == 1
-    marked = apply_service_marks(NODE, snapshot, {"program:sunshine": ServiceMark.MINE})
+    marked = apply_service_marks(NODE, snapshot, {"program:sunshine@47984": ServiceMark.MINE})
     assert sorted(marked.display_names.values()) == ["sunshine · 47984", "sunshine · 47990"]
     assert marked.review_names == {} and marked.observed_at == NOW
     assert len({value.group_id for value in marked.applications.values()}) == 1
-    hidden = apply_service_marks(NODE, marked, {"program:sunshine": ServiceMark.HIDDEN})
+    hidden = apply_service_marks(NODE, marked, {"program:sunshine@47984": ServiceMark.HIDDEN})
     assert hidden.display_names == {} and hidden.review_names == {}
     own = apply_service_marks(
-        NODE, snapshot, {"program:sunshine": ServiceMark.MINE}, excluded_pid=12
+        NODE, snapshot, {"program:sunshine@47984": ServiceMark.MINE}, excluded_pid=12
     )
     assert own.display_names == {} and own.review_names == {}
 
@@ -150,14 +184,14 @@ def test_sqlite_store_survives_reopening(tmp_path: Path) -> None:
     path = tmp_path / "runtime.sqlite3"
     first = SQLiteStores.open(path).service_marks
     first.set("docker:compose:penpot", ServiceMark.MINE)
-    first.set("program:steam", ServiceMark.HIDDEN)
-    first.set("program:steam", ServiceMark.MINE)
+    first.set("program:steam@27036", ServiceMark.HIDDEN)
+    first.set("program:steam@27036", ServiceMark.MINE)
     reopened = SQLiteStores.open(path).service_marks
     assert reopened.all() == {
         "docker:compose:penpot": ServiceMark.MINE,
-        "program:steam": ServiceMark.MINE,
+        "program:steam@27036": ServiceMark.MINE,
     }
-    reopened.clear("program:steam")
+    reopened.clear("program:steam@27036")
     assert SQLiteStores.open(path).service_marks.all() == {
         "docker:compose:penpot": ServiceMark.MINE
     }
