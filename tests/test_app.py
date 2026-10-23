@@ -6,7 +6,6 @@ import asyncio
 import io
 import json
 import runpy
-import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -454,36 +453,42 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         model_calls += 1
         raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
 
-    def fast_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
-        kwargs["interval_seconds"] = 1
-        return IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+    observers: list[IncidentObservationService] = []
+
+    def manual_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
+        # 后台周期设为上限，观察轮次改由测试在应用事件循环内逐轮驱动，避免依赖慢机计时。
+        kwargs["interval_seconds"] = 3600
+        observer = IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+        observers.append(observer)
+        return observer
 
     monkeypatch.setattr(
         "tunnelminion.agent.service_observation.DeterministicServiceObserver.observe",
         observe,
     )
     monkeypatch.setattr(ModelConfigurationService, "create_provider", unavailable)
-    monkeypatch.setattr("tunnelminion.app.IncidentObservationService", fast_incident_observer)
+    monkeypatch.setattr("tunnelminion.app.IncidentObservationService", manual_incident_observer)
     bundle = build_windows_application(tmp_path / "local-observation")
+    [observer] = observers
 
     client: Any
     with TestClient(bundle.app, base_url="http://127.0.0.1") as client:
-        deadline = time.monotonic() + 3
-        while observations < 2 and time.monotonic() < deadline:
-            time.sleep(0.05)
+        # 第一轮建立基线，第二轮确认基线稳定。
+        for _ in range(2):
+            assert client.portal.call(observer.observe_once).incidents == ()
+        assert observations == 2
         overview = client.get("/api/resources/overview").json()
         assert [item["port"] for item in overview["services"]["items"]] == [18081]
         assert overview["incidents"]["items"] == []
         assert model_calls == 0
 
         services.append(local_service("service_22222222222222222222222222222222", 18082))
-        deadline = time.monotonic() + 4
-        while time.monotonic() < deadline:
-            overview = client.get("/api/resources/overview").json()
-            if overview["incidents"]["items"]:
-                break
-            time.sleep(0.05)
+        # 新服务需要连续两轮观察确认后才形成 incident。
+        assert client.portal.call(observer.observe_once).incidents == ()
+        assert len(client.portal.call(observer.observe_once).incidents) == 1
+        assert observations == 4
 
+        overview = client.get("/api/resources/overview").json()
         assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
         assert model_calls == 1
 
