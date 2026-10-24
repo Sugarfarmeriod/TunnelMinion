@@ -20,6 +20,8 @@ class ProviderErrorCode(StrEnum):
     CANCELLED = "cancelled"
     INVALID_RESPONSE = "invalid_response"
     INVALID_CONTEXT = "invalid_context"
+    QUOTA_EXCEEDED = "quota_exceeded"
+    BUSY = "busy"
 
 
 class ProviderError(Exception):

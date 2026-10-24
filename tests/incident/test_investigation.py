@@ -1844,13 +1844,19 @@ def test_background_observer_does_not_drop_a_later_pending_change(tmp_path: Path
     assert runner.calls == 2
 
 
-def test_configured_runner_marks_unavailable_without_starting_tools(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "code",
+    [ProviderErrorCode.MODEL_NOT_FOUND, ProviderErrorCode.QUOTA_EXCEEDED, ProviderErrorCode.BUSY],
+)
+def test_configured_runner_marks_unavailable_without_starting_tools(
+    tmp_path: Path, code: ProviderErrorCode
+) -> None:
     store = SQLiteIncidentStore(tmp_path / "configured-unavailable.sqlite3")
     registry = ToolRegistry()
     audit = InMemoryAuditSink()
 
     def unavailable() -> ScriptedProvider:
-        raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "not configured")
+        raise ProviderError(code, "not configured")
 
     runner = ConfiguredIncidentRunner(
         unavailable,
