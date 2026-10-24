@@ -10,7 +10,10 @@ ROOT = Path(__file__).parents[2]
 SOURCE = ROOT / "src" / "tunnelminion"
 
 _RAW_PROVIDER_BOUNDARY = Counter({("agent/context_runtime.py", "invoke"): 1})
-_MODEL_REQUEST_BOUNDARY = Counter({("agent/context_runtime.py", "build"): 1})
+# 模型借用：提供方把借用方发来的一轮请求原样还原，交给自己的模型。
+_MODEL_REQUEST_BOUNDARY = Counter(
+    {("agent/context_runtime.py", "build"): 1, ("domain/model_borrowing.py", "to_request"): 1}
+)
 
 
 class _CallVisitor(ast.NodeVisitor):
