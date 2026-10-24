@@ -577,6 +577,9 @@ def test_borrow_switches_sources_preserves_profiles_and_tracks_availability(tmp_
     assert repository.load_borrowed() == BorrowedModelConfig(peer_node_id=peer)
     assert remote.calls == 2
     assert service.create_provider() is remote
+    # 借来的模型不能再借给别人，否则两台电脑互相借用会成环。
+    with pytest.raises(ProviderError, match="不能转借"):
+        service.create_lending_provider()
     assert secrets.values == {model_api_key_name(local.endpoint): "saved-local-key"}
 
     current[0] = ValidationProvider(
@@ -596,6 +599,7 @@ def test_borrow_switches_sources_preserves_profiles_and_tracks_availability(tmp_
 
     restored = asyncio.run(service.configure(input_config()))
     assert restored.borrowed_from is None
+    assert isinstance(service.create_lending_provider(), ValidationProvider)
     assert repository.load_borrowed() is None
     assert repository.load() == local.provider_config()
     asyncio.run(service.borrow(peer))

@@ -556,7 +556,9 @@ def build_macos_gateway_application(
         else None
     )
     model_lending_service = (
-        ModelLendingService(node.node_id, node.model_service.create_provider, stores.model_usage)
+        ModelLendingService(
+            node.node_id, node.model_service.create_lending_provider, stores.model_usage
+        )
         if any(peer.allow_model_borrowing for peer in view.peers)
         else None
     )

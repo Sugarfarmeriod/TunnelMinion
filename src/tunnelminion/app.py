@@ -324,7 +324,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
     )
     model_lending_service = (
         ModelLendingService(
-            node.node_id, node.model_service.create_provider, node.stores.model_usage
+            node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
         )
         if any(peer.allow_model_borrowing for peer in view.peers)
         else None

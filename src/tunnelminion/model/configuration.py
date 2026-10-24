@@ -316,6 +316,12 @@ class ModelConfigurationService:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "尚未配置模型")
         return self._provider_factory(config, self._optional_api_key(config))
 
+    def create_lending_provider(self) -> ModelProvider:
+        """为借给其他电脑的调用创建 Provider；借来的模型不能转借，避免互相借用成环。"""
+        if self._repository.load_borrowed() is not None:
+            raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "本机的模型也是借来的，不能转借")
+        return self.create_provider()
+
     def _borrowed_provider(self, peer_node_id: NodeId) -> ModelProvider:
         if self._borrowed_provider_factory is None:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "对方电脑还没有配置模型")
