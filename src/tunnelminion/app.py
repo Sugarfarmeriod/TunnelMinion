@@ -22,6 +22,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.model_lending import ModelLendingService
 from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer, RemoteCapabilityLoader
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
@@ -285,6 +286,7 @@ class WindowsGatewayApplication:
     node_id: NodeId
     gateway_service: GatewayConfigurationService
     delegation_service: DelegationService | None = None
+    model_lending_service: ModelLendingService | None = None
 
 
 def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGatewayApplication:
@@ -308,6 +310,13 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         if any(peer.allow_delegation for peer in view.peers)
         else None
     )
+    model_lending_service = (
+        ModelLendingService(
+            node.node_id, node.model_service.create_provider, node.stores.model_usage
+        )
+        if any(peer.allow_model_borrowing for peer in view.peers)
+        else None
+    )
     app = FastAPI(
         title="TunnelMinion Tool Gateway", docs_url=None, redoc_url=None, openapi_url=None
     )
@@ -320,6 +329,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
             gateway_service.build_security_policy(),
             InMemoryGatewaySecurityAuditSink(),
             delegation_service=delegation_service,
+            model_lending_service=model_lending_service,
         )
     )
     return WindowsGatewayApplication(
@@ -328,6 +338,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         node_id=node.node_id,
         gateway_service=gateway_service,
         delegation_service=delegation_service,
+        model_lending_service=model_lending_service,
     )
 
 

@@ -479,6 +479,8 @@ def _uninstall_data(values: list[str]) -> int:
 
 def _configure_gateway(values: list[str]) -> int:
     """从标准输入接收一次性 token，配置 B 网关而不回显秘密。"""
+    from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
+
     parser = argparse.ArgumentParser(description="配置只读 Tool Gateway 与对端")
     parser.add_argument("gateway-configure")
     parser.add_argument("--data-dir", type=Path)
@@ -499,6 +501,12 @@ def _configure_gateway(values: list[str]) -> int:
         action="store_true",
         help="允许这个对端把问题交给本机的 Agent 处理（默认不允许）",
     )
+    parser.add_argument(
+        "--allow-model-borrowing",
+        action="store_true",
+        help="允许这个对端借用本机配置的模型（默认不允许）",
+    )
+    parser.add_argument("--daily-quota", type=int, default=DEFAULT_DAILY_TOKEN_QUOTA)
     parser.add_argument(
         "--secret-store",
         choices=("keyring", "restricted-file"),
@@ -537,6 +545,8 @@ def _configure_gateway(values: list[str]) -> int:
                 allowed_tools=frozenset(args.allowed_tool or _MACOS_READ_ONLY_TOOLS),
                 allowed_operations=frozenset(args.allowed_operation or ()),
                 allow_delegation=args.allow_delegation,
+                allow_model_borrowing=args.allow_model_borrowing,
+                daily_quota=args.daily_quota,
             ),
             token=token,
         )
@@ -547,6 +557,42 @@ def _configure_gateway(values: list[str]) -> int:
             ensure_ascii=False,
         )
     )
+    return 0
+
+
+def _model_usage(values: list[str]) -> int:
+    """只读输出本地当天各对端的模型用量。"""
+    import sqlite3
+    from contextlib import closing
+    from datetime import date
+
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.domain.model_borrowing import ModelUsageRecord
+
+    parser = argparse.ArgumentParser(description="查看今日模型借用用量")
+    parser.add_argument("model-usage")
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+    path = (args.data_dir or default_data_dir()) / "runtime.sqlite3"
+    if not path.is_file():
+        return 0
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
+        if not connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='model_usage'"
+        ).fetchone():
+            return 0
+        today = date.today()
+        rows = connection.execute(
+            "SELECT peer_node_id, calls, tokens FROM model_usage WHERE day=? ORDER BY peer_node_id",
+            (today.isoformat(),),
+        ).fetchall()
+    for peer, calls, tokens in rows:
+        print(
+            ModelUsageRecord(
+                peer_node_id=NodeId(peer), day=today, calls=calls, tokens=tokens
+            ).model_dump_json()
+        )
     return 0
 
 
@@ -644,6 +690,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _uninstall_data(values)
     if values and values[0] == "gateway-configure":
         return _configure_gateway(values)
+    if values and values[0] == "model-usage":
+        return _model_usage(values)
     if values and values[0] == "coordinator-enroll":
         return _enroll_with_coordinator(values)
     if values and values[0] == "managed-status":

@@ -26,6 +26,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.model_lending import ModelLendingService
 from tunnelminion.agent.remote import AgentRemoteToolPreparer, ConfiguredRemoteToolPreparer
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
@@ -160,6 +161,7 @@ class MacOSGatewayApplication:
     operation_service: TargetOperationGatewayService | None = None
     operation_workflow: OperationWorkflow | None = None
     delegation_service: DelegationService | None = None
+    model_lending_service: ModelLendingService | None = None
 
 
 class SafeSharingGatewaySettings(BaseModel):
@@ -539,6 +541,11 @@ def build_macos_gateway_application(
         if any(peer.allow_delegation for peer in view.peers)
         else None
     )
+    model_lending_service = (
+        ModelLendingService(node.node_id, node.model_service.create_provider, stores.model_usage)
+        if any(peer.allow_model_borrowing for peer in view.peers)
+        else None
+    )
     if safe_sharing is not None:
         operation_peers = tuple(
             peer for peer in view.peers if "share_local_http_service" in peer.allowed_operations
@@ -596,6 +603,7 @@ def build_macos_gateway_application(
             security_audit,
             operation_service,
             delegation_service,
+            model_lending_service,
         )
     )
     return MacOSGatewayApplication(
@@ -610,4 +618,5 @@ def build_macos_gateway_application(
         operation_service=operation_service,
         operation_workflow=operation_workflow,
         delegation_service=delegation_service,
+        model_lending_service=model_lending_service,
     )
