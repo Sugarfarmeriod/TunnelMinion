@@ -1168,6 +1168,8 @@ class IncidentInvestigator:
                 ProviderErrorCode.TIMEOUT,
                 ProviderErrorCode.MODEL_NOT_FOUND,
                 ProviderErrorCode.CAPABILITY_INCOMPATIBLE,
+                ProviderErrorCode.QUOTA_EXCEEDED,
+                ProviderErrorCode.BUSY,
             }
             else IncidentStatus.CANCELLED
             if error.code is ProviderErrorCode.CANCELLED

@@ -21,6 +21,7 @@ from tunnelminion.coordinator.identity import (
     OfflineAssertionVerifier,
 )
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.network.path_controller import (
     GatewayPathEndpoint,
     select_gateway_endpoint,
@@ -77,6 +78,8 @@ class GatewayPeerPolicy:
     source_host: str | None = None
     authentication_kind: GatewayAuthenticationKind = GatewayAuthenticationKind.STATIC
     allow_delegation: bool = False
+    allow_model_borrowing: bool = False
+    daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA
 
     @classmethod
     def from_token(
@@ -88,6 +91,8 @@ class GatewayPeerPolicy:
         *,
         source_host: str | None = None,
         allow_delegation: bool = False,
+        allow_model_borrowing: bool = False,
+        daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA,
     ) -> GatewayPeerPolicy:
         """把独立应用令牌立即转换为 SHA-256 摘要。"""
         if len(token) < 32:
@@ -102,6 +107,8 @@ class GatewayPeerPolicy:
             frozenset(allowed_operations),
             source_host,
             allow_delegation=allow_delegation,
+            allow_model_borrowing=allow_model_borrowing,
+            daily_quota=daily_quota,
         )
 
 

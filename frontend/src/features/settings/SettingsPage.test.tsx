@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelConfiguration } from "./api";
+import { modelConfigurationSchema, type ModelConfiguration } from "./api";
 import { SettingsPage } from "./SettingsPage";
 
 function makeConfiguration(
@@ -16,6 +16,7 @@ function makeConfiguration(
     timeout_seconds: 30,
     api_key_configured: false,
     profiles: [],
+    borrowed_from: null,
     status: "available",
     error_code: null,
     error_message: null,
@@ -119,6 +120,60 @@ describe("SettingsPage", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["available", "unavailable"] as const)(
+    "借用模型 %s 时显示提供方并隐藏密钥输入",
+    async (status) => {
+      const peer = "node_0123456789abcdef0123456789abcdef";
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          makeConfiguration({
+            endpoint: null,
+            model: null,
+            timeout_seconds: null,
+            borrowed_from: peer,
+            status,
+            error_code: status === "unavailable" ? "quota_exceeded" : null,
+            error_message:
+              status === "unavailable" ? "今天借用的额度已用完" : null,
+          }),
+        ),
+      );
+      renderSettings();
+      expect(
+        await screen.findByText(`正在使用 ${peer.slice(0, 12)} 的模型`),
+      ).toBeVisible();
+      expect(
+        screen.queryByLabelText("新 API 密钥（可选）"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("API 密钥")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "重新验证一次" }),
+      ).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "清除模型配置与密钥" }),
+      ).toBeEnabled();
+      if (status === "unavailable") {
+        expect(screen.getByText("今天借用的额度已用完")).toBeVisible();
+      }
+    },
+  );
+
+  it("借用配置仍拒绝未知字段和不合法的节点标识", () => {
+    expect(
+      modelConfigurationSchema.safeParse({
+        ...makeConfiguration(),
+        borrowed_from: "invalid",
+      }).success,
+    ).toBe(false);
+    expect(
+      modelConfigurationSchema.safeParse({
+        ...makeConfiguration(),
+        borrowed_from: null,
+        api_key: "secret",
+      }).success,
+    ).toBe(false);
   });
 
   it("覆盖 loading 与未配置状态，秘密输入永远从空值开始", async () => {

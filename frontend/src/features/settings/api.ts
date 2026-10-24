@@ -18,6 +18,10 @@ export const modelConfigurationSchema = z
     timeout_seconds: z.number().min(0.1).max(600).nullable(),
     api_key_configured: z.boolean(),
     profiles: z.array(modelConfigurationProfileSchema),
+    borrowed_from: z
+      .string()
+      .regex(/^node_[0-9a-f]{32}$/)
+      .nullable(),
     status: z.enum(["unconfigured", "available", "unavailable"]),
     error_code: z.string().nullable(),
     error_message: z.string().nullable(),

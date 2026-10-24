@@ -166,6 +166,8 @@ class FailureReason(StrEnum):
     MODEL_INVALID_RESPONSE = "model_invalid_response"
     MODEL_CAPABILITY_INCOMPATIBLE = "model_capability_incompatible"
     MODEL_CANCELLED = "model_cancelled"
+    MODEL_QUOTA_EXCEEDED = "model_quota_exceeded"
+    MODEL_BUSY = "model_busy"
     TOOL_FAILED = "tool_failed"
     AGENT_RUNTIME_FAILED = "agent_runtime_failed"
     GOVERNANCE_DENIED = "governance_denied"

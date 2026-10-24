@@ -16,7 +16,7 @@ from tunnelminion.agent.prompts import (
     PROVIDER_STRUCTURED_CAPABILITY_PROMPT,
     PROVIDER_TOOL_CAPABILITY_PROMPT,
 )
-from tunnelminion.domain.identifiers import RunId, ThreadId
+from tunnelminion.domain.identifiers import NodeId, RunId, ThreadId
 from tunnelminion.model.contracts import (
     ModelMessage,
     ModelProvider,
@@ -70,6 +70,14 @@ class ModelConfigurationProfileView(BaseModel):
     api_key_configured: bool = False
 
 
+class BorrowedModelConfig(BaseModel):
+    """借用模型的固定提供方。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    peer_node_id: NodeId
+
+
 class ModelConfigurationView(BaseModel):
     """可安全返回给 Web UI 的配置视图。"""
 
@@ -79,6 +87,7 @@ class ModelConfigurationView(BaseModel):
     model: str | None = None
     timeout_seconds: float | None = None
     api_key_configured: bool = False
+    borrowed_from: NodeId | None = None
     profiles: tuple[ModelConfigurationProfileView, ...] = ()
     status: str = Field(pattern="^(unconfigured|available|unavailable)$")
     error_code: ProviderErrorCode | None = None
@@ -90,12 +99,15 @@ class _StoredModelConfigurations(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     active: OpenAICompatibleConfig | None = None
+    borrowed: BorrowedModelConfig | None = None
     profiles: tuple[OpenAICompatibleConfig, ...] = ()
 
     @model_validator(mode="after")
     def validate_profiles(self) -> _StoredModelConfigurations:
+        if self.active is not None and self.borrowed is not None:
+            raise ValueError("本地模型与借用模型不能同时启用")
         keys = [(item.endpoint, item.model) for item in self.profiles]
         if len(keys) != len(set(keys)):
             raise ValueError("模型配置档案包含重复 endpoint/model")
@@ -113,6 +125,14 @@ class ModelConfigurationRepository(Protocol):
 
     def save(self, config: OpenAICompatibleConfig) -> None:
         """保存当前节点配置。"""
+        ...
+
+    def load_borrowed(self) -> BorrowedModelConfig | None:
+        """加载借用模型配置。"""
+        ...
+
+    def save_borrowed(self, config: BorrowedModelConfig) -> None:
+        """保存借用配置并停用本地模型。"""
         ...
 
     def profiles(self) -> tuple[OpenAICompatibleConfig, ...]:
@@ -151,11 +171,23 @@ class FileModelConfigurationRepository:
         """读取当前文件中的全部非秘密配置。"""
         return self._load_state().profiles
 
+    def load_borrowed(self) -> BorrowedModelConfig | None:
+        """读取当前借用配置。"""
+        return self._load_state().borrowed
+
+    def save_borrowed(self, config: BorrowedModelConfig) -> None:
+        """保留本地档案并原子切换到借用模型。"""
+        self._write_state(
+            _StoredModelConfigurations(borrowed=config, profiles=self._load_state().profiles)
+        )
+
     def _load_state(self) -> _StoredModelConfigurations:
         if not self._path.exists():
             return _StoredModelConfigurations()
         value = cast(JsonValue, json.loads(self._path.read_text(encoding="utf-8")))
-        if isinstance(value, dict) and value.get("version") == 2:
+        if isinstance(value, dict) and value.get("version") in (2, 3):
+            if value["version"] == 2:
+                value = {**value, "version": 3}
             return _StoredModelConfigurations.model_validate(value)
         legacy = OpenAICompatibleConfig.model_validate(value)
         return _StoredModelConfigurations(active=legacy, profiles=(legacy,))
@@ -187,25 +219,28 @@ class ModelConfigurationService:
         repository: ModelConfigurationRepository,
         secrets: SecretStore,
         provider_factory: ProviderFactory = default_provider_factory,
+        borrowed_provider_factory: Callable[[NodeId], ModelProvider] | None = None,
     ) -> None:
         self._repository = repository
         self._secrets = secrets
         self._provider_factory = provider_factory
+        self._borrowed_provider_factory = borrowed_provider_factory
         self._last_error: ProviderError | None = None
 
     def view(self) -> ModelConfigurationView:
         """返回永不包含完整密钥的当前配置视图。"""
         config = self._repository.load()
+        borrowed = self._repository.load_borrowed()
         profiles = tuple(self._profile_view(item) for item in self._repository.profiles())
-        if config is None:
+        if config is None and borrowed is None:
             return ModelConfigurationView(status="unconfigured", profiles=profiles)
-        key_configured = self._optional_api_key(config) is not None
         error = self._last_error
         return ModelConfigurationView(
-            endpoint=config.endpoint,
-            model=config.model,
-            timeout_seconds=config.timeout_seconds,
-            api_key_configured=key_configured,
+            endpoint=config.endpoint if config is not None else None,
+            model=config.model if config is not None else None,
+            timeout_seconds=config.timeout_seconds if config is not None else None,
+            api_key_configured=config is not None and self._optional_api_key(config) is not None,
+            borrowed_from=borrowed.peer_node_id if borrowed is not None else None,
             profiles=profiles,
             status="unavailable" if error is not None else "available",
             error_code=error.code if error is not None else None,
@@ -228,12 +263,22 @@ class ModelConfigurationService:
         self._last_error = None
         return self.view()
 
+    async def borrow(self, peer_node_id: NodeId) -> ModelConfigurationView:
+        """验证对端模型能力后才切换配置。"""
+        config = BorrowedModelConfig(peer_node_id=peer_node_id)
+        await self._validate_provider(config, None)
+        self._repository.save_borrowed(config)
+        self._last_error = None
+        return self.view()
+
     async def validate(self) -> ModelConfigurationView:
         """重新验证已保存配置并更新运行时可用状态。"""
-        config = self._repository.load()
+        config = self._repository.load_borrowed() or self._repository.load()
         if config is None:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "尚未配置模型")
-        api_key = self._optional_api_key(config)
+        api_key = (
+            self._optional_api_key(config) if isinstance(config, OpenAICompatibleConfig) else None
+        )
         try:
             await self._validate_provider(config, api_key)
             self._last_error = None
@@ -251,7 +296,7 @@ class ModelConfigurationService:
 
     def require_available(self) -> None:
         """在创建新 AI run 前执行降级门卫。"""
-        if self._repository.load() is None:
+        if self._repository.load() is None and self._repository.load_borrowed() is None:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "模型未配置或不可用")
         if self._last_error is not None:
             raise ProviderError(
@@ -263,10 +308,24 @@ class ModelConfigurationService:
     def create_provider(self) -> ModelProvider:
         """为一次 Agent run 创建当前已配置且通过门卫的 Provider。"""
         self.require_available()
+        borrowed = self._repository.load_borrowed()
+        if borrowed is not None:
+            return self._borrowed_provider(borrowed.peer_node_id)
         config = self._repository.load()
         if config is None:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "尚未配置模型")
         return self._provider_factory(config, self._optional_api_key(config))
+
+    def create_lending_provider(self) -> ModelProvider:
+        """为借给其他电脑的调用创建 Provider；借来的模型不能转借，避免互相借用成环。"""
+        if self._repository.load_borrowed() is not None:
+            raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "本机的模型也是借来的，不能转借")
+        return self.create_provider()
+
+    def _borrowed_provider(self, peer_node_id: NodeId) -> ModelProvider:
+        if self._borrowed_provider_factory is None:
+            raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "对方电脑还没有配置模型")
+        return self._borrowed_provider_factory(peer_node_id)
 
     def _optional_api_key(self, config: OpenAICompatibleConfig) -> str | None:
         """无 Key Provider 在无图形 Keychain 会话中仍可运行。"""
@@ -283,8 +342,14 @@ class ModelConfigurationService:
             api_key_configured=self._optional_api_key(config) is not None,
         )
 
-    async def _validate_provider(self, config: OpenAICompatibleConfig, api_key: str | None) -> None:
-        provider = self._provider_factory(config, api_key)
+    async def _validate_provider(
+        self, config: OpenAICompatibleConfig | BorrowedModelConfig, api_key: str | None
+    ) -> None:
+        provider = (
+            self._borrowed_provider(config.peer_node_id)
+            if isinstance(config, BorrowedModelConfig)
+            else self._provider_factory(config, api_key)
+        )
         if not provider.capabilities.tool_calls or not provider.capabilities.structured_output:
             raise ProviderError(
                 ProviderErrorCode.CAPABILITY_INCOMPATIBLE,
@@ -303,8 +368,12 @@ class ModelConfigurationService:
         )
         runtime = ContextModelRuntime(
             provider,
-            provider_name="openai-compatible",
-            model_name=config.model,
+            provider_name="remote"
+            if isinstance(config, BorrowedModelConfig)
+            else "openai-compatible",
+            model_name=str(config.peer_node_id)
+            if isinstance(config, BorrowedModelConfig)
+            else config.model,
             tool_schema_version="provider-capability/v1",
         )
         thread_id = ThreadId.new()

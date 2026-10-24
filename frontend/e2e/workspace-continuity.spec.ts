@@ -125,6 +125,7 @@ for (const width of [1280, 320]) {
           model: "qwen-local",
           timeout_seconds: 30,
           api_key_configured: false,
+          borrowed_from: null,
           profiles: [],
           status: "available",
           error_code: null,

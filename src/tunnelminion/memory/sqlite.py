@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from tunnelminion.domain.delegation import DelegationRecord, DelegationStatus
@@ -20,6 +20,7 @@ from tunnelminion.domain.identifiers import (
     RunId,
     ThreadId,
 )
+from tunnelminion.domain.model_borrowing import ModelUsageRecord
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
@@ -70,6 +71,13 @@ class _SQLiteDatabase:
                     mark_key TEXT PRIMARY KEY,
                     mark TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS model_usage (
+                    peer_node_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    calls INTEGER NOT NULL,
+                    tokens INTEGER NOT NULL,
+                    PRIMARY KEY(peer_node_id, day)
                 );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
                     artifact_id TEXT PRIMARY KEY,
@@ -644,6 +652,45 @@ class SQLiteDelegationStore:
         return tuple(DelegationRecord.model_validate_json(row[0]) for row in rows)
 
 
+class SQLiteModelUsageStore:
+    """按对端和本地日期累加用量，不保存内容。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def add(self, peer: NodeId, day: date, calls: int, tokens: int) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO model_usage(peer_node_id, day, calls, tokens) VALUES (?, ?, ?, ?)
+                ON CONFLICT(peer_node_id, day) DO UPDATE SET
+                    calls=model_usage.calls + excluded.calls,
+                    tokens=model_usage.tokens + excluded.tokens""",
+                (str(peer), day.isoformat(), calls, tokens),
+            )
+
+    def get(self, peer: NodeId, day: date) -> ModelUsageRecord:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT calls, tokens FROM model_usage WHERE peer_node_id=? AND day=?",
+                (str(peer), day.isoformat()),
+            ).fetchone()
+        return ModelUsageRecord(
+            peer_node_id=peer, day=day, calls=row[0] if row else 0, tokens=row[1] if row else 0
+        )
+
+    def list(self, day: date | None = None) -> tuple[ModelUsageRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """SELECT peer_node_id, day, calls, tokens FROM model_usage
+                WHERE (? IS NULL OR day=?) ORDER BY peer_node_id, day""",
+                (day.isoformat() if day is not None else None,) * 2,
+            ).fetchall()
+        return tuple(
+            ModelUsageRecord(peer_node_id=NodeId(peer), day=day, calls=calls, tokens=tokens)
+            for peer, day, calls, tokens in rows
+        )
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -656,6 +703,7 @@ class SQLiteStores:
     preauthorizations: PreauthorizationStore
     service_marks: SQLiteServiceMarkStore
     delegations: SQLiteDelegationStore
+    model_usage: SQLiteModelUsageStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -670,4 +718,5 @@ class SQLiteStores:
             preauthorizations=SQLitePreauthorizationStore(database),
             service_marks=SQLiteServiceMarkStore(database),
             delegations=SQLiteDelegationStore(database),
+            model_usage=SQLiteModelUsageStore(database),
         )

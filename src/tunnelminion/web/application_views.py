@@ -275,7 +275,11 @@ class _ApplicationViewAdapter:
                 overview_contracts.OverviewError(
                     code=error.value,
                     retryable=error
-                    in {ProviderErrorCode.NETWORK_UNREACHABLE, ProviderErrorCode.TIMEOUT},
+                    in {
+                        ProviderErrorCode.NETWORK_UNREACHABLE,
+                        ProviderErrorCode.TIMEOUT,
+                        ProviderErrorCode.BUSY,
+                    },
                 )
                 if status is overview_contracts.ModelStatus.UNAVAILABLE
                 else None

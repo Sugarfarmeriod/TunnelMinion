@@ -383,6 +383,8 @@ export function SettingsPage() {
                 还没有模型配置。聊天的新 AI run
                 暂不可用，但长期记忆和确定性资源仍可管理。
               </p>
+            ) : data.borrowed_from !== null ? (
+              <p>正在使用 {data.borrowed_from.slice(0, 12)} 的模型</p>
             ) : (
               <dl className="settings-metadata">
                 <div>
@@ -414,11 +416,13 @@ export function SettingsPage() {
                 <p>{data.error_message ?? "服务没有返回错误说明。"}</p>
               </div>
             )}
-            <p className="settings-recovery">
-              {data.status === "available"
-                ? "模型可用，无需处理。"
-                : "先确认模型服务正在运行，再核对 endpoint、模型名称和密钥。即使模型不可用，长期记忆与确定性资源仍可使用。"}
-            </p>
+            {data.borrowed_from === null ? (
+              <p className="settings-recovery">
+                {data.status === "available"
+                  ? "模型可用，无需处理。"
+                  : "先确认模型服务正在运行，再核对 endpoint、模型名称和密钥。即使模型不可用，长期记忆与确定性资源仍可使用。"}
+              </p>
+            ) : null}
           </article>
 
           <form className="settings-form" onSubmit={reviewSave}>
@@ -499,41 +503,45 @@ export function SettingsPage() {
                   value={timeoutSeconds}
                 />
               </label>
-              <label>
-                新 API 密钥（可选）
-                <input
-                  autoComplete="new-password"
-                  disabled={clearApiKey || writing}
-                  maxLength={4096}
-                  onChange={(event) => setApiKey(event.currentTarget.value)}
-                  placeholder={
-                    selectedApiKeyConfigured
-                      ? "留空会保留该 endpoint 的已保存密钥"
-                      : "无密钥 Provider 可留空"
-                  }
-                  type="password"
-                  value={apiKey}
-                />
-              </label>
-              {selectedApiKeyConfigured ? (
-                <label className="settings-checkbox">
-                  <input
-                    checked={clearApiKey}
-                    onChange={(event) => {
-                      const checked = event.currentTarget.checked;
-                      setClearApiKey(checked);
-                      if (checked) {
-                        setApiKey("");
+              {data.borrowed_from === null ? (
+                <>
+                  <label>
+                    新 API 密钥（可选）
+                    <input
+                      autoComplete="new-password"
+                      disabled={clearApiKey || writing}
+                      maxLength={4096}
+                      onChange={(event) => setApiKey(event.currentTarget.value)}
+                      placeholder={
+                        selectedApiKeyConfigured
+                          ? "留空会保留该 endpoint 的已保存密钥"
+                          : "无密钥 Provider 可留空"
                       }
-                    }}
-                    type="checkbox"
-                  />
-                  保存配置时清除已保存密钥
-                </label>
+                      type="password"
+                      value={apiKey}
+                    />
+                  </label>
+                  {selectedApiKeyConfigured ? (
+                    <label className="settings-checkbox">
+                      <input
+                        checked={clearApiKey}
+                        onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          setClearApiKey(checked);
+                          if (checked) {
+                            setApiKey("");
+                          }
+                        }}
+                        type="checkbox"
+                      />
+                      保存配置时清除已保存密钥
+                    </label>
+                  ) : null}
+                  <p className="settings-secret-note">
+                    密钥只随这一次同源保存请求进入现有受限配置流程；页面不会读回、记录或导出它。
+                  </p>
+                </>
               ) : null}
-              <p className="settings-secret-note">
-                密钥只随这一次同源保存请求进入现有受限配置流程；页面不会读回、记录或导出它。
-              </p>
             </fieldset>
             {formError === null ? null : (
               <p className="settings-inline-error" role="alert">

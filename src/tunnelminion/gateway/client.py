@@ -12,6 +12,11 @@ from pydantic import JsonValue, ValidationError
 from tunnelminion.domain.delegation import DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId, ToolRunId
+from tunnelminion.domain.model_borrowing import (
+    MAX_MODEL_CALL_SECONDS,
+    BorrowedModelCall,
+    BorrowedModelResult,
+)
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.contracts import (
     GATEWAY_PROTOCOL,
@@ -37,9 +42,12 @@ from tunnelminion.tools.contracts import (
 class RemoteGatewayError(RuntimeError):
     """能力、认证或协议失败；消息永不包含 token 或响应正文。"""
 
-    def __init__(self, code: ErrorCode, message: str) -> None:
+    def __init__(
+        self, code: ErrorCode, message: str, *, gateway_code: GatewayErrorCode | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.gateway_code = gateway_code
 
 
 _GATEWAY_ERROR_MAP = {
@@ -58,6 +66,11 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.DELEGATION_BUSY: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.DELEGATION_NOT_FOUND: ErrorCode.INVALID_ARGUMENT,
     GatewayErrorCode.DELEGATION_UNAVAILABLE: ErrorCode.OPERATION_NOT_SUPPORTED,
+    GatewayErrorCode.MODEL_BORROWING_NOT_ALLOWED: ErrorCode.FORBIDDEN,
+    GatewayErrorCode.MODEL_BORROWING_UNAVAILABLE: ErrorCode.OPERATION_NOT_SUPPORTED,
+    GatewayErrorCode.MODEL_QUOTA_EXCEEDED: ErrorCode.RATE_LIMITED,
+    GatewayErrorCode.MODEL_BUSY: ErrorCode.RATE_LIMITED,
+    GatewayErrorCode.MODEL_CALL_FAILED: ErrorCode.INTERNAL,
 }
 
 
@@ -230,6 +243,33 @@ class FixedGatewayClient:
     async def cancel_delegation(self, delegation_id: DelegationId) -> DelegationRecord:
         """请对端停止处理这次委派。"""
         return await self._request_delegation("DELETE", f"/v1/delegations/{delegation_id}")
+
+    async def complete_model(self, call: BorrowedModelCall) -> BorrowedModelResult:
+        """向固定对端借用一次模型调用。"""
+        if call.caller_node_id != self._local_node_id:
+            raise ValueError("调用上下文 caller 与本地节点不一致")
+        async with self._http_client() as client:
+            try:
+                response = await client.post(
+                    "/v1/model:complete",
+                    content=call.model_dump_json(),
+                    headers={"Content-Type": "application/json"},
+                    timeout=MAX_MODEL_CALL_SECONDS + 10,
+                )
+            except httpx.TimeoutException as exc:
+                raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "连不上对方电脑") from exc
+            except httpx.RequestError as exc:
+                raise RemoteGatewayError(ErrorCode.NODE_UNREACHABLE, "连不上对方电脑") from exc
+        self._check_response_size(response, max_response_bytes=2_000_000)
+        if not response.is_success:
+            raise self._protocol_error(response)
+        try:
+            result = BorrowedModelResult.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "对方电脑的模型调用失败") from exc
+        if result.provider_node_id != self._remote_node_id:
+            raise RemoteGatewayError(ErrorCode.FORBIDDEN, "远端响应节点身份不匹配")
+        return result
 
     async def _request_delegation(
         self, method: str, path: str, *, content: str | None = None
@@ -405,8 +445,11 @@ class FixedGatewayClient:
             trust_env=False,
         )
 
-    def _check_response_size(self, response: httpx.Response) -> None:
-        if len(response.content) > self._max_response_bytes:
+    def _check_response_size(
+        self, response: httpx.Response, *, max_response_bytes: int | None = None
+    ) -> None:
+        budget = self._max_response_bytes if max_response_bytes is None else max_response_bytes
+        if len(response.content) > budget:
             raise RemoteGatewayError(ErrorCode.RESULT_TOO_LARGE, "远端响应超过客户端预算")
 
     @staticmethod
@@ -415,7 +458,9 @@ class FixedGatewayClient:
             value = GatewayErrorResponse.model_validate_json(response.content)
         except ValidationError:
             return RemoteGatewayError(ErrorCode.INTERNAL, "远端网关错误格式无效")
-        return RemoteGatewayError(_GATEWAY_ERROR_MAP[value.error.code], value.error.message)
+        return RemoteGatewayError(
+            _GATEWAY_ERROR_MAP[value.error.code], value.error.message, gateway_code=value.error.code
+        )
 
     def _local_failure(
         self,
