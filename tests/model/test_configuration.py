@@ -11,8 +11,10 @@ import httpx
 import pytest
 from pydantic import JsonValue
 
+from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.model.configuration import (
     MODEL_API_KEY_NAME,
+    BorrowedModelConfig,
     FileModelConfigurationRepository,
     ModelConfigurationInput,
     ModelConfigurationService,
@@ -42,12 +44,14 @@ class MemoryRepository:
     def __init__(self) -> None:
         self.value: OpenAICompatibleConfig | None = None
         self.saved: tuple[OpenAICompatibleConfig, ...] = ()
+        self.borrowed: BorrowedModelConfig | None = None
 
     def load(self) -> OpenAICompatibleConfig | None:
         return self.value
 
     def save(self, config: OpenAICompatibleConfig) -> None:
         self.value = config
+        self.borrowed = None
         self.saved = (
             config,
             *(
@@ -62,9 +66,17 @@ class MemoryRepository:
             return (self.value, *self.saved)
         return self.saved
 
+    def load_borrowed(self) -> BorrowedModelConfig | None:
+        return self.borrowed
+
+    def save_borrowed(self, config: BorrowedModelConfig) -> None:
+        self.borrowed = config
+        self.value = None
+
     def delete(self) -> None:
         self.value = None
         self.saved = ()
+        self.borrowed = None
 
 
 class MemorySecrets:
@@ -194,7 +206,7 @@ def test_file_repository_reads_legacy_config_and_upgrades_on_save(tmp_path: Path
     assert repository.load() == current
     assert repository.profiles() == (current, legacy)
     stored = path.read_text(encoding="utf-8")
-    assert '"version": 2' in stored
+    assert '"version": 3' in stored
     assert "api_key" not in stored
 
 
@@ -491,3 +503,149 @@ def test_unconfigured_view_does_not_read_secret_store() -> None:
     service = ModelConfigurationService(MemoryRepository(), RejectingSecrets())
 
     assert service.view().status == "unconfigured"
+
+
+@pytest.mark.parametrize("version", [2, 3])
+def test_file_repository_reads_versioned_state_and_saves_version_three(
+    tmp_path: Path, version: int
+) -> None:
+    path = tmp_path / "model.json"
+    config = input_config().provider_config()
+    path.write_text(
+        json.dumps(
+            {
+                "version": version,
+                "active": config.model_dump(mode="json"),
+                "profiles": [config.model_dump(mode="json")],
+            }
+        ),
+        encoding="utf-8",
+    )
+    repository = FileModelConfigurationRepository(path)
+    assert repository.load() == config
+    assert repository.load_borrowed() is None
+    assert repository.profiles() == (config,)
+    borrowed = BorrowedModelConfig(peer_node_id=NodeId.new())
+    repository.save_borrowed(borrowed)
+    assert repository.load() is None
+    assert repository.load_borrowed() == borrowed
+    assert repository.profiles() == (config,)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 3
+
+
+def test_file_repository_rejects_two_active_model_sources(tmp_path: Path) -> None:
+    config = input_config().provider_config().model_dump(mode="json")
+    path = tmp_path / "model.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "active": config,
+                "profiles": [config],
+                "borrowed": {"peer_node_id": str(NodeId.new())},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="不能同时启用"):
+        FileModelConfigurationRepository(path).load()
+
+
+def test_borrow_switches_sources_preserves_profiles_and_tracks_availability(tmp_path: Path) -> None:
+    peer = NodeId.new()
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    secrets = MemorySecrets()
+    remote = ValidationProvider()
+    current: list[ModelProvider] = [remote]
+
+    def factory(node_id: NodeId) -> ModelProvider:
+        assert node_id == peer
+        return current[0]
+
+    service = ModelConfigurationService(
+        repository, secrets, lambda _config, _key: ValidationProvider(), factory
+    )
+    local = input_config("saved-local-key")
+    asyncio.run(service.configure(local))
+    view = asyncio.run(service.borrow(peer))
+    assert view.borrowed_from == peer
+    assert view.status == "available"
+    assert view.endpoint is None and view.model is None and view.timeout_seconds is None
+    assert not view.api_key_configured
+    assert view.profiles[0].api_key_configured
+    assert repository.load() is None
+    assert repository.load_borrowed() == BorrowedModelConfig(peer_node_id=peer)
+    assert remote.calls == 2
+    assert service.create_provider() is remote
+    assert secrets.values == {model_api_key_name(local.endpoint): "saved-local-key"}
+
+    current[0] = ValidationProvider(
+        error=ProviderError(
+            ProviderErrorCode.BUSY, "对方电脑的模型正忙，请稍后再试", retryable=True
+        )
+    )
+    failed = asyncio.run(service.validate())
+    assert failed.borrowed_from == peer and failed.status == "unavailable"
+    assert failed.error_code is ProviderErrorCode.BUSY
+    with pytest.raises(ProviderError) as caught:
+        service.create_provider()
+    assert caught.value.retryable
+    current[0] = remote
+    assert asyncio.run(service.validate()).status == "available"
+    assert service.view().error_code is None
+
+    restored = asyncio.run(service.configure(input_config()))
+    assert restored.borrowed_from is None
+    assert repository.load_borrowed() is None
+    assert repository.load() == local.provider_config()
+    asyncio.run(service.borrow(peer))
+    service.delete()
+    assert repository.load_borrowed() is None
+    assert repository.profiles() == ()
+    assert secrets.values == {}
+    assert service.view().borrowed_from is None
+    assert service.view().status == "unconfigured"
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [
+        ValidationProvider(tool_name="wrong"),
+        ValidationProvider(structured={"status": "bad"}),
+        ValidationProvider(
+            error=ProviderError(ProviderErrorCode.QUOTA_EXCEEDED, "今天借用的额度已用完")
+        ),
+    ],
+)
+def test_failed_borrow_keeps_persisted_state_and_previous_error(
+    tmp_path: Path, provider: ModelProvider
+) -> None:
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    repository.save(input_config().provider_config())
+    error = ProviderError(ProviderErrorCode.TIMEOUT, "连不上对方电脑", retryable=True)
+    service = ModelConfigurationService(
+        repository,
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(error=error),
+        lambda _node: provider,
+    )
+    previous = asyncio.run(service.validate())
+    stored = (tmp_path / "model.json").read_bytes()
+    with pytest.raises(ProviderError):
+        asyncio.run(service.borrow(NodeId.new()))
+    assert service.view() == previous
+    assert (tmp_path / "model.json").read_bytes() == stored
+
+
+def test_borrow_requires_injected_factory_and_does_not_read_secrets() -> None:
+    repository = MemoryRepository()
+    secrets = MemorySecrets()
+    service = ModelConfigurationService(repository, secrets)
+    with pytest.raises(ProviderError) as caught:
+        asyncio.run(service.borrow(NodeId.new()))
+    assert caught.value.code is ProviderErrorCode.MODEL_NOT_FOUND
+    assert repository.borrowed is None
+    repository.save_borrowed(BorrowedModelConfig(peer_node_id=NodeId.new()))
+    assert service.view().status == "available"
+    assert secrets.reads == []
+    assert asyncio.run(service.validate()).status == "unavailable"

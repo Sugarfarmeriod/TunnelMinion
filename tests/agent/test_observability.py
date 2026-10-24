@@ -54,6 +54,16 @@ from tunnelminion.tools.contracts import ToolAdapterError
             FailureReason.CONTEXT_INVALID,
             FailureCategory.CONTEXT,
         ),
+        (
+            ProviderErrorCode.QUOTA_EXCEEDED,
+            FailureReason.MODEL_QUOTA_EXCEEDED,
+            FailureCategory.PROMPT_OR_MODEL,
+        ),
+        (
+            ProviderErrorCode.BUSY,
+            FailureReason.MODEL_BUSY,
+            FailureCategory.PROMPT_OR_MODEL,
+        ),
     ],
 )
 def test_provider_failures_use_stable_redacted_classification(

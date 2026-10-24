@@ -450,6 +450,20 @@ def test_runtime_package_detection_distinguishes_raw_freeze_and_source(tmp_path:
             "unavailable",
             False,
         ),
+        (
+            ModelConfigurationView(status="unavailable", error_code=ProviderErrorCode.BUSY),
+            ModelStatus.UNAVAILABLE,
+            "unavailable",
+            True,
+        ),
+        (
+            ModelConfigurationView(
+                status="unavailable", error_code=ProviderErrorCode.QUOTA_EXCEEDED
+            ),
+            ModelStatus.UNAVAILABLE,
+            "unavailable",
+            False,
+        ),
     ),
 )
 def test_model_states(

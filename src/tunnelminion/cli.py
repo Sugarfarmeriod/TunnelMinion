@@ -675,6 +675,28 @@ def _create_operation_preauthorization(values: list[str]) -> int:
     return 0
 
 
+def _borrow_model(values: list[str]) -> int:
+    """验证并启用固定对端的借用模型。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("model-borrow")
+    parser.add_argument("--from", dest="peer_node_id", required=True)
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+
+    from tunnelminion.app import build_windows_node
+    from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.macos_app import build_macos_local_application
+
+    service = (
+        build_macos_local_application(args.data_dir).node.model_service
+        if sys.platform == "darwin"
+        else build_windows_node(args.data_dir).model_service
+    )
+    view = asyncio.run(service.borrow(NodeId(args.peer_node_id)))
+    print(view.model_dump_json())
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
@@ -700,6 +722,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _approve_operation(values)
     if values and values[0] == "operation-preauthorize":
         return _create_operation_preauthorization(values)
+    if values and values[0] == "model-borrow":
+        return _borrow_model(values)
     if values and values[0] == "gateway":
         parser = argparse.ArgumentParser(description="启动只读 Tool Gateway")
         parser.add_argument("gateway")
