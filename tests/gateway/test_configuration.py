@@ -159,8 +159,7 @@ def test_configuration_rejects_wireguard_keys_and_missing_credentials(tmp_path: 
         FileGatewayConfigurationRepository(tmp_path / "no-peer.json"), MemorySecrets()
     )
     no_peer.configure_local(GatewayBindConfig(host="10.77.0.1"))
-    with pytest.raises(ValueError, match="至少需要一个"):
-        no_peer.build_security_policy()
+    assert no_peer.build_security_policy().authenticate(f"Bearer {token}") is None
 
 
 def test_gateway_secret_store_selection_is_explicit_and_persistent(tmp_path: Path) -> None:

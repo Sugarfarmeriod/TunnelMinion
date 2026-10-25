@@ -12,6 +12,7 @@ from tunnelminion.agent.conversation import InMemoryConversationService
 from tunnelminion.agent.delegation import DelegationService
 from tunnelminion.agent.delegation_tool import register_delegate_tool
 from tunnelminion.agent.diagnostics import CrossNodeDiagnosticAgent, CrossNodeDiagnosticWorkflow
+from tunnelminion.agent.invites import InviteService
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
@@ -311,23 +312,18 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
     view = gateway_service.view()
     if not view.configured or view.bind is None:
         raise RuntimeError("尚未配置 Windows Tool Gateway WireGuard 监听地址")
-    # 只有本机明确允许了至少一个对端委派时，才在网关里处理委派。
-    delegation_service = (
-        DelegationService(
-            node.node_id,
-            node.stores.delegations,
-            node.create_read_only_agent,
-            lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.WINDOWS)),
-        )
-        if any(peer.allow_delegation for peer in view.peers)
-        else None
+    security_policy = gateway_service.build_security_policy()
+    delegation_service = DelegationService(
+        node.node_id,
+        node.stores.delegations,
+        node.create_read_only_agent,
+        lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.WINDOWS)),
     )
-    model_lending_service = (
-        ModelLendingService(
-            node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
-        )
-        if any(peer.allow_model_borrowing for peer in view.peers)
-        else None
+    model_lending_service = ModelLendingService(
+        node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
+    )
+    invite_service = InviteService(
+        node.node_id, Platform.WINDOWS, gateway_service, node.stores.invites, security_policy
     )
     app = FastAPI(
         title="TunnelMinion Tool Gateway", docs_url=None, redoc_url=None, openapi_url=None
@@ -338,10 +334,11 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
             Platform.WINDOWS,
             node.tool_registry,
             node.tool_runtime,
-            gateway_service.build_security_policy(),
+            security_policy,
             InMemoryGatewaySecurityAuditSink(),
             delegation_service=delegation_service,
             model_lending_service=model_lending_service,
+            invite_service=invite_service,
         )
     )
     return WindowsGatewayApplication(

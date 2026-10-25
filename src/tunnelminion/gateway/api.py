@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from time import monotonic
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
 
@@ -15,6 +17,7 @@ from fastapi.responses import JSONResponse
 from tunnelminion.domain.delegation import DelegationBusyError, DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import DelegationId, NodeId
+from tunnelminion.domain.invites import InviteAcceptance, InviteAccepted
 from tunnelminion.domain.model_borrowing import BorrowedModelCall, BorrowedModelResult
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion, VersionCompatibility
@@ -46,6 +49,7 @@ from tunnelminion.tools.runtime import ToolRuntime
 
 if TYPE_CHECKING:
     from tunnelminion.agent.delegation import DelegationService
+    from tunnelminion.agent.invites import InviteService
     from tunnelminion.agent.model_lending import ModelLendingService
 
 
@@ -131,9 +135,11 @@ def create_gateway_router(
     operation_service: TargetOperationGatewayService | None = None,
     delegation_service: DelegationService | None = None,
     model_lending_service: ModelLendingService | None = None,
+    invite_service: InviteService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter()
+    invite_attempts: deque[float] = deque()
 
     def reject(
         status_code: int,
@@ -168,6 +174,42 @@ def create_gateway_router(
                 peer,
             )
         return peer
+
+    async def accept_invite(
+        http_request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> InviteAccepted | JSONResponse:
+        now = monotonic()
+        while invite_attempts and now - invite_attempts[0] >= 60:
+            invite_attempts.popleft()
+        if len(invite_attempts) >= 10:
+            return reject(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                GatewayErrorCode.RATE_LIMITED,
+                "节点请求速率超过限制",
+                "invite_accept",
+            )
+        invite_attempts.append(now)
+        try:
+            if (
+                invite_service is None
+                or authorization is None
+                or not authorization.startswith("Bearer ")
+            ):
+                raise ValueError("invite_invalid")
+            acceptance = InviteAcceptance.model_validate_json(await http_request.body())
+            return invite_service.accept(
+                authorization.removeprefix("Bearer "),
+                acceptance,
+                http_request.client.host if http_request.client is not None else "",
+            )
+        except Exception:
+            return reject(
+                status.HTTP_401_UNAUTHORIZED,
+                GatewayErrorCode.INVITE_INVALID,
+                "邀请码无效、已过期或已被使用",
+                "invite_accept",
+            )
 
     async def capabilities(
         protocol_major: int = Query(default=1, ge=0),
@@ -619,6 +661,7 @@ def create_gateway_router(
         record = await service.cancel(identifier, peer.node_id) if identifier is not None else None
         return record if record is not None else not_found("delegation_cancel", peer)
 
+    router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(
         "/v1/model:complete", model_complete, methods=["POST"], response_model=None
     )

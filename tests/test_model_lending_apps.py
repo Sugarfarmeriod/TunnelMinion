@@ -34,7 +34,7 @@ from tunnelminion.model.configuration import ModelConfigurationService
 
 @pytest.mark.parametrize("platform", [Platform.WINDOWS, Platform.MACOS])
 @pytest.mark.parametrize("allow", [False, True])
-def test_gateways_build_model_lending_only_for_allowed_peers_and_use_the_node_provider_and_sqlite(
+def test_gateways_always_build_model_lending_but_gate_peers_and_use_the_node_provider_and_sqlite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     platform: Platform,
@@ -70,8 +70,8 @@ def test_gateways_build_model_lending_only_for_allowed_peers_and_use_the_node_pr
         if platform is Platform.WINDOWS
         else build_macos_gateway_application(tmp_path)
     )
-    assert (bundle.model_lending_service is not None) is allow
-    assert bundle.delegation_service is None and not factory_calls
+    assert bundle.model_lending_service is not None
+    assert bundle.delegation_service is not None and not factory_calls
 
     async def scenario() -> None:
         async with httpx.AsyncClient(
@@ -80,7 +80,7 @@ def test_gateways_build_model_lending_only_for_allowed_peers_and_use_the_node_pr
             response = await client.post(
                 "/v1/model:complete", json=call().model_dump(mode="json"), headers=AUTH
             )
-        assert response.status_code == (200 if allow else 503)
+        assert response.status_code == (200 if allow else 403)
         if allow:
             assert str(bundle.node_id) in response.text
 

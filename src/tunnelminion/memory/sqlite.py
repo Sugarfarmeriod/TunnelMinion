@@ -20,6 +20,7 @@ from tunnelminion.domain.identifiers import (
     RunId,
     ThreadId,
 )
+from tunnelminion.domain.invites import InvitePermissions
 from tunnelminion.domain.model_borrowing import ModelUsageRecord
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.memory.contracts import (
@@ -78,6 +79,14 @@ class _SQLiteDatabase:
                     calls INTEGER NOT NULL,
                     tokens INTEGER NOT NULL,
                     PRIMARY KEY(peer_node_id, day)
+                );
+                CREATE TABLE IF NOT EXISTS gateway_invites (
+                    token_digest BLOB PRIMARY KEY,
+                    permissions_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    accepted_at TEXT,
+                    accepted_node_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
                     artifact_id TEXT PRIMARY KEY,
@@ -691,6 +700,43 @@ class SQLiteModelUsageStore:
         )
 
 
+class SQLiteInviteStore:
+    """只存令牌摘要，以单条更新消费邀请码。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def create(
+        self,
+        digest: bytes,
+        permissions: InvitePermissions,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO gateway_invites
+                (token_digest, permissions_json, created_at, expires_at) VALUES (?, ?, ?, ?)""",
+                (
+                    digest,
+                    permissions.model_dump_json(),
+                    created_at.astimezone(UTC).isoformat(),
+                    expires_at.astimezone(UTC).isoformat(),
+                ),
+            )
+
+    def accept(self, digest: bytes, node_id: NodeId, now: datetime) -> InvitePermissions | None:
+        timestamp = now.astimezone(UTC).isoformat()
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """UPDATE gateway_invites SET accepted_at=?, accepted_node_id=?
+                WHERE token_digest=? AND accepted_at IS NULL AND expires_at > ?
+                RETURNING permissions_json""",
+                (timestamp, str(node_id), digest, timestamp),
+            ).fetchone()
+        return InvitePermissions.model_validate_json(row[0]) if row is not None else None
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -704,6 +750,7 @@ class SQLiteStores:
     service_marks: SQLiteServiceMarkStore
     delegations: SQLiteDelegationStore
     model_usage: SQLiteModelUsageStore
+    invites: SQLiteInviteStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -719,4 +766,5 @@ class SQLiteStores:
             service_marks=SQLiteServiceMarkStore(database),
             delegations=SQLiteDelegationStore(database),
             model_usage=SQLiteModelUsageStore(database),
+            invites=SQLiteInviteStore(database),
         )

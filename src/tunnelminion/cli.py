@@ -12,14 +12,6 @@ from pathlib import Path
 
 import uvicorn
 
-_MACOS_READ_ONLY_TOOLS = (
-    "get_wireguard_status",
-    "list_network_listeners",
-    "get_process_summary",
-    "list_docker_services",
-    "probe_service_reachability",
-    "get_node_summary",
-)
 _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
@@ -480,6 +472,7 @@ def _uninstall_data(values: list[str]) -> int:
 def _configure_gateway(values: list[str]) -> int:
     """从标准输入接收一次性 token，配置 B 网关而不回显秘密。"""
     from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
+    from tunnelminion.gateway.configuration import DEFAULT_GATEWAY_TOOLS
 
     parser = argparse.ArgumentParser(description="配置只读 Tool Gateway 与对端")
     parser.add_argument("gateway-configure")
@@ -490,7 +483,7 @@ def _configure_gateway(values: list[str]) -> int:
     parser.add_argument("--peer-platform", choices=("windows", "macos"), required=True)
     parser.add_argument("--peer-host", required=True)
     parser.add_argument("--peer-port", type=int, default=8787)
-    parser.add_argument("--allowed-tool", action="append", choices=_MACOS_READ_ONLY_TOOLS)
+    parser.add_argument("--allowed-tool", action="append", choices=DEFAULT_GATEWAY_TOOLS)
     parser.add_argument(
         "--allowed-operation",
         action="append",
@@ -542,7 +535,7 @@ def _configure_gateway(values: list[str]) -> int:
                 platform=Platform(args.peer_platform),
                 host=args.peer_host,
                 port=args.peer_port,
-                allowed_tools=frozenset(args.allowed_tool or _MACOS_READ_ONLY_TOOLS),
+                allowed_tools=frozenset(args.allowed_tool or DEFAULT_GATEWAY_TOOLS),
                 allowed_operations=frozenset(args.allowed_operation or ()),
                 allow_delegation=args.allow_delegation,
                 allow_model_borrowing=args.allow_model_borrowing,
@@ -557,6 +550,71 @@ def _configure_gateway(values: list[str]) -> int:
             ensure_ascii=False,
         )
     )
+    return 0
+
+
+def _invite(values: list[str]) -> int:
+    """生成仅可用一次的邀请码，必要时配置本机网关地址。"""
+    from tunnelminion.agent.invites import InviteService
+    from tunnelminion.app import default_data_dir, load_or_create_node_id
+    from tunnelminion.domain.invites import InvitePermissions
+    from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
+    from tunnelminion.domain.tools import Platform
+    from tunnelminion.gateway.configuration import (
+        FileGatewayConfigurationRepository,
+        GatewayConfigurationService,
+        GatewaySecretStoreKind,
+        configure_gateway_secret_store,
+        gateway_secret_store,
+    )
+    from tunnelminion.gateway.security import GatewayBindConfig
+    from tunnelminion.memory.sqlite import SQLiteStores
+
+    parser = argparse.ArgumentParser(description="生成 TunnelMinion 邀请码")
+    parser.add_argument("invite")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--bind-host")
+    parser.add_argument("--bind-port", type=int, default=8787)
+    parser.add_argument("--allow-delegation", action="store_true")
+    parser.add_argument("--allow-model-borrowing", action="store_true")
+    parser.add_argument("--daily-quota", type=int, default=DEFAULT_DAILY_TOKEN_QUOTA)
+    parser.add_argument("--secret-store", choices=("keyring", "restricted-file"))
+    args = parser.parse_args(values)
+    permissions = InvitePermissions(
+        allow_delegation=args.allow_delegation,
+        allow_model_borrowing=args.allow_model_borrowing,
+        daily_quota=args.daily_quota,
+    )
+    root = args.data_dir or default_data_dir()
+    configuration = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(root / "gateway.json"),
+        (
+            configure_gateway_secret_store(root, GatewaySecretStoreKind(args.secret_store))
+            if args.secret_store is not None
+            else gateway_secret_store(root)
+        ),
+    )
+    if not configuration.view().configured:
+        if args.bind_host is None:
+            print("本机网关还没有配置，请加上 --bind-host <本机组网地址>")
+            return 2
+        configuration.configure_local(GatewayBindConfig(host=args.bind_host, port=args.bind_port))
+    service = InviteService(
+        load_or_create_node_id(root / "node-id"),
+        Platform.MACOS if sys.platform == "darwin" else Platform.WINDOWS,
+        configuration,
+        SQLiteStores.open(root / "runtime.sqlite3").invites,
+    )
+    code = service.create(permissions).encode()
+    print(
+        f"邀请码（24 小时内有效，只能用一次）：\n{code}\n\n"
+        f"在要加入的电脑上运行：\ntunnelminion join {code}\n\n"
+        "提醒：网关要保持运行，对方才能加入。"
+    )
+    if args.allow_model_borrowing:
+        print(
+            f"对方借用模型时，他发出的问题会经过本机的模型；每天额度 {args.daily_quota} 个 token。"
+        )
     return 0
 
 
@@ -712,6 +770,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _uninstall_data(values)
     if values and values[0] == "gateway-configure":
         return _configure_gateway(values)
+    if values and values[0] == "invite":
+        return _invite(values)
     if values and values[0] == "model-usage":
         return _model_usage(values)
     if values and values[0] == "coordinator-enroll":

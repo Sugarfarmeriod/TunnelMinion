@@ -26,6 +26,14 @@ from tunnelminion.model.secrets import (
 )
 
 GATEWAY_TOKEN_PREFIX = "tmn_"
+DEFAULT_GATEWAY_TOOLS = (
+    "get_wireguard_status",
+    "list_network_listeners",
+    "get_process_summary",
+    "list_docker_services",
+    "probe_service_reachability",
+    "get_node_summary",
+)
 DEFAULT_REQUESTER_CALLBACK_PORT = 18_900
 _SECRET_STORE_MARKER = "gateway-secret-store"
 

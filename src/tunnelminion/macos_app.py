@@ -16,6 +16,7 @@ from starlette.types import Lifespan
 from tunnelminion.agent.conversation import InMemoryConversationService
 from tunnelminion.agent.delegation import DelegationService
 from tunnelminion.agent.delegation_tool import register_delegate_tool
+from tunnelminion.agent.invites import InviteService
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.managed_application import (
     ManagedNodeApplication,
@@ -544,23 +545,17 @@ def build_macos_gateway_application(
     operation_workflow: OperationWorkflow | None = None
     lifespan = None
     stores = SQLiteStores.open(node.root / "runtime.sqlite3")
-    # 只有本机明确允许了至少一个对端委派时，才在网关里处理委派。
-    delegation_service = (
-        DelegationService(
-            node.node_id,
-            stores.delegations,
-            lambda: _create_macos_read_only_agent(node),
-            lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.MACOS)),
-        )
-        if any(peer.allow_delegation for peer in view.peers)
-        else None
+    delegation_service = DelegationService(
+        node.node_id,
+        stores.delegations,
+        lambda: _create_macos_read_only_agent(node),
+        lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.MACOS)),
     )
-    model_lending_service = (
-        ModelLendingService(
-            node.node_id, node.model_service.create_lending_provider, stores.model_usage
-        )
-        if any(peer.allow_model_borrowing for peer in view.peers)
-        else None
+    model_lending_service = ModelLendingService(
+        node.node_id, node.model_service.create_lending_provider, stores.model_usage
+    )
+    invite_service = InviteService(
+        node.node_id, Platform.MACOS, gateway_service, stores.invites, security_policy
     )
     if safe_sharing is not None:
         operation_peers = tuple(
@@ -620,6 +615,7 @@ def build_macos_gateway_application(
             operation_service,
             delegation_service,
             model_lending_service,
+            invite_service=invite_service,
         )
     )
     return MacOSGatewayApplication(
