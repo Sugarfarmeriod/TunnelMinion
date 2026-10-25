@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 修服务草图</title>
+<link rel="stylesheet" href="agent-fix.css">
+</head>
+<body>
+<div class="bar">
+  <h1>我的服务网络</h1>
+  <span class="sub">草图：Agent 提出修法 → 本机批准 → 自己验证（数据是假的）</span>
+  <div class="right">
+    <label class="opt"><input type="checkbox" id="fail"> 模拟：没修好</label>
+    <label class="opt"><input type="checkbox" id="remote"> 模拟：在另一台电脑上代批准</label>
+    <button class="link" id="reset" type="button">重新开始</button>
+    <a href="pixel.html">回到像素拓扑</a>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="stage">
+    <svg viewBox="0 0 520 300" shape-rendering="crispEdges" aria-label="Mac mini 头上冒出感叹号">
+      <rect width="520" height="300" fill="#262b44"/>
+      <g class="pc" id="pc">
+        <rect x="200" y="110" width="120" height="84" fill="#566c86"/>
+        <rect x="210" y="120" width="100" height="62" class="screen" id="screen"/>
+        <rect x="244" y="194" width="32" height="12" fill="#566c86"/>
+        <rect x="220" y="206" width="80" height="10" fill="#94b0c2"/>
+        <text x="260" y="244" class="label">Mac mini</text>
+        <text x="260" y="266" class="state" id="pcState">有 1 件事要处理</text>
+      </g>
+      <g class="bang" id="bang">
+        <rect x="246" y="56" width="28" height="40" fill="#e05265"/>
+        <rect x="256" y="62" width="8" height="18" fill="#f4f4f4"/>
+        <rect x="256" y="84" width="8" height="6" fill="#f4f4f4"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="box pop">
+    <div class="head"><h2>Mac mini</h2><span class="muted">3 个服务</span></div>
+    <div class="box warn" id="todo">
+      <div class="t">相册打不开</div>
+      <div>两个容器 13 分钟前都退出了。Agent 建议重启。</div>
+      <button class="btn go" id="openFix" type="button">看看怎么修</button>
+    </div>
+    <div class="svc"><i class="sq red" id="photoDot"></i><span class="n">相册（Docker）</span><span class="muted" id="photoState">打不开</span></div>
+    <div class="svc"><i class="sq green"></i><span class="n">Penpot（Docker）</span><span class="muted">正常</span></div>
+    <div class="svc"><i class="sq grey"></i><span class="n">数据清洗脚本（Python）</span><span class="muted">已停止</span></div>
+  </div>
+
+  <div class="dialog box">
+    <div class="who" id="who">这台电脑的 Agent</div>
+    <div id="chat">我查了一下：相册的两个容器 13 分钟前都退出了，日志里最后一行是"收到停止信号"，不像程序本身出错。我建议重启这一组容器，请在 Mac mini 头上的感叹号里批准。</div>
+  </div>
+</div>
+
+<div class="mask" id="mask" hidden>
+  <div class="box modal" role="dialog" aria-modal="true" aria-labelledby="fixTitle">
+    <div class="from" id="from" hidden>由 Mac mini 的 Agent 提出 · Mac mini 允许这台电脑替它批准</div>
+    <h2 id="fixTitle">要修好"相册"吗？</h2>
+
+    <div id="ask">
+      <dl>
+        <dt>要做什么</dt>
+        <dd>重启 Docker 容器组 <b>photos</b>（2 个容器）</dd>
+        <dt>为什么</dt>
+        <dd>两个容器 13 分钟前都退出了；端口 2342 现在没人在听；日志最后一行是"收到停止信号"。</dd>
+        <dt>会有什么影响</dt>
+        <dd>重启大约需要半分钟，这期间相册打不开；正在上传的照片可能要重新传。不会删除任何照片或设置。</dd>
+        <dt>怎么确认修好</dt>
+        <dd>重启后我会再打开一次相册首页。</dd>
+        <dt>没修好怎么办</dt>
+        <dd>我会停下来，告诉你卡在哪，不会反复重启。</dd>
+      </dl>
+      <details>
+        <summary>高级：将执行的命令</summary>
+        <code>docker start photos-app-1 photos-db-1</code>
+      </details>
+      <div class="acts">
+        <button class="btn go" id="approve" type="button">批准并修复</button>
+        <button class="btn" id="later" type="button">先不用</button>
+        <span class="muted expire">10 分钟内有效</span>
+      </div>
+    </div>
+
+    <div id="run" hidden>
+      <ol class="steps">
+        <li id="s1">再核对一次：容器还是原来那两个</li>
+        <li id="s2">正在重启容器</li>
+        <li id="s3">正在确认：打开相册首页</li>
+      </ol>
+      <div class="result" id="result" hidden></div>
+      <div class="acts"><button class="btn" id="close" type="button" hidden>关闭</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="agent-fix.js"></script>
+</body>
+</html>
