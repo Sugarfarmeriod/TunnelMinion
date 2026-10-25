@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 import subprocess
 import sys
@@ -548,6 +549,9 @@ def test_cli_entry_points_load_without_circular_imports(command: str) -> None:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        # 帮助文本是中文；英文 Windows 的默认输出编码打印不了，这里只检查导入。
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         check=False,
     )
     assert result.returncode == 0, result.stderr
