@@ -471,6 +471,7 @@ def _uninstall_data(values: list[str]) -> int:
 
 def _configure_gateway(values: list[str]) -> int:
     """从标准输入接收一次性 token，配置 B 网关而不回显秘密。"""
+    from tunnelminion.app import default_data_dir, load_or_create_node_id
     from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
     from tunnelminion.gateway.configuration import DEFAULT_GATEWAY_TOOLS
 
@@ -507,7 +508,6 @@ def _configure_gateway(values: list[str]) -> int:
     )
     args = parser.parse_args(values)
 
-    from tunnelminion.app import default_data_dir, load_or_create_node_id
     from tunnelminion.domain.identifiers import NodeId
     from tunnelminion.domain.tools import Platform
     from tunnelminion.gateway.configuration import (
@@ -755,6 +755,65 @@ def _borrow_model(values: list[str]) -> int:
     return 0
 
 
+def _join(values: list[str]) -> int:
+    """解析邀请码并加入对方电脑。"""
+    from tunnelminion.agent.join import JoinError, join
+    from tunnelminion.domain.invites import InviteCode
+    from tunnelminion.gateway.client import InviteHandshakeError
+    from tunnelminion.gateway.configuration import GatewaySecretStoreKind
+
+    parser = argparse.ArgumentParser(description="用邀请码加入对方电脑")
+    parser.add_argument("join")
+    parser.add_argument("code")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--host")
+    parser.add_argument("--bind-port", type=_runtime_port, default=8787)
+    parser.add_argument("--secret-store", choices=("keyring", "restricted-file"))
+    model = parser.add_mutually_exclusive_group()
+    model.add_argument("--use-borrowed-model", dest="use_borrowed_model", action="store_true")
+    model.add_argument("--keep-model", dest="use_borrowed_model", action="store_false")
+    parser.set_defaults(use_borrowed_model=None)
+    args = parser.parse_args(values)
+    try:
+        code = InviteCode.decode(args.code)
+    except ValueError:
+        print("这不是有效的邀请码", file=sys.stderr)
+        return 1
+    try:
+        asyncio.run(
+            join(
+                code,
+                data_dir=args.data_dir,
+                host_override=args.host,
+                bind_port=args.bind_port,
+                secret_store_kind=(
+                    GatewaySecretStoreKind(args.secret_store)
+                    if args.secret_store is not None
+                    else None
+                ),
+                use_borrowed_model=args.use_borrowed_model,
+            )
+        )
+    except JoinError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except InviteHandshakeError as exc:
+        message = {
+            "invalid": "邀请码无效、已过期或已被使用",
+            "rate_limited": "对方电脑暂时拒绝了请求，请稍后再试",
+            "unreachable": (
+                f"连不上对方电脑（{code.host}:{code.port}）。请确认组网已连通、对方的网关正在运行"
+            ),
+            "bad_response": "这不是有效的邀请码",
+        }[exc.reason]
+        print(message, file=sys.stderr)
+        return 1
+    except ValueError:
+        print("这不是有效的邀请码", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
@@ -784,6 +843,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _create_operation_preauthorization(values)
     if values and values[0] == "model-borrow":
         return _borrow_model(values)
+    if values and values[0] == "join":
+        return _join(values)
     if values and values[0] == "gateway":
         parser = argparse.ArgumentParser(description="启动只读 Tool Gateway")
         parser.add_argument("gateway")
