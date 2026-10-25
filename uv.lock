@@ -2088,6 +2088,7 @@ dependencies = [
     { name = "keyring" },
     { name = "langchain" },
     { name = "langchain-openai" },
+    { name = "mcp" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
@@ -2102,7 +2103,6 @@ dependencies = [
 dev = [
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "mcp" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2120,6 +2120,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.6,<26" },
     { name = "langchain", specifier = ">=1,<2" },
     { name = "langchain-openai", specifier = ">=1,<2" },
+    { name = "mcp", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-sdk", specifier = ">=1.45.1,<2" },
@@ -2134,7 +2135,6 @@ requires-dist = [
 dev = [
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "mcp", specifier = ">=1.30,<2" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=6.0" },

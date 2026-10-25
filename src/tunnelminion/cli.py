@@ -922,6 +922,17 @@ def _join(values: list[str]) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "mcp":
+        parser = argparse.ArgumentParser(
+            description="以 MCP（stdio）方式开放本机只读诊断工具，供 Claude Code 等外部 Agent 调用"
+        )
+        parser.add_argument("mcp")
+        parser.add_argument("--data-dir", type=Path, help="本机数据目录")
+        args = parser.parse_args(values)
+        from tunnelminion.mcp_server import run_mcp_server
+
+        asyncio.run(run_mcp_server(args.data_dir))
+        return 0
     if values and values[0] == "runtime":
         return _runtime_command(values)
     if values and values[0] == "runtime-package":
