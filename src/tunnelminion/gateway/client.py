@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from typing import cast
+from typing import Literal, cast
 
 import httpx
 from pydantic import JsonValue, ValidationError
@@ -12,6 +12,7 @@ from pydantic import JsonValue, ValidationError
 from tunnelminion.domain.delegation import DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId, ToolRunId
+from tunnelminion.domain.invites import InviteAcceptance, InviteAccepted, InviteCode
 from tunnelminion.domain.model_borrowing import (
     MAX_MODEL_CALL_SECONDS,
     BorrowedModelCall,
@@ -37,6 +38,58 @@ from tunnelminion.tools.contracts import (
     ToolCancellationToken,
     ToolExecutionStatus,
 )
+
+
+class InviteHandshakeError(RuntimeError):
+    """邀请码握手失败，不包含令牌或远端响应正文。"""
+
+    def __init__(
+        self, reason: Literal["invalid", "rate_limited", "unreachable", "bad_response"]
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def accept_invite(
+    code: InviteCode,
+    acceptance: InviteAcceptance,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> InviteAccepted:
+    """用邀请码令牌向邀请方报到，尚不依赖本机 peer 配置。"""
+    try:
+        async with httpx.AsyncClient(
+            base_url=httpx.URL(scheme="http", host=code.host, port=code.port),
+            headers={"Authorization": f"Bearer {code.token}"},
+            timeout=15,
+            transport=transport,
+            trust_env=False,
+        ) as client:
+            response = await client.post(
+                "/v1/invites:accept",
+                content=acceptance.model_dump_json(),
+                headers={"Content-Type": "application/json"},
+            )
+    except httpx.RequestError as exc:
+        raise InviteHandshakeError("unreachable") from exc
+    except httpx.InvalidURL as exc:
+        raise InviteHandshakeError("bad_response") from exc
+    if len(response.content) > 512_000:
+        raise InviteHandshakeError("bad_response")
+    try:
+        if response.status_code == 200:
+            accepted = InviteAccepted.model_validate_json(response.content)
+            if accepted.inviter_node_id != code.node_id:
+                raise InviteHandshakeError("bad_response")
+            return accepted
+        error = GatewayErrorResponse.model_validate_json(response.content).error.code
+    except ValidationError as exc:
+        raise InviteHandshakeError("bad_response") from exc
+    if response.status_code == 401 and error is GatewayErrorCode.INVITE_INVALID:
+        raise InviteHandshakeError("invalid")
+    if response.status_code == 429 and error is GatewayErrorCode.RATE_LIMITED:
+        raise InviteHandshakeError("rate_limited")
+    raise InviteHandshakeError("bad_response")
 
 
 class RemoteGatewayError(RuntimeError):
@@ -71,6 +124,7 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.MODEL_QUOTA_EXCEEDED: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.MODEL_BUSY: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.MODEL_CALL_FAILED: ErrorCode.INTERNAL,
+    GatewayErrorCode.INVITE_INVALID: ErrorCode.UNAUTHENTICATED,
 }
 
 

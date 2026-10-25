@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.coordinator.contracts import DirectoryFreshness, NodeStatus
 from tunnelminion.coordinator.identity import (
     AssertionVerificationError,
@@ -26,6 +26,9 @@ from tunnelminion.network.path_controller import (
     GatewayPathEndpoint,
     select_gateway_endpoint,
 )
+
+if TYPE_CHECKING:
+    from tunnelminion.agent.coordinator import CoordinatorCache
 
 
 class GatewayBindConfig(BaseModel):
@@ -144,8 +147,6 @@ class GatewaySecurityPolicy:
     ) -> None:
         values = tuple(peers)
         managed = tuple(managed_peers)
-        if not values and not managed:
-            raise ValueError("Tool Gateway 至少需要一个已配置 peer")
         if len({str(item.node_id) for item in values}) != len(values):
             raise ValueError("Tool Gateway peer node ID 不得重复")
         if len({str(item.node_id) for item in managed}) != len(managed):
@@ -161,6 +162,10 @@ class GatewaySecurityPolicy:
         self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
         self._managed_path_endpoint = managed_path_endpoint
         self._requests: defaultdict[str, deque[float]] = defaultdict(deque)
+
+    def upsert_static_peer(self, peer: GatewayPeerPolicy) -> None:
+        """替换单个静态 peer，保留其他 peer 和已有速率窗口。"""
+        self._peers = (*(item for item in self._peers if item.node_id != peer.node_id), peer)
 
     def authenticate(
         self,

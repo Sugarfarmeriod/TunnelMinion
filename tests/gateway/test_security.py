@@ -65,10 +65,26 @@ def test_peer_policy_hashes_token_and_validates_configuration() -> None:
         GatewayPeerPolicy.from_token(node, "short", ["read_status"])
     with pytest.raises(ValueError, match="至少需要一个"):
         GatewayPeerPolicy.from_token(node, TOKEN, [])
-    with pytest.raises(ValueError, match="至少需要一个"):
-        GatewaySecurityPolicy([])
+    assert GatewaySecurityPolicy([]).authenticate(f"Bearer {TOKEN}") is None
     with pytest.raises(ValueError, match="不得重复"):
         GatewaySecurityPolicy([peer, peer])
+
+
+def test_static_peer_can_be_added_and_replaced_without_losing_other_peers() -> None:
+    policy = GatewaySecurityPolicy([])
+    first = GatewayPeerPolicy.from_token(NodeId.new(), TOKEN, ["read_status"])
+    other_token = "other-independent-token-with-more-than-32-characters"
+    other = GatewayPeerPolicy.from_token(NodeId.new(), other_token, ["read_status"])
+    policy.upsert_static_peer(first)
+    policy.upsert_static_peer(other)
+    replacement_token = "replacement-independent-token-with-more-than-32-characters"
+    replacement = GatewayPeerPolicy.from_token(
+        first.node_id, replacement_token, ["read_other"], allow_delegation=True
+    )
+    policy.upsert_static_peer(replacement)
+    assert policy.authenticate(f"Bearer {TOKEN}") is None
+    assert policy.authenticate(f"Bearer {replacement_token}") == replacement
+    assert policy.authenticate(f"Bearer {other_token}") == other
 
 
 def test_rate_limit_uses_per_peer_sliding_window() -> None:

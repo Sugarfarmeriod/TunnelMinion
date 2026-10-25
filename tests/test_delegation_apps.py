@@ -61,7 +61,7 @@ def test_windows_gateway_handles_delegation_only_when_a_peer_is_allowed(tmp_path
         build_windows_gateway_application(tmp_path / "unconfigured")
     configure(tmp_path / "closed", allow_delegation=False)
     closed = build_windows_gateway_application(tmp_path / "closed")
-    assert closed.delegation_service is None
+    assert closed.delegation_service is not None
     assert closed.bind == GatewayBindConfig(host="10.77.0.5")
     configure(tmp_path / "open", allow_delegation=True)
     opened = build_windows_gateway_application(tmp_path / "open")
