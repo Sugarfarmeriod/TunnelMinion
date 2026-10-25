@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, HTTPException, Response, status
 
 from tunnelminion.model.configuration import (
+    BorrowedModelConfig,
     ModelConfigurationInput,
     ModelConfigurationService,
     ModelConfigurationView,
@@ -38,6 +39,16 @@ def create_model_router(service: ModelConfigurationService) -> APIRouter:
         except ProviderError as exc:
             raise _http_error(exc, status.HTTP_409_CONFLICT) from exc
 
+    async def put_borrowed_model(value: BorrowedModelConfig) -> ModelConfigurationView:
+        try:
+            return await service.borrow(value.peer_node_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="gateway_model_peer_not_found"
+            ) from exc
+        except ProviderError as exc:
+            raise _http_error(exc, status.HTTP_422_UNPROCESSABLE_CONTENT) from exc
+
     def delete_model_config() -> Response:
         service.delete()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -68,6 +79,12 @@ def create_model_router(service: ModelConfigurationService) -> APIRouter:
         "/model-config/validate",
         validate_model_config,
         methods=["POST"],
+        response_model=ModelConfigurationView,
+    )
+    router.add_api_route(
+        "/model/borrowed",
+        put_borrowed_model,
+        methods=["PUT"],
         response_model=ModelConfigurationView,
     )
     router.add_api_route(

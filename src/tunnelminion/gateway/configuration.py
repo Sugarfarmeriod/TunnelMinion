@@ -11,6 +11,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import (
     GatewayBindConfig,
@@ -72,6 +73,10 @@ class GatewayPeerConfig(BaseModel):
     allowed_operations: frozenset[str] = frozenset()
     # 是否允许这个对端把问题交给本机的 Agent 处理；默认关闭，由本机明确打开。
     allow_delegation: bool = False
+    # 是否允许这个对端借用本机配置的模型；默认关闭，由本机明确打开。
+    allow_model_borrowing: bool = False
+    # 允许借用时，这个对端每天最多能用的 token 数。
+    daily_quota: int = Field(default=DEFAULT_DAILY_TOKEN_QUOTA, ge=1, le=100_000_000)
 
     def endpoint(self) -> str:
         """返回只含私网地址的 HTTP endpoint。"""
@@ -115,6 +120,8 @@ class GatewayPeerView(BaseModel):
     allowed_tools: frozenset[str]
     allowed_operations: frozenset[str]
     allow_delegation: bool = False
+    allow_model_borrowing: bool = False
+    daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA
     credential_configured: bool
 
 
@@ -270,6 +277,8 @@ class GatewayConfigurationService:
                 allowed_tools=item.allowed_tools,
                 allowed_operations=item.allowed_operations,
                 allow_delegation=item.allow_delegation,
+                allow_model_borrowing=item.allow_model_borrowing,
+                daily_quota=item.daily_quota,
                 credential_configured=(
                     self._secrets.get(gateway_token_name(item.node_id)) is not None
                 ),
@@ -337,6 +346,23 @@ class GatewayConfigurationService:
             token=token,
         )
 
+    def resolve_model_peer(self, node_id: NodeId) -> GatewayToolPeer:
+        """解析借用模型的提供方；对端是否允许借用由它自己决定。"""
+        config = self._require_config()
+        peer = next((item for item in config.peers if item.node_id == node_id), None)
+        if peer is None or peer.platform is None:
+            raise KeyError("gateway_model_peer_not_found")
+        token = self._secrets.get(gateway_token_name(node_id))
+        if token is None:
+            raise RuntimeError(f"peer {node_id} 缺少网关凭据")
+        return GatewayToolPeer(
+            node_id=node_id,
+            platform=peer.platform,
+            endpoint=peer.endpoint(),
+            allowed_tools=(),
+            token=token,
+        )
+
     def resolve_operation_peer(
         self,
         node_id: NodeId,
@@ -385,6 +411,8 @@ class GatewayConfigurationService:
                     peer.allowed_operations,
                     source_host=peer.host,
                     allow_delegation=peer.allow_delegation,
+                    allow_model_borrowing=peer.allow_model_borrowing,
+                    daily_quota=peer.daily_quota,
                 )
             )
         return GatewaySecurityPolicy(policies, config.limits)

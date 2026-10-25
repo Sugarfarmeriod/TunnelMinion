@@ -22,6 +22,7 @@ from tunnelminion.agent.managed_application import (
 )
 from tunnelminion.agent.managed_coordinator import ServiceSnapshotCache
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.model_lending import ModelLendingService
 from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer, RemoteCapabilityLoader
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
@@ -54,6 +55,7 @@ from tunnelminion.model.configuration import (
     FileModelConfigurationRepository,
     ModelConfigurationService,
 )
+from tunnelminion.model.remote import RemoteModelProvider
 from tunnelminion.model.secrets import KeyringSecretStore
 from tunnelminion.operation.definitions import register_safe_http_sharing_operation
 from tunnelminion.operation.http_sharing import UvicornProxyRuntime
@@ -224,12 +226,23 @@ def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
     """组装 Windows 节点的模型配置、六个只读工具和本机存储。"""
     root = data_dir or default_data_dir()
     node_id = load_or_create_node_id(root / "node-id")
+    audit = InMemoryAuditSink()
+    gateway = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(root / "gateway.json"), gateway_secret_store(root)
+    )
+
+    def borrowed_provider(peer_node_id: NodeId) -> RemoteModelProvider:
+        peer = gateway.resolve_model_peer(peer_node_id)
+        return RemoteModelProvider(
+            FixedGatewayClient(peer.endpoint, peer.token, node_id, peer.node_id, audit), node_id
+        )
+
     model_service = ModelConfigurationService(
         FileModelConfigurationRepository(root / "model.json"),
         KeyringSecretStore(),
+        borrowed_provider_factory=borrowed_provider,
     )
     registry = ToolRegistry()
-    audit = InMemoryAuditSink()
     runner = SubprocessCommandRunner()
     reader = PsutilSystemReader()
     wireguard = WireGuardStatusAdapter(reader, runner, default_wg_path())
@@ -285,6 +298,7 @@ class WindowsGatewayApplication:
     node_id: NodeId
     gateway_service: GatewayConfigurationService
     delegation_service: DelegationService | None = None
+    model_lending_service: ModelLendingService | None = None
 
 
 def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGatewayApplication:
@@ -308,6 +322,13 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         if any(peer.allow_delegation for peer in view.peers)
         else None
     )
+    model_lending_service = (
+        ModelLendingService(
+            node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
+        )
+        if any(peer.allow_model_borrowing for peer in view.peers)
+        else None
+    )
     app = FastAPI(
         title="TunnelMinion Tool Gateway", docs_url=None, redoc_url=None, openapi_url=None
     )
@@ -320,6 +341,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
             gateway_service.build_security_policy(),
             InMemoryGatewaySecurityAuditSink(),
             delegation_service=delegation_service,
+            model_lending_service=model_lending_service,
         )
     )
     return WindowsGatewayApplication(
@@ -328,6 +350,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         node_id=node.node_id,
         gateway_service=gateway_service,
         delegation_service=delegation_service,
+        model_lending_service=model_lending_service,
     )
 
 

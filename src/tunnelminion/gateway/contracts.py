@@ -40,6 +40,11 @@ class GatewayErrorCode(StrEnum):
     DELEGATION_BUSY = "delegation_busy"
     DELEGATION_NOT_FOUND = "delegation_not_found"
     DELEGATION_UNAVAILABLE = "delegation_unavailable"
+    MODEL_BORROWING_NOT_ALLOWED = "model_borrowing_not_allowed"
+    MODEL_BORROWING_UNAVAILABLE = "model_borrowing_unavailable"
+    MODEL_QUOTA_EXCEEDED = "model_quota_exceeded"
+    MODEL_BUSY = "model_busy"
+    MODEL_CALL_FAILED = "model_call_failed"
 
 
 class GatewayError(BaseModel):

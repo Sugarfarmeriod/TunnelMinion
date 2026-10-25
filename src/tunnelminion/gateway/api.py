@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from tunnelminion.domain.delegation import DelegationBusyError, DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import DelegationId, NodeId
+from tunnelminion.domain.model_borrowing import BorrowedModelCall, BorrowedModelResult
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion, VersionCompatibility
 from tunnelminion.gateway.audit import GatewaySecurityAuditSink, security_event
@@ -45,10 +46,13 @@ from tunnelminion.tools.runtime import ToolRuntime
 
 if TYPE_CHECKING:
     from tunnelminion.agent.delegation import DelegationService
+    from tunnelminion.agent.model_lending import ModelLendingService
 
 
-def _error(status_code: int, code: GatewayErrorCode, message: str) -> JSONResponse:
-    body = GatewayErrorResponse(error=GatewayError(code=code, message=message))
+def _error(
+    status_code: int, code: GatewayErrorCode, message: str, *, retryable: bool = False
+) -> JSONResponse:
+    body = GatewayErrorResponse(error=GatewayError(code=code, message=message, retryable=retryable))
     return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
 
 
@@ -126,6 +130,7 @@ def create_gateway_router(
     security_audit_sink: GatewaySecurityAuditSink,
     operation_service: TargetOperationGatewayService | None = None,
     delegation_service: DelegationService | None = None,
+    model_lending_service: ModelLendingService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter()
@@ -136,11 +141,13 @@ def create_gateway_router(
         message: str,
         action: str,
         peer: GatewayPeerPolicy | None = None,
+        *,
+        retryable: bool = False,
     ) -> JSONResponse:
         security_audit_sink.append(
             security_event(action, code, None if peer is None else peer.node_id)
         )
-        return _error(status_code, code, message)
+        return _error(status_code, code, message, retryable=retryable)
 
     def authenticate(authorization: str | None, action: str) -> GatewayPeerPolicy | JSONResponse:
         audience = "operation-gateway" if action.startswith("operation_") else "tool-gateway"
@@ -474,6 +481,53 @@ def create_gateway_router(
             )
         return operation_response(record)
 
+    async def model_complete(
+        call: BorrowedModelCall,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> BorrowedModelResult | JSONResponse:
+        from tunnelminion.agent.model_lending import ModelLendingError
+
+        action = "model_complete"
+        peer = authenticate(authorization, action)
+        if isinstance(peer, JSONResponse):
+            return peer
+        if model_lending_service is None:
+            return reject(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                GatewayErrorCode.MODEL_BORROWING_UNAVAILABLE,
+                "本机没有开启模型借用",
+                action,
+                peer,
+            )
+        if not peer.allow_model_borrowing:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.MODEL_BORROWING_NOT_ALLOWED,
+                "本机没有允许这台电脑借用模型",
+                action,
+                peer,
+            )
+        if call.caller_node_id != peer.node_id:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "调用节点身份与认证凭据不一致",
+                action,
+                peer,
+            )
+        complete = model_lending_service.complete
+        try:
+            return await complete(peer, call)
+        except ModelLendingError as exc:
+            return reject(
+                exc.status_code,
+                exc.code,
+                str(exc),
+                action,
+                peer,
+                retryable=exc.retryable,
+            )
+
     def delegation_peer(
         authorization: str | None, action: str
     ) -> tuple[GatewayPeerPolicy, DelegationService] | JSONResponse:
@@ -565,6 +619,9 @@ def create_gateway_router(
         record = await service.cancel(identifier, peer.node_id) if identifier is not None else None
         return record if record is not None else not_found("delegation_cancel", peer)
 
+    router.add_api_route(
+        "/v1/model:complete", model_complete, methods=["POST"], response_model=None
+    )
     router.add_api_route(
         "/v1/delegations", submit_delegation, methods=["POST"], response_model=None
     )
