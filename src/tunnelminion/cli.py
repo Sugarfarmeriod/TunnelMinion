@@ -6,14 +6,119 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import uvicorn
 
+from tunnelminion.repair.service import RepairService
+
 _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
+
+
+def _local_repair_service(data_dir: Path | None) -> RepairService:
+    from importlib import import_module
+
+    factory = cast(
+        Callable[[Path | None], RepairService],
+        import_module("tunnelminion.repair.local").build_local_repair_service,
+    )
+    return factory(data_dir)
+
+
+_repair_service_factory: Callable[[Path | None], RepairService] = _local_repair_service
+
+
+def _repair_command(values: list[str]) -> int:
+    """由本机命令行提出、批准或拒绝固定修法。"""
+    from tunnelminion.domain.identifiers import OperationId
+    from tunnelminion.operation.contracts import OperationStatus
+    from tunnelminion.repair.contracts import RepairKind, RepairOrigin, RepairOriginKind
+    from tunnelminion.repair.eligibility import RepairRefusal
+
+    command = values[0]
+    parser = argparse.ArgumentParser()
+    parser.add_argument(command)
+    parser.add_argument("--data-dir", type=Path)
+    if command == "repair-propose":
+        parser.add_argument("--service-key", required=True)
+        parser.add_argument(
+            "--kind", choices=tuple(kind.value for kind in RepairKind), required=True
+        )
+        parser.add_argument("--reason", required=True)
+    elif command != "repair-list":
+        parser.add_argument("--repair-id", required=True)
+        if command == "repair-reject":
+            parser.add_argument("--reason")
+    args = parser.parse_args(values)
+    service = _repair_service_factory(args.data_dir)
+    if command == "repair-propose":
+        try:
+            record = asyncio.run(
+                service.propose(
+                    args.service_key,
+                    RepairKind(args.kind),
+                    args.reason,
+                    RepairOrigin(kind=RepairOriginKind.LOCAL_CLI),
+                    actor="local-cli",
+                )
+            )
+        except RepairRefusal as exc:
+            print(f"修不了：{exc.error.message}")
+            if exc.error.next_step:
+                print(exc.error.next_step)
+            return 1
+        print(f"已生成修复 {record.plan.operation_id}：{record.plan.action_summary}")
+        print(
+            f"运行 tunnelminion repair-approve --repair-id {record.plan.operation_id} "
+            "批准（10 分钟内有效）。"
+        )
+        return 0
+    if command == "repair-list":
+        records = service.list()
+        for record in records:
+            print(
+                f"{record.plan.operation_id}  {record.status.value}  "
+                f"{record.plan.service_name}  {record.plan.action_summary}"
+            )
+        if not records:
+            print("还没有修复记录。")
+        return 0
+    try:
+        repair_id = OperationId(args.repair_id)
+    except ValueError:
+        print("修复不存在")
+        return 1
+    try:
+        if command == "repair-reject":
+            service.reject(repair_id, operator="local-cli", reason=args.reason)
+            print(f"已拒绝修复 {repair_id}，什么都不会做。")
+            return 0
+        service.approve(repair_id, operator="local-cli")
+    except KeyError:
+        print("修复不存在")
+        return 1
+    except ValueError:
+        print("这个修复现在不等批准")
+        return 1
+    record = asyncio.run(service.execute(repair_id))
+    if record.status is OperationStatus.SUCCEEDED:
+        print(f"修好了：{record.plan.action_summary}")
+    else:
+        assert record.error is not None
+        print(f"没修好：{record.error.message}")
+        if record.error.next_step:
+            print(record.error.next_step)
+    if record.verification is not None:
+        for check in record.verification.checks:
+            print(f"- {check.detail}")
+        if record.verification.log_excerpt:
+            print("日志要点：")
+            print(record.verification.log_excerpt)
+    return 0 if record.status is OperationStatus.SUCCEEDED else 1
 
 
 def _retain_local_application_owner(application: object, bundle: object) -> None:
@@ -839,6 +944,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _managed_status(values)
     if values and values[0] == "operation-approve":
         return _approve_operation(values)
+    if values and values[0] in {"repair-propose", "repair-list", "repair-approve", "repair-reject"}:
+        return _repair_command(values)
     if values and values[0] == "operation-preauthorize":
         return _create_operation_preauthorization(values)
     if values and values[0] == "model-borrow":

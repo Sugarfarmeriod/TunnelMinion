@@ -300,6 +300,10 @@ def test_aggregate_rejects_child_from_another_operation() -> None:
     foreign = record.authorization.model_copy(update={"operation_id": OperationId.new()})
     with pytest.raises(ValidationError, match="同一个"):
         OperationRecord.model_validate({**record.model_dump(), "authorization": foreign})
+    assert record.lease is not None
+    foreign_lease = record.lease.model_copy(update={"operation_id": OperationId.new()})
+    with pytest.raises(ValidationError, match="同一个"):
+        OperationRecord.model_validate({**record.model_dump(), "lease": foreign_lease})
 
 
 def test_requester_record_rejects_unknown_conflicts_and_mismatched_remote_summary() -> None:

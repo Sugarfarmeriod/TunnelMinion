@@ -4,24 +4,37 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.domain.identifiers import AuthorizationId, OperationId
 from tunnelminion.operation.contracts import (
+    AuthorizablePlan,
     AuthorizationDecision,
     AuthorizationKind,
     AuthorizationRecord,
+    LifecycleRecord,
     OperationLevel,
     OperationPlan,
-    OperationRecord,
     OperationStatus,
-    OperationStore,
     Preauthorization,
     PreauthorizationStore,
     transition_operation,
 )
 from tunnelminion.tools.registry import ToolRegistry
+
+RecordT = TypeVar("RecordT", bound=LifecycleRecord)
+
+
+class LifecycleStore(Protocol[RecordT]):
+    """授权服务读写批准状态所需的最小存储边界。"""
+
+    def put(self, record: RecordT) -> None: ...
+
+    def get(self, operation_id: OperationId) -> RecordT | None: ...
+
+    def get_by_idempotency_key(self, key: str) -> RecordT | None: ...
 
 
 class PolicyAction(StrEnum):
@@ -59,7 +72,7 @@ class OperationPolicy:
         self._preauthorizations = preauthorizations
         self._l3_governance_workflows = l3_governance_workflows
 
-    def evaluate(self, plan: OperationPlan, *, at: datetime) -> OperationPolicyDecision:
+    def evaluate(self, plan: AuthorizablePlan, *, at: datetime) -> OperationPolicyDecision:
         """模型声明不影响注册表中的实际等级。"""
         entry = self._registry.lookup(plan.tool_name)
         if entry is None:
@@ -92,13 +105,18 @@ class OperationPolicy:
                 basis="L1 只生成建议，不执行写操作",
             )
         if level is OperationLevel.L2:
-            matched = next(
-                (
-                    item
-                    for item in self._preauthorizations.list_active(at=at)
-                    if item.matches(plan, at=at)
-                ),
-                None,
+            # 预授权只描述临时共享的端口和时长，其他计划一律逐次批准。
+            matched = (
+                next(
+                    (
+                        item
+                        for item in self._preauthorizations.list_active(at=at)
+                        if item.matches(plan, at=at)
+                    ),
+                    None,
+                )
+                if isinstance(plan, OperationPlan)
+                else None
             )
             if matched is not None:
                 return OperationPolicyDecision(
@@ -136,12 +154,12 @@ class OperationPolicy:
         )
 
 
-class AuthorizationService:
+class AuthorizationService(Generic[RecordT]):
     """只接受目标节点本地控制面决定的授权服务。"""
 
     def __init__(
         self,
-        operations: OperationStore,
+        operations: LifecycleStore[RecordT],
         preauthorizations: PreauthorizationStore,
         policy: OperationPolicy,
     ) -> None:
@@ -183,14 +201,15 @@ class AuthorizationService:
         self._preauthorizations.put(revoked)
         return revoked
 
-    def submit(self, record: OperationRecord, *, at: datetime) -> OperationRecord:
+    def submit(self, record: RecordT, *, at: datetime) -> RecordT:
         """应用幂等和目标节点策略，绝不直接调用写适配器。"""
-        existing = self._operations.get_by_idempotency_key(record.plan.idempotency_key)
+        plan = record.authorizable_plan
+        existing = self._operations.get_by_idempotency_key(plan.idempotency_key)
         if existing is not None:
             return existing
         if record.status is not OperationStatus.PLANNED:
             raise ValueError("只有 planned 操作可以进入授权策略")
-        decision = self._policy.evaluate(record.plan, at=at)
+        decision = self._policy.evaluate(plan, at=at)
         if decision.action is PolicyAction.EXECUTE:
             kind = (
                 AuthorizationKind.PREAUTHORIZATION
@@ -199,7 +218,7 @@ class AuthorizationService:
             )
             authorization = AuthorizationRecord(
                 authorization_id=decision.matched_authorization_id or AuthorizationId.new(),
-                operation_id=record.plan.operation_id,
+                operation_id=plan.operation_id,
                 kind=kind,
                 decision=AuthorizationDecision.APPROVED,
                 operator="target-node-policy",
@@ -238,7 +257,7 @@ class AuthorizationService:
         decided_at: datetime,
         expires_at: datetime,
         local_control: bool,
-    ) -> OperationRecord:
+    ) -> RecordT:
         """记录目标节点本地逐次批准。"""
         self._require_local(local_control)
         record = self._required_operation(operation_id)
@@ -272,7 +291,7 @@ class AuthorizationService:
         reason: str,
         decided_at: datetime,
         local_control: bool,
-    ) -> OperationRecord:
+    ) -> RecordT:
         """记录目标节点本地拒绝且不创建任何资源。"""
         self._require_local(local_control)
         record = self._required_operation(operation_id)
@@ -302,7 +321,7 @@ class AuthorizationService:
         operation_id: OperationId,
         *,
         expired_at: datetime,
-    ) -> OperationRecord:
+    ) -> RecordT:
         """在没有模型参与时终结已过期的逐次授权。"""
         record = self._required_operation(operation_id)
         if record.status not in {
@@ -326,7 +345,7 @@ class AuthorizationService:
         reason: str,
         cancelled_at: datetime,
         local_control: bool,
-    ) -> OperationRecord:
+    ) -> RecordT:
         """在执行开始前由目标节点本地用户取消操作。"""
         self._require_local(local_control)
         record = self._required_operation(operation_id)
@@ -345,7 +364,7 @@ class AuthorizationService:
         self._operations.put(updated)
         return updated
 
-    def _required_operation(self, operation_id: OperationId) -> OperationRecord:
+    def _required_operation(self, operation_id: OperationId) -> RecordT:
         record = self._operations.get(operation_id)
         if record is None:
             raise KeyError("操作不存在")

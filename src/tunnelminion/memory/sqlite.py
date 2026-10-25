@@ -32,6 +32,7 @@ from tunnelminion.memory.contracts import (
 from tunnelminion.operation.contracts import (
     TERMINAL_OPERATION_STATUSES,
     OperationRecord,
+    OperationStatus,
     OperationStore,
     OperationSummary,
     Preauthorization,
@@ -40,6 +41,15 @@ from tunnelminion.operation.contracts import (
 from tunnelminion.operation.requester import (
     RequesterOperationRecord,
     RequesterOperationStore,
+)
+from tunnelminion.repair.contracts import (
+    REPAIR_ACTIVE_STATUSES,
+    REPAIR_TERMINAL_STATUSES,
+    LaunchRecord,
+    LaunchRecordStore,
+    RepairClaimResult,
+    RepairRecord,
+    RepairStore,
 )
 
 
@@ -184,6 +194,26 @@ class _SQLiteDatabase:
                     ON operation_preauthorizations(
                         target_node_id, request_peer_id, tool_name, valid_until
                     );
+                CREATE TABLE IF NOT EXISTS repairs (
+                    operation_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL,
+                    service_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS repairs_idempotency ON repairs(idempotency_key);
+                CREATE INDEX IF NOT EXISTS repairs_status ON repairs(status);
+                CREATE INDEX IF NOT EXISTS repairs_created ON repairs(created_at DESC);
+                CREATE INDEX IF NOT EXISTS repairs_rate ON repairs(service_key, started_at);
+                CREATE TABLE IF NOT EXISTS launch_records (
+                    service_key TEXT PRIMARY KEY,
+                    recorded_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS launch_records_recorded
+                    ON launch_records(recorded_at DESC);
                 """
             )
 
@@ -481,6 +511,131 @@ class SQLiteOperationStore:
         return tuple(OperationSummary.from_record(item) for item in self.list_all())
 
 
+class SQLiteRepairStore:
+    """修复记录与跨进程执行占用。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    @staticmethod
+    def _write(connection: sqlite3.Connection, record: RepairRecord) -> None:
+        connection.execute(
+            """INSERT INTO repairs(
+                operation_id, idempotency_key, service_key, status, created_at, started_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(operation_id) DO UPDATE SET
+                idempotency_key=excluded.idempotency_key,
+                service_key=excluded.service_key,
+                status=excluded.status,
+                created_at=excluded.created_at,
+                started_at=excluded.started_at,
+                payload=excluded.payload""",
+            (
+                str(record.plan.operation_id),
+                record.plan.idempotency_key,
+                record.plan.service_key,
+                record.status.value,
+                record.plan.created_at.astimezone(UTC).isoformat(),
+                record.execution.started_at.astimezone(UTC).isoformat()
+                if record.execution is not None
+                else None,
+                record.model_dump_json(),
+            ),
+        )
+
+    def put(self, record: RepairRecord) -> None:
+        with self._database.connect() as connection:
+            self._write(connection, record)
+
+    def get(self, operation_id: OperationId) -> RepairRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM repairs WHERE operation_id=?", (str(operation_id),)
+            ).fetchone()
+        return RepairRecord.model_validate_json(row[0]) if row is not None else None
+
+    def get_by_idempotency_key(self, key: str) -> RepairRecord | None:
+        terminal = tuple(item.value for item in REPAIR_TERMINAL_STATUSES)
+        placeholders = ", ".join("?" for _ in terminal)
+        with self._database.connect() as connection:
+            row = connection.execute(
+                f"""SELECT payload FROM repairs
+                WHERE idempotency_key=? AND status NOT IN ({placeholders})
+                ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (key, *terminal),
+            ).fetchone()
+        return RepairRecord.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[RepairRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM repairs ORDER BY created_at DESC, rowid DESC"
+            ).fetchall()
+        return tuple(RepairRecord.model_validate_json(row[0]) for row in rows)
+
+    def claim_execution(
+        self, executing: RepairRecord, *, rate_window_start: datetime, rate_limit: int
+    ) -> RepairClaimResult:
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if executing.status is not OperationStatus.EXECUTING or executing.execution is None:
+                return RepairClaimResult.STATE_CONFLICT
+            row = connection.execute(
+                "SELECT status FROM repairs WHERE operation_id=?",
+                (str(executing.plan.operation_id),),
+            ).fetchone()
+            if row is None or row[0] != OperationStatus.AUTHORIZED.value:
+                return RepairClaimResult.STATE_CONFLICT
+            active = tuple(item.value for item in REPAIR_ACTIVE_STATUSES)
+            placeholders = ", ".join("?" for _ in active)
+            if connection.execute(
+                f"SELECT 1 FROM repairs WHERE status IN ({placeholders}) LIMIT 1", active
+            ).fetchone():
+                return RepairClaimResult.BUSY
+            count = connection.execute(
+                "SELECT COUNT(*) FROM repairs WHERE service_key=? AND started_at>=?",
+                (executing.plan.service_key, rate_window_start.astimezone(UTC).isoformat()),
+            ).fetchone()[0]
+            if count >= rate_limit:
+                return RepairClaimResult.RATE_LIMITED
+            self._write(connection, executing)
+            return RepairClaimResult.CLAIMED
+
+
+class SQLiteLaunchRecordStore:
+    """按服务身份保存最新的本机启动方式。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def put(self, record: LaunchRecord) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO launch_records(service_key, recorded_at, payload) VALUES (?, ?, ?)
+                ON CONFLICT(service_key) DO UPDATE SET
+                    recorded_at=excluded.recorded_at, payload=excluded.payload""",
+                (
+                    record.service_key,
+                    record.recorded_at.astimezone(UTC).isoformat(),
+                    record.model_dump_json(),
+                ),
+            )
+
+    def get(self, service_key: str) -> LaunchRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM launch_records WHERE service_key=?", (service_key,)
+            ).fetchone()
+        return LaunchRecord.model_validate_json(row[0]) if row is not None else None
+
+    def list_all(self) -> tuple[LaunchRecord, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM launch_records ORDER BY recorded_at DESC, rowid DESC"
+            ).fetchall()
+        return tuple(LaunchRecord.model_validate_json(row[0]) for row in rows)
+
+
 class SQLiteRequesterOperationStore:
     """请求端计划和脱敏远端摘要的 SQLite 适配器。"""
 
@@ -747,6 +902,8 @@ class SQLiteStores:
     operations: OperationStore
     requester_operations: RequesterOperationStore
     preauthorizations: PreauthorizationStore
+    repairs: RepairStore
+    launch_records: LaunchRecordStore
     service_marks: SQLiteServiceMarkStore
     delegations: SQLiteDelegationStore
     model_usage: SQLiteModelUsageStore
@@ -763,6 +920,8 @@ class SQLiteStores:
             operations=SQLiteOperationStore(database),
             requester_operations=SQLiteRequesterOperationStore(database),
             preauthorizations=SQLitePreauthorizationStore(database),
+            repairs=SQLiteRepairStore(database),
+            launch_records=SQLiteLaunchRecordStore(database),
             service_marks=SQLiteServiceMarkStore(database),
             delegations=SQLiteDelegationStore(database),
             model_usage=SQLiteModelUsageStore(database),

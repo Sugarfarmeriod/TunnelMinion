@@ -279,3 +279,25 @@ def test_uninstall_removes_empty_root_and_rejects_unsafe_layout(tmp_path: Path) 
             model_secrets=MemorySecretStore(),
             gateway_secrets=MemorySecretStore(),
         )
+
+
+def test_uninstall_removes_repair_logs_but_refuses_nested_directories(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    log_dir = root / "repair-logs"
+    log_dir.mkdir(parents=True)
+    log = log_dir / "operation.log"
+    log.write_text("test output", encoding="utf-8")
+    removed = uninstall_owned_data(
+        root, model_secrets=MemorySecretStore(), gateway_secrets=MemorySecretStore()
+    )
+    assert removed == (log, log_dir, root)
+    assert not root.exists()
+    nested = log_dir / "nested"
+    nested.mkdir(parents=True)
+    retained = nested / "keep.txt"
+    retained.write_text("keep", encoding="utf-8")
+    with pytest.raises(ValueError, match="repair-logs"):
+        uninstall_owned_data(
+            root, model_secrets=MemorySecretStore(), gateway_secrets=MemorySecretStore()
+        )
+    assert retained.read_text(encoding="utf-8") == "keep"

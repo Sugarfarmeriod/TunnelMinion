@@ -7,7 +7,7 @@ import json
 import re
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from typing import Protocol, Self
+from typing import Protocol, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -488,35 +488,39 @@ class OperationMetrics(BaseModel):
     final_result: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-class OperationRecord(BaseModel):
-    """可在重启后恢复的完整操作聚合。"""
+class AuthorizablePlan(Protocol):
+    """进入授权策略的计划必须提供的稳定字段。"""
+
+    @property
+    def operation_id(self) -> OperationId: ...
+
+    @property
+    def idempotency_key(self) -> str: ...
+
+    @property
+    def tool_name(self) -> str: ...
+
+    @property
+    def level(self) -> OperationLevel: ...
+
+
+class LifecycleRecord(BaseModel):
+    """共用批准状态机的持久化聚合：当前状态、批准记录和连续的状态历史。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    plan: OperationPlan
     status: OperationStatus
     authorization: AuthorizationRecord | None = None
-    lease: LeaseRecord | None = None
-    resources: tuple[ResourceOwnership, ...] = ()
-    verifications: tuple[VerificationRecord, ...] = ()
-    cleanup: CleanupRecord | None = None
-    error: OperationError | None = None
-    metrics: OperationMetrics = Field(default_factory=OperationMetrics)
     transitions: tuple[OperationTransition, ...]
     updated_at: datetime
 
+    @property
+    def authorizable_plan(self) -> AuthorizablePlan:
+        """交给授权策略判断的计划，由具体聚合提供。"""
+        raise NotImplementedError  # pragma: no cover - 由子类覆盖
+
     @model_validator(mode="after")
-    def validate_aggregate(self) -> Self:
-        operation_id = self.plan.operation_id
-        children = (
-            self.authorization,
-            self.lease,
-            self.cleanup,
-            *self.resources,
-            *self.verifications,
-        )
-        if any(item is not None and item.operation_id != operation_id for item in children):
-            raise ValueError("操作子记录必须属于同一个 operation_id")
+    def validate_history(self) -> Self:
         if not self.transitions:
             raise ValueError("操作至少需要一条初始状态记录")
         previous: OperationStatus | None = None
@@ -536,6 +540,43 @@ class OperationRecord(BaseModel):
             raise ValueError("当前状态必须与最后一条状态历史一致")
         if self.updated_at < self.transitions[-1].occurred_at:
             raise ValueError("操作更新时间不得早于最后状态变化")
+        if (
+            self.authorization is not None
+            and self.authorization.operation_id != self.authorizable_plan.operation_id
+        ):
+            raise ValueError("操作子记录必须属于同一个 operation_id")
+        return self
+
+
+LifecycleRecordT = TypeVar("LifecycleRecordT", bound=LifecycleRecord)
+
+
+class OperationRecord(LifecycleRecord):
+    """可在重启后恢复的完整操作聚合。"""
+
+    plan: OperationPlan
+    lease: LeaseRecord | None = None
+    resources: tuple[ResourceOwnership, ...] = ()
+    verifications: tuple[VerificationRecord, ...] = ()
+    cleanup: CleanupRecord | None = None
+    error: OperationError | None = None
+    metrics: OperationMetrics = Field(default_factory=OperationMetrics)
+
+    @property
+    def authorizable_plan(self) -> OperationPlan:
+        return self.plan
+
+    @model_validator(mode="after")
+    def validate_aggregate(self) -> Self:
+        operation_id = self.plan.operation_id
+        children = (
+            self.lease,
+            self.cleanup,
+            *self.resources,
+            *self.verifications,
+        )
+        if any(item is not None and item.operation_id != operation_id for item in children):
+            raise ValueError("操作子记录必须属于同一个 operation_id")
         return self
 
     @classmethod
@@ -557,12 +598,12 @@ class OperationRecord(BaseModel):
 
 
 def transition_operation(
-    record: OperationRecord,
+    record: LifecycleRecordT,
     to_status: OperationStatus,
     *,
     reason: str,
     occurred_at: datetime,
-) -> OperationRecord:
+) -> LifecycleRecordT:
     """执行确定性状态转换，拒绝终态重开和时间倒退。"""
     allowed = _ALLOWED_TRANSITIONS.get(record.status, frozenset())
     if to_status not in allowed:
@@ -573,7 +614,7 @@ def transition_operation(
         reason=reason,
         occurred_at=occurred_at,
     )
-    return OperationRecord.model_validate(
+    return type(record).model_validate(
         {
             **record.model_dump(),
             "status": to_status,

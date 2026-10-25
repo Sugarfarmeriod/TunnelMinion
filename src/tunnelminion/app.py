@@ -81,6 +81,10 @@ from tunnelminion.platforms.windows.system import (
     default_docker_path,
     default_wg_path,
 )
+from tunnelminion.repair.definitions import register_repair_operations
+from tunnelminion.repair.launch_records import LaunchRecorder
+from tunnelminion.repair.local import build_node_repair_service
+from tunnelminion.repair.service import RepairService
 from tunnelminion.runtime.profile import default_runtime_data_dir
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
@@ -95,6 +99,7 @@ from tunnelminion.web.incidents import create_incident_router, incidents_overvie
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.repairs import create_repair_router
 from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
 from tunnelminion.web.service_map import create_service_map_router
@@ -117,6 +122,7 @@ class WindowsApplication:
     requester_operation_service: RequesterOperationService
     managed_node: ManagedNodeApplication
     artifact_manager: ArtifactContextManager
+    repair_service: RepairService
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
@@ -267,6 +273,7 @@ def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
         ),
     )
     register_safe_http_sharing_operation(registry)
+    register_repair_operations(registry)
     stores = SQLiteStores.open(root / "runtime.sqlite3")
     artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
@@ -461,6 +468,9 @@ def build_windows_application(
             processes,
             docker,
             marks=stores.service_marks.all,
+            launch_recorder=(
+                None if read_only_preview else LaunchRecorder(stores.launch_records).record
+            ),
         )
 
         async def refresh_local_services() -> None:
@@ -541,6 +551,15 @@ def build_windows_application(
         )
     )
     app.include_router(create_operation_router(operation_control))
+    repair_service = build_node_repair_service(
+        root=root,
+        node_id=node_id,
+        stores=stores,
+        registry=registry,
+        docker_path=default_docker_path(),
+        system_reader=PsutilSystemReader(),
+    )
+    app.include_router(create_repair_router(repair_service))
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return WindowsApplication(
         app,
@@ -555,6 +574,7 @@ def build_windows_application(
         requester_operations,
         managed,
         artifact_manager,
+        repair_service,
     )
 
 

@@ -103,7 +103,7 @@ def _preauthorization(operation_plan: OperationPlan, **updates: object) -> Preau
     return Preauthorization.model_validate(values)
 
 
-def _services(path: Path) -> tuple[AuthorizationService, OperationPolicy]:
+def _services(path: Path) -> tuple[AuthorizationService[OperationRecord], OperationPolicy]:
     stores = SQLiteStores.open(path)
     policy = OperationPolicy(_registry(), stores.preauthorizations)
     return AuthorizationService(stores.operations, stores.preauthorizations, policy), policy

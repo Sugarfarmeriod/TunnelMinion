@@ -440,7 +440,7 @@ class OperationControlService:
         node_id: NodeId,
         operations: OperationStore,
         preauthorizations: PreauthorizationStore,
-        authorization: AuthorizationService,
+        authorization: AuthorizationService[OperationRecord],
         lifecycle: OperationLifecycle | None = None,
         requester: RequesterOperationService | None = None,
         clock: Callable[[], datetime] | None = None,

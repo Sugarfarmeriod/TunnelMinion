@@ -1,0 +1,212 @@
+"""本机修复列表、详情与批准入口。"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from tunnelminion.domain.identifiers import OperationId
+from tunnelminion.operation.contracts import (
+    AuthorizationDecision,
+    OperationStatus,
+    OperationTransition,
+)
+from tunnelminion.repair.contracts import (
+    REPAIR_AUTHORIZATION_SECONDS,
+    ContainerRepairTarget,
+    ContainerSnapshot,
+    RepairAuditEvent,
+    RepairCleanup,
+    RepairError,
+    RepairExecution,
+    RepairKind,
+    RepairOrigin,
+    RepairRecord,
+    RepairVerification,
+)
+from tunnelminion.repair.service import RepairService
+
+
+class RepairListItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repair_id: str
+    service_key: str
+    service_name: str
+    kind: RepairKind
+    status: OperationStatus
+    action_summary: str
+    reason: str
+    created_at: datetime
+    approval_expires_at: datetime | None
+    verification_passed: bool | None
+    error: RepairError | None
+
+    @classmethod
+    def from_record(cls, record: RepairRecord) -> RepairListItem:
+        expiry = None
+        if record.status is OperationStatus.AWAITING_AUTHORIZATION:
+            expiry = record.plan.created_at + timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS)
+        elif record.status is OperationStatus.AUTHORIZED and record.authorization is not None:
+            expiry = record.authorization.expires_at
+        return cls(
+            repair_id=str(record.plan.operation_id),
+            service_key=record.plan.service_key,
+            service_name=record.plan.service_name,
+            kind=record.plan.kind,
+            status=record.status,
+            action_summary=record.plan.action_summary,
+            reason=record.plan.reason,
+            created_at=record.plan.created_at,
+            approval_expires_at=expiry,
+            verification_passed=record.verification.passed
+            if record.verification is not None
+            else None,
+            error=record.error,
+        )
+
+
+class RepairList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repairs: tuple[RepairListItem, ...]
+
+
+class RepairAuthorizationView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operator: str
+    decision: AuthorizationDecision
+    decided_at: datetime
+    expires_at: datetime | None
+
+
+class ContainerAdvancedView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    commands: tuple[str, ...]
+    containers: tuple[ContainerSnapshot, ...]
+
+
+class PythonAdvancedView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interpreter: str
+    arguments: tuple[str, ...]
+    working_directory: str
+    ports: tuple[int, ...]
+
+
+class RepairDetail(RepairListItem):
+    impact_summary: str
+    verification_summary: str
+    failure_summary: str
+    origin: RepairOrigin
+    authorization: RepairAuthorizationView | None
+    advanced: ContainerAdvancedView | PythonAdvancedView
+    execution: RepairExecution | None
+    verification: RepairVerification | None
+    cleanup: RepairCleanup | None
+    audit: tuple[RepairAuditEvent, ...]
+    transitions: tuple[OperationTransition, ...]
+
+
+def _detail(record: RepairRecord) -> RepairDetail:
+    target = record.plan.target
+    advanced: ContainerAdvancedView | PythonAdvancedView
+    if isinstance(target, ContainerRepairTarget):
+        commands: list[str] = []
+        for running in (False, True):
+            ids = [item.container_id for item in target.containers if item.running is running]
+            if ids:
+                action = "restart" if running else "start"
+                commands.append(" ".join(("docker", action, *ids)))
+        advanced = ContainerAdvancedView(commands=tuple(commands), containers=target.containers)
+    else:
+        advanced = PythonAdvancedView(
+            interpreter=target.launch.interpreter,
+            arguments=target.launch.arguments,
+            working_directory=target.launch.working_directory,
+            ports=target.ports,
+        )
+    authorization = record.authorization
+    return RepairDetail(
+        **RepairListItem.from_record(record).model_dump(),
+        impact_summary=record.plan.impact_summary,
+        verification_summary=record.plan.verification_summary,
+        failure_summary=record.plan.failure_summary,
+        origin=record.plan.origin,
+        authorization=(
+            RepairAuthorizationView(
+                operator=authorization.operator,
+                decision=authorization.decision,
+                decided_at=authorization.decided_at,
+                expires_at=authorization.expires_at,
+            )
+            if authorization is not None
+            else None
+        ),
+        advanced=advanced,
+        execution=record.execution,
+        verification=record.verification,
+        cleanup=record.cleanup,
+        audit=record.audit,
+        transitions=record.transitions,
+    )
+
+
+class RepairRejectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: str | None = Field(default=None, max_length=200)
+
+
+def create_repair_router(service: RepairService) -> APIRouter:
+    router = APIRouter()
+
+    def required(repair_id: str) -> RepairRecord:
+        try:
+            operation_id = OperationId(repair_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="修复不存在") from exc
+        record = service.get(operation_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="修复不存在")
+        return record
+
+    def list_repairs() -> RepairList:
+        return RepairList(
+            repairs=tuple(RepairListItem.from_record(item) for item in service.list())
+        )
+
+    def get_repair(repair_id: str) -> RepairDetail:
+        return _detail(required(repair_id))
+
+    async def approve_repair(repair_id: str, background: BackgroundTasks) -> RepairDetail:
+        record = required(repair_id)
+        try:
+            approved = service.approve(record.plan.operation_id, operator="local-web")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail="这个修复现在不等批准") from exc
+        background.add_task(service.execute, record.plan.operation_id)
+        return _detail(approved)
+
+    def reject_repair(repair_id: str, body: RepairRejectInput) -> RepairDetail:
+        record = required(repair_id)
+        try:
+            rejected = service.reject(
+                record.plan.operation_id, operator="local-web", reason=body.reason
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail="这个修复现在不等批准") from exc
+        return _detail(rejected)
+
+    router.add_api_route("/api/repairs", list_repairs, methods=["GET"])
+    router.add_api_route("/api/repairs/{repair_id}", get_repair, methods=["GET"])
+    router.add_api_route(
+        "/api/repairs/{repair_id}/approve", approve_repair, methods=["POST"], status_code=202
+    )
+    router.add_api_route("/api/repairs/{repair_id}/reject", reject_repair, methods=["POST"])
+    return router

@@ -153,7 +153,7 @@ def _gateway(
     expose_operation_service: bool = True,
 ) -> tuple[
     FastAPI,
-    AuthorizationService,
+    AuthorizationService[OperationRecord],
     TargetOperationGatewayService,
     InMemoryGatewaySecurityAuditSink,
 ]:

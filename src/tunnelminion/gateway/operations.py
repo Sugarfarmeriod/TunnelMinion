@@ -35,7 +35,7 @@ class TargetOperationGatewayService:
     def __init__(
         self,
         operations: OperationStore,
-        authorization: AuthorizationService,
+        authorization: AuthorizationService[OperationRecord],
         workflow: OperationWorkflow,
     ) -> None:
         self._operations = operations
