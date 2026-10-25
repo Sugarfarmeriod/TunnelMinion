@@ -170,7 +170,8 @@ def test_breakaway_access_denied_retries_without_breakaway(
     error = OSError(errno.EACCES, "fixture denied")
     if windows_error:
         error = OSError("fixture denied")
-        error.winerror = 5
+        # winerror 只在 Windows 的类型存根里有，用 setattr 让两个平台都通过类型检查。
+        setattr(error, "winerror", 5)  # noqa: B010
     popen = FakePopen(error)
     launcher = BackgroundProcessLauncher("win32", popen, factory(FakeProcess()), {})
     launcher.launch(launch_record(), log_path=tmp_path / "output.log")
