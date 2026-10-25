@@ -180,6 +180,16 @@ def uninstall_owned_data(
         coordinator_secret_dir.rmdir()
         removed.append(coordinator_secret_dir)
 
+    repair_log_dir = root / "repair-logs"
+    if repair_log_dir.exists():
+        for path in repair_log_dir.iterdir():
+            if not path.is_file():
+                raise ValueError("repair-logs")
+            path.unlink()
+            removed.append(path)
+        repair_log_dir.rmdir()
+        removed.append(repair_log_dir)
+
     if root.exists() and not any(root.iterdir()):
         root.rmdir()
         removed.append(root)

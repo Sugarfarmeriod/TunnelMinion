@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -11,10 +13,15 @@ import pytest
 from pydantic import BaseModel, JsonValue
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.service_marks import ServiceMark
 from tunnelminion.agent.service_observation import (
     DeterministicServiceObserver,
     ServiceObservationError,
+    compute_static_peer_service_id,
+    service_tier,
 )
+from tunnelminion.agent.service_tiers import ServiceTier
+from tunnelminion.agent.services import RemoteServiceSummary
 from tunnelminion.coordinator.contracts import ServiceAccessibility, ServiceProtocol
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.process_origin import ProcessOrigin
@@ -89,6 +96,9 @@ def observer(
     docker: FakeAdapter,
     *,
     clock: Clock | None = None,
+    marks: Callable[[], Mapping[str, ServiceMark]] | None = None,
+    launch_recorder: Callable[[tuple[RemoteServiceSummary, ...], Mapping[str, ServiceMark]], object]
+    | None = None,
     **config: object,
 ) -> DeterministicServiceObserver:
     values: dict[str, object] = {
@@ -103,6 +113,8 @@ def observer(
         processes,
         docker,
         clock=clock or Clock(),
+        marks=marks,
+        launch_recorder=launch_recorder,
     )
 
 
@@ -796,3 +808,106 @@ def test_web_titles_name_programs_and_python_services() -> None:
     assert by_port[13688] not in snapshot.display_names
     assert by_port[13688] not in snapshot.review_names
     assert "WireGuard Panel" not in snapshot.model_dump_json()
+
+
+@pytest.mark.parametrize("hook_fails", (False, True))
+def test_launch_hook_runs_after_snapshot_in_a_worker_with_the_same_marks(hook_fails: bool) -> None:
+    listener = NetworkListener(
+        protocol="tcp",
+        address="127.0.0.1",
+        port=8787,
+        pid=101,
+        process_name="python",
+        python_entrypoint="app.py",
+    )
+    supplied_marks = {"python:app.py@8787": ServiceMark.HIDDEN}
+    mark_reads = 0
+    calls: list[tuple[tuple[RemoteServiceSummary, ...], Mapping[str, ServiceMark]]] = []
+    caller_thread = threading.get_ident()
+
+    def marks() -> Mapping[str, ServiceMark]:
+        nonlocal mark_reads
+        mark_reads += 1
+        return supplied_marks
+
+    def record(
+        inventory: tuple[RemoteServiceSummary, ...], used_marks: Mapping[str, ServiceMark]
+    ) -> None:
+        assert threading.get_ident() != caller_thread
+        assert value.last_snapshot is not None and value.status.last_success_at == NOW
+        calls.append((inventory, used_marks))
+        if hook_fails:
+            raise RuntimeError("fixture recorder failed")
+
+    value = observer(
+        FakeAdapter(collection(listener)),
+        FakeAdapter(collection()),
+        FakeAdapter(collection()),
+        marks=marks,
+        launch_recorder=record,
+    )
+    snapshot = asyncio.run(value.observe())
+    assert calls == [(snapshot.inventory, supplied_marks)]
+    assert calls[0][1] is supplied_marks and mark_reads == 1
+    assert snapshot.complete and snapshot.display_names == {}
+    assert value.last_snapshot is snapshot and value.status.last_error_code is None
+    assert value.status.service_count == 1
+
+
+def test_launch_hook_receives_empty_marks_by_default_and_skips_failed_observations() -> None:
+    calls: list[Mapping[str, ServiceMark]] = []
+
+    def record(
+        inventory: tuple[RemoteServiceSummary, ...], marks: Mapping[str, ServiceMark]
+    ) -> None:
+        assert inventory == ()
+        calls.append(marks)
+
+    listeners = FakeAdapter(collection())
+    clock = Clock()
+    value = observer(
+        listeners,
+        FakeAdapter(collection()),
+        FakeAdapter(collection()),
+        clock=clock,
+        launch_recorder=record,
+    )
+    snapshot = asyncio.run(value.observe())
+    assert calls == [{}]
+    baseline = observer(
+        FakeAdapter(collection()), FakeAdapter(collection()), FakeAdapter(collection())
+    )
+    assert snapshot == asyncio.run(baseline.observe())
+    assert value.status == baseline.status
+    listeners.error = OSError("fixture collection failed")
+    clock.value += timedelta(seconds=5)
+    with pytest.raises(ServiceObservationError):
+        asyncio.run(value.observe())
+    assert calls == [{}] and value.last_snapshot is snapshot
+
+
+def test_static_peer_ids_and_mine_marks_keep_their_existing_behavior() -> None:
+    node = NodeId("node_0123456789abcdef0123456789abcdef")
+    assert compute_static_peer_service_id(node, 8787) == compute_static_peer_service_id(node, 8787)
+    assert compute_static_peer_service_id(node, 8787) != compute_static_peer_service_id(node, 8788)
+    snapshot = asyncio.run(
+        observer(
+            FakeAdapter(
+                collection(
+                    NetworkListener(
+                        protocol="tcp",
+                        address="127.0.0.1",
+                        port=8787,
+                        pid=101,
+                        process_name="python",
+                        python_entrypoint="app.py",
+                        origin=ProcessOrigin.UNKNOWN,
+                    )
+                )
+            ),
+            FakeAdapter(collection()),
+            FakeAdapter(collection()),
+        ).observe()
+    )
+    key = "python:app.py@8787"
+    assert service_tier(snapshot.inventory[0], {key: ServiceMark.MINE}, key=key) is ServiceTier.SHOW

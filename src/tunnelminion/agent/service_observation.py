@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
@@ -289,9 +290,14 @@ class DeterministicServiceObserver:
         *,
         clock: Callable[[], datetime] | None = None,
         marks: Callable[[], Mapping[str, ServiceMark]] | None = None,
+        launch_recorder: Callable[
+            [tuple[RemoteServiceSummary, ...], Mapping[str, ServiceMark]], object
+        ]
+        | None = None,
     ) -> None:
         self._node_id = node_id
         self._marks = marks
+        self._launch_recorder = launch_recorder
         self._config = config
         self._listeners = listeners
         self._processes = processes
@@ -350,6 +356,7 @@ class DeterministicServiceObserver:
                 )
                 services = self._summaries(inventory.services)
                 self._validate_budget(services)
+                marks: Mapping[str, ServiceMark] = self._marks() if self._marks is not None else {}
                 snapshot = apply_service_marks(
                     self._node_id,
                     ServiceObservationSnapshot(
@@ -359,7 +366,7 @@ class DeterministicServiceObserver:
                         degraded_sources=inventory.unavailable_sources,
                         disabled_sources=self._disabled_sources(),
                     ),
-                    self._marks() if self._marks is not None else {},
+                    marks,
                     excluded_pid=os.getpid(),
                 )
             except TimeoutError as exc:
@@ -379,6 +386,9 @@ class DeterministicServiceObserver:
                 degraded_sources=snapshot.degraded_sources,
                 disabled_sources=snapshot.disabled_sources,
             )
+            if self._launch_recorder is not None:
+                with suppress(Exception):
+                    await asyncio.to_thread(self._launch_recorder, snapshot.inventory, marks)
             return snapshot
 
     async def _collect(
