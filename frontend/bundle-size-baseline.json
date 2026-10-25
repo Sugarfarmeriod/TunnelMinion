@@ -1,6 +1,6 @@
 {
   "schema": "tunnelminion/frontend-bundle-baseline/v1",
-  "acceptedBytes": 159331,
-  "acceptedCommit": "8bfafad285fe5b556b56176dcb68b018332656a5",
-  "reviewNote": "PR #116 已合并且完整 CI 8/8 通过，运行 37832087972 的 supply-chain-frontend/frontend-bundle.json 记录 159331 字节；以已接受主线为增长比较基线，保留 10% 相对和 300 KiB 绝对门禁。"
+  "acceptedBytes": 179482,
+  "acceptedCommit": "4a89783",
+  "reviewNote": "zod 从 4.4.3 升到 4.6.6 修复安全漏洞，gzip 体积增加约 7 KB；在 4a89783 上升级前为 172361 字节（含服务地图首页），升级后本地构建为 179482 字节。以此为新的增长比较基线，保留 10% 相对和 300 KiB 绝对门禁。"
 }
