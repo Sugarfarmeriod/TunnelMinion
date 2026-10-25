@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -95,6 +96,7 @@ class ThreadMessage(BaseModel):
     created_at: datetime
     run_id: RunId
     answer_checked: bool = False
+    answer_basis: Literal["checked", "inferred", "none"] = "checked"
 
 
 class ThreadDetail(BaseModel):
@@ -618,16 +620,39 @@ class InMemoryConversationService:
                 save_progress,
             )
             if not result.answer_checked:
-                summary = "本次还没有形成能核对的程序结论。请先选择要检查的程序，再问一次。"
+                inferences = result.evidence_answer.inferences
+                draft = inferences[0] if inferences and inferences[0].strip() else ""
+                grounded = any(item.status == "success" for item in result.evidence_answer.evidence)
+                if draft and grounded:
+                    answer = result.answer
+                    summary = draft
+                    answer_basis = "inferred"
+                    unknowns = ("这是模型根据本次检查记录得出的推断，程序还没有逐条核对。",)
+                else:
+                    answer_basis = "none"
+                    if draft:
+                        summary = (
+                            "模型这次没有成功取得任何检查记录，它的回答缺少依据，"
+                            "所以没有当作结论显示。可以展开“模型原始说明”查看，"
+                            "或换个说法再问一次。"
+                        )
+                        unknowns = ("本次没有成功的检查记录，无法确认所问的实际情况。",)
+                    else:
+                        summary = (
+                            "模型这次没有给出回答，所以没有可显示的结论。可以换个说法再问一次。"
+                        )
+                        unknowns = ("模型没有返回回答，无法确认所问的实际情况。",)
+                    answer = summary
                 result = result.model_copy(
                     update={
-                        "answer": summary,
+                        "answer": answer,
                         "answer_checked": True,
+                        "answer_basis": answer_basis,
                         "evidence_answer": result.evidence_answer.model_copy(
                             update={
                                 "summary": summary,
                                 "confirmed_facts": (),
-                                "unknowns": ("本次检查记录尚不能确认所问的实际情况。",),
+                                "unknowns": unknowns,
                             }
                         ),
                     }
@@ -645,6 +670,7 @@ class InMemoryConversationService:
                 result.answer,
                 state.run_id,
                 answer_checked=result.answer_checked,
+                answer_basis=result.answer_basis,
             )
             self._append(
                 state,
@@ -836,6 +862,7 @@ class InMemoryConversationService:
         run_id: RunId,
         *,
         answer_checked: bool = False,
+        answer_basis: Literal["checked", "inferred", "none"] = "checked",
     ) -> None:
         thread = self._threads.get(str(thread_id))
         if thread is None:
@@ -848,6 +875,7 @@ class InMemoryConversationService:
                 created_at=now,
                 run_id=run_id,
                 answer_checked=answer_checked,
+                answer_basis=answer_basis,
             )
         )
         thread.updated_at = now

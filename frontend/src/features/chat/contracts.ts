@@ -41,6 +41,7 @@ export const threadMessageSchema = z
     created_at: timestampSchema,
     run_id: runIdSchema,
     answer_checked: z.boolean().optional(),
+    answer_basis: z.enum(["checked", "inferred", "none"]).optional(),
   })
   .strict();
 
@@ -75,6 +76,7 @@ const runResultSchema = z
   .object({
     answer: z.string(),
     answer_checked: z.boolean().optional(),
+    answer_basis: z.enum(["checked", "inferred", "none"]).optional(),
     checked_service_id: identifierSchema("service").nullable().optional(),
     model_rounds: z.number().int().nonnegative(),
     tool_calls: z.number().int().nonnegative(),

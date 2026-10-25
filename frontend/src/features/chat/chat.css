@@ -115,7 +115,8 @@
 .chat-run__id,
 .chat-stream-status,
 .chat-composer__count,
-.chat-composer__safety {
+.chat-composer__safety,
+.chat-basis-note {
   color: var(--color-muted);
   font-size: 0.875rem;
 }
@@ -187,12 +188,18 @@
   padding: var(--space-2);
 }
 
-.chat-run-status {
+.chat-run-status,
+.chat-basis-badge {
   border: 1px solid currentColor;
   border-radius: var(--radius-pill);
   font-size: 0.8125rem;
   font-weight: 700;
   padding: var(--space-1) var(--space-2);
+}
+
+.chat-basis-badge {
+  display: inline-block;
+  justify-self: start;
 }
 
 .chat-run-status--completed,
@@ -206,7 +213,8 @@
   color: var(--color-accent-strong);
 }
 
-.chat-run-status--bounded {
+.chat-run-status--bounded,
+.chat-basis-badge--inferred {
   background: color-mix(
     in srgb,
     var(--color-warning-text) 10%,
