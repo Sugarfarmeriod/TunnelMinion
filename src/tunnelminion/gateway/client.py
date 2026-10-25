@@ -71,6 +71,7 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.MODEL_QUOTA_EXCEEDED: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.MODEL_BUSY: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.MODEL_CALL_FAILED: ErrorCode.INTERNAL,
+    GatewayErrorCode.INVITE_INVALID: ErrorCode.UNAUTHENTICATED,
 }
 
 

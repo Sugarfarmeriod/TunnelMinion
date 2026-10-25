@@ -45,6 +45,7 @@ class GatewayErrorCode(StrEnum):
     MODEL_QUOTA_EXCEEDED = "model_quota_exceeded"
     MODEL_BUSY = "model_busy"
     MODEL_CALL_FAILED = "model_call_failed"
+    INVITE_INVALID = "invite_invalid"
 
 
 class GatewayError(BaseModel):
