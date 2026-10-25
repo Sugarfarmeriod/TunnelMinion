@@ -86,6 +86,7 @@ from tunnelminion.repair.launch_records import LaunchRecorder
 from tunnelminion.repair.local import build_node_repair_service
 from tunnelminion.repair.service import RepairService
 from tunnelminion.runtime.profile import default_runtime_data_dir
+from tunnelminion.telemetry import tracing_lifespan
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -333,7 +334,11 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         node.node_id, Platform.WINDOWS, gateway_service, node.stores.invites, security_policy
     )
     app = FastAPI(
-        title="TunnelMinion Tool Gateway", docs_url=None, redoc_url=None, openapi_url=None
+        title="TunnelMinion Tool Gateway",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=tracing_lifespan(node.root, node.node_id, Platform.WINDOWS),
     )
     app.include_router(
         create_gateway_router(
@@ -521,10 +526,15 @@ def build_windows_application(
     app = FastAPI(
         title="TunnelMinion",
         docs_url="/api/docs",
-        lifespan=incident_observation_lifespan(
-            managed_application_lifespan(managed),
-            incident_observer,
-            incident_store,
+        lifespan=tracing_lifespan(
+            root,
+            node_id,
+            Platform.WINDOWS,
+            incident_observation_lifespan(
+                managed_application_lifespan(managed),
+                incident_observer,
+                incident_store,
+            ),
         ),
     )
     install_local_request_guard(app, read_only_preview=read_only_preview)

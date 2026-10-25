@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import cast
 
 from jsonschema import Draft202012Validator
@@ -15,6 +16,7 @@ from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import ArtifactId, ToolRunId
 from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.memory.context import ArtifactContextManager
+from tunnelminion.telemetry import set_status, span
 from tunnelminion.tools.audit import AuditRecord, AuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
@@ -54,6 +56,25 @@ class ToolRuntime:
         cancellation: ToolCancellationToken | None = None,
     ) -> ToolExecutionResult:
         """校验、执行和审计一次工具调用。"""
+        with span(
+            "tool.call",
+            {
+                "tool.name": request.tool_name,
+                "tool.execution_node": str(request.context.execution_node_id),
+            },
+        ) as current:
+            started = perf_counter()
+            result = await self._execute(request, cancellation)
+            current.set_attribute("tool.duration_ms", (perf_counter() - started) * 1000)
+            current.set_attribute("tool.truncated", result.truncated)
+            set_status(current, result.status.value)
+            return result
+
+    async def _execute(
+        self,
+        request: ToolExecutionRequest,
+        cancellation: ToolCancellationToken | None,
+    ) -> ToolExecutionResult:
         token = cancellation or ToolCancellationToken()
         tool_run_id = request.tool_run_id or self._new_tool_run_id()
         started_at = datetime.now(UTC)

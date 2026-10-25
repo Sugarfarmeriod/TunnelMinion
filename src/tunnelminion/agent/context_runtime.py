@@ -40,6 +40,7 @@ from tunnelminion.model.contracts import (
     ProviderError,
     ProviderErrorCode,
 )
+from tunnelminion.telemetry import model_attributes, record_usage, span
 
 
 def make_context_reference(
@@ -511,6 +512,7 @@ class ContextModelRuntime:
         self._provider_name = provider_name
         self._model_name = model_name
         self._tool_schema_version = tool_schema_version
+        self._trace_attributes = model_attributes(provider, provider_name, model_name)
 
     async def invoke(
         self,
@@ -528,7 +530,9 @@ class ContextModelRuntime:
             )
         except (TypeError, ValueError) as exc:
             raise ContextBuildError("context_build_failed") from exc
-        response = await self._provider.invoke(snapshot, cancellation)
+        with span("model.call", self._trace_attributes) as current:
+            response = await self._provider.invoke(snapshot, cancellation)
+            record_usage(current, response.usage)
         return ContextInvocation(
             snapshot=snapshot,
             response=response,

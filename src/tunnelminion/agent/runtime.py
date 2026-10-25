@@ -42,6 +42,7 @@ from tunnelminion.incident.skills import InvestigationTopology, available_invest
 from tunnelminion.memory.contracts import LongTermMemory
 from tunnelminion.model.contracts import CancellationToken
 from tunnelminion.platforms.windows.models import Availability, CollectionResult, NetworkListener
+from tunnelminion.telemetry import set_status, span
 from tunnelminion.tools.contracts import (
     ToolCallContext,
     ToolCancellationToken,
@@ -273,6 +274,43 @@ class LangChainReadOnlyAgent:
         progress_sink: Callable[[TaskProgress], None] | None = None,
     ) -> CheckedAgentTurnResult:
         """用本次显式选择的只读工具运行标准 Agent 循环。"""
+        with span(
+            "agent.run",
+            {"agent.run_id": str(context.run_id), "tunnelminion.platform": self._platform.value},
+        ) as current:
+            result = await self._run(
+                question,
+                context,
+                tool_names,
+                limits,
+                cancellation,
+                tool_event_sink,
+                history_context,
+                memories,
+                target,
+                progress,
+                progress_sink,
+            )
+            current.set_attribute("agent.rounds", result.model_rounds)
+            current.set_attribute("agent.tool_calls", result.tool_calls)
+            current.set_attribute("agent.stop_reason", result.stop_reason.value)
+            set_status(current, result.stop_reason.value)
+            return result
+
+    async def _run(
+        self,
+        question: str,
+        context: ToolCallContext,
+        tool_names: tuple[str, ...],
+        limits: AgentRunLimits | None,
+        cancellation: AgentCancellationToken | None,
+        tool_event_sink: Callable[[AgentToolEvent], None] | None,
+        history_context: HistoryContext | None,
+        memories: tuple[LongTermMemory, ...],
+        target: ServiceCheckTarget | None,
+        progress: TaskProgress | None,
+        progress_sink: Callable[[TaskProgress], None] | None,
+    ) -> CheckedAgentTurnResult:
         budget = limits or AgentRunLimits()
         started = perf_counter()
         policy = evaluate_request_policy(question)

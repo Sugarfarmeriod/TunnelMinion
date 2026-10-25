@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextvars import copy_context
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -112,7 +113,8 @@ class DelegationService:
         )
         self._store.put(record)
         cancellation = AgentCancellationToken()
-        task = asyncio.create_task(self._run(record, cancellation))
+        # 后台任务保留提交请求的追踪上下文，不受后续轮询影响。
+        task = asyncio.create_task(self._run(record, cancellation), context=copy_context())
         self._tasks[str(record.delegation_id)] = (task, cancellation)
         task.add_done_callback(lambda _: self._tasks.pop(str(record.delegation_id), None))
         return record

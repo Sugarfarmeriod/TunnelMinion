@@ -20,6 +20,7 @@ from tunnelminion.domain.model_borrowing import (
 from tunnelminion.gateway.contracts import GatewayErrorCode
 from tunnelminion.gateway.security import GatewayPeerPolicy
 from tunnelminion.model.contracts import CancellationToken, ModelProvider, ProviderError
+from tunnelminion.telemetry import model_attributes, record_usage, span
 
 
 class ModelUsageStore(Protocol):
@@ -94,59 +95,62 @@ class ModelLendingService:
     async def complete(
         self, peer: GatewayPeerPolicy, call: BorrowedModelCall
     ) -> BorrowedModelResult:
-        day = self._clock()
-        if self._store.get(peer.node_id, day).tokens >= peer.daily_quota:
-            raise ModelLendingError(
-                429, GatewayErrorCode.MODEL_QUOTA_EXCEEDED, "今日模型额度已用完"
-            )
-        key = str(peer.node_id)
-        if self._running.get(key, 0) >= MAX_CONCURRENT_CALLS_PER_PEER:
-            raise ModelLendingError(
-                429, GatewayErrorCode.MODEL_BUSY, "该对端的模型调用并发已达上限"
-            )
-        try:
-            request = call.to_request()
-        except ValidationError:
-            raise ModelLendingError(
-                422, GatewayErrorCode.MODEL_CALL_FAILED, "模型消息格式不正确"
-            ) from None
-        self._running[key] = self._running.get(key, 0) + 1
-        cancellation = CancellationToken()
-        tokens = 0
-        try:
-            try:
-                provider = self._provider_factory()
-            except ProviderError as exc:
+        with span("model.call") as current:
+            day = self._clock()
+            if self._store.get(peer.node_id, day).tokens >= peer.daily_quota:
                 raise ModelLendingError(
-                    503, GatewayErrorCode.MODEL_BORROWING_UNAVAILABLE, exc.code.value
-                ) from None
-            try:
-                response = await asyncio.wait_for(
-                    provider.complete(request, cancellation),
-                    timeout=MAX_MODEL_CALL_SECONDS,
+                    429, GatewayErrorCode.MODEL_QUOTA_EXCEEDED, "今日模型额度已用完"
                 )
-            except TimeoutError:
-                cancellation.cancel()
+            key = str(peer.node_id)
+            if self._running.get(key, 0) >= MAX_CONCURRENT_CALLS_PER_PEER:
                 raise ModelLendingError(
-                    504, GatewayErrorCode.MODEL_CALL_FAILED, "模型调用超时", retryable=True
-                ) from None
-            except ProviderError as exc:
+                    429, GatewayErrorCode.MODEL_BUSY, "该对端的模型调用并发已达上限"
+                )
+            try:
+                request = call.to_request()
+            except ValidationError:
                 raise ModelLendingError(
-                    502,
-                    GatewayErrorCode.MODEL_CALL_FAILED,
-                    exc.code.value,
-                    retryable=exc.retryable,
+                    422, GatewayErrorCode.MODEL_CALL_FAILED, "模型消息格式不正确"
                 ) from None
-            except asyncio.CancelledError:
-                cancellation.cancel()
-                raise
-            usage = response.usage
-            tokens = (
-                usage.total_tokens
-                if usage.total_tokens is not None
-                else (usage.input_tokens or 0) + (usage.output_tokens or 0)
-            )
-            return BorrowedModelResult.from_response(self._node_id, response)
-        finally:
-            self._running[key] -= 1
-            self._store.add(peer.node_id, day, 1, tokens)
+            self._running[key] = self._running.get(key, 0) + 1
+            cancellation = CancellationToken()
+            tokens = 0
+            try:
+                try:
+                    provider = self._provider_factory()
+                    current.set_attributes(model_attributes(provider))
+                except ProviderError as exc:
+                    raise ModelLendingError(
+                        503, GatewayErrorCode.MODEL_BORROWING_UNAVAILABLE, exc.code.value
+                    ) from None
+                try:
+                    response = await asyncio.wait_for(
+                        provider.complete(request, cancellation),
+                        timeout=MAX_MODEL_CALL_SECONDS,
+                    )
+                except TimeoutError:
+                    cancellation.cancel()
+                    raise ModelLendingError(
+                        504, GatewayErrorCode.MODEL_CALL_FAILED, "模型调用超时", retryable=True
+                    ) from None
+                except ProviderError as exc:
+                    raise ModelLendingError(
+                        502,
+                        GatewayErrorCode.MODEL_CALL_FAILED,
+                        exc.code.value,
+                        retryable=exc.retryable,
+                    ) from None
+                except asyncio.CancelledError:
+                    cancellation.cancel()
+                    raise
+                record_usage(current, response.usage)
+                usage = response.usage
+                tokens = (
+                    usage.total_tokens
+                    if usage.total_tokens is not None
+                    else (usage.input_tokens or 0) + (usage.output_tokens or 0)
+                )
+                return BorrowedModelResult.from_response(self._node_id, response)
+            finally:
+                self._running[key] -= 1
+                self._store.add(peer.node_id, day, 1, tokens)
