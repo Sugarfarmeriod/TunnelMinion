@@ -273,7 +273,7 @@ def test_stop_terminates_tree_then_kills_survivors_with_bounded_wait(
     assert child.events == ["terminate"] and parent.events == ["terminate", "kill"]
     assert waits == [
         ([cast(psutil.Process, child), cast(psutil.Process, parent)], 5),
-        ([cast(psutil.Process, parent)], 0),
+        ([cast(psutil.Process, parent)], 3),
     ]
 
 
