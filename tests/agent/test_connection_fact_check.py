@@ -211,6 +211,7 @@ def test_actual_agent_loop_checks_runtime_result_not_final_draft() -> None:
         )
     )
     assert result.answer_checked and result.checked_service_id == target.service_id
+    assert result.answer_basis == "checked"
     assert "只允许这台电脑自己连接" in result.answer and DRAFT not in result.answer
     assert result.evidence_answer.inferences == (DRAFT,)
     assert result.evidence_answer.confirmed_facts[0].evidence_refs == result.tool_run_ids
@@ -233,8 +234,10 @@ def test_checked_view_stays_frozen_and_public_serialization_keeps_legacy_fields(
         result=result,
     )
     assert view.model_dump()["result"]["answer_checked"] is True
+    assert view.model_dump()["result"]["answer_basis"] == "checked"
     legacy = TypeAdapter(RunView).dump_python(view)
     assert "answer_checked" not in legacy["result"]
     assert "checked_service_id" not in legacy["result"]
+    assert "answer_basis" not in legacy["result"]
     with pytest.raises(ValidationError, match="frozen_instance"):
         view.result = None

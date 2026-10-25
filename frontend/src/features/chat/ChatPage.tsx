@@ -990,6 +990,10 @@ function MessageHistory({
 function MessageItem({ message }: { message: ThreadMessage }) {
   const unchecked =
     message.role === "assistant" && message.answer_checked !== true;
+  const inferred =
+    message.role === "assistant" &&
+    message.answer_checked === true &&
+    message.answer_basis === "inferred";
   const marker = "\n\n证据索引（程序生成）：\n";
   const index =
     message.role === "assistant" ? message.content.lastIndexOf(marker) : -1;
@@ -1002,6 +1006,11 @@ function MessageItem({ message }: { message: ThreadMessage }) {
             {formatTimestamp(message.created_at)}
           </time>
         </header>
+        {inferred ? (
+          <span className="chat-basis-badge chat-basis-badge--inferred">
+            推断 · 尚未逐条核对
+          </span>
+        ) : null}
         {unchecked ? (
           <>
             <p>这条旧说明还没有经过事实核对，请不要据此更改设置。</p>
@@ -1015,6 +1024,11 @@ function MessageItem({ message }: { message: ThreadMessage }) {
             {index < 0 ? message.content : message.content.slice(0, index)}
           </p>
         )}
+        {inferred ? (
+          <p className="chat-basis-note">
+            这是模型根据本次检查记录得出的判断，程序还没有逐条核对；改设置前请先自己确认。
+          </p>
+        ) : null}
         {unchecked || index < 0 ? null : (
           <details>
             <summary>查看证据编号</summary>
@@ -1424,6 +1438,7 @@ function RunPanel({
           </div>
         )}
         {activeRun.result?.answer_checked === true &&
+        activeRun.result.answer_basis !== "inferred" &&
         activeRun.result.stop_reason === "completed" &&
         activeRun.result.evidence_answer.inferences.length > 0 ? (
           <details>
@@ -1442,9 +1457,16 @@ function RunPanel({
       terminalMessage === null ||
       terminalMessage === undefined ||
       (compact && terminalMessage === activeRun.result?.answer) ? null : (
-        <p className="chat-terminal-message chat-untrusted-text">
-          {terminalMessage}
-        </p>
+        <>
+          {!compact && activeRun.result?.answer_basis === "inferred" ? (
+            <span className="chat-basis-badge chat-basis-badge--inferred">
+              推断 · 尚未逐条核对
+            </span>
+          ) : null}
+          <p className="chat-terminal-message chat-untrusted-text">
+            {terminalMessage}
+          </p>
+        </>
       )}
     </section>
   );

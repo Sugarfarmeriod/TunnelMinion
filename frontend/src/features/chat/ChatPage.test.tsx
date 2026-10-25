@@ -1021,19 +1021,91 @@ describe("ChatPage", () => {
     },
   );
 
-  it("公开核对结论，模型原始说明只能在证据中主动展开", async () => {
-    const answer = "这个入口只接受这台电脑连接；网页是否正常还没有验证。";
-    const draft = "程序正常，请改成 0.0.0.0。";
-    const backend = installBackend([makeMessage("assistant", answer)]);
-    const checked = completedRun(answer);
-    checked.result!.evidence_answer.inferences = [draft];
-    backend.runs.set(runId, checked);
+  it.each([undefined, "checked"] as const)(
+    "公开核对结论，模型原始说明只能在证据中主动展开（%s）",
+    async (basis) => {
+      const answer = "这个入口只接受这台电脑连接；网页是否正常还没有验证。";
+      const draft = "程序正常，请改成 0.0.0.0。";
+      const message = makeMessage("assistant", answer);
+      message.answer_basis = basis;
+      const backend = installBackend([message]);
+      const checked = completedRun(answer);
+      checked.result!.answer_basis = basis;
+      checked.result!.evidence_answer.inferences = [draft];
+      backend.runs.set(runId, checked);
+      render(<ChatPage workspace />);
+      expect(await screen.findByText(answer, { exact: true })).toBeVisible();
+      expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+      const user = userEvent.setup();
+      await user.click(screen.getByText("查看用了哪些工具与证据"));
+      expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+      await user.click(screen.getByText("查看模型原始说明（未核对）"));
+      expect(screen.getByText(draft, { exact: true })).toBeVisible();
+      expect(screen.queryByText("推断 · 尚未逐条核对")).toBeNull();
+    },
+  );
+
+  it.each([true, false])(
+    "推断回答显示结论和提醒，原始说明不重复出现（workspace=%s）",
+    async (workspace) => {
+      const draft = "检查记录显示这个程序可能只接受本机连接。";
+      const answer = `${draft}\n\n证据索引（程序生成）：\n- get_node_summary: ${toolRun3} (success)`;
+      const message = makeMessage("assistant", answer);
+      message.answer_basis = "inferred";
+      const backend = installBackend([message]);
+      const inferred = completedRun(answer);
+      inferred.result!.answer_basis = "inferred";
+      inferred.result!.evidence_answer.inferences = [draft];
+      backend.runs.set(runId, inferred);
+
+      render(<ChatPage workspace={workspace} />);
+      expect(await screen.findByText(draft, { exact: true })).toBeVisible();
+      await screen.findByText("最终回答引用的证据");
+      await replayTerminalRun();
+      await waitFor(() =>
+        expect(screen.getAllByText("推断 · 尚未逐条核对")).toHaveLength(
+          workspace ? 1 : 2,
+        ),
+      );
+      for (const badge of screen.getAllByText("推断 · 尚未逐条核对")) {
+        expect(badge).toBeVisible();
+        expect(badge).toHaveClass(
+          "chat-basis-badge chat-basis-badge--inferred",
+        );
+      }
+      expect(
+        screen.getByText(
+          "这是模型根据本次检查记录得出的判断，程序还没有逐条核对；改设置前请先自己确认。",
+        ),
+      ).toHaveClass("chat-basis-note");
+      expect(screen.queryByText("查看模型原始说明（未核对）")).toBeNull();
+      await userEvent.setup().click(screen.getByText("查看证据编号"));
+      expect(
+        screen.getByText(`- get_node_summary: ${toolRun3} (success)`, {
+          exact: true,
+        }),
+      ).toBeVisible();
+    },
+  );
+
+  it.each([
+    "模型这次没有成功取得任何检查记录，它的回答缺少依据，所以没有当作结论显示。可以展开“模型原始说明”查看，或换个说法再问一次。",
+    "模型这次没有给出回答，所以没有可显示的结论。可以换个说法再问一次。",
+  ])("无结论时显示原因且不加推断标签（%s）", async (answer) => {
+    const draft = "没有依据的模型说明。";
+    const message = makeMessage("assistant", answer);
+    message.answer_basis = "none";
+    const backend = installBackend([message]);
+    const empty = completedRun(answer);
+    empty.result!.answer_basis = "none";
+    empty.result!.evidence_answer.inferences = [draft];
+    backend.runs.set(runId, empty);
     render(<ChatPage workspace />);
     expect(await screen.findByText(answer, { exact: true })).toBeVisible();
-    expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
+    expect(await screen.findByText(draft, { exact: true })).not.toBeVisible();
+    expect(screen.queryByText("推断 · 尚未逐条核对")).toBeNull();
     const user = userEvent.setup();
     await user.click(screen.getByText("查看用了哪些工具与证据"));
-    expect(screen.getByText(draft, { exact: true })).not.toBeVisible();
     await user.click(screen.getByText("查看模型原始说明（未核对）"));
     expect(screen.getByText(draft, { exact: true })).toBeVisible();
   });

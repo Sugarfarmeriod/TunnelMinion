@@ -183,6 +183,13 @@ class CheckedAgentTurnResult(AgentTurnResult):
     answer_checked: bool = Field(
         default=False, description="公开回答已核对事实边界，不代表所问的全部情况已验证"
     )
+    answer_basis: Literal["checked", "inferred", "none"] = Field(
+        default="checked",
+        description=(
+            "checked=程序已核对事实边界；"
+            "inferred=模型依据本次检查记录的推断，未逐条核对；none=没有可显示的结论"
+        ),
+    )
     checked_service_id: ServiceId | None = None
 
 
