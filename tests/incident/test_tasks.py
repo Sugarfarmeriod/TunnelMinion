@@ -104,7 +104,7 @@ def test_background_event_uses_shared_run_id_thread_progress_and_metrics(tmp_pat
     assert isinstance(progress, dict) and progress["incident_id"] == str(incident.incident_id)
     detail = harness.conversations.get_thread(thread)
     assert len(detail.messages) == 2 and detail.messages[-1].answer_checked
-    assert "本次还没有形成能核对" not in detail.messages[-1].content
+    assert detail.messages[-1].answer_basis == "checked"
     assert "该次变化" in detail.messages[-1].content
     before = len(provider.requests)
     assert run(harness.run(final)) == final

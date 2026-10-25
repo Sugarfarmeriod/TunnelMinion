@@ -7,8 +7,10 @@ from collections.abc import AsyncIterator, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
+from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import TypeAdapter
 from tests.agent.test_connection_fact_check import connection_agent, connection_case
 from tests.agent.test_langchain_agent import ScriptedProvider, SlowProvider, build_agent
 
@@ -30,6 +32,8 @@ from tunnelminion.memory.contracts import (
 )
 from tunnelminion.memory.service import MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
+from tunnelminion.model.contracts import ModelResponse
+from tunnelminion.tools.fakes import FakeToolBehavior
 
 T = TypeVar("T")
 
@@ -75,10 +79,20 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     assert final.result is not None
     assert isinstance(final.result, CheckedAgentTurnResult)
     assert final.result.answer_checked
-    assert "本次还没有形成能核对的程序结论" in final.result.answer
-    assert "已确认服务状态" not in final.result.answer
+    assert final.result.answer_basis == "inferred"
+    assert final.result.checked_service_id is None
+    assert final.result.answer.startswith("已确认服务状态")
+    assert final.result.answer == final.result.evidence_answer.inferences[0]
+    assert final.result.evidence_answer.summary == final.result.evidence_answer.inferences[0]
     assert final.result.evidence_answer.confirmed_facts == ()
-    assert "已确认服务状态" in final.result.evidence_answer.inferences[0]
+    assert final.result.evidence_answer.unknowns == (
+        "这是模型根据本次检查记录得出的推断，程序还没有逐条核对。",
+    )
+    assert final.model_dump()["result"]["answer_basis"] == "inferred"
+    public_result = TypeAdapter(RunView).dump_python(final)["result"]
+    assert "answer_basis" not in public_result
+    assert "answer_checked" not in public_result
+    assert "checked_service_id" not in public_result
     assert [event.event_type for event in events] == [
         RunEventType.GOAL,
         RunEventType.TOOL,
@@ -97,6 +111,7 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     assert detail.thread.message_count == 2
     assert detail.thread.updated_at >= detail.thread.created_at
     assert detail.messages[1].answer_checked
+    assert detail.messages[1].answer_basis == "inferred"
 
     async def continue_scenario() -> None:
         continued = await conversations.start_run(
@@ -118,6 +133,75 @@ def test_thread_run_and_public_tool_event_lifecycle() -> None:
     run(second_thread_scenario())
     conversations.delete_thread(first.thread_id)
     assert conversations.list_threads()[0].thread_id == second.thread_id
+
+
+@pytest.mark.parametrize("tool_failure", [False, True])
+def test_free_answer_without_successful_checks_has_no_conclusion(
+    monkeypatch: pytest.MonkeyPatch, tool_failure: bool
+) -> None:
+    """没有成功检查记录时保留模型原文，只显示缺少依据的原因。"""
+    agent, provider, adapter = build_agent()
+    draft = "已确认服务状态，并引用工具证据。"
+    if tool_failure:
+        adapter.behavior = FakeToolBehavior.ADAPTER_ERROR
+    else:
+        monkeypatch.setattr(
+            provider, "complete", AsyncMock(return_value=ModelResponse(content=draft))
+        )
+    conversations = InMemoryConversationService(NodeId.new(), lambda: agent)
+    thread = conversations.create_thread()
+
+    async def scenario() -> CheckedAgentTurnResult:
+        started = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="检查当前状态", tool_names=("probe_service",)),
+        )
+        _ = await collect(conversations.stream_events(started.run_id))
+        result = conversations.get_run(started.run_id).result
+        assert result is not None
+        return result
+
+    result = run(scenario())
+    summary = (
+        "模型这次没有成功取得任何检查记录，它的回答缺少依据，所以没有当作结论显示。"
+        "可以展开“模型原始说明”查看，或换个说法再问一次。"
+    )
+    assert result.answer_checked and result.answer_basis == "none"
+    assert result.answer == result.evidence_answer.summary == summary
+    assert result.evidence_answer.confirmed_facts == ()
+    assert result.evidence_answer.inferences[0].startswith(draft)
+    assert result.evidence_answer.unknowns == ("本次没有成功的检查记录，无法确认所问的实际情况。",)
+    assert len(result.evidence_answer.evidence) == int(tool_failure)
+    assert all(item.status == "failed" for item in result.evidence_answer.evidence)
+    assert conversations.get_thread(thread.thread_id).messages[-1].answer_basis == "none"
+
+
+@pytest.mark.parametrize("draft", ["", " \n\t "])
+def test_empty_free_answer_has_no_conclusion(monkeypatch: pytest.MonkeyPatch, draft: str) -> None:
+    """空回答和仅有空白的回答都不能成为可显示结论。"""
+    agent, provider, _ = build_agent()
+    monkeypatch.setattr(provider, "complete", AsyncMock(return_value=ModelResponse(content=draft)))
+    conversations = InMemoryConversationService(NodeId.new(), lambda: agent)
+    thread = conversations.create_thread()
+
+    async def scenario() -> CheckedAgentTurnResult:
+        started = await conversations.start_run(
+            thread.thread_id,
+            StartRunInput(question="检查当前状态", tool_names=("probe_service",)),
+        )
+        _ = await collect(conversations.stream_events(started.run_id))
+        result = conversations.get_run(started.run_id).result
+        assert result is not None
+        return result
+
+    result = run(scenario())
+    summary = "模型这次没有给出回答，所以没有可显示的结论。可以换个说法再问一次。"
+    assert result.answer_checked and result.answer_basis == "none"
+    assert result.answer == result.evidence_answer.summary == summary
+    assert result.evidence_answer.confirmed_facts == ()
+    assert result.evidence_answer.inferences == ((draft,) if draft else ())
+    assert result.evidence_answer.unknowns == ("模型没有返回回答，无法确认所问的实际情况。",)
+    assert conversations.get_thread(thread.thread_id).messages[-1].answer_basis == "none"
 
 
 def test_continued_run_includes_prior_thread_messages() -> None:
@@ -148,8 +232,9 @@ def test_continued_run_includes_prior_thread_messages() -> None:
     assert "第一次检查 8082" in contents
     previous_answer = conversations.get_thread(thread.thread_id).messages[1]
     assert previous_answer.answer_checked
+    assert previous_answer.answer_basis == "inferred"
     assert previous_answer.content in contents
-    assert all("已确认服务状态" not in item for item in contents)
+    assert "已确认服务状态" in previous_answer.content
     assert contents[-1] == "继续刚才的检查"
 
 
@@ -369,7 +454,8 @@ def test_delete_running_thread_cancels_and_removes_owned_runs(tmp_path: Path) ->
         conversations.get_run(run_id)
 
 
-def test_restart_restores_completed_thread_and_run(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy", [False, True])
+def test_restart_restores_completed_thread_and_run(tmp_path: Path, legacy: bool) -> None:
     """完成态可在新 Runtime 中读回，删除线程也同步清理 checkpoint。"""
     stores = SQLiteStores.open(tmp_path / "completed.sqlite3")
     original = InMemoryConversationService(
@@ -386,6 +472,22 @@ def test_restart_restores_completed_thread_and_run(tmp_path: Path) -> None:
         return started.run_id
 
     run_id = run(scenario())
+    checkpoint = stores.checkpoints.get(run_id)
+    assert checkpoint is not None
+    public = dict(checkpoint.public_state)
+    public.pop("service_id")
+    if legacy:
+        messages = public["messages"]
+        assert isinstance(messages, list)
+        for message in messages:
+            assert isinstance(message, dict)
+            message.pop("answer_basis")
+        saved_run = public["run"]
+        assert isinstance(saved_run, dict)
+        saved_result = saved_run["result"]
+        assert isinstance(saved_result, dict)
+        saved_result.pop("answer_basis")
+    stores.checkpoints.put(checkpoint.model_copy(update={"public_state": public}))
     restored = InMemoryConversationService(
         NodeId.new(), lambda: build_agent()[0], stores.checkpoints
     )
@@ -393,6 +495,13 @@ def test_restart_restores_completed_thread_and_run(tmp_path: Path) -> None:
     assert restored.get_run(run_id).status is RunStatus.COMPLETED
     assert restored.get_thread(thread.thread_id).thread.message_count == 2
     assert len(restored.get_thread(thread.thread_id).messages) == 2
+    assert restored.get_thread(thread.thread_id).messages[-1].answer_basis == (
+        "checked" if legacy else "inferred"
+    )
+    result = restored.get_run(run_id).result
+    assert result is not None and result.checked_service_id is None
+    assert result.answer_basis == ("checked" if legacy else "inferred")
+    assert restored.get_thread_service_id(thread.thread_id) is None
     restored.delete_thread(thread.thread_id)
     assert stores.checkpoints.list_all() == ()
 
