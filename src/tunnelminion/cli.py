@@ -19,7 +19,7 @@ _SUPPORTED_REMOTE_OPERATIONS = ("share_local_http_service",)
 _UNINSTALL_CONFIRMATION = "DELETE-TUNNELMINION-DATA"
 
 
-def _local_repair_service(data_dir: Path | None) -> RepairService:  # pragma: no cover
+def _local_repair_service(data_dir: Path | None) -> RepairService:
     from importlib import import_module
 
     factory = cast(
