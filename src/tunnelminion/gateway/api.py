@@ -5,14 +5,17 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, Query, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
+from opentelemetry.trace import SpanKind
+from starlette.responses import Response
 
 from tunnelminion.domain.delegation import DelegationBusyError, DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
@@ -37,6 +40,7 @@ from tunnelminion.gateway.contracts import (
 from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.operation.contracts import OperationSummary
+from tunnelminion.telemetry import extract_context, set_status, span
 from tunnelminion.tools.contracts import (
     ToolCallContext,
     ToolCancellationToken,
@@ -125,6 +129,24 @@ def limit_result(result: RemoteToolResult, max_bytes: int) -> RemoteToolResult:
     )
 
 
+class _TracedGatewayRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def traced(request: Request) -> Response:
+            with span(
+                f"gateway.server.{self.name}",
+                parent=extract_context(request.headers),
+                kind=SpanKind.SERVER,
+            ) as current:
+                response = await handler(request)
+                current.set_attribute("http.response.status_code", response.status_code)
+                set_status(current, "error" if response.status_code >= 400 else "success")
+                return response
+
+        return traced
+
+
 def create_gateway_router(
     node_id: NodeId,
     platform: Platform,
@@ -138,7 +160,7 @@ def create_gateway_router(
     invite_service: InviteService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
-    router = APIRouter()
+    router = APIRouter(route_class=_TracedGatewayRoute)
     invite_attempts: deque[float] = deque()
 
     def reject(

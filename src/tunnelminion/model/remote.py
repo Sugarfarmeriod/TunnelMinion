@@ -17,6 +17,7 @@ from tunnelminion.model.contracts import (
     ProviderError,
     ProviderErrorCode,
 )
+from tunnelminion.telemetry import model_attributes, record_usage, span
 
 _ERRORS: dict[GatewayErrorCode | ErrorCode, tuple[ProviderErrorCode, str, bool]] = {
     GatewayErrorCode.MODEL_BORROWING_NOT_ALLOWED: (
@@ -67,27 +68,30 @@ class RemoteModelProvider:
         self, request: ModelRequest, cancellation: CancellationToken | None = None
     ) -> ModelResponse:
         """传输模型请求并在取消时收回 HTTP 任务。"""
-        token = cancellation or CancellationToken()
-        if token.cancelled:
-            raise ProviderError(ProviderErrorCode.CANCELLED, "模型调用已取消")
-        task = asyncio.create_task(
-            self._client.complete_model(
-                BorrowedModelCall.from_request(self._local_node_id, request)
-            )
-        )
-        cancelled = asyncio.create_task(token.wait())
-        try:
-            done, _ = await asyncio.wait({task, cancelled}, return_when=asyncio.FIRST_COMPLETED)
-            if cancelled in done:
+        with span("model.call", model_attributes(self)) as current:
+            token = cancellation or CancellationToken()
+            if token.cancelled:
                 raise ProviderError(ProviderErrorCode.CANCELLED, "模型调用已取消")
-            return (await task).to_response()
-        except RemoteGatewayError as exc:
-            code, message, retryable = _ERRORS.get(
-                exc.gateway_code or exc.code,
-                (ProviderErrorCode.INVALID_RESPONSE, "对方电脑的模型调用失败", False),
+            task = asyncio.create_task(
+                self._client.complete_model(
+                    BorrowedModelCall.from_request(self._local_node_id, request)
+                )
             )
-            raise ProviderError(code, message, retryable=retryable) from exc
-        finally:
-            task.cancel()
-            cancelled.cancel()
-            await asyncio.gather(task, cancelled, return_exceptions=True)
+            cancelled = asyncio.create_task(token.wait())
+            try:
+                done, _ = await asyncio.wait({task, cancelled}, return_when=asyncio.FIRST_COMPLETED)
+                if cancelled in done:
+                    raise ProviderError(ProviderErrorCode.CANCELLED, "模型调用已取消")
+                response = (await task).to_response()
+                record_usage(current, response.usage)
+                return response
+            except RemoteGatewayError as exc:
+                code, message, retryable = _ERRORS.get(
+                    exc.gateway_code or exc.code,
+                    (ProviderErrorCode.INVALID_RESPONSE, "对方电脑的模型调用失败", False),
+                )
+                raise ProviderError(code, message, retryable=retryable) from exc
+            finally:
+                task.cancel()
+                cancelled.cancel()
+                await asyncio.gather(task, cancelled, return_exceptions=True)

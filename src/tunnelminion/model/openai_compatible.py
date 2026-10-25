@@ -57,6 +57,11 @@ class OpenAICompatibleProvider:
         self._transport = transport
 
     @property
+    def model_name(self) -> str:
+        """返回不含连接地址或凭据的模型名称。"""
+        return self._config.model
+
+    @property
     def capabilities(self) -> ModelCapabilities:
         """兼容适配器支持工具与 JSON Schema 请求，最终以实测为准。"""
         return ModelCapabilities(tool_calls=True, structured_output=True)

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Literal, cast
 
 import httpx
+from opentelemetry.trace import SpanKind
 from pydantic import JsonValue, ValidationError
 
 from tunnelminion.domain.delegation import DelegationRecord, DelegationRequest
@@ -32,6 +35,7 @@ from tunnelminion.gateway.contracts import (
     RequesterVerificationCallback,
 )
 from tunnelminion.operation.contracts import OperationPlan
+from tunnelminion.telemetry import inject_headers, set_status, span
 from tunnelminion.tools.audit import AuditRecord, AuditSink
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -158,7 +162,7 @@ class FixedGatewayClient:
 
     async def discover(self) -> GatewayCapabilities:
         """认证并协商能力清单，同时验证响应来源节点。"""
-        async with self._http_client() as client:
+        async with self._http_client("capabilities") as client:
             try:
                 response = await client.get(
                     "/v1/capabilities",
@@ -302,7 +306,7 @@ class FixedGatewayClient:
         """向固定对端借用一次模型调用。"""
         if call.caller_node_id != self._local_node_id:
             raise ValueError("调用上下文 caller 与本地节点不一致")
-        async with self._http_client() as client:
+        async with self._http_client("model_complete") as client:
             try:
                 response = await client.post(
                     "/v1/model:complete",
@@ -328,7 +332,12 @@ class FixedGatewayClient:
     async def _request_delegation(
         self, method: str, path: str, *, content: str | None = None
     ) -> DelegationRecord:
-        async with self._http_client() as client:
+        action = {
+            "POST": "submit_delegation",
+            "GET": "delegation_status",
+            "DELETE": "cancel_delegation",
+        }
+        async with self._http_client(action[method]) as client:
             try:
                 response = await client.request(
                     method,
@@ -368,7 +377,8 @@ class FixedGatewayClient:
         *,
         content: str | None = None,
     ) -> RemoteOperationResult:
-        async with self._http_client() as client:
+        action = "operation_status" if method == "GET" else path.rsplit(":", 1)[1] + "_operation"
+        async with self._http_client(action) as client:
             try:
                 response = await client.request(
                     method,
@@ -401,7 +411,7 @@ class FixedGatewayClient:
         cancellation: ToolCancellationToken,
         context: ToolCallContext,
     ) -> RemoteToolResult:
-        async with self._http_client() as client:
+        async with self._http_client("call_tool") as client:
             task = asyncio.create_task(
                 client.post(
                     f"/v1/tools/{tool_name}:call",
@@ -491,13 +501,22 @@ class FixedGatewayClient:
             )
         return result
 
-    def _http_client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self._endpoint,
-            headers={"Authorization": f"Bearer {self._token}"},
-            transport=self._transport,
-            trust_env=False,
-        )
+    @asynccontextmanager
+    async def _http_client(self, action: str) -> AsyncGenerator[httpx.AsyncClient]:
+        with span(f"gateway.client.{action}", kind=SpanKind.CLIENT) as current:
+
+            async def record_response(response: httpx.Response) -> None:
+                current.set_attribute("http.response.status_code", response.status_code)
+                set_status(current, "error" if response.status_code >= 400 else "success")
+
+            async with httpx.AsyncClient(
+                base_url=self._endpoint,
+                headers={"Authorization": f"Bearer {self._token}", **inject_headers()},
+                transport=self._transport,
+                trust_env=False,
+                event_hooks={"response": [record_response]},
+            ) as client:
+                yield client
 
     def _check_response_size(
         self, response: httpx.Response, *, max_response_bytes: int | None = None
