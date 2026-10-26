@@ -10,6 +10,7 @@ from tunnelminion.agent.prompts import (
     READONLY_AGENT_PROMPT_V1,
     READONLY_AGENT_PROMPT_V2,
     READONLY_AGENT_PROMPT_V3,
+    READONLY_AGENT_PROMPT_V4,
     REAL_MODEL_EVALUATION_PROMPT,
     PromptRegistry,
 )
@@ -18,7 +19,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 10
+    assert len(definitions) == 11
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.content_hash == (
@@ -28,7 +29,19 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
 
     assert INCIDENT_INVESTIGATION_PROMPT.version == "v3"
     assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "3.0.0"
-    assert READONLY_AGENT_PROMPT.version == "v4"
+    assert READONLY_AGENT_PROMPT.version == "v5"
+    assert READONLY_AGENT_PROMPT.semantic_version == "5.0.0"
+    assert READONLY_AGENT_PROMPT.change_note == (
+        "加入容器挂了和脚本退出了两份排查剧本，可提出待批准的修法但不能执行。"
+    )
+    assert (
+        PROMPT_REGISTRY.resolve("readonly-agent", "v4", ContextTaskType.LOCAL_CONVERSATION)
+        == READONLY_AGENT_PROMPT_V4
+    )
+    assert "read_container_logs" in READONLY_AGENT_PROMPT.template
+    assert "list_launch_records" in READONLY_AGENT_PROMPT.template
+    assert "propose_repair" in READONLY_AGENT_PROMPT.template
+    assert "proposed_repairs" in READONLY_AGENT_PROMPT.template
     assert "read_investigation_skill" in READONLY_AGENT_PROMPT.template
     assert (
         PROMPT_REGISTRY.resolve("readonly-agent", "v3", ContextTaskType.LOCAL_CONVERSATION)

@@ -27,7 +27,7 @@ from tunnelminion.tools.contracts import (
 )
 from tunnelminion.tools.fakes import FakeToolAdapter, FakeToolBehavior
 from tunnelminion.tools.registry import ToolRegistry
-from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.tools.runtime import ToolRuntime, current_tool_call_context
 
 T = TypeVar("T")
 
@@ -94,6 +94,45 @@ def build_runtime(
         ),
         audit,
     )
+
+
+def test_adapter_context_is_scoped_to_each_concurrent_call_and_restored() -> None:
+    seen: list[ToolCallContext] = []
+
+    class ContextAdapter:
+        async def execute(
+            self, arguments: dict[str, JsonValue], cancellation: ToolCancellationToken
+        ) -> JsonValue:
+            before = current_tool_call_context.get()
+            await asyncio.sleep(0)
+            assert current_tool_call_context.get() == before
+            seen.append(before)
+            return {"run_id": str(before.run_id)}
+
+    registry = ToolRegistry()
+    registry.register(definition("context"), ContextAdapter())
+    runtime = ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink())
+    first, second, outer = context(), context(), context()
+
+    async def scenario() -> None:
+        token = current_tool_call_context.set(outer)
+        try:
+            results = await asyncio.gather(
+                runtime.execute(ToolExecutionRequest(context=first, tool_name="context")),
+                runtime.execute(ToolExecutionRequest(context=second, tool_name="context")),
+            )
+            assert [item.output for item in results] == [
+                {"run_id": str(first.run_id)},
+                {"run_id": str(second.run_id)},
+            ]
+            assert current_tool_call_context.get() == outer
+        finally:
+            current_tool_call_context.reset(token)
+
+    run(scenario())
+    assert seen == [first, second]
+    with pytest.raises(LookupError):
+        current_tool_call_context.get()
 
 
 def test_rejects_invalid_concurrency_unknown_and_non_read_only_tools() -> None:
