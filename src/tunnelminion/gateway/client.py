@@ -27,6 +27,7 @@ from tunnelminion.gateway.contracts import (
     GatewayCapabilities,
     GatewayErrorCode,
     GatewayErrorResponse,
+    GatewayServices,
     RemoteOperationExecution,
     RemoteOperationResult,
     RemoteOperationSubmission,
@@ -281,6 +282,26 @@ class FixedGatewayClient:
         )
         if result.summary.operation_id != operation_id:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应 ID 不匹配")
+        return result
+
+    async def get_services(self) -> GatewayServices:
+        """读取固定对端已经筛选的服务清单。"""
+        async with self._http_client("services") as client:
+            try:
+                response = await client.get("/v1/services", timeout=10)
+            except httpx.TimeoutException as exc:
+                raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "远端服务清单请求超时") from exc
+            except httpx.RequestError as exc:
+                raise RemoteGatewayError(ErrorCode.NODE_UNREACHABLE, "远端节点不可达") from exc
+        self._check_response_size(response)
+        if not response.is_success:
+            raise self._protocol_error(response)
+        try:
+            result = GatewayServices.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端服务清单格式无效") from exc
+        if result.node_id != self._remote_node_id:
+            raise RemoteGatewayError(ErrorCode.FORBIDDEN, "远端响应节点身份不匹配")
         return result
 
     async def submit_delegation(

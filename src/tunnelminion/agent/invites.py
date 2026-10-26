@@ -16,6 +16,7 @@ from tunnelminion.domain.invites import (
     InviteAccepted,
     InviteCode,
     InvitePermissions,
+    platform_display_name,
 )
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.configuration import (
@@ -83,6 +84,7 @@ class InviteService:
         security_policy: GatewaySecurityPolicy | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        display_name: Callable[[], str] | None = None,
     ) -> None:
         self._node_id = node_id
         self._platform = platform
@@ -90,6 +92,7 @@ class InviteService:
         self._store = store
         self._security_policy = security_policy
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._display_name = display_name or (lambda: platform_display_name(platform))
 
     def create(self, permissions: InvitePermissions) -> InviteCode:
         """签发邀请码；数据库只登记令牌摘要。"""
@@ -124,6 +127,7 @@ class InviteService:
         peer = GatewayPeerConfig(
             node_id=acceptance.node_id,
             platform=acceptance.platform,
+            display_name=acceptance.display_name or platform_display_name(acceptance.platform),
             host=acceptance.host,
             port=acceptance.port,
             allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
@@ -144,4 +148,8 @@ class InviteService:
                     daily_quota=peer.daily_quota,
                 )
             )
-        return InviteAccepted(inviter_node_id=self._node_id, permissions=permissions)
+        return InviteAccepted(
+            inviter_node_id=self._node_id,
+            inviter_display_name=self._display_name(),
+            permissions=permissions,
+        )

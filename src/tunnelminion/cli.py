@@ -658,6 +658,46 @@ def _configure_gateway(values: list[str]) -> int:
     return 0
 
 
+def _name_command(values: list[str]) -> int:
+    """设置本机名字或本机保存的对端名字。"""
+    from pydantic import ValidationError
+
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.gateway.configuration import (
+        FileGatewayConfigurationRepository,
+        GatewayConfigurationService,
+        gateway_secret_store,
+    )
+    from tunnelminion.gateway.names import save_node_name
+
+    parser = argparse.ArgumentParser(description="设置电脑在地图中的显示名")
+    parser.add_argument("command", choices=("node-name", "peer-rename"))
+    if values[0] == "peer-rename":
+        parser.add_argument("node_id")
+    parser.add_argument("name")
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+    root = args.data_dir or default_data_dir()
+    try:
+        if args.command == "node-name":
+            save_node_name(root, args.name)
+        else:
+            service = GatewayConfigurationService(
+                FileGatewayConfigurationRepository(root / "gateway.json"),
+                gateway_secret_store(root),
+            )
+            service.rename_peer(NodeId(args.node_id), args.name)
+    except ValidationError:
+        print("电脑编号无效，或显示名不是 1-40 个字符的单行纯文本")
+        return 2
+    except (KeyError, RuntimeError):
+        print("尚未配置这个对端")
+        return 2
+    print(f"已设置显示名：{args.name}")
+    return 0
+
+
 def _invite(values: list[str]) -> int:
     """生成仅可用一次的邀请码，必要时配置本机网关地址。"""
     from tunnelminion.agent.invites import InviteService
@@ -672,6 +712,7 @@ def _invite(values: list[str]) -> int:
         configure_gateway_secret_store,
         gateway_secret_store,
     )
+    from tunnelminion.gateway.names import load_node_name
     from tunnelminion.gateway.security import GatewayBindConfig
     from tunnelminion.memory.sqlite import SQLiteStores
 
@@ -704,9 +745,17 @@ def _invite(values: list[str]) -> int:
             print("本机网关还没有配置，请加上 --bind-host <本机组网地址>")
             return 2
         configuration.configure_local(GatewayBindConfig(host=args.bind_host, port=args.bind_port))
+    local_platform = (
+        Platform.MACOS
+        if sys.platform == "darwin"
+        else Platform.WINDOWS
+        if sys.platform == "win32"
+        else Platform.LINUX
+    )
+    load_node_name(root, local_platform)
     service = InviteService(
         load_or_create_node_id(root / "node-id"),
-        Platform.MACOS if sys.platform == "darwin" else Platform.WINDOWS,
+        local_platform,
         configuration,
         SQLiteStores.open(root / "runtime.sqlite3").invites,
     )
@@ -947,6 +996,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _configure_gateway(values)
     if values and values[0] == "invite":
         return _invite(values)
+    if values and values[0] in {"node-name", "peer-rename"}:
+        return _name_command(values)
     if values and values[0] == "model-usage":
         return _model_usage(values)
     if values and values[0] == "coordinator-enroll":

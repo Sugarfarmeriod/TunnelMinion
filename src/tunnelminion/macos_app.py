@@ -48,8 +48,10 @@ from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
     gateway_secret_store,
 )
+from tunnelminion.gateway.names import load_node_name
 from tunnelminion.gateway.operations import TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.gateway.services import GatewayServiceReader
 from tunnelminion.incident.investigation import ConfiguredIncidentRunner
 from tunnelminion.incident.observer import (
     IncidentObservationService,
@@ -116,6 +118,7 @@ from tunnelminion.web.incidents import create_incident_router, incidents_overvie
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.peers import PeerServicePoller, create_peers_router, peer_services_lifespan
 from tunnelminion.web.repairs import create_repair_router
 from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
@@ -496,6 +499,19 @@ def build_macos_local_application(
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
         read_only_preview=read_only_preview,
     )
+    peer_poller = PeerServicePoller(
+        GatewayConfigurationService(
+            FileGatewayConfigurationRepository(node.root / "gateway.json"),
+            gateway_secret_store(node.root),
+        ),
+        node.node_id,
+        node.audit_sink,
+    )
+    local_lifespan = incident_observation_lifespan(
+        managed_application_lifespan(managed), incident_observer, incident_store
+    )
+    if not read_only_preview:
+        local_lifespan = peer_services_lifespan(local_lifespan, peer_poller)
     app = FastAPI(
         title="TunnelMinion",
         docs_url="/api/docs",
@@ -503,11 +519,7 @@ def build_macos_local_application(
             node.root,
             node.node_id,
             Platform.MACOS,
-            incident_observation_lifespan(
-                managed_application_lifespan(managed),
-                incident_observer,
-                incident_store,
-            ),
+            local_lifespan,
         ),
     )
     install_local_request_guard(app, read_only_preview=read_only_preview)
@@ -540,6 +552,21 @@ def build_macos_local_application(
         )
     )
     app.include_router(create_memory_router(memories))
+    app.include_router(
+        create_peers_router(
+            node.node_id,
+            Platform.MACOS,
+            lambda: load_node_name(node.root, Platform.MACOS),
+            peer_poller,
+            lambda: build_local_service_map(
+                node.node_id,
+                service_cache.read(),
+                stores.service_marks.all(),
+                excluded_pid=os.getpid(),
+            ),
+            views.resource_bindings.coordinator_cache,
+        )
+    )
     app.include_router(
         create_service_map_router(
             node.node_id,
@@ -588,6 +615,7 @@ def build_macos_gateway_application(
     view = gateway_service.view()
     if not view.configured or view.bind is None:
         raise RuntimeError("尚未配置 macOS Tool Gateway WireGuard 监听地址")
+    load_node_name(node.root, Platform.MACOS)
     security_policy = gateway_service.build_security_policy()
     bind = GatewayBindConfig(
         host=view.bind.host,
@@ -614,7 +642,12 @@ def build_macos_gateway_application(
         node.node_id, node.model_service.create_lending_provider, stores.model_usage
     )
     invite_service = InviteService(
-        node.node_id, Platform.MACOS, gateway_service, stores.invites, security_policy
+        node.node_id,
+        Platform.MACOS,
+        gateway_service,
+        stores.invites,
+        security_policy,
+        display_name=lambda: load_node_name(node.root, Platform.MACOS),
     )
     if safe_sharing is not None:
         operation_peers = tuple(
@@ -675,6 +708,19 @@ def build_macos_gateway_application(
             delegation_service,
             model_lending_service,
             invite_service=invite_service,
+            service_reader=GatewayServiceReader(
+                node.node_id,
+                lambda: load_node_name(node.root, Platform.MACOS),
+                DeterministicServiceObserver(
+                    node.node_id,
+                    ServiceObservationConfig(),
+                    node.listeners,
+                    node.processes,
+                    node.docker,
+                    marks=stores.service_marks.all,
+                ),
+                stores.service_marks,
+            ),
         )
     )
     return MacOSGatewayApplication(

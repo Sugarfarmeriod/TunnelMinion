@@ -11,6 +11,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.invites import DisplayName
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import (
@@ -75,6 +76,7 @@ class GatewayPeerConfig(BaseModel):
 
     node_id: NodeId
     platform: Platform | None = None
+    display_name: DisplayName | None = None
     host: str
     port: int = Field(default=8787, ge=1024, le=65535)
     allowed_tools: frozenset[str] = Field(min_length=1)
@@ -123,6 +125,7 @@ class GatewayPeerView(BaseModel):
 
     node_id: NodeId
     platform: Platform | None = None
+    display_name: DisplayName | None = None
     host: str
     port: int
     allowed_tools: frozenset[str]
@@ -271,6 +274,20 @@ class GatewayConfigurationService:
         self._secrets.delete(gateway_token_name(node_id))
         return self.view()
 
+    def rename_peer(self, node_id: NodeId, display_name: str) -> GatewayConfigurationView:
+        """只更新本机保存的对端名字，不改凭据或远端配置。"""
+        config = self._require_config()
+        if not any(peer.node_id == node_id for peer in config.peers):
+            raise KeyError("gateway_peer_not_found")
+        peers = tuple(
+            GatewayPeerConfig.model_validate({**peer.model_dump(), "display_name": display_name})
+            if peer.node_id == node_id
+            else peer
+            for peer in config.peers
+        )
+        self._repository.save(config.model_copy(update={"peers": peers}))
+        return self.view()
+
     def view(self) -> GatewayConfigurationView:
         """返回不含 token 的配置摘要。"""
         config = self._repository.load()
@@ -280,6 +297,7 @@ class GatewayConfigurationService:
             GatewayPeerView(
                 node_id=item.node_id,
                 platform=item.platform,
+                display_name=item.display_name,
                 host=item.host,
                 port=item.port,
                 allowed_tools=item.allowed_tools,
@@ -336,6 +354,17 @@ class GatewayConfigurationService:
             allowed_tools=allowed,
             token=token,
         )
+
+    def resolve_service_peer(self, node_id: NodeId) -> tuple[str, str]:
+        """服务清单只依赖固定地址和凭据，兼容未记录平台的旧对端。"""
+        config = self._require_config()
+        peer = next((item for item in config.peers if item.node_id == node_id), None)
+        if peer is None:
+            raise KeyError("gateway_peer_not_found")
+        token = self._secrets.get(gateway_token_name(node_id))
+        if token is None:
+            raise RuntimeError(f"peer {node_id} 缺少网关凭据")
+        return peer.endpoint(), token
 
     def resolve_delegation_peer(self, node_id: NodeId) -> GatewayToolPeer:
         """解析可以发起委派的对端；对端是否接受由它自己决定。"""
