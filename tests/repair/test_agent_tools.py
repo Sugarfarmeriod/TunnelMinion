@@ -346,4 +346,8 @@ def test_approval_instruction_uses_custom_directory_only_locally(
     assert repair_approval_instruction(repair_id, custom) == (
         f'在这台电脑上运行：{command} --data-dir "{custom.resolve()}"{suffix}'
     )
+    plain = Path("/tunnelminion-data")
+    assert repair_approval_instruction(repair_id, plain) == (
+        f"在这台电脑上运行：{command} --data-dir {plain.resolve()}{suffix}"
+    )
     assert repair_approval_instruction(repair_id) == f"请到这台电脑本机上运行：{command}{suffix}"

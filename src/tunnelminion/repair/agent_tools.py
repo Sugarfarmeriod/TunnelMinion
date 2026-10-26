@@ -38,7 +38,11 @@ def repair_approval_instruction(repair_id: OperationId, data_dir: Path | None = 
     prefix = "请到这台电脑本机上运行：" if data_dir is None else "在这台电脑上运行："
     command = f"tunnelminion repair-approve --repair-id {repair_id}"
     if data_dir is not None and data_dir.resolve() != default_runtime_data_dir().resolve():
-        command += f' --data-dir "{data_dir.resolve()}"'
+        path = str(data_dir.resolve())
+        # 模型转述时常把英文引号换成中文引号，命令就跑不了；路径没有空格时不加引号。
+        command += (
+            f' --data-dir "{path}"' if any(c.isspace() for c in path) else f" --data-dir {path}"
+        )
     return f"{prefix}{command}（10 分钟内有效；不批准就什么都不会做）"
 
 
