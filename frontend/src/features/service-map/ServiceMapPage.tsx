@@ -68,9 +68,9 @@ export function ServiceMapPage() {
         .length
     : null;
 
-  function close() {
+  function close(restoreFocus = true) {
     setOpen(false);
-    nodeRef.current?.focus();
+    if (restoreFocus) nodeRef.current?.focus();
   }
 
   function openChat(request: Omit<ChatRequest, "key">) {
@@ -108,14 +108,20 @@ export function ServiceMapPage() {
 
   useEffect(() => {
     if (!open || drawerOpen) return;
-    function onPointerDown(event: PointerEvent) {
+    function onOutsideClick(event: MouseEvent) {
       if (
         event.target instanceof Node &&
         !panelRef.current?.contains(event.target) &&
         !nodeRef.current?.contains(event.target)
       ) {
-        event.preventDefault();
-        close();
+        // 等这次点击完成再收起：按下时就收起会让窄屏页面变短、滚动，点击落到别处。
+        // 点到可操作的元素时焦点留给它，点到空白处才回到电脑。
+        close(
+          !(event.target instanceof Element) ||
+            event.target.closest(
+              'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])',
+            ) === null,
+        );
       }
     }
     function onKeyDown(event: KeyboardEvent) {
@@ -124,10 +130,10 @@ export function ServiceMapPage() {
         close();
       }
     }
-    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("click", onOutsideClick);
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("click", onOutsideClick);
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open, drawerOpen]);

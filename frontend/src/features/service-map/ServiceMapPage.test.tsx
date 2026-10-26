@@ -373,7 +373,7 @@ describe("服务地图页面", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(node).toHaveFocus();
     await user.click(node);
-    fireEvent.pointerDown(screen.getByLabelText("电脑拓扑图"));
+    fireEvent.click(screen.getByLabelText("电脑拓扑图"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(node).toHaveFocus();
   });
