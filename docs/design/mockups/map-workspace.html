@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>地图即工作台草图</title>
+<link rel="stylesheet" href="map-workspace.css">
+</head>
+<body>
+<div class="demo" aria-label="草图控制（真实产品没有这一条）">
+  <b>草图控制</b>
+  <button type="button" data-scene="1">① 点电脑看服务</button>
+  <button type="button" data-scene="2">② 点服务问 Agent</button>
+  <button type="button" data-scene="3">③ 全局提问 + 委派</button>
+  <button type="button" data-scene="4">④ 感叹号 → 批准</button>
+  <button type="button" data-scene="5">⑤ 以往对话</button>
+  <label><input type="checkbox" id="optFail"> 模拟：没修好</label>
+  <label><input type="checkbox" id="optNoProxy"> 模拟：Mac mini 没开"替我批准"</label>
+  <button type="button" id="reset">重新开始</button>
+  <a href="agent-fix.html">批准框草图</a>
+</div>
+
+<header class="bar">
+  <h1>我的服务网络</h1>
+  <span class="sub" id="summary"></span>
+  <div class="right">
+    <button class="btn" type="button" id="chatBtn" aria-controls="drawer" aria-expanded="false">对话<span class="badge" id="chatBadge" hidden>1</span></button>
+    <button class="btn" type="button" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">更多 ▾</button>
+    <div class="box menu" id="menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-go="/app/operations">请求记录<small>Agent 动过手的每一件事</small></button>
+      <button type="button" role="menuitem" data-go="/app/incidents">最近事件<small>Agent 自己发现并调查过的问题</small></button>
+      <button type="button" role="menuitem" data-go="/app/memories">记忆<small>Agent 记住的偏好和事实</small></button>
+      <button type="button" role="menuitem" data-go="/app/settings">设置<small>模型、对端、高级信息</small></button>
+    </div>
+  </div>
+</header>
+
+<main class="main" id="main">
+  <div class="stage" id="stage">
+    <div class="legend">
+      <span><i class="wg"></i>能连上</span>
+      <span><i class="dash"></i>当前连不上</span>
+    </div>
+    <svg id="map" viewBox="0 0 960 540" shape-rendering="crispEdges" role="group" aria-label="电脑拓扑图">
+      <defs>
+        <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="#333c57"/></pattern>
+      </defs>
+      <rect width="960" height="540" fill="url(#grid)"/>
+      <g id="links"></g>
+      <g id="nodes"></g>
+      <g id="packets"></g>
+    </svg>
+    <div class="box pop scroll" id="pop" role="dialog" aria-labelledby="popTitle" hidden></div>
+    <div class="poptail" id="poptail" hidden></div>
+  </div>
+
+  <form class="askbar" id="askForm">
+    <input id="askInput" name="q" placeholder="问点什么，比如：Mac mini 上的相册怎么了？" autocomplete="off" aria-label="向 Agent 提问">
+    <button class="btn go" type="submit">问</button>
+  </form>
+  <div class="chips" id="chips"></div>
+</main>
+
+<aside class="drawer" id="drawer" aria-label="对话" aria-hidden="true">
+  <div class="dhead">
+    <h2 id="drawerTitle">对话</h2>
+    <button class="btn small" type="button" id="newChat">新对话</button>
+    <button class="x" type="button" id="closeDrawer" title="关闭（Esc）" aria-label="关闭对话">×</button>
+  </div>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabNow" aria-selected="true">当前对话</button>
+    <button type="button" role="tab" id="tabHist" aria-selected="false">以往对话</button>
+  </div>
+  <div class="dbody scroll" id="dbody"></div>
+  <div class="dfoot" id="dfoot">
+    <div id="ctxHolder"></div>
+    <form id="followForm">
+      <input id="followInput" placeholder="接着问……" autocomplete="off" aria-label="接着问">
+      <button class="btn go" type="submit">发送</button>
+    </form>
+  </div>
+</aside>
+
+<div class="mask" id="mask" hidden>
+  <div class="box modal scroll" id="modal" role="dialog" aria-modal="true" aria-labelledby="fixTitle"></div>
+</div>
+
+<script src="map-workspace.js"></script>
+</body>
+</html>
