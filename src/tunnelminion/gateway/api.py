@@ -56,6 +56,8 @@ if TYPE_CHECKING:
     from tunnelminion.agent.invites import InviteService
     from tunnelminion.agent.model_lending import ModelLendingService
 
+_LOCAL_ONLY_TOOLS = frozenset({"read_container_logs", "list_launch_records", "propose_repair"})
+
 
 def _error(
     status_code: int, code: GatewayErrorCode, message: str, *, retryable: bool = False
@@ -256,7 +258,9 @@ def create_gateway_router(
             node_id=node_id,
             platform=platform,
             tools=tuple(
-                item for item in registry.model_tools(platform) if item.name in peer.allowed_tools
+                item
+                for item in registry.model_tools(platform)
+                if item.name in peer.allowed_tools and item.name not in _LOCAL_ONLY_TOOLS
             ),
             operations=(
                 tuple(sorted(peer.allowed_operations)) if operation_service is not None else ()
@@ -285,6 +289,14 @@ def create_gateway_router(
                 status.HTTP_409_CONFLICT,
                 GatewayErrorCode.PROTOCOL_VERSION_UNSUPPORTED,
                 "网关协议主版本不兼容",
+                "tool_call",
+                peer,
+            )
+        if tool_name in _LOCAL_ONLY_TOOLS:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.FORBIDDEN,
+                "这个工具只能由这台电脑的 Agent 使用，请通过委派获取结论摘要。",
                 "tool_call",
                 peer,
             )

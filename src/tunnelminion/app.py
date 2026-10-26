@@ -81,6 +81,7 @@ from tunnelminion.platforms.windows.system import (
     default_docker_path,
     default_wg_path,
 )
+from tunnelminion.repair.agent_tools import proposed_repairs_for_delegation
 from tunnelminion.repair.definitions import register_repair_operations
 from tunnelminion.repair.launch_records import LaunchRecorder
 from tunnelminion.repair.local import build_node_repair_service
@@ -219,6 +220,7 @@ class WindowsNode:
     docker: DockerServicesAdapter
     stores: SQLiteStores
     artifact_manager: ArtifactContextManager
+    repair_service: RepairService
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """只用本机工具的 Agent；处理别的电脑交来的委派时使用。"""
@@ -276,6 +278,14 @@ def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
     register_safe_http_sharing_operation(registry)
     register_repair_operations(registry)
     stores = SQLiteStores.open(root / "runtime.sqlite3")
+    repair_service = build_node_repair_service(
+        root=root,
+        node_id=node_id,
+        stores=stores,
+        registry=registry,
+        docker_path=default_docker_path(),
+        system_reader=reader,
+    )
     artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
         registry,
@@ -295,6 +305,7 @@ def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
         docker=docker,
         stores=stores,
         artifact_manager=artifact_manager,
+        repair_service=repair_service,
     )
 
 
@@ -326,6 +337,9 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         node.stores.delegations,
         node.create_read_only_agent,
         lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.WINDOWS)),
+        repair_query=lambda delegation_id: proposed_repairs_for_delegation(
+            node.stores.repairs, delegation_id
+        ),
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
@@ -561,14 +575,7 @@ def build_windows_application(
         )
     )
     app.include_router(create_operation_router(operation_control))
-    repair_service = build_node_repair_service(
-        root=root,
-        node_id=node_id,
-        stores=stores,
-        registry=registry,
-        docker_path=default_docker_path(),
-        system_reader=PsutilSystemReader(),
-    )
+    repair_service = node.repair_service
     app.include_router(create_repair_router(repair_service))
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return WindowsApplication(

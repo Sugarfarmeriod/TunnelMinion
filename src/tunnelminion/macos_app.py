@@ -96,6 +96,7 @@ from tunnelminion.platforms.macos.system import (
     default_wg_path,
 )
 from tunnelminion.platforms.windows.system import SystemReader
+from tunnelminion.repair.agent_tools import proposed_repairs_for_delegation
 from tunnelminion.repair.definitions import register_repair_operations
 from tunnelminion.repair.launch_records import LaunchRecorder
 from tunnelminion.repair.local import build_node_repair_service
@@ -136,6 +137,8 @@ class MacOSNode:
     processes: ProcessSummaryAdapter
     docker: DockerServicesAdapter
     artifact_manager: ArtifactContextManager
+    stores: SQLiteStores
+    repair_service: RepairService
 
 
 @dataclass(frozen=True)
@@ -305,6 +308,14 @@ def _build_macos_node(
     register_safe_http_sharing_operation(registry)
     register_repair_operations(registry)
     stores = SQLiteStores.open(root / "runtime.sqlite3")
+    repair_service = build_node_repair_service(
+        root=root,
+        node_id=node_id,
+        stores=stores,
+        registry=registry,
+        docker_path=default_docker_path(),
+        system_reader=reader,
+    )
     artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
         registry,
@@ -324,6 +335,8 @@ def _build_macos_node(
         processes,
         docker,
         artifact_manager,
+        stores,
+        repair_service,
     )
 
 
@@ -347,7 +360,7 @@ def build_macos_local_application(
         node.audit_sink,
     )
 
-    stores = SQLiteStores.open(node.root / "runtime.sqlite3")
+    stores = node.stores
 
     def create_agent() -> LangChainReadOnlyAgent:
         return _create_macos_read_only_agent(node, remote_tools=remote_preparer)
@@ -513,14 +526,7 @@ def build_macos_local_application(
         )
     )
     app.include_router(create_operation_router(operation_control))
-    repair_service = build_node_repair_service(
-        root=node.root,
-        node_id=node.node_id,
-        stores=stores,
-        registry=node.tool_registry,
-        docker_path=default_docker_path(),
-        system_reader=node.system_reader,
-    )
+    repair_service = node.repair_service
     app.include_router(create_repair_router(repair_service))
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return MacOSLocalApplication(
@@ -570,12 +576,15 @@ def build_macos_gateway_application(
     operation_service: TargetOperationGatewayService | None = None
     operation_workflow: OperationWorkflow | None = None
     lifespan = None
-    stores = SQLiteStores.open(node.root / "runtime.sqlite3")
+    stores = node.stores
     delegation_service = DelegationService(
         node.node_id,
         stores.delegations,
         lambda: _create_macos_read_only_agent(node),
         lambda: tuple(item.name for item in node.tool_registry.model_tools(Platform.MACOS)),
+        repair_query=lambda delegation_id: proposed_repairs_for_delegation(
+            stores.repairs, delegation_id
+        ),
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, stores.model_usage

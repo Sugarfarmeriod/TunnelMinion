@@ -716,6 +716,13 @@ def _runtime_with_model(
     return investigator, store
 
 
+def test_propose_repair_is_unavailable_even_when_registered_as_l0(tmp_path: Path) -> None:
+    investigator, _, _, _ = _runtime(tmp_path, "normal", extra_tool_names=("propose_repair",))
+    tools = investigator._model_tools()  # pyright: ignore[reportPrivateUsage]
+    assert "propose_repair" not in {tool.name for tool in tools}
+    assert "propose_repair" not in READ_ONLY_INVESTIGATION_TOOLS
+
+
 def test_investigator_completes_event_evidence_path_and_confirms_cited_root_cause(
     tmp_path: Path,
 ) -> None:

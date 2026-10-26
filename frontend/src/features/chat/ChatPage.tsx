@@ -51,6 +51,9 @@ const toolLabels: Record<AllowedToolName, string> = {
   get_process_summary: "进程摘要",
   list_docker_services: "Docker 服务",
   probe_service_reachability: "服务可达性探测",
+  read_container_logs: "容器日志",
+  list_launch_records: "启动记录",
+  propose_repair: "提出修法",
 };
 
 const runStatusLabels: Record<RunStatus, string> = {

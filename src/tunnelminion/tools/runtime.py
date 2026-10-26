@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import cast
@@ -20,6 +21,7 @@ from tunnelminion.telemetry import set_status, span
 from tunnelminion.tools.audit import AuditRecord, AuditSink
 from tunnelminion.tools.contracts import (
     ToolAdapterError,
+    ToolCallContext,
     ToolCancellationToken,
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -28,6 +30,7 @@ from tunnelminion.tools.contracts import (
 from tunnelminion.tools.registry import RegisteredTool, ToolRegistry
 
 _SECRET_ARGUMENT_MARKERS = ("api_key", "authorization", "password", "secret", "token")
+current_tool_call_context: ContextVar[ToolCallContext] = ContextVar("tool_call_context")
 
 
 class ToolRuntime:
@@ -137,7 +140,11 @@ class ToolRuntime:
 
         try:
             async with self._semaphore:
-                output = await self._execute_adapter(entry, request.arguments, token)
+                context_token = current_tool_call_context.set(request.context)
+                try:
+                    output = await self._execute_adapter(entry, request.arguments, token)
+                finally:
+                    current_tool_call_context.reset(context_token)
             Draft202012Validator(entry.definition.output_schema).validate(  # pyright: ignore[reportUnknownMemberType]
                 output
             )

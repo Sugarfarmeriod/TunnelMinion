@@ -14,6 +14,9 @@ export const allowedToolNames = [
   "get_process_summary",
   "list_docker_services",
   "probe_service_reachability",
+  "read_container_logs",
+  "list_launch_records",
+  "propose_repair",
 ] as const;
 
 export type AllowedToolName = (typeof allowedToolNames)[number];

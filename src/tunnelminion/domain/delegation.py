@@ -11,7 +11,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tunnelminion.domain.identifiers import DelegationId, NodeId
+from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId
 from tunnelminion.domain.service_marks import MARK_KEY_PATTERN
 
 # 请求方 Agent 用来发起委派的工具名。
@@ -68,6 +68,19 @@ class DelegationEvidence(BaseModel):
     status: str = Field(min_length=1, max_length=40)
 
 
+class DelegationProposedRepair(BaseModel):
+    """对端提出的修复摘要，批准只能在服务所在的电脑上进行。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repair_id: OperationId
+    service_name: str = Field(min_length=1, max_length=120)
+    action: str = Field(min_length=1, max_length=300)
+    status: str = Field(min_length=1, max_length=40)
+    how_to_approve: str = Field(min_length=1, max_length=500)
+    expires_at: datetime
+
+
 class DelegationResult(BaseModel):
     """被委派方查明的结论。"""
 
@@ -78,6 +91,7 @@ class DelegationResult(BaseModel):
     inferences: tuple[str, ...] = Field(default=(), max_length=20)
     unknowns: tuple[str, ...] = Field(default=(), max_length=20)
     evidence: tuple[DelegationEvidence, ...] = Field(default=(), max_length=MAX_TOOL_CALLS)
+    proposed_repairs: tuple[DelegationProposedRepair, ...] = Field(default=(), max_length=3)
     stop_reason: str = Field(min_length=1, max_length=40)
     model_rounds: int = Field(ge=0)
     tool_calls: int = Field(ge=0)

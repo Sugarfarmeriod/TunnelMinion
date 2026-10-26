@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextvars import copy_context
+from contextvars import ContextVar, copy_context
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -26,6 +26,7 @@ from tunnelminion.domain.delegation import (
     DelegationBusyError,
     DelegationErrorCode,
     DelegationEvidence,
+    DelegationProposedRepair,
     DelegationRecord,
     DelegationRequest,
     DelegationResult,
@@ -39,6 +40,9 @@ _LIMITS = AgentRunLimits(
     max_model_rounds=MAX_MODEL_ROUNDS,
     max_tool_calls=MAX_TOOL_CALLS,
     timeout_seconds=MAX_SECONDS,
+)
+current_delegation: ContextVar[DelegationRecord | None] = ContextVar(
+    "current_delegation", default=None
 )
 
 
@@ -84,12 +88,14 @@ class DelegationService:
         tool_names: Callable[[], tuple[str, ...]],
         *,
         clock: Callable[[], datetime] | None = None,
+        repair_query: Callable[[DelegationId], tuple[DelegationProposedRepair, ...]] | None = None,
     ) -> None:
         self._node_id = node_id
         self._store = store
         self._agent_factory = agent_factory
         self._tool_names = tool_names
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._repair_query = repair_query
         self._tasks: dict[str, tuple[asyncio.Task[None], AgentCancellationToken]] = {}
         self._fail_interrupted()
 
@@ -158,12 +164,18 @@ class DelegationService:
             execution_node_id=self._node_id,
         )
         tools = tuple(name for name in self._tool_names() if name != DELEGATE_TOOL_NAME)
+        delegation_token = current_delegation.set(record)
         try:
             agent = self._agent_factory()
             result = await asyncio.wait_for(
                 agent.run(question, context, tools, _LIMITS, cancellation),
                 timeout=MAX_SECONDS + 5,
             )
+            summary = summarize(result)
+            if self._repair_query is not None:
+                summary = summary.model_copy(
+                    update={"proposed_repairs": self._repair_query(record.delegation_id)[:3]}
+                )
         except ProviderError:
             self._finish(
                 record, DelegationStatus.FAILED, error=DelegationErrorCode.MODEL_UNAVAILABLE
@@ -175,10 +187,12 @@ class DelegationService:
         except Exception:
             self._finish(record, DelegationStatus.FAILED, error=DelegationErrorCode.FAILED)
             return
+        finally:
+            current_delegation.reset(delegation_token)
         status = (
             DelegationStatus.CANCELLED if cancellation.cancelled else DelegationStatus.COMPLETED
         )
-        self._finish(record, status, result=summarize(result))
+        self._finish(record, status, result=summary)
 
     def _finish(
         self,
