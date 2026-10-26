@@ -75,6 +75,21 @@ class RunEventType(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class ConversationAbout(BaseModel):
+    """用户选择的电脑与本机服务身份。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str
+    service_key: str | None = None
+
+
+class ThreadContext(ConversationAbout):
+    """随对话保存的对象名称。"""
+
+    service_name: str | None = None
+
+
 class ThreadView(BaseModel):
     """聊天线程的稳定身份与创建时间。"""
 
@@ -84,6 +99,8 @@ class ThreadView(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = Field(ge=0)
+    title: str | None = None
+    context: ThreadContext | None = None
 
 
 class ThreadMessage(BaseModel):
@@ -106,6 +123,7 @@ class ThreadDetail(BaseModel):
 
     thread: ThreadView
     messages: tuple[ThreadMessage, ...]
+    context: ThreadContext | None = None
 
 
 class StartRunInput(BaseModel):
@@ -116,6 +134,7 @@ class StartRunInput(BaseModel):
     question: str = Field(min_length=1, max_length=20_000)
     tool_names: tuple[str, ...] = Field(min_length=1, max_length=64)
     limits: AgentRunLimits = Field(default_factory=AgentRunLimits)
+    about: ConversationAbout | None = None
 
 
 class RunView(BaseModel):
@@ -220,6 +239,7 @@ class _ThreadState:
     rolling_summary: RollingSummary | None = None
     service_id: ServiceId | None = None
     incident_id: IncidentId | None = None
+    context: ThreadContext | None = None
 
 
 class InMemoryConversationService:
@@ -245,6 +265,11 @@ class InMemoryConversationService:
         self._memory_retriever = memory_retriever
         self._incident_agent_factory: Callable[[IncidentId], TaskAgent] | None = None
         self._restore()
+
+    @property
+    def node_id(self) -> NodeId:
+        """本次对话运行所在的电脑。"""
+        return self._node_id
 
     def set_incident_agent_factory(self, factory: Callable[[IncidentId], TaskAgent]) -> None:
         """应用组装时接入专用调查执行器，任务状态仍由同一服务保存。"""
@@ -287,7 +312,9 @@ class InMemoryConversationService:
         state = self._threads.get(str(thread_id))
         if state is None:
             raise KeyError("thread_not_found")
-        return ThreadDetail(thread=self._thread_view(state), messages=tuple(state.messages))
+        return ThreadDetail(
+            thread=self._thread_view(state), messages=tuple(state.messages), context=state.context
+        )
 
     def get_thread_service_id(self, thread_id: ThreadId) -> ServiceId | None:
         """读取已接受检查的对象身份，不把关联视为访问权限。"""
@@ -311,7 +338,13 @@ class InMemoryConversationService:
             self._checkpoints.delete_thread(thread_id)
 
     async def start_run(
-        self, thread_id: ThreadId, value: StartRunInput, target: ServiceCheckTarget | None = None
+        self,
+        thread_id: ThreadId,
+        value: StartRunInput,
+        target: ServiceCheckTarget | None = None,
+        *,
+        context: ThreadContext | None = None,
+        context_line: str | None = None,
     ) -> RunView:
         """验证线程与模型后，在后台启动一次 Agent run。"""
         pending = next(
@@ -328,7 +361,12 @@ class InMemoryConversationService:
         )
         if pending is not None:
             return await self.resume_run(
-                pending.run_id, question=value.question, target=target, current_input=value
+                pending.run_id,
+                question=value.question,
+                target=target,
+                current_input=value,
+                context=context,
+                context_line=context_line,
             )
         thread = self._threads.get(str(thread_id))
         if thread is not None and thread.incident_id is not None:
@@ -347,7 +385,13 @@ class InMemoryConversationService:
                     target=target or previous.continuation.target,
                     execution_node_id=previous.continuation.execution_node_id,
                 )
-        return await self._start_run(thread_id, value, agent_question=value.question, target=target)
+        return await self._start_run(
+            thread_id,
+            value,
+            agent_question=f"{context_line}\n{value.question}" if context_line else value.question,
+            target=target,
+            context=context,
+        )
 
     async def resume_run(
         self,
@@ -356,6 +400,8 @@ class InMemoryConversationService:
         question: str | None = None,
         target: ServiceCheckTarget | None = None,
         current_input: StartRunInput | None = None,
+        context: ThreadContext | None = None,
+        context_line: str | None = None,
     ) -> RunView:
         """用户显式继续未完任务；新 run 复用目标和公开进度，不重放历史调用。"""
         self.ensure_tasks_enabled()
@@ -375,6 +421,9 @@ class InMemoryConversationService:
             update={"question": question or saved.input.question}
         )
         agent_question = saved.agent_question
+        if context_line is not None and self.get_thread(previous.thread_id).context is None:
+            agent_question = f"{context_line}\n{agent_question}"
+            saved = saved.model_copy(update={"agent_question": agent_question})
         if question is not None:
             agent_question += f"\n用户补充：{question}"
         started = await self._start_run(
@@ -393,6 +442,7 @@ class InMemoryConversationService:
             ),
             incident_id=saved.incident_id,
             execution_node_id=saved.execution_node_id,
+            context=context,
         )
         previous.continuation = saved.model_copy(update={"resumed_by": started.run_id})
         self._persist(previous)
@@ -486,6 +536,7 @@ class InMemoryConversationService:
         continuation: _TaskContinuation | None = None,
         incident_id: IncidentId | None = None,
         execution_node_id: NodeId | None = None,
+        context: ThreadContext | None = None,
     ) -> RunView:
         thread = self._threads.get(str(thread_id))
         if thread is None:
@@ -526,6 +577,8 @@ class InMemoryConversationService:
             execution_node_id=execution_node_id,
         )
         self._runs[str(state.run_id)] = state
+        if thread.context is None:
+            thread.context = context
         thread.service_id = (
             target.service_id if target is not None else thread.service_id if incident_id else None
         )
@@ -777,6 +830,7 @@ class InMemoryConversationService:
                 incident_id=public.continuation.incident_id
                 if public.continuation is not None
                 else None,
+                context=thread_view.context,
             )
             run_view = public.run
             state = _RunState(
@@ -887,6 +941,10 @@ class InMemoryConversationService:
             created_at=state.created_at,
             updated_at=state.updated_at,
             message_count=len(state.messages),
+            title=next(
+                (item.content.strip()[:40] for item in state.messages if item.role == "user"), None
+            ),
+            context=state.context,
         )
 
     @staticmethod

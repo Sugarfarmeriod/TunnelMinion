@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getThread } from "./api";
+import { getThread, startRun, allowedToolNames } from "./api";
+import { makeRun } from "./testFixtures";
 
 const threadId = `thread_${"a".repeat(32)}`;
 const detail = {
@@ -14,6 +15,29 @@ const detail = {
 };
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("从保存的上下文继续提问时只发送对象身份，不把显示名称带入 about", async () => {
+  const fetch = vi.fn().mockResolvedValue(Response.json(makeRun()));
+  vi.stubGlobal("fetch", fetch);
+  const context = {
+    node_id: `node_${"b".repeat(32)}`,
+    service_key: "python:app.py",
+    service_name: "相册",
+  };
+  await startRun(
+    threadId,
+    "接着问",
+    allowedToolNames,
+    undefined,
+    undefined,
+    context,
+  );
+  expect(JSON.parse(fetch.mock.calls[0]![1].body)).toEqual({
+    question: "接着问",
+    tool_names: [...allowedToolNames],
+    about: { node_id: context.node_id, service_key: context.service_key },
+  });
+});
 
 describe("读取对话的程序关联", () => {
   it.each([`service_${"b".repeat(32)}`, null])(

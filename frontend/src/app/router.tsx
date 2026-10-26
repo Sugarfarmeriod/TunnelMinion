@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import {
-  NavLink,
   Navigate,
   Outlet,
   Link,
@@ -8,35 +6,19 @@ import {
   createBrowserRouter,
 } from "react-router-dom";
 
-import { WorkspacePage } from "../features/workspace/WorkspacePage";
 import { MemoriesPage } from "../features/memories";
 import { OperationDetailPage, OperationsPage } from "../features/operations";
+import { IncidentsPage } from "../features/overview";
 import { SettingsPage } from "../features/settings";
 import { ServiceMapPage } from "../features/service-map/ServiceMapPage";
 import { RouteErrorPage } from "./RouteErrorPage";
 import { isReadOnlyPreview } from "../shared/previewMode";
 
-const navigation = [
-  ["服务地图", "/app/map"],
-  ["工作台", "/app/overview"],
-  ["记忆", "/app/memories"],
-  ["设置", "/app/settings"],
-] as const;
-
 function ProductShell() {
-  const { pathname, search, hash } = useLocation();
-  const workspaceActive = /^\/app\/(overview|chat|operations)(\/|$)/.test(
-    pathname,
-  );
-  const [workspacePath, setWorkspacePath] = useState<string | null>(
-    workspaceActive ? pathname + search + hash : null,
-  );
-  useEffect(() => {
-    if (workspaceActive) setWorkspacePath(pathname + search + hash);
-    else if (pathname !== "/app/settings") setWorkspacePath(null);
-  }, [workspaceActive, pathname, search, hash]);
+  const { pathname } = useLocation();
+  const map = pathname === "/app/map";
   return (
-    <div className="product-shell">
+    <div className={`product-shell${map ? " product-shell--map" : ""}`}>
       <div className="product-chrome">
         <header className="product-header">
           <h1>TunnelMinion</h1>
@@ -48,31 +30,21 @@ function ProductShell() {
           ) : null}
         </header>
         <nav aria-label="主要导航" className="primary-navigation">
-          {navigation.map(([label, path]) =>
-            path === "/app/overview" ? (
-              <Link
-                key={path}
-                to={
-                  pathname === "/app/settings" ? (workspacePath ?? path) : path
-                }
-                className={workspaceActive ? "active" : undefined}
-                aria-current={workspaceActive ? "page" : undefined}
-              >
-                {label}
-              </Link>
-            ) : (
-              <NavLink key={path} to={path}>
-                {label}
-              </NavLink>
-            ),
-          )}
+          <Link to="/app/map" aria-current={map ? "page" : undefined}>
+            {map ? "服务地图" : "← 回到地图"}
+          </Link>
         </nav>
       </div>
       <main id="main-content" tabIndex={-1}>
-        <Outlet context={{ workspacePath, setWorkspacePath }} />
+        <Outlet />
       </main>
     </div>
   );
+}
+
+function MapRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate replace to={`/app/map${search}${hash}`} />;
 }
 
 export const router = createBrowserRouter([
@@ -83,16 +55,12 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate replace to="map" /> },
       { path: "map", element: <ServiceMapPage /> },
-      {
-        element: <WorkspacePage />,
-        children: [
-          { path: "overview", element: null },
-          { path: "chat", element: null },
-          { path: "operations", element: <OperationsPage /> },
-          { path: "operations/:operationId", element: <OperationDetailPage /> },
-          { path: "settings", element: <SettingsPage /> },
-        ],
-      },
+      { path: "overview", element: <MapRedirect /> },
+      { path: "chat", element: <MapRedirect /> },
+      { path: "incidents", element: <IncidentsPage /> },
+      { path: "operations", element: <OperationsPage /> },
+      { path: "operations/:operationId", element: <OperationDetailPage /> },
+      { path: "settings", element: <SettingsPage /> },
       { path: "memories", element: <MemoriesPage /> },
     ],
   },

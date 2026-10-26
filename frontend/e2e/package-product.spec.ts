@@ -82,20 +82,21 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     );
   }
 
-  await page.goto("/app/overview");
-  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
-  await page.getByText("更多信息", { exact: true }).click();
+  await page.goto("/app/map");
+  await expect(
+    page.getByRole("heading", { name: "我的服务网络" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "更多 ▾" }).click();
+  await page.getByRole("link", { name: "设置", exact: true }).click();
   await expect(page.getByText(/standalone ·/)).toBeVisible();
-  await expect(page.getByText("还没有配置模型")).toBeVisible();
+  await expect(page.getByText("还没有配置模型", { exact: true })).toBeVisible();
   await expect(
     page.getByText("未配置 Coordinator，当前按仅本机模式工作"),
   ).toBeVisible();
   await expect(page.getByText("没有配置跨节点路径")).toBeVisible();
-  await page
-    .getByRole("link", { name: "查看最近变化与调查", exact: true })
-    .click();
-  await expect(page.getByText("服务只能从本机访问")).toBeVisible();
-  await expect(page.getByText("已查明原因")).toBeVisible();
+  await page.getByRole("link", { name: "← 回到地图" }).click();
+  await page.getByRole("button", { name: "更多 ▾" }).click();
+  await page.getByRole("link", { name: "最近事件", exact: true }).click();
   await expect(page.getByText(fixture.incident.conclusion)).toBeVisible();
   await page.getByRole("button", { name: "查看调查详情" }).click();
   await expect(page.getByRole("heading", { name: "调查结果" })).toBeVisible();
@@ -116,31 +117,21 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
     page.getByText("只读工具 probe_service_reachability 以 success 状态结束"),
   ).toBeVisible();
   await expect(page.getByText("没有已记录的未知项。")).toBeVisible();
+  await page.getByText("继续问一下（会使用模型额度）").click();
   await expect(
-    page.getByText("下面的问题会沿用上面这次调查，不需要重新解释发生了什么。", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "问题", exact: true }),
+    page.getByRole("textbox", { name: "针对这个事件追问" }),
   ).toHaveAttribute("maxlength", "2000");
-  const operationAttention = page.getByRole("list", {
-    name: "需要你处理的请求",
-  });
-  await expect(operationAttention.getByText("待本机批准")).toBeVisible();
-  await expect(
-    operationAttention.getByRole("link", { name: "查看并处理" }),
-  ).toHaveAttribute("href", `/app/operations/${fixture.operation_id}`);
-
   await page.goto("/app/chat");
   const createThread = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/threads") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "开始新对话" }).click();
+  await page
+    .getByRole("textbox", { name: "想问点什么？" })
+    .fill("查看这台电脑");
+  await page.getByRole("button", { name: "问问 Agent", exact: true }).click();
   expect((await createThread).status()).toBe(200);
-
   await page.goto(`/app/operations/${fixture.operation_id}`);
   await expect(
     page.getByRole("heading", { name: "临时访问请求" }),

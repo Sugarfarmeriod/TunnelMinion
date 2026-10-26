@@ -474,7 +474,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
         {detail.source_incident_id !== null ? (
           <Link
             className="operation-back-link"
-            to={`/app/overview?incident_id=${detail.source_incident_id}#overview-incidents`}
+            to={`/app/incidents?incident_id=${detail.source_incident_id}#overview-incidents`}
           >
             返回调查结果
           </Link>
@@ -622,7 +622,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
                     "无（手动发起）"
                   ) : (
                     <Link
-                      to={`/app/overview?incident_id=${encodeURIComponent(detail.source_incident_id)}#overview-incidents`}
+                      to={`/app/incidents?incident_id=${encodeURIComponent(detail.source_incident_id)}#overview-incidents`}
                     >
                       {detail.source_incident_id}
                     </Link>

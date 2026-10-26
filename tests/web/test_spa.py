@@ -74,12 +74,12 @@ def test_default_entry_uses_react_and_supports_legacy_rollback(
 
     default = client.get("/", follow_redirects=False)
     assert default.status_code == 307
-    assert default.headers["location"] == "/app/overview"
-    assert default_ui_entrypoint({}) == "/app/overview"
+    assert default.headers["location"] == "/app/map"
+    assert default_ui_entrypoint({}) == "/app/map"
     assert default_ui_entrypoint({"TUNNELMINION_DEFAULT_UI": " legacy "}) == "/resources"
 
     monkeypatch.setenv("TUNNELMINION_DEFAULT_UI", "legacy")
-    assert default_ui_entrypoint({}) == "/app/overview"
+    assert default_ui_entrypoint({}) == "/app/map"
     rollback = client.get("/", follow_redirects=False)
     assert rollback.status_code == 307
     assert rollback.headers["location"] == "/resources"

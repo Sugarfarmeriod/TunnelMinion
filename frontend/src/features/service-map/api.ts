@@ -17,6 +17,7 @@ export const serviceEntrySchema = z
     name: z.string().min(1).max(80),
     kind: z.enum(["docker", "python", "program"]),
     tier: z.enum(["show", "review", "hidden"]),
+    state: z.enum(["running", "stopped"]).optional(),
     mark: z.enum(["mine", "hidden"]).nullable(),
     web_title: z.string().nullable(),
     endpoints: z.array(serviceEndpointSchema),

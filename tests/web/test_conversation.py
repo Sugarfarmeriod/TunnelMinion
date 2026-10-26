@@ -271,7 +271,7 @@ def test_program_thread_context_is_private_and_survives_restart(tmp_path: Path) 
         run_id = cast(dict[str, object], response.json())["run_id"]
         assert client.get(f"/api/runs/{run_id}/events").status_code == 200
         public = client.get(f"/api/threads/{thread.thread_id}").json()
-        assert set(public) == {"thread", "messages"}
+        assert set(public) == {"thread", "messages", "context"}
         private = client.get(f"/api/ui/threads/{thread.thread_id}")
         assert private.status_code == 200
         assert private.json()["service_id"] == str(item.service_id)

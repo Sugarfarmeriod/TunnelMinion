@@ -280,7 +280,7 @@ export function OperationsListPage() {
               </>
             ) : null}
             <Link
-              to={`/app/overview?incident_id=${incidentPrefill.incidentId}#overview-incidents`}
+              to={`/app/incidents?incident_id=${incidentPrefill.incidentId}#overview-incidents`}
             >
               返回调查结果
             </Link>

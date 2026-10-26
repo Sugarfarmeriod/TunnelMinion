@@ -11,10 +11,12 @@ function FocusTrapFixture({
   controls = true,
   extraControl = false,
   busy = false,
+  disclosure = false,
 }: {
   controls?: boolean;
   extraControl?: boolean;
   busy?: boolean;
+  disclosure?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -34,6 +36,7 @@ function FocusTrapFixture({
           busy={busy}
           controls={controls}
           extraControl={extraControl}
+          disclosure={disclosure}
           fallbackFocus={fallbackRef.current}
           onClose={() => setOpen(false)}
           returnFocus={triggerRef.current}
@@ -47,6 +50,7 @@ function TrapDialog({
   busy,
   controls,
   extraControl,
+  disclosure,
   fallbackFocus,
   onClose,
   returnFocus,
@@ -54,6 +58,7 @@ function TrapDialog({
   busy: boolean;
   controls: boolean;
   extraControl: boolean;
+  disclosure: boolean;
   fallbackFocus: HTMLElement | null;
   onClose: () => void;
   returnFocus: HTMLElement | null;
@@ -81,6 +86,12 @@ function TrapDialog({
             取消
           </button>
           {extraControl ? <input aria-label="嵌套编辑输入" /> : null}
+          {disclosure ? (
+            <details>
+              <summary>证据</summary>
+              <input aria-label="证据输入" />
+            </details>
+          ) : null}
           <button disabled={busy} type="button">
             确认
           </button>
@@ -91,6 +102,19 @@ function TrapDialog({
 }
 
 describe("useDialogFocusTrap", () => {
+  it("键盘可展开证据，折叠内容不会进入焦点循环", async () => {
+    const user = userEvent.setup();
+    render(<FocusTrapFixture disclosure />);
+    await user.click(screen.getByRole("button", { name: "打开" }));
+    await user.tab();
+    expect(screen.getByText("证据")).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "确认" })).toHaveFocus();
+    await user.tab({ shift: true });
+    await user.click(screen.getByText("证据"));
+    await user.tab();
+    expect(screen.getByRole("textbox", { name: "证据输入" })).toHaveFocus();
+  });
   it("初始聚焦安全取消控件，并独立于原生 Tab 偏好前进、反向和循环", async () => {
     const user = userEvent.setup();
     render(<FocusTrapFixture />);

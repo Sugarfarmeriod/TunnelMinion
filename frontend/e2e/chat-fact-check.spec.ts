@@ -75,7 +75,7 @@ for (const width of [1280, 320]) {
     await page.route("**/api/threads", (route) =>
       route.fulfill({ json: [thread] }),
     );
-    await page.route(`**/api/threads/${threadId}`, (route) =>
+    await page.route(new RegExp(`/api/(?:ui/)?threads/${threadId}$`), (route) =>
       route.fulfill({
         json: {
           thread,

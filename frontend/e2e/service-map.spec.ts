@@ -38,7 +38,9 @@ test("/app 默认是服务地图，键盘点开电脑、Esc 和点空白可关�
 }, testInfo) => {
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app\/map$/);
-  await expect(page.getByRole("heading", { name: "服务地图" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "我的服务网络" }),
+  ).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "主要导航" });
   await expect(navigation.getByRole("link").first()).toHaveText("服务地图");
   const computer = page.getByRole("button", {
@@ -75,10 +77,12 @@ test("/app 默认是服务地图，键盘点开电脑、Esc 和点空白可关�
   await page.locator(".map-canvas").click({ position: { x: 20, y: 20 } });
   await expect(dialog).toHaveCount(0);
   await expect(computer).toBeFocused();
-  await navigation.getByRole("link", { name: "工作台", exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/overview$/);
+  await page.getByRole("button", { name: "更多 ▾" }).click();
+  await page.getByRole("link", { name: "设置", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/settings$/);
+  await page.getByRole("link", { name: "← 回到地图" }).click();
   await expect(
-    page.getByRole("heading", { name: "工作台", exact: true }),
+    page.getByRole("heading", { name: "我的服务网络" }),
   ).toBeVisible();
 });
 

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
+import { RuntimeOverview } from "../overview/OverviewCards";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 
@@ -126,7 +127,6 @@ export function SettingsPage() {
     queryKey: ["resource-overview"],
     queryFn: () =>
       requestJson("/api/resources/overview", resourceOverviewSchema),
-    enabled: query.isSuccess,
     retry: false,
   });
   const [endpoint, setEndpoint] = useState("");
@@ -333,6 +333,30 @@ export function SettingsPage() {
           {query.isFetching ? "正在重新读取……" : "重新读取状态"}
         </button>
       </header>
+
+      {systemQuery.data ? (
+        <>
+          <button
+            type="button"
+            disabled={systemQuery.isFetching}
+            onClick={() => void systemQuery.refetch()}
+          >
+            刷新运行基础
+          </button>
+          {systemQuery.isRefetchError ? (
+            <p role="alert">运行基础刷新失败，下面保留上一次读取的记录。</p>
+          ) : null}
+          <RuntimeOverview data={systemQuery.data} />
+        </>
+      ) : null}
+      {systemQuery.isError && !systemQuery.data ? (
+        <p role="alert">
+          运行基础暂时无法读取。
+          <button type="button" onClick={() => void systemQuery.refetch()}>
+            重新读取运行基础
+          </button>
+        </p>
+      ) : null}
 
       {notice === null ? null : (
         <p
