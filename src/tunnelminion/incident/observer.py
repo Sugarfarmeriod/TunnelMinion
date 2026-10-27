@@ -198,7 +198,9 @@ class IncidentObservationService:
         if previous is not None and now - previous < timedelta(hours=1):
             return
         self._last_investigated[service_id] = now
-        self._active[key] = asyncio.create_task(self._investigate_once(incident, self._investigator))
+        self._active[key] = asyncio.create_task(
+            self._investigate_once(incident, self._investigator)
+        )
 
     async def _investigate_once(self, incident: Incident, runner: IncidentRunner) -> None:
         try:

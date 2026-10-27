@@ -225,14 +225,20 @@ def test_only_map_show_and_mine_services_are_investigated(tmp_path: Path) -> Non
     runner = Runner()
     store = SQLiteIncidentStore(tmp_path / "tiers.sqlite3")
     observer = IncidentObservationService(
-        overview, store, investigator=runner, detector=SnapshotDiffDetector(confirmations_required=1)
+        overview,
+        store,
+        investigator=runner,
+        detector=SnapshotDiffDetector(confirmations_required=1),
     )
 
     async def scenario() -> None:
         await observer.observe_once()
         await observer.observe_once()
         mutable.services = tuple(
-            (compute_observed_service_id(NODE, ServiceProtocol.TCP, item.address, item.port), item.port)
+            (
+                compute_observed_service_id(NODE, ServiceProtocol.TCP, item.address, item.port),
+                item.port,
+            )
             for item in inventory
         )
         result = await observer.observe_once()
