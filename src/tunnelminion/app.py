@@ -417,6 +417,9 @@ def build_windows_application(
         ),
         node.node_id,
         node.audit_sink,
+        progress_sink=lambda context, progress: conversations.append_delegation_progress(
+            context, progress
+        ),
     )
     node_id = node.node_id
     model_service = node.model_service

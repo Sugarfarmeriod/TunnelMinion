@@ -14,6 +14,40 @@ const nodeId = "node_a93279a30fbd4597b9e2b755cd36629c";
 const toolRunId = "toolrun_00000000000000000000000000000003";
 
 describe("聊天标识符契约", () => {
+  it.each(["submitted", "investigating", "answered", "failed", "cancelled"])(
+    "接受委派阶段 %s，继续拒绝未知事件和错误字段",
+    (phase) => {
+      const event = {
+        sequence: 1,
+        event_type: "delegation",
+        created_at: timestamp,
+        run_id: runId,
+        target_node_id: null,
+        tool_name: null,
+        tool_status: null,
+        elapsed_ms: null,
+        tool_run_id: null,
+        stop_reason: null,
+        message: null,
+        delegation_id: `delegation_${"1".repeat(32)}`,
+        peer_node_id: nodeId,
+        phase,
+      };
+      expect(runEventSchema.parse(event)).toEqual(event);
+      for (const invalid of [
+        { event_type: "unknown" },
+        { phase: "unknown" },
+        { delegation_id: runId },
+        { peer_node_id: threadId },
+        { question: "不应进入事件的问题" },
+      ]) {
+        expect(runEventSchema.safeParse({ ...event, ...invalid }).success).toBe(
+          false,
+        );
+      }
+    },
+  );
+
   it("接受 Python identifiers.py 定义的前缀加 32 位小写十六进制格式", () => {
     expect(
       threadSchema.safeParse({

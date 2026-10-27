@@ -1,4 +1,9 @@
-import type { RunEvent, RunStatus, RunView } from "./contracts";
+import type {
+  DelegationPhase,
+  RunEvent,
+  RunStatus,
+  RunView,
+} from "./contracts";
 
 export type StreamPhase =
   | "idle"
@@ -12,10 +17,17 @@ export interface SequenceGap {
   received: number;
 }
 
+export interface DelegationProgress {
+  delegation_id: string;
+  peer_node_id: string;
+  phase: DelegationPhase;
+}
+
 export interface RunEventState {
   runId: string | null;
   lastSequence: number;
   events: RunEvent[];
+  delegations: Record<string, DelegationProgress>;
   phase: StreamPhase;
   gap: SequenceGap | null;
   terminalStatus: Exclude<RunStatus, "running"> | null;
@@ -45,6 +57,7 @@ export const emptyRunEventState: RunEventState = {
   runId: null,
   lastSequence: 0,
   events: [],
+  delegations: {},
   phase: "idle",
   gap: null,
   terminalStatus: null,
@@ -86,6 +99,7 @@ export function runEventReducer(
         runId: action.run.run_id,
         lastSequence: sameRun ? state.lastSequence : 0,
         events: sameRun ? state.events : [],
+        delegations: sameRun ? state.delegations : {},
         phase: "connecting",
         gap: sameRun ? state.gap : null,
         terminalStatus: isTerminalRunStatus(action.run.status)
@@ -153,10 +167,28 @@ export function runEventReducer(
         };
       }
       const terminalStatus = statusFromTerminalEvent(action.event);
+      const event = action.event;
+      let delegations = state.delegations;
+      if (
+        event.event_type === "delegation" &&
+        event.delegation_id &&
+        event.peer_node_id &&
+        event.phase
+      ) {
+        delegations = {
+          ...delegations,
+          [event.delegation_id]: {
+            delegation_id: event.delegation_id,
+            peer_node_id: event.peer_node_id,
+            phase: event.phase,
+          },
+        };
+      }
       return {
         ...state,
         lastSequence: action.event.sequence,
         events: [...state.events, action.event],
+        delegations,
         phase: terminalStatus === null ? state.phase : "terminal",
         gap: null,
         terminalStatus: terminalStatus ?? state.terminalStatus,

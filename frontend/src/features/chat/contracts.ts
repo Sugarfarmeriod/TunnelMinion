@@ -149,10 +149,25 @@ export const runSchema = z
   })
   .strict();
 
+export const delegationPhaseSchema = z.enum([
+  "submitted",
+  "investigating",
+  "answered",
+  "failed",
+  "cancelled",
+]);
+
 export const runEventSchema = z
   .object({
     sequence: z.number().int().positive(),
-    event_type: z.enum(["goal", "tool", "finished", "failed", "interrupted"]),
+    event_type: z.enum([
+      "goal",
+      "tool",
+      "delegation",
+      "finished",
+      "failed",
+      "interrupted",
+    ]),
     created_at: timestampSchema,
     run_id: runIdSchema,
     target_node_id: nodeIdSchema.nullable(),
@@ -162,6 +177,9 @@ export const runEventSchema = z
     tool_run_id: toolRunIdSchema.nullable(),
     stop_reason: stopReasonSchema.nullable(),
     message: z.string().nullable(),
+    delegation_id: identifierSchema("delegation").nullable().optional(),
+    peer_node_id: nodeIdSchema.nullable().optional(),
+    phase: delegationPhaseSchema.nullable().optional(),
   })
   .strict();
 
@@ -173,3 +191,4 @@ export type ThreadDetail = z.infer<typeof threadDetailSchema>;
 export type RunStatus = z.infer<typeof runStatusSchema>;
 export type RunView = z.infer<typeof runSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;
+export type DelegationPhase = z.infer<typeof delegationPhaseSchema>;

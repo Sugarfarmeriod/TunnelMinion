@@ -9,11 +9,17 @@ from typing import Protocol, cast
 
 from pydantic import JsonValue
 
+from tunnelminion.agent.delegation_progress import (
+    DelegationPhase,
+    DelegationProgress,
+    DelegationProgressSink,
+)
 from tunnelminion.domain.delegation import (
     DELEGATE_TOOL_NAME,
     MAX_SECONDS,
     TERMINAL_DELEGATION_STATUSES,
     DelegationRecord,
+    DelegationStatus,
 )
 from tunnelminion.domain.errors import ErrorCode, ToolError
 from tunnelminion.domain.identifiers import DelegationId, NodeId
@@ -25,6 +31,7 @@ from tunnelminion.gateway.configuration import GatewayConfigurationService
 from tunnelminion.tools.audit import AuditSink
 from tunnelminion.tools.contracts import ToolAdapterError, ToolCancellationToken
 from tunnelminion.tools.registry import ToolRegistry
+from tunnelminion.tools.runtime import current_tool_call_context
 
 # 在被委派方的上限之外留出网络和排队的余量。
 _WAIT_SECONDS = MAX_SECONDS + 10
@@ -107,12 +114,14 @@ class DelegateToNodeAdapter:
         wait_seconds: float = _WAIT_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = monotonic,
+        progress_sink: DelegationProgressSink | None = None,
     ) -> None:
         self._client_for = client_for
         self._poll_seconds = poll_seconds
         self._wait_seconds = wait_seconds
         self._sleep = sleep
         self._clock = clock
+        self._progress_sink = progress_sink
 
     async def execute(
         self, arguments: dict[str, JsonValue], cancellation: ToolCancellationToken
@@ -128,27 +137,64 @@ class DelegateToNodeAdapter:
             record = await client.submit_delegation(
                 question, str(service_key) if service_key is not None else None
             )
-            deadline = self._clock() + self._wait_seconds
-            while record.status not in TERMINAL_DELEGATION_STATUSES:
-                if cancellation.cancelled:
-                    record = await client.cancel_delegation(record.delegation_id)
-                    break
-                if self._clock() >= deadline:
-                    await client.cancel_delegation(record.delegation_id)
-                    raise _error(ErrorCode.REMOTE_TIMEOUT, "对方电脑没有在时限内查完")
-                await self._sleep(self._poll_seconds)
-                record = await client.get_delegation(record.delegation_id)
         except RemoteGatewayError as exc:
             raise _error(exc.code, str(exc)) from exc
-        return cast(
-            JsonValue,
-            {
-                "answered_by": str(record.executing_node_id),
-                "status": record.status.value,
-                "error_code": record.error_code.value if record.error_code else None,
-                "result": record.result.model_dump(mode="json") if record.result else None,
-            },
-        )
+        delegation_id = record.delegation_id
+        context = current_tool_call_context.get(None)
+
+        def report(phase: DelegationPhase) -> None:
+            if self._progress_sink is not None and context is not None:
+                self._progress_sink(
+                    context,
+                    DelegationProgress(
+                        delegation_id=delegation_id, peer_node_id=node_id, phase=phase
+                    ),
+                )
+
+        phase: DelegationPhase = "failed"
+        try:
+            report("submitted")
+            deadline = self._clock() + self._wait_seconds
+            investigating = False
+            while record.status not in TERMINAL_DELEGATION_STATUSES:
+                if cancellation.cancelled:
+                    record = await client.cancel_delegation(delegation_id)
+                    phase = "cancelled"
+                    break
+                if self._clock() >= deadline:
+                    await client.cancel_delegation(delegation_id)
+                    raise _error(ErrorCode.REMOTE_TIMEOUT, "对方电脑没有在时限内查完")
+                await self._sleep(self._poll_seconds)
+                record = await client.get_delegation(delegation_id)
+                if record.status is DelegationStatus.RUNNING and not investigating:
+                    report("investigating")
+                    investigating = True
+            output = cast(
+                JsonValue,
+                {
+                    "answered_by": str(record.executing_node_id),
+                    "status": record.status.value,
+                    "error_code": record.error_code.value if record.error_code else None,
+                    "result": record.result.model_dump(mode="json") if record.result else None,
+                },
+            )
+            if phase != "cancelled":
+                phase = (
+                    "answered"
+                    if record.status is DelegationStatus.COMPLETED
+                    else "cancelled"
+                    if record.status is DelegationStatus.CANCELLED
+                    else "failed"
+                )
+            return output
+        except asyncio.CancelledError:
+            await client.cancel_delegation(delegation_id)
+            phase = "cancelled" if cancellation.cancelled else "failed"
+            raise
+        except RemoteGatewayError as exc:
+            raise _error(exc.code, str(exc)) from exc
+        finally:
+            report(phase)
 
 
 def _error(code: ErrorCode, message: str) -> ToolAdapterError:
@@ -161,6 +207,8 @@ def register_delegate_tool(
     configuration: GatewayConfigurationService,
     local_node_id: NodeId,
     audit_sink: AuditSink,
+    *,
+    progress_sink: DelegationProgressSink | None = None,
 ) -> bool:
     """本机配置了带平台信息的对端时，注册委派工具；没有对端时不注册。"""
     view = configuration.view()
@@ -174,5 +222,8 @@ def register_delegate_tool(
             peer.endpoint, peer.token, local_node_id, peer.node_id, audit_sink
         )
 
-    registry.register(delegate_tool_definition(peers, platform), DelegateToNodeAdapter(client_for))
+    registry.register(
+        delegate_tool_definition(peers, platform),
+        DelegateToNodeAdapter(client_for, progress_sink=progress_sink),
+    )
     return True

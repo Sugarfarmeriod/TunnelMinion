@@ -45,6 +45,87 @@ function makeEvent(
 }
 
 describe("runEventReducer", () => {
+  it("保留每个委派的最新阶段，重复、乱序和其他 run 不覆盖进度", () => {
+    const firstId = `delegation_${"1".repeat(32)}`;
+    const secondId = `delegation_${"2".repeat(32)}`;
+    let state = runEventReducer(emptyRunEventState, {
+      type: "activate",
+      run: makeRun(),
+    });
+    state = runEventReducer(state, { type: "opened" });
+    const submitted = makeEvent(1, "delegation", {
+      delegation_id: firstId,
+      peer_node_id: nodeId,
+      phase: "submitted",
+    });
+    state = runEventReducer(state, { type: "event", event: submitted });
+    const investigating = {
+      ...submitted,
+      sequence: 2,
+      phase: "investigating",
+    } as const;
+    state = runEventReducer(state, { type: "event", event: investigating });
+    const latest = state;
+    state = runEventReducer(state, { type: "event", event: submitted });
+    expect(state).toBe(latest);
+    state = runEventReducer(state, {
+      type: "event",
+      event: { ...submitted, sequence: 3, run_id: otherRunId },
+    });
+    expect(state).toBe(latest);
+    state = runEventReducer(state, {
+      type: "event",
+      event: { ...submitted, sequence: 4, phase: "answered" },
+    });
+    expect(state.delegations[firstId]?.phase).toBe("investigating");
+    state = runEventReducer(state, {
+      type: "event",
+      event: { ...submitted, sequence: 3, delegation_id: secondId },
+    });
+    state = runEventReducer(state, {
+      type: "event",
+      event: { ...submitted, sequence: 4, phase: "answered" },
+    });
+    expect(state.delegations).toEqual({
+      [firstId]: {
+        delegation_id: firstId,
+        peer_node_id: nodeId,
+        phase: "answered",
+      },
+      [secondId]: {
+        delegation_id: secondId,
+        peer_node_id: nodeId,
+        phase: "submitted",
+      },
+    });
+    expect(state.phase).toBe("recovering");
+    expect(state.terminalStatus).toBeNull();
+    expect(state.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
+    expect(
+      runEventReducer(state, { type: "activate", run: makeRun() }).delegations,
+    ).toEqual(state.delegations);
+    expect(
+      runEventReducer(state, {
+        type: "activate",
+        run: { ...makeRun(), run_id: otherRunId },
+      }).delegations,
+    ).toEqual({});
+    expect(runEventReducer(state, { type: "clear" }).delegations).toEqual({});
+  });
+
+  it("缺少可选委派字段时仍接收事件，不生成不完整进度", () => {
+    let state = runEventReducer(emptyRunEventState, {
+      type: "activate",
+      run: makeRun(),
+    });
+    state = runEventReducer(state, {
+      type: "event",
+      event: makeEvent(1, "delegation"),
+    });
+    expect(state.lastSequence).toBe(1);
+    expect(state.delegations).toEqual({});
+  });
+
   it("只应用连续序号，忽略重复与其他 run 的事件，并记录缺口", () => {
     let state = runEventReducer(emptyRunEventState, {
       type: "activate",

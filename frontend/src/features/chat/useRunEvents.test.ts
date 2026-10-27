@@ -105,6 +105,36 @@ it("断线从 after 续上，卸载只关闭订阅，不发取消请求", async 
   expect(next.closed).toBe(true);
 });
 
+it("委派进度事件经订阅进入状态，保留每个委派的最新阶段", async () => {
+  server.use(
+    http.get(`/api/runs/${runId}`, () => HttpResponse.json(makeRun())),
+  );
+  const { result } = renderHook(() =>
+    useRunEvents(makeRun(), {}, { reconnectDelayMs: 1 }),
+  );
+  const stream = await source(0);
+  const delegation = {
+    delegation_id: `delegation_${"1".repeat(32)}`,
+    peer_node_id: `node_${"2".repeat(32)}`,
+  };
+  act(() => {
+    stream.open();
+    stream.emit("goal", makeEvent(1, "goal"));
+    stream.emit(
+      "delegation",
+      makeEvent(2, "delegation", { ...delegation, phase: "submitted" }),
+    );
+    stream.emit(
+      "delegation",
+      makeEvent(3, "delegation", { ...delegation, phase: "investigating" }),
+    );
+  });
+  await waitFor(() => expect(result.current.lastSequence).toBe(3));
+  expect(result.current.delegations[delegation.delegation_id]?.phase).toBe(
+    "investigating",
+  );
+});
+
 it("空闲超时只复读 run 并恢复订阅", async () => {
   const read = vi.fn(() => HttpResponse.json(makeRun()));
   server.use(http.get(`/api/runs/${runId}`, read));
