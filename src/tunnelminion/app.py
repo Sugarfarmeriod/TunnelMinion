@@ -387,6 +387,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
                     marks=node.stores.service_marks.all,
                 ),
                 node.stores.service_marks,
+                pending_repair_ids=node.repair_service.pending_repair_ids,
             ),
         )
     )

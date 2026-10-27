@@ -59,6 +59,7 @@ class GatewayServices(BaseModel):
     display_name: DisplayName
     observed_at: datetime
     services: tuple[PeerServiceEntry, ...] = ()
+    pending_repair_ids: tuple[OperationId, ...] = ()
 
 
 class GatewayErrorCode(StrEnum):

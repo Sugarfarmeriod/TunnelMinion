@@ -93,6 +93,16 @@ class RepairService:
         self._publish_results()
         return self._store.list_all()
 
+    def pending_repair_ids(self) -> tuple[OperationId, ...]:
+        """只读待批准且未过期的修复标识。"""
+        now = self._clock()
+        return tuple(
+            record.plan.operation_id
+            for record in self._store.list_all()
+            if record.status is OperationStatus.AWAITING_AUTHORIZATION
+            and record.plan.created_at + timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS) > now
+        )
+
     def get(self, operation_id: OperationId) -> RepairRecord | None:
         now = self._clock()
         self.expire_due(now)

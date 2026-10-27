@@ -148,14 +148,23 @@ class PeerServicePoller:
                     )
                     async with asyncio.timeout(10):
                         snapshot = await client.get_services()
-                    running = {
-                        service.name for service in snapshot.services if service.state == "running"
-                    }
-                    self._pending_repairs[str(peer.node_id)] = tuple(
-                        repair
-                        for repair in self.pending_repairs(peer.node_id)
-                        if repair.service_name not in running
-                    )
+                    if "pending_repair_ids" in snapshot.model_fields_set:
+                        self._pending_repairs[str(peer.node_id)] = tuple(
+                            repair
+                            for repair in self.pending_repairs(peer.node_id)
+                            if repair.repair_id in snapshot.pending_repair_ids
+                        )
+                    else:
+                        running = {
+                            service.name
+                            for service in snapshot.services
+                            if service.state == "running"
+                        }
+                        self._pending_repairs[str(peer.node_id)] = tuple(
+                            repair
+                            for repair in self.pending_repairs(peer.node_id)
+                            if repair.service_name not in running
+                        )
                 except RemoteGatewayError as exc:
                     if exc.code in {ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT}:
                         outcome, reachable = "unreachable", False

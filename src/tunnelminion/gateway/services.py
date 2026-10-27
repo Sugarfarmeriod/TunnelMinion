@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from tunnelminion.agent.service_marks import ServiceMark, ServiceMarkStore
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
-from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.gateway.contracts import GatewayServices, PeerServiceEntry, ServicePort
 from tunnelminion.web.service_map import build_local_service_map
 
@@ -23,11 +23,14 @@ class GatewayServiceReader:
         display_name: Callable[[], str],
         observer: DeterministicServiceObserver,
         marks: ServiceMarkStore,
+        *,
+        pending_repair_ids: Callable[[], tuple[OperationId, ...]] | None = None,
     ) -> None:
         self._node_id = node_id
         self._display_name = display_name
         self._observer = observer
         self._marks = marks
+        self._pending_repair_ids = pending_repair_ids or (lambda: ())
         self._lock = asyncio.Lock()
 
     async def __call__(self) -> GatewayServices:
@@ -46,6 +49,7 @@ class GatewayServiceReader:
             node_id=self._node_id,
             display_name=self._display_name(),
             observed_at=snapshot.observed_at,
+            pending_repair_ids=self._pending_repair_ids(),
             services=tuple(
                 PeerServiceEntry(
                     key=entry.key,

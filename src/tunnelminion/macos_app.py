@@ -727,6 +727,7 @@ def build_macos_gateway_application(
                     marks=stores.service_marks.all,
                 ),
                 stores.service_marks,
+                pending_repair_ids=node.repair_service.pending_repair_ids,
             ),
         )
     )
