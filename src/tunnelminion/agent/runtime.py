@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -51,6 +52,12 @@ from tunnelminion.tools.contracts import (
     ToolExecutionStatus,
 )
 from tunnelminion.tools.registry import RegisteredTool, ToolRegistry
+
+NO_REPAIR_PROPOSED = "这次没有生成修复，需要的话请让我提出修法"
+_REPAIR_CLAIM = re.compile(
+    r"(?:提出了|已(?:经)?(?:提出|提交|生成)|提交了|生成了)[^。！？\n]{0,24}(?:修复|修法)"
+    r"|(?<!没有)(?<!暂无)待批准的修复|(?<!不用)(?<!无需)(?:等待|等你|等您)批准"
+)
 
 
 class _AgentGraph(Protocol):
@@ -533,7 +540,7 @@ class LangChainReadOnlyAgent:
             await asyncio.gather(cancel_task, return_exceptions=True)
         state = await graph_task
         messages = cast(list[BaseMessage], state["messages"])
-        answer = self._answer(messages)
+        answer = self._check_repair_claim(self._answer(messages), results)
         stop_reason = self._limit_reason(answer)
         checked_answer = (
             self._connection_evidence(target, results, answer, evidence)
@@ -563,6 +570,30 @@ class LangChainReadOnlyAgent:
             context_records=tuple(metrics.context_records),
             failures=tuple(metrics.failures),
         )
+
+    @staticmethod
+    def _check_repair_claim(
+        answer: str, results: list[tuple[ToolExecutionRequest, ToolExecutionResult]]
+    ) -> str:
+        """只用本轮成功结果核对修复声明，拒绝结果不算已提出。"""
+        if not _REPAIR_CLAIM.search(answer):
+            return answer
+        for request, result in results:
+            if result.status is not ToolExecutionStatus.SUCCESS or not isinstance(
+                result.output, dict
+            ):
+                continue
+            if request.tool_name == "propose_repair" and result.output.get("proposed") is True:
+                return answer
+            delegated = result.output.get("result")
+            if (
+                request.tool_name == DELEGATE_TOOL_NAME
+                and result.output.get("status") == "completed"
+                and isinstance(delegated, dict)
+                and delegated.get("proposed_repairs")
+            ):
+                return answer
+        return f"{answer}\n\n{NO_REPAIR_PROPOSED}"
 
     def _validate_tools(self, tool_names: tuple[str, ...]) -> tuple[RegisteredTool, ...]:
         if not tool_names:

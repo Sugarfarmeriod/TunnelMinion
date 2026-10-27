@@ -71,7 +71,7 @@ export function RemoteRepairDialog({
               <dd>{repair.action}</dd>
             </div>
           </dl>
-          <p>请到 {name} 的地图上批准</p>
+          <p>请到 {name} 的地图上点感叹号批准</p>
           <p className="repair-expiry" role="status">
             10 分钟内有效 ·{" "}
             {expired

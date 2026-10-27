@@ -182,7 +182,8 @@ def test_gateway_delegation_builds_local_repairs_without_exposing_tools_or_remot
                 "expires_at",
             }
             assert summary["status"] == "awaiting_authorization"
-            assert summary["how_to_approve"].startswith("请到这台电脑本机上运行：")
+            assert summary["how_to_approve"].startswith("请到对方电脑的地图上点感叹号批准")
+            assert "\n命令行后备：tunnelminion repair-approve" in summary["how_to_approve"]
             assert "--data-dir" not in response.text and str(tmp_path) not in response.text
             repair_id = OperationId(summary["repair_id"])
             for prefix in ("/v1/repairs", "/api/repairs"):

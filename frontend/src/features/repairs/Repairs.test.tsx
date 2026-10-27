@@ -27,11 +27,12 @@ import { ServiceMapPage } from "../service-map/ServiceMapPage";
 import {
   makeLocalServices,
   makeMapOverview,
+  makePeer,
   makeService,
 } from "../service-map/testFixtures";
 import { makeRun, makeThread } from "../chat/testFixtures";
 import type { RepairDetail } from "./api";
-import { finishedRepair, makeRepair } from "./testFixtures";
+import { finishedRepair, makeRemoteRepair, makeRepair } from "./testFixtures";
 
 const server = setupServer(
   http.get("/api/peers", () => HttpResponse.json({ peers: [] })),
@@ -127,6 +128,63 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe("地图上的本机修复", () => {
+  it.each([1440, 320])(
+    "%ipx 点节点感叹号直接打开本机或对端修复框",
+    async (width) => {
+      vi.stubGlobal("innerWidth", width);
+      const peer = makePeer(1, { pending_repairs: [makeRemoteRepair()] });
+      server.use(
+        http.get("/api/peers", () => HttpResponse.json({ peers: [peer] })),
+      );
+      const user = userEvent.setup();
+      renderMap();
+      for (const name of ["这台电脑", peer.display_name]) {
+        const bang = await screen.findByRole("button", {
+          name: `${name}有 1 个待批准的修复`,
+        });
+        await user.click(bang.querySelector("svg")!);
+        const dialog = await screen.findByRole("dialog", {
+          name: `要修好“${name === "这台电脑" ? "相册" : "远端相册"}”吗？`,
+        });
+        if (name === "这台电脑")
+          expect(
+            within(dialog).getByRole("button", { name: "批准并修复" }),
+          ).toBeEnabled();
+        else {
+          expect(
+            within(dialog).getByText(`请到 ${name} 的地图上点感叹号批准`),
+          ).toBeVisible();
+          expect(
+            within(dialog).queryByRole("button", { name: "批准并修复" }),
+          ).toBeNull();
+        }
+        await user.click(
+          within(dialog).getByRole("button", { name: "关闭修复" }),
+        );
+        expect(bang).toHaveFocus();
+      }
+      expect(posts).toEqual([]);
+    },
+  );
+
+  it("聊天打开时点地图感叹号也能进入修复框", async () => {
+    vi.stubGlobal("innerWidth", 1440);
+    server.use(http.get("/api/threads", () => HttpResponse.json([])));
+    const user = userEvent.setup();
+    renderMap();
+    const bang = await screen.findByRole("button", {
+      name: "这台电脑有 1 个待批准的修复",
+    });
+    await user.click(screen.getByRole("button", { name: "对话", exact: true }));
+    expect(
+      screen.getByRole("dialog", { name: "对话", exact: true }),
+    ).toBeVisible();
+    await user.click(bang.querySelector("svg")!);
+    expect(
+      await screen.findByRole("dialog", { name: "要修好“相册”吗？" }),
+    ).toBeVisible();
+  });
+
   it("服务按打不开、已停止、正常排列，已停止不能打开", async () => {
     server.use(
       http.get("/api/services/local", () =>
