@@ -215,7 +215,10 @@ describe("SettingsPage", () => {
       let capturedBody: Record<string, unknown> | undefined;
       fetchMock.mockImplementation(async (_input, init) => {
         if (init?.method === "PUT") {
-          capturedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          capturedBody = JSON.parse(String(init.body)) as Record<
+            string,
+            unknown
+          >;
           current = makeConfiguration({
             disable_thinking: Boolean(capturedBody.disable_thinking),
           });

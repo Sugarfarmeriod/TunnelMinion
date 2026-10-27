@@ -754,7 +754,8 @@ export function SettingsPage() {
                 <p>模型：{confirmation.input.model}</p>
                 <p>超时：{confirmation.input.timeout_seconds} 秒</p>
                 <p>
-                  关闭思考模式：{confirmation.input.disable_thinking ? "是" : "否"}
+                  关闭思考模式：
+                  {confirmation.input.disable_thinking ? "是" : "否"}
                 </p>
                 <p>密钥处理：{confirmation.secretAction}</p>
               </>

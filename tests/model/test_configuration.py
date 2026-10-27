@@ -180,8 +180,8 @@ def service_with(
 def test_file_repository_round_trip_and_delete(tmp_path: Path, disable_thinking: bool) -> None:
     repository = FileModelConfigurationRepository(tmp_path / "nested" / "model.json")
     assert repository.load() is None
-    expected = input_config().provider_config().model_copy(
-        update={"disable_thinking": disable_thinking}
+    expected = (
+        input_config().provider_config().model_copy(update={"disable_thinking": disable_thinking})
     )
     repository.save(expected)
     assert repository.load() == expected
