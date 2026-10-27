@@ -18,6 +18,7 @@ from tunnelminion.domain.delegation import (
     DELEGATE_TOOL_NAME,
     MAX_SECONDS,
     TERMINAL_DELEGATION_STATUSES,
+    DelegationProposedRepair,
     DelegationRecord,
     DelegationStatus,
 )
@@ -35,6 +36,7 @@ from tunnelminion.tools.runtime import current_tool_call_context
 
 # 在被委派方的上限之外留出网络和排队的余量。
 _WAIT_SECONDS = MAX_SECONDS + 10
+ProposedRepairsSink = Callable[[NodeId, tuple[DelegationProposedRepair, ...]], None]
 
 
 class DelegationClient(Protocol):
@@ -115,6 +117,7 @@ class DelegateToNodeAdapter:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = monotonic,
         progress_sink: DelegationProgressSink | None = None,
+        proposed_repairs_sink: ProposedRepairsSink | None = None,
     ) -> None:
         self._client_for = client_for
         self._poll_seconds = poll_seconds
@@ -122,6 +125,7 @@ class DelegateToNodeAdapter:
         self._sleep = sleep
         self._clock = clock
         self._progress_sink = progress_sink
+        self._proposed_repairs_sink = proposed_repairs_sink
 
     async def execute(
         self, arguments: dict[str, JsonValue], cancellation: ToolCancellationToken
@@ -186,6 +190,13 @@ class DelegateToNodeAdapter:
                     if record.status is DelegationStatus.CANCELLED
                     else "failed"
                 )
+            if (
+                phase == "answered"
+                and record.result is not None
+                and record.result.proposed_repairs
+                and self._proposed_repairs_sink is not None
+            ):
+                self._proposed_repairs_sink(node_id, record.result.proposed_repairs)
             return output
         except asyncio.CancelledError:
             await client.cancel_delegation(delegation_id)
@@ -209,6 +220,7 @@ def register_delegate_tool(
     audit_sink: AuditSink,
     *,
     progress_sink: DelegationProgressSink | None = None,
+    proposed_repairs_sink: ProposedRepairsSink | None = None,
 ) -> bool:
     """本机配置了带平台信息的对端时，注册委派工具；没有对端时不注册。"""
     view = configuration.view()
@@ -224,6 +236,8 @@ def register_delegate_tool(
 
     registry.register(
         delegate_tool_definition(peers, platform),
-        DelegateToNodeAdapter(client_for, progress_sink=progress_sink),
+        DelegateToNodeAdapter(
+            client_for, progress_sink=progress_sink, proposed_repairs_sink=proposed_repairs_sink
+        ),
     )
     return True

@@ -41,7 +41,7 @@ describe("委派进度", () => {
           phase,
         }),
       });
-      render(
+      const { rerender } = render(
         <RunPanel
           compact
           activeRun={run}
@@ -58,6 +58,23 @@ describe("委派进度", () => {
       );
       expect(screen.getAllByText(`交给 ${nodeId} · ${label}`)).toHaveLength(1);
       expect(screen.queryByText("检查未完成")).not.toBeInTheDocument();
+      rerender(
+        <RunPanel
+          compact
+          activeRun={run}
+          effectiveStatus="running"
+          eventState={eventState}
+          peerName={(id) => (id === nodeId ? "测试电脑" : undefined)}
+          cancelling={false}
+          confirmingCancel={false}
+          continuationBlocked={false}
+          onRequestCancel={vi.fn()}
+          onDismissCancel={vi.fn()}
+          onConfirmCancel={vi.fn()}
+          onRefresh={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(`交给 测试电脑 · ${label}`)).toBeVisible();
     },
   );
 });

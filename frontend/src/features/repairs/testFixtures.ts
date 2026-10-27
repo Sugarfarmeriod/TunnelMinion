@@ -1,4 +1,18 @@
-import type { RepairDetail } from "./api";
+import type { RepairDetail, RemoteRepair } from "./api";
+
+export function makeRemoteRepair(
+  overrides: Partial<RemoteRepair> = {},
+): RemoteRepair {
+  return {
+    repair_id: "operation_" + "b".repeat(32),
+    service_name: "远端相册",
+    action: "重启远端相册",
+    status: "awaiting_authorization",
+    how_to_approve: "tunnelminion repair-approve operation_" + "b".repeat(32),
+    expires_at: new Date(Date.now() + 9 * 60_000).toISOString(),
+    ...overrides,
+  };
+}
 
 export function makeRepair(
   overrides: Partial<RepairDetail> = {},

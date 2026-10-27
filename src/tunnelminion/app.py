@@ -420,6 +420,7 @@ def build_windows_application(
         progress_sink=lambda context, progress: conversations.append_delegation_progress(
             context, progress
         ),
+        proposed_repairs_sink=lambda peer, repairs: peer_poller.remember_repairs(peer, repairs),
     )
     node_id = node.node_id
     model_service = node.model_service

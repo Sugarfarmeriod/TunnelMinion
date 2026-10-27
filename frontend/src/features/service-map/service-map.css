@@ -223,6 +223,8 @@
   color: var(--map-lime);
   font-size: 14px;
   margin-top: 4px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .map-links {
@@ -241,6 +243,36 @@
 .map-link.is-unreachable {
   stroke: var(--map-steel);
   stroke-dasharray: 8 8;
+}
+.map-packet {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--map-gold);
+  border: 2px solid var(--map-ink);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: map-packet 1.1s steps(16) forwards;
+}
+.map-packet.is-returning {
+  background: var(--map-cyan);
+}
+.map-thought {
+  position: absolute;
+  width: 56px;
+  height: 32px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+@keyframes map-packet {
+  from {
+    left: var(--packet-start-x);
+    top: var(--packet-start-y);
+  }
+  to {
+    left: var(--packet-end-x);
+    top: var(--packet-end-y);
+  }
 }
 .map-panel-footer p {
   color: var(--map-fog);
@@ -271,6 +303,9 @@
   width: 100%;
   height: 100%;
 }
+.map-node-position.is-delegating .map-repair-bang {
+  left: calc(50% + 32px);
+}
 @keyframes map-repair-bob {
   50% {
     transform: translateY(-5px);
@@ -299,6 +334,9 @@
   color: var(--map-gold);
 }
 @media (prefers-reduced-motion: reduce) {
+  .map-packet {
+    animation: none;
+  }
   .map-repair-bang,
   .map-node.is-repairing .map-blink {
     animation: none;

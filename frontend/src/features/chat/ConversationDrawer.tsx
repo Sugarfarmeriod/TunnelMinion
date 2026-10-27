@@ -13,7 +13,7 @@ import { ApiError } from "../../api/client";
 import type { ResourceOverview } from "../../api/schemas/overview";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
-import type { ServiceEntry } from "../service-map/api";
+import { peersQueryKey, type ServiceEntry } from "../service-map/api";
 import type { Repair } from "../repairs/api";
 import {
   allowedToolNames,
@@ -109,6 +109,7 @@ export function ConversationDrawer({
   peerServices,
   pendingRepairs = [],
   onRepair,
+  onDelegationsChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -122,6 +123,7 @@ export function ConversationDrawer({
   modelStatus?: ResourceOverview["model"]["status"];
   pendingRepairs?: Repair[];
   onRepair?: (id: string) => void;
+  onDelegationsChange?: (delegations: RunEventState["delegations"]) => void;
 }) {
   const client = useQueryClient();
   const preview = isReadOnlyPreview();
@@ -215,8 +217,9 @@ export function ConversationDrawer({
       void refresh(run.thread_id).catch(() =>
         setNotice("回答已到，消息暂时没读全，请刷新这段对话。"),
       );
+      void client.invalidateQueries({ queryKey: peersQueryKey });
     },
-    [refresh, updateRun],
+    [refresh, updateRun, client],
   );
   const onEvents = useCallback(
     (runId: string, events: RunEventState) =>
@@ -316,6 +319,9 @@ export function ConversationDrawer({
   const events = activeRun
     ? (eventStates[activeRun.run_id] ?? emptyRunEventState)
     : emptyRunEventState;
+  useEffect(() => {
+    onDelegationsChange?.(events.delegations);
+  }, [events.delegations, onDelegationsChange]);
   const status = events.terminalStatus ?? activeRun?.status ?? null;
   const locked =
     preview ||
@@ -580,6 +586,9 @@ export function ConversationDrawer({
                   activeRun={activeRun}
                   effectiveStatus={status}
                   eventState={events}
+                  peerName={(id) =>
+                    nodes.find((node) => node.node_id === id)?.display_name
+                  }
                   cancelling={cancelling}
                   confirmingCancel={confirmingCancel}
                   continuationBlocked={false}

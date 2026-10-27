@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.coordinator.contracts import DirectoryFreshness, NodeStatus
+from tunnelminion.domain.delegation import DelegationProposedRepair
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.invites import platform_display_name
@@ -22,6 +23,7 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
 from tunnelminion.gateway.configuration import GatewayConfigurationService
 from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayServices, PeerServiceEntry
+from tunnelminion.repair.contracts import REPAIR_TERMINAL_STATUSES
 from tunnelminion.tools.audit import AuditSink
 from tunnelminion.web.service_map import LocalServiceMap
 
@@ -57,7 +59,29 @@ class PeerServicePoller:
         self._audit = audit
         self._transport = transport
         self._cache: dict[str, PeerCache] = {}
+        self._pending_repairs: dict[str, tuple[DelegationProposedRepair, ...]] = {}
         self._lock = asyncio.Lock()
+
+    def pending_repairs(self, node_id: NodeId) -> tuple[DelegationProposedRepair, ...]:
+        now = datetime.now(UTC)
+        waiting = tuple(
+            repair
+            for repair in self._pending_repairs.get(str(node_id), ())
+            if repair.status not in REPAIR_TERMINAL_STATUSES and repair.expires_at > now
+        )
+        self._pending_repairs[str(node_id)] = waiting
+        return waiting
+
+    def remember_repairs(
+        self, node_id: NodeId, repairs: tuple[DelegationProposedRepair, ...]
+    ) -> None:
+        """只保存对端修复摘要，最新的最多三件。"""
+        merged = {str(repair.repair_id): repair for repair in self.pending_repairs(node_id)}
+        merged.update((str(repair.repair_id), repair) for repair in repairs)
+        self._pending_repairs[str(node_id)] = tuple(
+            sorted(merged.values(), key=lambda repair: repair.expires_at, reverse=True)
+        )
+        self._pending_repairs[str(node_id)] = self.pending_repairs(node_id)[:3]
 
     def read(self, node_id: NodeId) -> PeerCache:
         return self._cache.get(str(node_id), PeerCache())
@@ -124,6 +148,14 @@ class PeerServicePoller:
                     )
                     async with asyncio.timeout(10):
                         snapshot = await client.get_services()
+                    running = {
+                        service.name for service in snapshot.services if service.state == "running"
+                    }
+                    self._pending_repairs[str(peer.node_id)] = tuple(
+                        repair
+                        for repair in self.pending_repairs(peer.node_id)
+                        if repair.service_name not in running
+                    )
                 except RemoteGatewayError as exc:
                     if exc.code in {ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT}:
                         outcome, reachable = "unreachable", False
@@ -177,6 +209,7 @@ class PeerSummary(BaseModel):
     last_seen_at: datetime | None
     services_visible: bool
     service_count: int
+    pending_repairs: tuple[DelegationProposedRepair, ...] = ()
 
 
 def peer_services_lifespan(base: Lifespan, poller: PeerServicePoller) -> Lifespan:
@@ -254,6 +287,7 @@ def create_peers_router(
                     service_count=len(cached.snapshot.services)
                     if visible and cached.snapshot
                     else 0,
+                    pending_repairs=poller.pending_repairs(peer.node_id),
                 )
             )
         directory = coordinator_cache.read() if coordinator_cache is not None else None
@@ -274,6 +308,7 @@ def create_peers_router(
                         last_seen_at=node.last_received_at,
                         services_visible=False,
                         service_count=node.service_count,
+                        pending_repairs=poller.pending_repairs(node.identity.node_id),
                     )
                 )
         peers.sort(

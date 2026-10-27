@@ -17,6 +17,7 @@ import {
   localServicesQueryKey,
   updateServiceMark,
   type ServiceEntry,
+  type Peer,
 } from "./api";
 import {
   ConversationDrawer,
@@ -25,9 +26,18 @@ import {
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
 import { mapLayout, relativeTime } from "./topology";
-import { isRepairExecuting, type RepairDetail } from "../repairs/api";
+import {
+  isRepairExecuting,
+  isRepairTerminal,
+  type RepairDetail,
+  type RemoteRepair,
+} from "../repairs/api";
 import { useRepairs } from "../repairs/useRepairs";
 import { RepairDialog } from "../repairs/RepairDialog";
+import { RemoteRepairDialog } from "../repairs/RemoteRepairDialog";
+import { RepairBang } from "../repairs/RepairBang";
+import type { RunEventState } from "../chat/eventReducer";
+import { DelegationActivity, delegationStatus } from "./DelegationActivity";
 import "./service-map.css";
 
 export function ServiceMapPage() {
@@ -66,7 +76,19 @@ export function ServiceMapPage() {
       selectedPeer.services_visible,
     refetchInterval: 60_000,
   });
-  const remotePeers = peers.data?.peers.filter((peer) => !peer.is_local) ?? [];
+  const [delegations, setDelegations] = useState<RunEventState["delegations"]>(
+    {},
+  );
+  const remotePeers = (peers.data?.peers ?? [])
+    .filter((peer) => !peer.is_local)
+    .map((peer) => ({
+      ...peer,
+      pending_repairs: peer.pending_repairs.filter(
+        (repair) =>
+          !isRepairTerminal(repair.status) &&
+          Date.parse(repair.expires_at) > Date.now(),
+      ),
+    }));
   const [narrowMap, setNarrowMap] = useState(window.innerWidth <= 760);
   const layout = mapLayout(remotePeers.length, narrowMap);
   const [params] = useSearchParams();
@@ -95,6 +117,10 @@ export function ServiceMapPage() {
   const observed = services.data?.observed_at != null;
   const repairs = useRepairs(nodeId);
   const [repairId, setRepairId] = useState<string | null>(null);
+  const [remoteRepair, setRemoteRepair] = useState<{
+    peer: Peer;
+    repair: RemoteRepair;
+  } | null>(null);
   const [repairProgress, setRepairProgress] = useState<RepairDetail | null>(
     null,
   );
@@ -172,7 +198,7 @@ export function ServiceMapPage() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!open || drawerOpen || repairId) return;
+    if (!open || drawerOpen || repairId || remoteRepair) return;
     function onOutsideClick(event: MouseEvent) {
       if (
         event.target instanceof Node &&
@@ -201,7 +227,7 @@ export function ServiceMapPage() {
       document.removeEventListener("click", onOutsideClick);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, drawerOpen, repairId]);
+  }, [open, drawerOpen, repairId, remoteRepair]);
 
   useLayoutEffect(() => {
     if (!hovered || open) return;
@@ -331,6 +357,19 @@ export function ServiceMapPage() {
             aria-label="电脑拓扑图"
             style={{ height: layout.height }}
           >
+            {remotePeers.map((peer, index) =>
+              peer.reachable === true ? (
+                <DelegationActivity
+                  key={peer.node_id}
+                  delegations={Object.values(delegations).filter(
+                    (item) => item.peer_node_id === peer.node_id,
+                  )}
+                  local={layout.local}
+                  peer={layout.peers[index]!}
+                  list={layout.list}
+                />
+              ) : null,
+            )}
             <svg
               className="map-links"
               viewBox={`0 0 100 ${layout.height}`}
@@ -366,27 +405,11 @@ export function ServiceMapPage() {
               onBlur={() => setHovered(false)}
             >
               {repairs.pending.length > 0 && !repairing ? (
-                <button
-                  type="button"
-                  className="map-repair-bang"
-                  aria-label={`这台电脑有 ${repairs.pending.length} 个待批准的修复`}
+                <RepairBang
+                  name="这台电脑"
+                  count={repairs.pending.length}
                   onClick={() => setRepairId(repairs.pending[0]!.repair_id)}
-                >
-                  <svg
-                    viewBox="0 0 20 22"
-                    shapeRendering="crispEdges"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M2 0H18V2H20V17H12L8 22V17H0V2H2Z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M8 4H12V10H8ZM8 12H12V15H8Z"
-                      fill="var(--map-ink)"
-                    />
-                  </svg>
-                </button>
+                />
               ) : null}
               <ComputerNode
                 name="这台电脑"
@@ -404,39 +427,69 @@ export function ServiceMapPage() {
                 pendingCount={repairs.pending.length}
               />
             </div>
-            {remotePeers.map((peer, index) => (
-              <div
-                className="map-node-position"
-                key={peer.node_id}
-                style={{
-                  left: `${layout.peers[index]!.x}%`,
-                  top: layout.peers[index]!.y,
-                }}
-              >
-                <ComputerNode
-                  name={peer.display_name}
-                  platform={peer.platform}
-                  online={peer.reachable === true}
-                  serviceCount={peer.service_count}
-                  selected={selectedId === peer.node_id}
-                  status={
-                    peer.reachable === false
+            {remotePeers.map((peer, index) => {
+              const progress = Object.values(delegations).filter(
+                (item) =>
+                  peer.reachable === true && item.peer_node_id === peer.node_id,
+              );
+              const phase =
+                progress.find((item) => item.phase === "investigating")
+                  ?.phase ??
+                progress.find((item) => item.phase === "submitted")?.phase ??
+                progress.at(-1)?.phase;
+              const status =
+                phase === "investigating" || phase === "submitted"
+                  ? delegationStatus[phase]
+                  : peer.pending_repairs.length
+                    ? `! 有 ${peer.pending_repairs.length} 件事要在 ${peer.display_name} 上批准`
+                    : peer.reachable === false
                       ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
                       : peer.reachable === null
                         ? "尚未确认能否连上"
-                        : undefined
-                  }
-                  buttonRef={(element) => {
-                    if (selectedId === peer.node_id) nodeRef.current = element;
+                        : phase
+                          ? delegationStatus[phase]
+                          : undefined;
+              return (
+                <div
+                  className={`map-node-position${phase === "investigating" || phase === "answered" ? " is-delegating" : ""}`}
+                  key={peer.node_id}
+                  style={{
+                    left: `${layout.peers[index]!.x}%`,
+                    top: layout.peers[index]!.y,
                   }}
-                  onClick={() =>
-                    selectedId === peer.node_id
-                      ? close()
-                      : setSelectedId(peer.node_id)
-                  }
-                />
-              </div>
-            ))}
+                >
+                  {peer.pending_repairs.length ? (
+                    <RepairBang
+                      name={peer.display_name}
+                      count={peer.pending_repairs.length}
+                      onClick={() =>
+                        setRemoteRepair({
+                          peer,
+                          repair: peer.pending_repairs[0]!,
+                        })
+                      }
+                    />
+                  ) : null}
+                  <ComputerNode
+                    name={peer.display_name}
+                    platform={peer.platform}
+                    online={peer.reachable === true}
+                    serviceCount={peer.service_count}
+                    selected={selectedId === peer.node_id}
+                    status={status}
+                    buttonRef={(element) => {
+                      if (selectedId === peer.node_id)
+                        nodeRef.current = element;
+                    }}
+                    onClick={() =>
+                      selectedId === peer.node_id
+                        ? close()
+                        : setSelectedId(peer.node_id)
+                    }
+                  />
+                </div>
+              );
+            })}
           </div>
           {hovered && !open ? (
             <div
@@ -489,8 +542,24 @@ export function ServiceMapPage() {
               markError={!selectedPeer && mark.isError}
               onAsk={askService}
               askDisabled={!nodeId || isReadOnlyPreview()}
-              pendingRepairs={selectedPeer ? [] : repairs.pending}
-              onRepair={setRepairId}
+              pendingRepairs={
+                selectedPeer
+                  ? remotePeers
+                      .find((peer) => peer.node_id === selectedPeer.node_id)
+                      ?.pending_repairs.map((repair) => ({
+                        repair_id: repair.repair_id,
+                        action_summary: repair.action,
+                      }))
+                  : repairs.pending
+              }
+              onRepair={(id) => {
+                if (selectedPeer) {
+                  const repair = selectedPeer.pending_repairs.find(
+                    (repair) => repair.repair_id === id,
+                  );
+                  if (repair) setRemoteRepair({ peer: selectedPeer, repair });
+                } else setRepairId(id);
+              }}
             />
           ) : null}
         </div>
@@ -558,7 +627,7 @@ export function ServiceMapPage() {
         </form>
       </div>
       <ConversationDrawer
-        open={drawerOpen && repairId === null}
+        open={drawerOpen && repairId === null && remoteRepair === null}
         onClose={() => setDrawerOpen(false)}
         toggleRef={toggleRef}
         request={chatRequest}
@@ -577,6 +646,7 @@ export function ServiceMapPage() {
         onUnread={(threadId) => setUnread((items) => [...items, threadId])}
         pendingRepairs={repairs.pending}
         onRepair={setRepairId}
+        onDelegationsChange={setDelegations}
       />
       {repairId ? (
         <RepairDialog
@@ -587,6 +657,13 @@ export function ServiceMapPage() {
             setRepairProgress(null);
           }}
           onStatus={setRepairProgress}
+        />
+      ) : null}
+      {remoteRepair ? (
+        <RemoteRepairDialog
+          repair={remoteRepair.repair}
+          name={remoteRepair.peer.display_name}
+          onClose={() => setRemoteRepair(null)}
         />
       ) : null}
       {!open && services.isError ? (
