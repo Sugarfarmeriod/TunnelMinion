@@ -12,6 +12,7 @@ from tunnelminion.operation.contracts import OperationStatus, Preauthorization
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.repair.contracts import (
     REPAIR_AUTHORIZATION_SECONDS,
+    REPAIR_TERMINAL_STATUSES,
     ContainerRuntime,
     HostInspector,
     LaunchRecordStore,
@@ -51,12 +52,27 @@ class RepairService:
         store: RepairStore,
         authorization: AuthorizationService[RepairRecord],
         clock: Callable[[], datetime],
+        containers: ContainerRuntime,
+        host: HostInspector,
     ) -> None:
         self._planner = planner
         self._workflow = workflow
         self._store = store
         self._authorization = authorization
         self._clock = clock
+        self.containers = containers
+        self.host = host
+        self._result_handler: Callable[[RepairRecord], None] | None = None
+
+    def set_result_handler(self, handler: Callable[[RepairRecord], None]) -> None:
+        self._result_handler = handler
+        self.list()
+
+    def _publish_results(self) -> None:
+        if self._result_handler is not None:
+            for record in self._store.list_all():
+                if record.status in REPAIR_TERMINAL_STATUSES and record.plan.origin.thread_id:
+                    self._result_handler(record)
 
     async def propose(
         self,
@@ -74,12 +90,14 @@ class RepairService:
         now = self._clock()
         self.expire_due(now)
         self._workflow.recover_interrupted(now)
+        self._publish_results()
         return self._store.list_all()
 
     def get(self, operation_id: OperationId) -> RepairRecord | None:
         now = self._clock()
         self.expire_due(now)
         self._workflow.recover_interrupted(now)
+        self._publish_results()
         return self._store.get(operation_id)
 
     def expire_due(self, now: datetime) -> None:
@@ -97,6 +115,7 @@ class RepairService:
                     at=now,
                 )
                 self._store.put(record)
+        self._publish_results()
 
     def _waiting(self, operation_id: OperationId) -> RepairRecord:
         record = self._store.get(operation_id)
@@ -135,10 +154,13 @@ class RepairService:
         )
         record = record.with_event(RepairAuditAction.REJECTED, reason, actor=operator, at=now)
         self._store.put(record)
+        self._publish_results()
         return record
 
     async def execute(self, operation_id: OperationId) -> RepairRecord:
-        return await self._workflow.execute(operation_id)
+        record = await self._workflow.execute(operation_id)
+        self._publish_results()
+        return record
 
 
 def build_repair_service(
@@ -167,4 +189,6 @@ def build_repair_service(
             store, preauthorizations, OperationPolicy(registry, preauthorizations)
         ),
         clock,
+        containers,
+        host,
     )

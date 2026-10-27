@@ -1,0 +1,109 @@
+import { z } from "zod";
+
+import { requestJson } from "../../api/client";
+import { operationStatusSchema } from "../operations/schemas";
+
+const timestamp = z.string().datetime({ offset: true });
+export const repairSchema = z.object({
+  repair_id: z.string().regex(/^operation_[0-9a-f]{32}$/),
+  node_id: z.string().regex(/^node_[0-9a-f]{32}$/),
+  service_key: z.string(),
+  service_name: z.string(),
+  kind: z.enum(["restart_containers", "relaunch_python"]),
+  status: operationStatusSchema,
+  action_summary: z.string(),
+  reason: z.string(),
+  created_at: timestamp,
+  approval_expires_at: timestamp.nullable(),
+  verification_passed: z.boolean().nullable(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+      next_step: z.string().nullable(),
+    })
+    .nullable(),
+  origin: z.object({
+    kind: z.enum(["conversation", "delegation", "local_cli"]),
+    thread_id: z.string().nullable(),
+    run_id: z.string().nullable(),
+    delegation_id: z.string().nullable(),
+    evidence: z.array(z.string()),
+  }),
+});
+
+export const repairDetailSchema = repairSchema.extend({
+  impact_summary: z.string(),
+  verification_summary: z.string(),
+  failure_summary: z.string(),
+  advanced: z.union([
+    z.object({ commands: z.array(z.string()) }),
+    z.object({
+      interpreter: z.string(),
+      arguments: z.array(z.string()),
+      working_directory: z.string(),
+      ports: z.array(z.number()),
+    }),
+  ]),
+  verification: z
+    .object({
+      passed: z.boolean(),
+      checks: z.array(
+        z.object({ name: z.string(), passed: z.boolean(), detail: z.string() }),
+      ),
+      log_excerpt: z.string().nullable(),
+    })
+    .nullable(),
+  cleanup: z.object({ detail: z.string() }).nullable(),
+});
+
+export type Repair = z.infer<typeof repairSchema>;
+export type RepairDetail = z.infer<typeof repairDetailSchema>;
+export const repairsQueryKey = ["repairs"] as const;
+export const repairQueryKey = (id: string) => ["repair", id] as const;
+
+export function loadRepairs({ signal }: { signal?: AbortSignal }) {
+  return requestJson(
+    "/api/repairs",
+    z.object({ repairs: z.array(repairSchema) }),
+    { signal },
+  );
+}
+
+export function loadRepair(id: string, signal?: AbortSignal) {
+  return requestJson(
+    `/api/repairs/${encodeURIComponent(id)}`,
+    repairDetailSchema,
+    { signal },
+  );
+}
+
+export function decideRepair(id: string, action: "approve" | "reject") {
+  return requestJson(
+    `/api/repairs/${encodeURIComponent(id)}/${action}`,
+    repairDetailSchema,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    },
+  );
+}
+
+export function isRepairExecuting(status: Repair["status"]) {
+  return ["authorized", "executing", "verifying", "rolling_back"].includes(
+    status,
+  );
+}
+
+export function isRepairTerminal(status: Repair["status"]) {
+  return [
+    "succeeded",
+    "rolled_back",
+    "cleanup_failed",
+    "rejected",
+    "cancelled",
+    "expired",
+    "authorization_expired",
+  ].includes(status);
+}

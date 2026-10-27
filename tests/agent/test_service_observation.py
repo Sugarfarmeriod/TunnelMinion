@@ -144,6 +144,7 @@ def test_observation_merges_listener_process_docker_udp_and_dual_stack() -> None
     snapshot = asyncio.run(value.observe())
 
     assert snapshot.complete
+    assert len(snapshot.containers) == 1 and snapshot.containers[0].name == "web"
     assert len(snapshot.services) == 2
     tcp = next(item for item in snapshot.services if item.protocol is ServiceProtocol.TCP)
     udp = next(item for item in snapshot.services if item.protocol is ServiceProtocol.UDP)

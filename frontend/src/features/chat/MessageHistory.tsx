@@ -1,14 +1,22 @@
 import type { ThreadDetail, ThreadMessage } from "./contracts";
+import type { Repair } from "../repairs/api";
 
 export function MessageHistory({
   compact,
   detail,
   contextLabel,
+  pendingRepairs = [],
+  onRepair,
 }: {
   compact: boolean;
   detail: ThreadDetail | null;
   contextLabel?: string;
+  pendingRepairs?: Repair[];
+  onRepair?: (id: string) => void;
 }) {
+  const lastAssistant = detail?.messages
+    .filter((message) => message.role === "assistant")
+    .at(-1);
   return (
     <section
       aria-label={compact ? "对话记录" : undefined}
@@ -25,6 +33,8 @@ export function MessageHistory({
               key={`${message.run_id}-${message.role}-${index}`}
               message={message}
               contextLabel={contextLabel}
+              pendingRepairs={message === lastAssistant ? pendingRepairs : []}
+              onRepair={onRepair}
             />
           ))}
         </ol>
@@ -36,9 +46,13 @@ export function MessageHistory({
 function MessageItem({
   message,
   contextLabel,
+  pendingRepairs,
+  onRepair,
 }: {
   message: ThreadMessage;
   contextLabel?: string;
+  pendingRepairs: Repair[];
+  onRepair?: (id: string) => void;
 }) {
   const unchecked =
     message.role === "assistant" && message.answer_checked !== true;
@@ -61,6 +75,16 @@ function MessageItem({
         {message.role === "user" && contextLabel ? (
           <span className="chat-context">关于：{contextLabel}</span>
         ) : null}
+        {pendingRepairs.map((repair) => (
+          <button
+            key={repair.repair_id}
+            type="button"
+            className="map-button"
+            onClick={() => onRepair?.(repair.repair_id)}
+          >
+            看看怎么修
+          </button>
+        ))}
         {inferred ? (
           <span className="chat-basis-badge chat-basis-badge--inferred">
             推断 · 尚未逐条核对

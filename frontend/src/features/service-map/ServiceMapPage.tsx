@@ -19,6 +19,9 @@ import {
 } from "../chat/ConversationDrawer";
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
+import { isRepairExecuting, type RepairDetail } from "../repairs/api";
+import { useRepairs } from "../repairs/useRepairs";
+import { RepairDialog } from "../repairs/RepairDialog";
 import "./service-map.css";
 
 export function ServiceMapPage() {
@@ -63,6 +66,14 @@ export function ServiceMapPage() {
     services.data?.node_id ??
     overview.data?.nodes.items.find((node) => node.state === "local")?.node_id;
   const observed = services.data?.observed_at != null;
+  const repairs = useRepairs(nodeId);
+  const [repairId, setRepairId] = useState<string | null>(null);
+  const [repairProgress, setRepairProgress] = useState<RepairDetail | null>(
+    null,
+  );
+  const repairing =
+    repairs.local.some((repair) => isRepairExecuting(repair.status)) ||
+    (repairProgress !== null && isRepairExecuting(repairProgress.status));
   const count = observed
     ? services.data!.services.filter((service) => service.tier !== "hidden")
         .length
@@ -107,7 +118,7 @@ export function ServiceMapPage() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!open || drawerOpen) return;
+    if (!open || drawerOpen || repairId) return;
     function onOutsideClick(event: MouseEvent) {
       if (
         event.target instanceof Node &&
@@ -136,7 +147,7 @@ export function ServiceMapPage() {
       document.removeEventListener("click", onOutsideClick);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, drawerOpen]);
+  }, [open, drawerOpen, repairId]);
 
   useLayoutEffect(() => {
     if (!hovered || open) return;
@@ -269,6 +280,29 @@ export function ServiceMapPage() {
               onFocus={() => setHovered(true)}
               onBlur={() => setHovered(false)}
             >
+              {repairs.pending.length > 0 && !repairing ? (
+                <button
+                  type="button"
+                  className="map-repair-bang"
+                  aria-label={`这台电脑有 ${repairs.pending.length} 个待批准的修复`}
+                  onClick={() => setRepairId(repairs.pending[0]!.repair_id)}
+                >
+                  <svg
+                    viewBox="0 0 20 22"
+                    shapeRendering="crispEdges"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M2 0H18V2H20V17H12L8 22V17H0V2H2Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M8 4H12V10H8ZM8 12H12V15H8Z"
+                      fill="var(--map-ink)"
+                    />
+                  </svg>
+                </button>
+              ) : null}
               <ComputerNode
                 name="这台电脑"
                 platform={platform}
@@ -277,6 +311,8 @@ export function ServiceMapPage() {
                 selected={open}
                 buttonRef={nodeRef}
                 onClick={() => (open ? close() : setOpen(true))}
+                repairing={repairing}
+                pendingCount={repairs.pending.length}
               />
             </div>
           </div>
@@ -308,6 +344,8 @@ export function ServiceMapPage() {
               markError={mark.isError}
               onAsk={askService}
               askDisabled={!nodeId || isReadOnlyPreview()}
+              pendingRepairs={repairs.pending}
+              onRepair={setRepairId}
             />
           ) : null}
         </div>
@@ -363,7 +401,7 @@ export function ServiceMapPage() {
         </form>
       </div>
       <ConversationDrawer
-        open={drawerOpen}
+        open={drawerOpen && repairId === null}
         onClose={() => setDrawerOpen(false)}
         toggleRef={toggleRef}
         request={chatRequest}
@@ -372,7 +410,20 @@ export function ServiceMapPage() {
         nodes={overview.data?.nodes.items ?? []}
         modelStatus={overview.data?.model.status}
         onUnread={(threadId) => setUnread((items) => [...items, threadId])}
+        pendingRepairs={repairs.pending}
+        onRepair={setRepairId}
       />
+      {repairId ? (
+        <RepairDialog
+          key={repairId}
+          repairId={repairId}
+          onClose={() => {
+            setRepairId(null);
+            setRepairProgress(null);
+          }}
+          onStatus={setRepairProgress}
+        />
+      ) : null}
       {!open && services.isError ? (
         <p className="map-status" role="alert">
           暂时无法查看这台电脑上的服务。{" "}

@@ -289,7 +289,13 @@ class RepairHarness:
             OperationPolicy(self.registry, EmptyPreauthorizations()),
         )
         self.service = RepairService(
-            self.planner, self.workflow, self.store, self.authorization, self.clock
+            self.planner,
+            self.workflow,
+            self.store,
+            self.authorization,
+            self.clock,
+            self.containers,
+            self.host,
         )
 
     def authorized(self, record: RepairRecord | None = None) -> RepairRecord:

@@ -33,7 +33,8 @@ from tunnelminion.coordinator.contracts import (
 )
 from tunnelminion.domain.identifiers import NodeId, ServiceId, ToolRunId
 from tunnelminion.platforms.python_entrypoint import is_python_process
-from tunnelminion.platforms.windows.models import Availability, CollectionResult
+from tunnelminion.platforms.windows.models import Availability, CollectionResult, DockerService
+from tunnelminion.repair.contracts import ContainerRuntime, HostInspector, LaunchRecordStore
 from tunnelminion.tools.contracts import ToolCancellationToken, ToolExecutionStatus
 
 
@@ -68,6 +69,8 @@ class ServiceObservationSnapshot(BaseModel):
     review_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     # 合并后的端口清单：用户改了标记时据此立即重新分档，不必等下一轮观察。
     inventory: tuple[RemoteServiceSummary, ...] = Field(default=(), exclude=True)
+    containers: tuple[DockerService, ...] = Field(default=(), exclude=True)
+    running_launch_keys: frozenset[str] = Field(default=frozenset(), exclude=True)
     degraded_sources: tuple[str, ...] = ()
     disabled_sources: tuple[str, ...] = ()
     complete: bool = True
@@ -294,10 +297,17 @@ class DeterministicServiceObserver:
             [tuple[RemoteServiceSummary, ...], Mapping[str, ServiceMark]], object
         ]
         | None = None,
+        containers: ContainerRuntime | None = None,
+        launch_records: LaunchRecordStore | None = None,
+        host: HostInspector | None = None,
     ) -> None:
         self._node_id = node_id
         self._marks = marks
         self._launch_recorder = launch_recorder
+        self._containers = containers
+        self._launch_records = launch_records
+        self._host = host
+        self._container_ports: dict[str, tuple[int, ...]] = {}
         self._config = config
         self._listeners = listeners
         self._processes = processes
@@ -357,15 +367,23 @@ class DeterministicServiceObserver:
                 services = self._summaries(inventory.services)
                 self._validate_budget(services)
                 marks: Mapping[str, ServiceMark] = self._marks() if self._marks is not None else {}
+                snapshot = ServiceObservationSnapshot(
+                    observed_at=now,
+                    services=services,
+                    inventory=inventory.services,
+                    containers=tuple(
+                        DockerService.model_validate(item)
+                        for item in CollectionResult.model_validate(docker.output).items
+                    ),
+                    degraded_sources=inventory.unavailable_sources,
+                    disabled_sources=self._disabled_sources(),
+                )
+                with suppress(Exception):
+                    async with asyncio.timeout(self._config.timeout_seconds):
+                        snapshot = await self._repair_snapshot(snapshot)
                 snapshot = apply_service_marks(
                     self._node_id,
-                    ServiceObservationSnapshot(
-                        observed_at=now,
-                        services=services,
-                        inventory=inventory.services,
-                        degraded_sources=inventory.unavailable_sources,
-                        disabled_sources=self._disabled_sources(),
-                    ),
+                    snapshot,
                     marks,
                     excluded_pid=os.getpid(),
                 )
@@ -390,6 +408,73 @@ class DeterministicServiceObserver:
                 with suppress(Exception):
                     await asyncio.to_thread(self._launch_recorder, snapshot.inventory, marks)
             return snapshot
+
+    async def _repair_snapshot(
+        self, snapshot: ServiceObservationSnapshot
+    ) -> ServiceObservationSnapshot:
+        inventory = list(snapshot.inventory)
+        if self._containers is not None:
+            self._container_ports = {
+                item.container_id: self._container_ports[item.container_id]
+                for item in snapshot.containers
+                if item.container_id in self._container_ports
+            }
+            for container in snapshot.containers:
+                if container.running or any(
+                    item.container_id == container.container_id for item in inventory
+                ):
+                    continue
+                if container.container_id not in self._container_ports:
+                    try:
+                        details = await self._containers.list_containers(
+                            compose_project=None, container_name=container.name
+                        )
+                    except ValueError:
+                        continue
+                    detail = next(
+                        (
+                            item
+                            for item in details or ()
+                            if item.container_id == container.container_id
+                        ),
+                        None,
+                    )
+                    if detail is None:
+                        continue
+                    self._container_ports[container.container_id] = detail.published_ports
+                inventory.extend(
+                    RemoteServiceSummary(
+                        node_id=self._node_id,
+                        protocol="tcp",
+                        address="127.0.0.1",
+                        port=port,
+                        container_id=container.container_id,
+                        container_name=container.name,
+                        compose_project=container.compose_project,
+                        container_running=False,
+                        accessibility=InventoryAccessibility.LOCAL_ONLY,
+                        confidence=EvidenceConfidence.HIGH,
+                        evidence=(),
+                    )
+                    for port in self._container_ports[container.container_id]
+                )
+        running = await asyncio.to_thread(self._running_launch_keys)
+        return snapshot.model_copy(
+            update={"inventory": tuple(inventory), "running_launch_keys": running}
+        )
+
+    def _running_launch_keys(self) -> frozenset[str]:
+        records, host = self._launch_records, self._host
+        if records is None or host is None:
+            return frozenset()
+        return frozenset(
+            launch.service_key
+            for launch in records.list_all()
+            if any(
+                (owner := host.port_owner(port, launch)) is not None and owner.matches_launch
+                for port in launch.ports
+            )
+        )
 
     async def _collect(
         self,
