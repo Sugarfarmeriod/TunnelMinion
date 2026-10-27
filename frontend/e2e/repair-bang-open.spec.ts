@@ -58,6 +58,17 @@ for (const width of [1440, 320]) {
       }
       await bang.locator("svg").click();
       await expect(dialog).toBeVisible();
+      // 对话抽屉开着时，焦点要进入修复框，Esc 只关修复框。
+      await expect
+        .poll(() =>
+          dialog.evaluate((element) =>
+            element.contains(document.activeElement),
+          ),
+        )
+        .toBe(true);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      if (width !== 320) await expect(drawer).toBeVisible();
     });
   }
 }

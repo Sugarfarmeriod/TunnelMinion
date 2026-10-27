@@ -297,11 +297,12 @@
   background: none;
   color: var(--map-red);
   cursor: pointer;
-  animation: map-repair-bob 1s steps(2) infinite;
 }
+/* 只让图案浮动，按钮本身不动，点击区域保持稳定。 */
 .map-repair-bang svg {
   width: 100%;
   height: 100%;
+  animation: map-repair-bob 1s steps(2) infinite;
 }
 .map-node-position.is-delegating .map-repair-bang {
   left: calc(50% + 32px);
@@ -337,7 +338,7 @@
   .map-packet {
     animation: none;
   }
-  .map-repair-bang,
+  .map-repair-bang svg,
   .map-node.is-repairing .map-blink {
     animation: none;
   }

@@ -153,7 +153,7 @@ for (const width of [1440, 760, 320]) {
     await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog", { name: "要修好“远端相册”吗？" });
     await expect(
-      dialog.getByText("请到 测试电脑 1 的地图上批准"),
+      dialog.getByText("请到 测试电脑 1 的地图上点感叹号批准"),
     ).toBeVisible();
     await expect(
       dialog.getByRole("button", { name: /批准并修复|先不用/ }),
