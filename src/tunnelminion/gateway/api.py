@@ -31,6 +31,7 @@ from tunnelminion.gateway.contracts import (
     GatewayError,
     GatewayErrorCode,
     GatewayErrorResponse,
+    GatewayServices,
     RemoteOperationExecution,
     RemoteOperationResult,
     RemoteOperationSubmission,
@@ -160,6 +161,7 @@ def create_gateway_router(
     delegation_service: DelegationService | None = None,
     model_lending_service: ModelLendingService | None = None,
     invite_service: InviteService | None = None,
+    service_reader: Callable[[], Awaitable[GatewayServices]] | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter(route_class=_TracedGatewayRoute)
@@ -628,6 +630,45 @@ def create_gateway_router(
             )
         return peer, delegation_service
 
+    async def services(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GatewayServices | JSONResponse:
+        action = "services"
+        peer = authenticate(authorization, action)
+        if isinstance(peer, JSONResponse):
+            return peer
+        if not peer.allow_delegation:
+            return reject(
+                status.HTTP_403_FORBIDDEN,
+                GatewayErrorCode.DELEGATION_NOT_ALLOWED,
+                "本机没有允许这台电脑委派",
+                action,
+                peer,
+            )
+        try:
+            if service_reader is None:
+                raise RuntimeError("services_unavailable")
+            async with asyncio.timeout(security_policy.limits.max_timeout_seconds):
+                result = await service_reader()
+        except Exception:
+            return reject(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                GatewayErrorCode.DELEGATION_UNAVAILABLE,
+                "本机服务清单暂不可用",
+                action,
+                peer,
+                retryable=True,
+            )
+        if len(result.model_dump_json().encode()) > security_policy.limits.max_response_bytes:
+            return reject(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                GatewayErrorCode.RESPONSE_TOO_LARGE,
+                "服务清单超过响应预算",
+                action,
+                peer,
+            )
+        return result
+
     def delegation_id(value: str) -> DelegationId | None:
         try:
             return DelegationId(value)
@@ -695,6 +736,7 @@ def create_gateway_router(
         record = await service.cancel(identifier, peer.node_id) if identifier is not None else None
         return record if record is not None else not_found("delegation_cancel", peer)
 
+    router.add_api_route("/v1/services", services, methods=["GET"], response_model=None)
     router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(
         "/v1/model:complete", model_complete, methods=["POST"], response_model=None

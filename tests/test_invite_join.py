@@ -223,6 +223,7 @@ def test_fresh_join_saves_bind_peer_token_and_validated_model(
         InviteAcceptance(
             node_id=NodeId((tmp_path / "node-id").read_text(encoding="utf-8")),
             platform=Platform.MACOS if platform == "darwin" else Platform.WINDOWS,
+            display_name="Mac" if platform == "darwin" else "Windows 电脑",
             host="10.77.0.2",
             port=8999,
         )

@@ -1,9 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import { localServicesSchema } from "./api";
-import { makeLocalServices, makeService } from "./testFixtures";
+import {
+  localServicesSchema,
+  peersSchema,
+  peerServicesSchema,
+  peerServiceEntries,
+} from "./api";
+import {
+  makeLocalServices,
+  makeService,
+  makePeer,
+  makePeerServices,
+} from "./testFixtures";
 
 describe("服务地图严格契约", () => {
+  it("接受对端清单与缓存状态，旧对端缺少 state 时默认为运行中", () => {
+    expect(peersSchema.parse({ peers: [makePeer()] }).peers).toEqual([
+      makePeer(),
+    ]);
+    const view = makePeerServices();
+    const { state: _state, ...legacy } = view.services[0]!;
+    const parsed = peerServicesSchema.parse({ ...view, services: [legacy] });
+    expect(parsed.services[0]!.state).toBe("running");
+    expect(peerServiceEntries(parsed)[0]!.endpoints[0]!.address).toBe(
+      view.host,
+    );
+    expect(peerServiceEntries()).toEqual([]);
+    expect(
+      peerServicesSchema.safeParse({ ...view, token: "fake-private-field" })
+        .success,
+    ).toBe(false);
+    expect(
+      peerServicesSchema.safeParse({
+        ...view,
+        services: [{ ...legacy, state: "unknown" }],
+      }).success,
+    ).toBe(false);
+  });
   it("接受完整清单以及所有可空字段", () => {
     expect(localServicesSchema.parse(makeLocalServices())).toEqual(
       makeLocalServices(),

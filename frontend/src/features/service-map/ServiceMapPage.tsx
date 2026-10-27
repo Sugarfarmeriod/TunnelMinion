@@ -9,6 +9,11 @@ import {
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import {
   loadLocalServices,
+  loadPeers,
+  loadPeerServices,
+  peersQueryKey,
+  peerServicesQueryKey,
+  peerServiceEntries,
   localServicesQueryKey,
   updateServiceMark,
   type ServiceEntry,
@@ -19,6 +24,7 @@ import {
 } from "../chat/ConversationDrawer";
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
+import { mapLayout, relativeTime } from "./topology";
 import { isRepairExecuting, type RepairDetail } from "../repairs/api";
 import { useRepairs } from "../repairs/useRepairs";
 import { RepairDialog } from "../repairs/RepairDialog";
@@ -41,7 +47,28 @@ export function ServiceMapPage() {
     onMutate: () => client.cancelQueries({ queryKey: localServicesQueryKey }),
     onSuccess: (data) => client.setQueryData(localServicesQueryKey, data),
   });
-  const [open, setOpen] = useState(false);
+  const peers = useQuery({
+    queryKey: peersQueryKey,
+    queryFn: loadPeers,
+    refetchInterval: 60_000,
+  });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const open = selectedId !== null;
+  const selectedPeer = peers.data?.peers.find(
+    (peer) => !peer.is_local && peer.node_id === selectedId,
+  );
+  const peerServices = useQuery({
+    queryKey: peerServicesQueryKey(selectedPeer?.node_id ?? ""),
+    queryFn: ({ signal }) => loadPeerServices(selectedPeer!.node_id, signal),
+    enabled:
+      selectedPeer?.source === "gateway" &&
+      selectedPeer.reachable === true &&
+      selectedPeer.services_visible,
+    refetchInterval: 60_000,
+  });
+  const remotePeers = peers.data?.peers.filter((peer) => !peer.is_local) ?? [];
+  const [narrowMap, setNarrowMap] = useState(window.innerWidth <= 760);
+  const layout = mapLayout(remotePeers.length, narrowMap);
   const [params] = useSearchParams();
   const linkedThread = params.get("thread");
   const [drawerOpen, setDrawerOpen] = useState(Boolean(linkedThread));
@@ -80,7 +107,7 @@ export function ServiceMapPage() {
     : null;
 
   function close(restoreFocus = true) {
-    setOpen(false);
+    setSelectedId(null);
     if (restoreFocus) nodeRef.current?.focus();
   }
 
@@ -91,15 +118,42 @@ export function ServiceMapPage() {
   }
 
   function askService(service?: ServiceEntry) {
-    if (!nodeId || isReadOnlyPreview()) return;
+    const targetId = selectedPeer?.node_id ?? nodeId;
+    if (
+      !targetId ||
+      isReadOnlyPreview() ||
+      (selectedPeer && selectedPeer.reachable !== true)
+    )
+      return;
     openChat({
-      about: { node_id: nodeId, service_key: service?.key ?? null },
+      about: { node_id: targetId, service_key: service?.key ?? null },
+      service,
       question:
-        service?.state === "stopped"
+        service &&
+        (service.state === "stopped" ||
+          service.endpoints.some((endpoint) => endpoint.has_web_page === false))
           ? `${service.name}怎么打不开？`
           : undefined,
     });
   }
+
+  useLayoutEffect(() => {
+    function measure() {
+      const width = stageRef.current?.getBoundingClientRect().width;
+      setNarrowMap(
+        window.innerWidth <= 760 ||
+          (width !== undefined && width > 0 && width < 680),
+      );
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (stageRef.current) observer.observe(stageRef.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   useEffect(() => {
     if (linkedThread) openChat({ threadId: linkedThread });
@@ -123,7 +177,7 @@ export function ServiceMapPage() {
       if (
         event.target instanceof Node &&
         !panelRef.current?.contains(event.target) &&
-        !nodeRef.current?.contains(event.target)
+        !(event.target instanceof Element && event.target.closest(".map-node"))
       ) {
         // 等这次点击完成再收起：按下时就收起会让窄屏页面变短、滚动，点击落到别处。
         // 点到可操作的元素时焦点留给它，点到空白处才回到电脑。
@@ -188,8 +242,8 @@ export function ServiceMapPage() {
           <div>
             <h2 id="service-map-title">我的服务网络</h2>
             <p>
-              这台电脑在线 ·{" "}
-              {count === null ? "正在查看服务" : `${count} 个服务`} ·
+              {1 + remotePeers.filter((peer) => peer.reachable === true).length}{" "}
+              台在线 · {count === null ? "正在查看服务" : `${count} 个服务`} ·
               点电脑查看服务
             </p>
           </div>
@@ -272,9 +326,40 @@ export function ServiceMapPage() {
           </div>
         </header>
         <div className="map-stage" ref={stageRef}>
-          <div className="map-canvas" aria-label="电脑拓扑图">
+          <div
+            className="map-canvas"
+            aria-label="电脑拓扑图"
+            style={{ height: layout.height }}
+          >
+            <svg
+              className="map-links"
+              viewBox={`0 0 100 ${layout.height}`}
+              preserveAspectRatio="none"
+              role="group"
+              aria-label="电脑之间的连接"
+            >
+              {remotePeers.map((peer, index) => {
+                const point = layout.peers[index]!;
+                return (
+                  <path
+                    key={peer.node_id}
+                    role="img"
+                    aria-label={`这台电脑到${peer.display_name}：${peer.reachable === true ? "能连上" : "连不上"}`}
+                    data-from={nodeId}
+                    data-to={peer.node_id}
+                    className={`map-link${peer.reachable === true ? "" : " is-unreachable"}`}
+                    d={
+                      layout.list
+                        ? `M${layout.local.x},${layout.local.y} H10 V${point.y} H${point.x}`
+                        : `M${layout.local.x},${layout.local.y} L${point.x},${point.y}`
+                    }
+                  />
+                );
+              })}
+            </svg>
             <div
               className="map-node-position"
+              style={{ left: `${layout.local.x}%`, top: layout.local.y }}
               onMouseEnter={() => setHovered(true)}
               onMouseLeave={() => setHovered(false)}
               onFocus={() => setHovered(true)}
@@ -308,13 +393,50 @@ export function ServiceMapPage() {
                 platform={platform}
                 online
                 serviceCount={count}
-                selected={open}
-                buttonRef={nodeRef}
-                onClick={() => (open ? close() : setOpen(true))}
+                selected={selectedId === "local"}
+                buttonRef={(element) => {
+                  if (!selectedPeer) nodeRef.current = element;
+                }}
+                onClick={() =>
+                  selectedId === "local" ? close() : setSelectedId("local")
+                }
                 repairing={repairing}
                 pendingCount={repairs.pending.length}
               />
             </div>
+            {remotePeers.map((peer, index) => (
+              <div
+                className="map-node-position"
+                key={peer.node_id}
+                style={{
+                  left: `${layout.peers[index]!.x}%`,
+                  top: layout.peers[index]!.y,
+                }}
+              >
+                <ComputerNode
+                  name={peer.display_name}
+                  platform={peer.platform}
+                  online={peer.reachable === true}
+                  serviceCount={peer.service_count}
+                  selected={selectedId === peer.node_id}
+                  status={
+                    peer.reachable === false
+                      ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
+                      : peer.reachable === null
+                        ? "尚未确认能否连上"
+                        : undefined
+                  }
+                  buttonRef={(element) => {
+                    if (selectedId === peer.node_id) nodeRef.current = element;
+                  }}
+                  onClick={() =>
+                    selectedId === peer.node_id
+                      ? close()
+                      : setSelectedId(peer.node_id)
+                  }
+                />
+              </div>
+            ))}
           </div>
           {hovered && !open ? (
             <div
@@ -330,21 +452,44 @@ export function ServiceMapPage() {
           ) : null}
           {open ? (
             <ServicesPanel
+              key={selectedId}
+              peer={selectedPeer}
+              remoteHost={
+                selectedPeer ? (peerServices.data?.host ?? null) : undefined
+              }
+              reportedAt={peerServices.data?.observed_at}
               panelRef={panelRef}
               stageRef={stageRef}
               nodeRef={nodeRef}
-              platform={platform}
-              services={observed ? services.data!.services : []}
-              loading={!observed && !services.isError}
-              loadError={services.isError}
-              onRetry={() => void services.refetch()}
+              platform={selectedPeer?.platform ?? platform}
+              services={
+                selectedPeer
+                  ? selectedPeer.reachable === true &&
+                    selectedPeer.services_visible
+                    ? peerServiceEntries(peerServices.data)
+                    : []
+                  : observed
+                    ? services.data!.services
+                    : []
+              }
+              loading={
+                selectedPeer
+                  ? peerServices.isPending
+                  : !observed && !services.isError
+              }
+              loadError={selectedPeer ? peerServices.isError : services.isError}
+              onRetry={() => {
+                void (selectedPeer
+                  ? peerServices.refetch()
+                  : services.refetch());
+              }}
               onClose={close}
               onMark={(key, value) => mark.mutate({ key, mark: value })}
               busy={mark.isPending || isReadOnlyPreview()}
-              markError={mark.isError}
+              markError={!selectedPeer && mark.isError}
               onAsk={askService}
               askDisabled={!nodeId || isReadOnlyPreview()}
-              pendingRepairs={repairs.pending}
+              pendingRepairs={selectedPeer ? [] : repairs.pending}
               onRepair={setRepairId}
             />
           ) : null}
@@ -352,6 +497,18 @@ export function ServiceMapPage() {
         {!open && !observed && !services.isError ? (
           <p className="map-status" role="status">
             正在查看这台电脑上的程序……
+          </p>
+        ) : null}
+        {peers.isError ? (
+          <p className="map-status" role="alert">
+            暂时无法读取其他电脑。
+            <button
+              type="button"
+              className="map-button"
+              onClick={() => void peers.refetch()}
+            >
+              重试
+            </button>
           </p>
         ) : null}
         <form
@@ -407,7 +564,15 @@ export function ServiceMapPage() {
         request={chatRequest}
         nodeId={nodeId}
         services={services.data?.services ?? []}
-        nodes={overview.data?.nodes.items ?? []}
+        nodes={[...remotePeers, ...(overview.data?.nodes.items ?? [])]}
+        peerServices={
+          selectedPeer && peerServices.data
+            ? {
+                node_id: selectedPeer.node_id,
+                services: peerServiceEntries(peerServices.data),
+              }
+            : undefined
+        }
         modelStatus={overview.data?.model.status}
         onUnread={(threadId) => setUnread((items) => [...items, threadId])}
         pendingRepairs={repairs.pending}

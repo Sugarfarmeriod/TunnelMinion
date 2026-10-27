@@ -14,6 +14,7 @@ from tunnelminion.domain.invites import (
     InviteAcceptance,
     InviteAccepted,
     InviteCode,
+    platform_display_name,
 )
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.client import FixedGatewayClient, InviteHandshakeError, accept_invite
@@ -28,6 +29,7 @@ from tunnelminion.gateway.configuration import (
     configure_gateway_secret_store,
     gateway_secret_store,
 )
+from tunnelminion.gateway.names import load_node_name
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.model.configuration import (
     FileModelConfigurationRepository,
@@ -98,14 +100,28 @@ async def join(
         GatewayConfigurationService(repository, gateway_secret_store(root)).configure_local(
             reported
         )
+    local_platform = (
+        Platform.MACOS
+        if sys.platform == "darwin"
+        else Platform.WINDOWS
+        if sys.platform == "win32"
+        else Platform.LINUX
+    )
     acceptance = InviteAcceptance(
         node_id=node_id,
-        platform=Platform.MACOS if sys.platform == "darwin" else Platform.WINDOWS,
+        platform=local_platform,
+        display_name=load_node_name(root, local_platform, persist_default=False),
         host=reported.host,
         port=reported.port,
     )
     print(f"正在联系 {str(code.node_id)[:12]}（{code.host}:{code.port}）……", flush=True)
     accepted = await accept_invite(code, acceptance)
+    load_node_name(root, local_platform)
+    peer = peer.model_copy(
+        update={
+            "display_name": accepted.inviter_display_name or platform_display_name(code.platform)
+        }
+    )
     if not node_path.exists():
         temporary = node_path.with_suffix(".tmp")
         temporary.write_text(str(node_id), encoding="utf-8")
