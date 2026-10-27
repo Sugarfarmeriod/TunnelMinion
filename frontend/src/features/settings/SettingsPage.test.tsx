@@ -14,6 +14,7 @@ function makeConfiguration(
     endpoint: "http://127.0.0.1:8080/v1",
     model: "qwen-local",
     timeout_seconds: 30,
+    disable_thinking: false,
     api_key_configured: false,
     profiles: [],
     borrowed_from: null,
@@ -200,7 +201,54 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("尚未配置")).toBeVisible();
     expect(screen.getByText(/聊天的新 AI run 暂不可用/)).toBeVisible();
     expect(screen.getByLabelText("新 API 密钥（可选）")).toHaveValue("");
+    expect(
+      screen.getByRole("checkbox", {
+        name: "关闭思考模式（更快，适合本机 Qwen）",
+      }),
+    ).not.toBeChecked();
   });
+
+  it.each([false, true])(
+    "思考开关初始为 %s，可用键盘切换并随配置保存",
+    async (disableThinking) => {
+      let current = makeConfiguration({ disable_thinking: disableThinking });
+      let capturedBody: Record<string, unknown> | undefined;
+      fetchMock.mockImplementation(async (_input, init) => {
+        if (init?.method === "PUT") {
+          capturedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          current = makeConfiguration({
+            disable_thinking: Boolean(capturedBody.disable_thinking),
+          });
+        }
+        return jsonResponse(current);
+      });
+      const user = userEvent.setup();
+
+      renderSettings();
+      const checkbox = await screen.findByRole("checkbox", {
+        name: "关闭思考模式（更快，适合本机 Qwen）",
+      });
+      expect(checkbox).toHaveProperty("checked", disableThinking);
+      await user.click(screen.getByLabelText("超时（秒）"));
+      await user.tab();
+      expect(checkbox).toHaveFocus();
+      await user.keyboard(" ");
+      expect(checkbox).toHaveProperty("checked", !disableThinking);
+      await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
+      await user.click(screen.getByRole("button", { name: "确认保存一次" }));
+
+      expect(
+        await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。"),
+      ).toBeVisible();
+      expect(capturedBody).toEqual({
+        endpoint: "http://127.0.0.1:8080/v1",
+        model: "qwen-local",
+        timeout_seconds: 30,
+        disable_thinking: !disableThinking,
+      });
+      expect(checkbox).toHaveProperty("checked", !disableThinking);
+    },
+  );
 
   it("拒绝包含秘密字段的成功响应，且不把秘密写入页面", async () => {
     const leakedSecret = "server-must-not-return-this-secret";
@@ -293,6 +341,7 @@ describe("SettingsPage", () => {
       endpoint: "http://127.0.0.1:9090/v1",
       model: "new-local-model",
       timeout_seconds: 30,
+      disable_thinking: false,
       api_key: secret,
     });
     expect(capturedHeaders?.get("X-TunnelMinion-Request")).toBe("same-origin");
@@ -308,16 +357,18 @@ describe("SettingsPage", () => {
         endpoint: "http://127.0.0.1:8080/v1",
         model: "qwen-local",
         timeout_seconds: 30,
+        disable_thinking: true,
         api_key_configured: false,
       },
       {
         endpoint: "https://api.deepseek.com/v1",
         model: "deepseek-chat",
         timeout_seconds: 60,
+        disable_thinking: false,
         api_key_configured: true,
       },
     ];
-    let current = makeConfiguration({ profiles });
+    let current = makeConfiguration({ profiles, disable_thinking: true });
     let capturedBody: Record<string, unknown> | undefined;
     fetchMock.mockImplementation(async (_input, init) => {
       if (init?.method === "PUT") {
@@ -336,6 +387,10 @@ describe("SettingsPage", () => {
 
     renderSettings();
     await screen.findByText("模型可用");
+    const checkbox = screen.getByRole("checkbox", {
+      name: "关闭思考模式（更快，适合本机 Qwen）",
+    });
+    expect(checkbox).toBeChecked();
     await user.selectOptions(screen.getByLabelText("已保存模型配置"), "1");
 
     expect(screen.getByLabelText("OpenAI-compatible endpoint")).toHaveValue(
@@ -343,6 +398,7 @@ describe("SettingsPage", () => {
     );
     expect(screen.getByLabelText("模型名称")).toHaveValue("deepseek-chat");
     expect(screen.getByLabelText("超时（秒）")).toHaveValue(60);
+    expect(checkbox).not.toBeChecked();
     expect(screen.getByText(/该 endpoint 已保存密钥/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
@@ -352,6 +408,7 @@ describe("SettingsPage", () => {
       endpoint: "https://api.deepseek.com/v1",
       model: "deepseek-chat",
       timeout_seconds: 60,
+      disable_thinking: false,
     });
   });
 

@@ -58,8 +58,32 @@ def run(coroutine: Coroutine[Any, Any, T]) -> T:
 
 def test_normalizes_config_and_rejects_invalid_endpoint() -> None:
     assert config().endpoint == "http://model.test/v1"
+    assert config().disable_thinking is False
     with pytest.raises(ValueError, match="http"):
         OpenAICompatibleConfig(endpoint="model.test", model="qwen")
+
+
+@pytest.mark.parametrize("disable_thinking", [None, False, True])
+def test_thinking_setting_only_adds_template_kwargs_when_disabled(
+    disable_thinking: bool | None,
+) -> None:
+    expected: dict[str, object] = {
+        "model": "qwen-test",
+        "messages": [{"role": "user", "content": "你好"}],
+    }
+    if disable_thinking:
+        expected["chat_template_kwargs"] = {"enable_thinking": False}
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        assert json.loads(http_request.content) == expected
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    value = config()
+    if disable_thinking is not None:
+        value = value.model_copy(update={"disable_thinking": disable_thinking})
+    provider = OpenAICompatibleProvider(value, transport=httpx.MockTransport(handler))
+    model_request = ModelRequest(messages=(ModelMessage(role="user", content="你好"),))
+    assert run(provider.complete(model_request)).content == "ok"
 
 
 def test_parses_tool_calls_before_structured_null_content() -> None:

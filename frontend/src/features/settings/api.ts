@@ -7,6 +7,7 @@ const modelConfigurationProfileSchema = z
     endpoint: z.string(),
     model: z.string(),
     timeout_seconds: z.number().min(0.1).max(600),
+    disable_thinking: z.boolean().default(false),
     api_key_configured: z.boolean(),
   })
   .strict();
@@ -16,6 +17,7 @@ export const modelConfigurationSchema = z
     endpoint: z.string().nullable(),
     model: z.string().nullable(),
     timeout_seconds: z.number().min(0.1).max(600).nullable(),
+    disable_thinking: z.boolean().default(false),
     api_key_configured: z.boolean(),
     profiles: z.array(modelConfigurationProfileSchema),
     borrowed_from: z
@@ -34,6 +36,7 @@ export interface ModelConfigurationInput {
   endpoint: string;
   model: string;
   timeout_seconds: number;
+  disable_thinking: boolean;
   api_key?: string;
 }
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from tests.model.test_configuration import MemorySecrets
 
 from tunnelminion.agent.model_lending import (
     InMemoryModelUsageStore,
@@ -28,6 +30,10 @@ from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
 from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayErrorResponse
 from tunnelminion.gateway.security import GatewayLimits, GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.memory.sqlite import SQLiteStores
+from tunnelminion.model.configuration import (
+    FileModelConfigurationRepository,
+    ModelConfigurationService,
+)
 from tunnelminion.model.contracts import (
     CancellationToken,
     ModelCapabilities,
@@ -40,6 +46,7 @@ from tunnelminion.model.contracts import (
     ToolCall,
     ToolDefinition,
 )
+from tunnelminion.model.openai_compatible import OpenAICompatibleConfig, OpenAICompatibleProvider
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -139,6 +146,61 @@ def error(response: httpx.Response, status: int, code: GatewayErrorCode) -> Gate
     body = GatewayErrorResponse.model_validate_json(response.content)
     assert body.error.code is code
     return body
+
+
+@pytest.mark.parametrize("disable_thinking", [False, True])
+def test_borrowing_uses_provider_thinking_setting_and_rejects_overrides(
+    tmp_path: Path, disable_thinking: bool
+) -> None:
+    config = OpenAICompatibleConfig(
+        endpoint="http://model.test/v1", model="qwen-local", disable_thinking=disable_thinking
+    )
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    repository.save(config)
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "模型回复"}}]})
+
+    configuration = ModelConfigurationService(
+        repository,
+        MemorySecrets(),
+        lambda value, key: OpenAICompatibleProvider(
+            value, key, transport=httpx.MockTransport(handler)
+        ),
+    )
+    app = gateway(
+        ModelLendingService(
+            PROVIDER, configuration.create_lending_provider, InMemoryModelUsageStore()
+        )
+    )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as client:
+            request = call().model_dump(mode="json")
+            for override in (
+                {"disable_thinking": not disable_thinking},
+                {"chat_template_kwargs": {"enable_thinking": disable_thinking}},
+            ):
+                rejected = await client.post(URL, json={**request, **override}, headers=AUTH)
+                assert rejected.status_code == 422
+                assert not payloads
+            response = await client.post(URL, json=request, headers=AUTH)
+            assert response.status_code == 200
+            assert response.json()["content"] == "模型回复"
+
+    asyncio.run(scenario())
+    expected: dict[str, object] = {
+        "model": "qwen-local",
+        "messages": [{"role": "user", "content": "请计算这一轮"}],
+    }
+    if disable_thinking:
+        expected["chat_template_kwargs"] = {"enable_thinking": False}
+    assert payloads == [expected]
+    assert repository.load() == config
 
 
 @pytest.mark.parametrize(
