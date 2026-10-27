@@ -6,17 +6,20 @@ import asyncio
 import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from tests.agent.test_service_observation import FakeAdapter, collection
+from tests.repair.factories import NOW, launch_record, plan
+from tests.repair.fakes import RepairHarness
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.service_marks import InMemoryServiceMarkStore, ServiceMark
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.api import create_gateway_router
 from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
@@ -24,8 +27,14 @@ from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
 from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayErrorResponse, GatewayServices
 from tunnelminion.gateway.security import GatewayLimits, GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.gateway.services import GatewayServiceReader
+from tunnelminion.operation.contracts import OperationStatus
 from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.models import NetworkListener, ProcessInfo
+from tunnelminion.repair.contracts import (
+    REPAIR_AUTHORIZATION_SECONDS,
+    PythonRepairTarget,
+    RepairRecord,
+)
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -39,7 +48,9 @@ def services() -> GatewayServices:
     return GatewayServices(node_id=REMOTE, display_name="测试电脑", observed_at=datetime.now(UTC))
 
 
-def reader() -> tuple[GatewayServiceReader, FakeAdapter, InMemoryServiceMarkStore]:
+def reader(
+    pending_repair_ids: Callable[[], tuple[OperationId, ...]] | None = None,
+) -> tuple[GatewayServiceReader, FakeAdapter, InMemoryServiceMarkStore]:
     listeners = FakeAdapter(
         collection(
             NetworkListener(
@@ -114,7 +125,13 @@ def reader() -> tuple[GatewayServiceReader, FakeAdapter, InMemoryServiceMarkStor
         FakeAdapter(collection()),
         marks=marks.all,
     )
-    return GatewayServiceReader(REMOTE, lambda: "测试电脑", observer, marks), listeners, marks
+    return (
+        GatewayServiceReader(
+            REMOTE, lambda: "测试电脑", observer, marks, pending_repair_ids=pending_repair_ids
+        ),
+        listeners,
+        marks,
+    )
 
 
 def gateway(
@@ -161,6 +178,8 @@ def test_services_only_exports_show_and_mine_without_raw_details() -> None:
             )
             assert response.status_code == 200
             value = GatewayServices.model_validate_json(response.content)
+            assert value.pending_repair_ids == ()
+            assert response.json()["pending_repair_ids"] == []
             entries = {entry.key: entry for entry in value.services}
             assert set(entries) == {"program:mine-service@8084", "python:app.py@8081"}
             python = entries["python:app.py@8081"]
@@ -189,6 +208,79 @@ def test_services_only_exports_show_and_mine_without_raw_details() -> None:
             assert len(listeners.calls) == 1
 
     asyncio.run(scenario())
+
+
+def test_services_exports_only_unexpired_waiting_repair_ids(tmp_path: Path) -> None:
+    harness = RepairHarness(tmp_path)
+    launch = launch_record()
+    records = tuple(
+        RepairRecord.planned(plan(PythonRepairTarget(launch=launch)), actor="local-cli").model_copy(
+            update={"status": status}
+        )
+        for status in OperationStatus
+    )
+    for record in records:
+        harness.store.put(record)
+    waiting = next(
+        record for record in records if record.status is OperationStatus.AWAITING_AUTHORIZATION
+    )
+    expired = waiting.model_copy(
+        update={
+            "plan": waiting.plan.model_copy(
+                update={
+                    "operation_id": OperationId.new(),
+                    "created_at": NOW - timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS),
+                }
+            )
+        }
+    )
+    harness.store.put(expired)
+    history = tuple(harness.store.history)
+    service_reader, _, _ = reader(harness.service.pending_repair_ids)
+    app, _ = gateway(service_reader)
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app),
+            base_url="http://127.0.0.1",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        ) as client:
+            response = await client.get("/v1/services")
+            assert response.status_code == 200
+            assert response.json()["pending_repair_ids"] == [str(waiting.plan.operation_id)]
+            assert set(response.json()) == {
+                "node_id",
+                "display_name",
+                "observed_at",
+                "services",
+                "pending_repair_ids",
+            }
+            for record in (*records, expired):
+                if record is not waiting:
+                    assert str(record.plan.operation_id) not in response.text
+            for marker in (
+                waiting.plan.service_key,
+                waiting.plan.service_name,
+                waiting.plan.reason,
+                waiting.plan.action_summary,
+                launch.interpreter,
+                launch.arguments[1],
+                launch.working_directory,
+            ):
+                assert marker not in response.text
+            harness.clock.now += timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS) - timedelta(
+                microseconds=1
+            )
+            assert (await client.get("/v1/services")).json()["pending_repair_ids"] == [
+                str(waiting.plan.operation_id)
+            ]
+            harness.clock.now += timedelta(microseconds=1)
+            assert (await client.get("/v1/services")).json()["pending_repair_ids"] == []
+
+    asyncio.run(scenario())
+    assert tuple(harness.store.history) == history
+    assert not harness.containers.queries and not harness.containers.calls
+    assert not harness.host.calls and not harness.launcher.calls
 
 
 def test_services_exports_stopped_mine_with_default_running_for_older_peers() -> None:

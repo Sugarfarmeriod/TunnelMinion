@@ -133,7 +133,7 @@ def test_expired_summaries_are_removed_on_read_and_not_restored(tmp_path: Path) 
     assert not poller.pending_repairs(B)
 
 
-def test_only_new_running_service_poll_clears_matching_name(tmp_path: Path) -> None:
+def test_only_new_legacy_running_service_poll_clears_matching_name(tmp_path: Path) -> None:
     value = GatewayServices.model_validate_json(snapshot().content)
     state = "running"
     failed = False
@@ -143,7 +143,10 @@ def test_only_new_running_service_poll_clears_matching_name(tmp_path: Path) -> N
             return httpx.Response(503)
         service = value.services[0].model_copy(update={"key": "different-key", "state": state})
         return httpx.Response(
-            200, content=value.model_copy(update={"services": (service,)}).model_dump_json()
+            200,
+            content=value.model_copy(update={"services": (service,)}).model_dump_json(
+                exclude={"pending_repair_ids"}
+            ),
         )
 
     poller = PeerServicePoller(
@@ -166,6 +169,94 @@ def test_only_new_running_service_poll_clears_matching_name(tmp_path: Path) -> N
     state = "running"
     asyncio.run(poller.refresh())
     assert poller.pending_repairs(B) == (other,)
+
+
+@pytest.mark.parametrize(
+    ("state", "pending_ids", "expected_ids"),
+    [
+        ("running", (1, 2), (2, 1)),
+        ("running", (1,), (1,)),
+        ("stopped", (2,), (2,)),
+        ("stopped", (), ()),
+        ("running", None, (2,)),
+        ("stopped", None, (2, 1)),
+    ],
+)
+def test_service_poll_updates_pending_repairs_in_peers_api(
+    tmp_path: Path,
+    state: str,
+    pending_ids: tuple[int, ...] | None,
+    expected_ids: tuple[int, ...],
+) -> None:
+    first = repair()
+    second = repair(2).model_copy(update={"service_name": "另一个服务"})
+    summaries = {1: first, 2: second}
+    body = snapshot().json()
+    body["services"][0]["state"] = state
+    if pending_ids is None:
+        body.pop("pending_repair_ids", None)
+    else:
+        body["pending_repair_ids"] = [str(summaries[index].repair_id) for index in pending_ids]
+    poller = PeerServicePoller(
+        configuration(tmp_path, peer(B)),
+        A,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
+    )
+    poller.remember_repairs(B, (first, second))
+    poller.remember_repairs(A, (first,))
+    app = FastAPI()
+    app.include_router(
+        create_peers_router(
+            A, Platform.WINDOWS, lambda: "本机", poller, lambda: LocalServiceMap(node_id=A)
+        )
+    )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://127.0.0.1"
+        ) as client:
+            before = (await client.get("/api/peers")).json()["peers"][1]
+            assert len(before["pending_repairs"]) == 2
+            await poller.refresh()
+            assert poller.read(B).outcome == "ok"
+            expected = tuple(summaries[index] for index in expected_ids)
+            assert poller.pending_repairs(B) == expected
+            after = (await client.get("/api/peers")).json()["peers"][1]
+            assert after["pending_repairs"] == [item.model_dump(mode="json") for item in expected]
+            assert poller.pending_repairs(A) == (first,)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["unreachable", "timeout", "forbidden", "error", "invalid"])
+def test_failed_service_poll_keeps_all_pending_repairs(tmp_path: Path, mode: str) -> None:
+    failed = False
+
+    def response(request: httpx.Request) -> httpx.Response:
+        if not failed:
+            return snapshot()
+        if mode == "unreachable":
+            raise httpx.ConnectError("fake", request=request)
+        if mode == "timeout":
+            raise httpx.ReadTimeout("fake", request=request)
+        if mode == "invalid":
+            return httpx.Response(200, text="invalid")
+        return httpx.Response(403 if mode == "forbidden" else 503)
+
+    poller = PeerServicePoller(
+        configuration(tmp_path, peer(B)),
+        A,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(response),
+    )
+    asyncio.run(poller.refresh())
+    summaries = (repair(2), repair())
+    poller.remember_repairs(B, summaries)
+    failed = True
+    asyncio.run(poller.refresh())
+    assert poller.read(B).outcome != "ok"
+    assert poller.pending_repairs(B) == summaries
 
 
 def test_peers_api_exposes_only_pending_summary_fields(tmp_path: Path) -> None:

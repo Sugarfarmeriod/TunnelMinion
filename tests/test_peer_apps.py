@@ -11,6 +11,8 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
+from tests.repair.factories import plan
+from tests.repair.fakes import at_status
 from tests.test_peer_names import JOINER, TOKEN
 
 from tunnelminion import app as windows
@@ -31,6 +33,9 @@ from tunnelminion.gateway.configuration import (
 from tunnelminion.gateway.contracts import GatewayServices
 from tunnelminion.gateway.names import load_node_name, save_node_name
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.memory.sqlite import SQLiteStores
+from tunnelminion.operation.contracts import OperationStatus
+from tunnelminion.repair.contracts import RepairRecord, compute_repair_idempotency_key
 from tunnelminion.web.peers import PeerServicePoller, PeersView
 
 
@@ -124,7 +129,7 @@ def test_local_app_registers_guarded_routes_and_starts_and_stops_poller(
 
 
 @pytest.mark.parametrize("module", [windows, macos])
-def test_gateway_exports_services_with_the_saved_local_name(
+def test_gateway_exports_services_with_the_saved_local_name_and_pending_repairs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: object
 ) -> None:
     configure(tmp_path)
@@ -141,6 +146,23 @@ def test_gateway_exports_services_with_the_saved_local_name(
         if module is windows
         else macos.build_macos_gateway_application(tmp_path)
     )
+    stores = SQLiteStores.open(tmp_path / "runtime.sqlite3")
+    repair_plan = plan()
+    repair_plan = repair_plan.model_copy(
+        update={
+            "node_id": bundle.node_id,
+            "created_at": datetime.now(UTC),
+            "idempotency_key": compute_repair_idempotency_key(
+                node_id=bundle.node_id,
+                service_key=repair_plan.service_key,
+                kind=repair_plan.kind,
+                target_fingerprint=repair_plan.target.fingerprint,
+            ),
+        }
+    )
+    planned = RepairRecord.planned(repair_plan, actor="local-cli")
+    waiting = at_status(planned, OperationStatus.AWAITING_AUTHORIZATION)
+    stores.repairs.put(waiting)
 
     async def scenario() -> None:
         async with httpx.AsyncClient(
@@ -154,7 +176,14 @@ def test_gateway_exports_services_with_the_saved_local_name(
             assert response.status_code == 200
             value = GatewayServices.model_validate_json(response.content)
             assert value.node_id == bundle.node_id and value.display_name == "网关名字"
+            assert value.pending_repair_ids == (waiting.plan.operation_id,)
             assert load_node_name(tmp_path, Platform.LINUX) == "网关名字"
+            stores.repairs.put(at_status(planned, OperationStatus.AUTHORIZED))
+            response = await client.get(
+                "/v1/services", headers={"Authorization": f"Bearer {TOKEN}"}
+            )
+            assert response.status_code == 200
+            assert response.json()["pending_repair_ids"] == []
 
     asyncio.run(scenario())
-    assert calls == ["observed"]
+    assert calls == ["observed", "observed"]
