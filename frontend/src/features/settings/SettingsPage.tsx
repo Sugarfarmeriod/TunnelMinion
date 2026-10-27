@@ -132,6 +132,7 @@ export function SettingsPage() {
   const [endpoint, setEndpoint] = useState("");
   const [model, setModel] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState("30");
+  const [disableThinking, setDisableThinking] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -150,6 +151,7 @@ export function SettingsPage() {
     setEndpoint(query.data.endpoint ?? "");
     setModel(query.data.model ?? "");
     setTimeoutSeconds(String(query.data.timeout_seconds ?? 30));
+    setDisableThinking(query.data.disable_thinking);
     setClearApiKey(false);
     // 服务端响应永远不能填充这个字段；用户输入也会在每次写请求后立即清空。
     setApiKey("");
@@ -174,6 +176,7 @@ export function SettingsPage() {
       endpoint: normalizedEndpoint,
       model: normalizedModel,
       timeout_seconds: timeout,
+      disable_thinking: disableThinking,
     };
     let secretAction = "保留该 endpoint 已保存的密钥";
     if (clearApiKey) {
@@ -214,7 +217,8 @@ export function SettingsPage() {
         response !== undefined &&
         refreshed.data?.endpoint === response.endpoint &&
         refreshed.data.model === response.model &&
-        refreshed.data.timeout_seconds === response.timeout_seconds;
+        refreshed.data.timeout_seconds === response.timeout_seconds &&
+        refreshed.data.disable_thinking === response.disable_thinking;
       if (confirmed) {
         setDeleteUncertain(false);
         setNotice({
@@ -468,6 +472,7 @@ export function SettingsPage() {
                         setEndpoint(profile.endpoint);
                         setModel(profile.model);
                         setTimeoutSeconds(String(profile.timeout_seconds));
+                        setDisableThinking(profile.disable_thinking);
                         setApiKey("");
                         setClearApiKey(false);
                         setFormError(null);
@@ -526,6 +531,16 @@ export function SettingsPage() {
                   type="number"
                   value={timeoutSeconds}
                 />
+              </label>
+              <label className="settings-checkbox">
+                <input
+                  checked={disableThinking}
+                  onChange={(event) =>
+                    setDisableThinking(event.currentTarget.checked)
+                  }
+                  type="checkbox"
+                />
+                关闭思考模式（更快，适合本机 Qwen）
               </label>
               {data.borrowed_from === null ? (
                 <>
@@ -738,6 +753,10 @@ export function SettingsPage() {
                 <p>Endpoint：{confirmation.input.endpoint}</p>
                 <p>模型：{confirmation.input.model}</p>
                 <p>超时：{confirmation.input.timeout_seconds} 秒</p>
+                <p>
+                  关闭思考模式：
+                  {confirmation.input.disable_thinking ? "是" : "否"}
+                </p>
                 <p>密钥处理：{confirmation.secretAction}</p>
               </>
             ) : (

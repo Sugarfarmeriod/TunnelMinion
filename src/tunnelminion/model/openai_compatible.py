@@ -31,6 +31,7 @@ class OpenAICompatibleConfig(BaseModel):
     endpoint: str = Field(min_length=1)
     model: str = Field(min_length=1)
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=600.0)
+    disable_thinking: bool = False
 
     @field_validator("endpoint")
     @classmethod
@@ -166,6 +167,8 @@ class OpenAICompatibleProvider:
             "model": self._config.model,
             "messages": messages,
         }
+        if self._config.disable_thinking:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if request.tools:
             payload["tools"] = [
                 {

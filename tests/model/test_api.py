@@ -118,7 +118,8 @@ class Provider:
         return ModelResponse(structured_output={"status": "ok"})
 
 
-def test_model_config_crud_validation_and_degradation() -> None:
+@pytest.mark.parametrize("disable_thinking", [None, False, True])
+def test_model_config_crud_validation_and_degradation(disable_thinking: bool | None) -> None:
     repository = Repository()
     secrets = Secrets()
     provider = Provider()
@@ -126,6 +127,7 @@ def test_model_config_crud_validation_and_degradation() -> None:
     client = cast(ApiClient, TestClient(create_local_app(service)))
 
     assert client.get("/api/model-config").json()["status"] == "unconfigured"
+    assert client.get("/api/model-config").json()["disable_thinking"] is False
     assert client.get("/api/resources/health").json() == {"status": "available"}
     unavailable = client.post("/api/ai/runs/availability")
     assert unavailable.status_code == 503
@@ -139,16 +141,22 @@ def test_model_config_crud_validation_and_degradation() -> None:
             "model": "/Volumes/DarkAI/model.gguf",
             "timeout_seconds": 10,
             "api_key": "secret-value",
+            **({} if disable_thinking is None else {"disable_thinking": disable_thinking}),
         },
     )
     assert saved.status_code == 200
     assert saved.json()["api_key_configured"] is True
+    assert saved.json()["disable_thinking"] is bool(disable_thinking)
+    assert client.get("/api/model-config").json()["disable_thinking"] is bool(disable_thinking)
+    assert repository.value is not None
+    assert repository.value.disable_thinking is bool(disable_thinking)
     assert saved.json()["profiles"] == [
         {
             "endpoint": "http://10.77.0.1:8082/v1",
             "model": "/Volumes/DarkAI/model.gguf",
             "timeout_seconds": 10.0,
             "api_key_configured": True,
+            "disable_thinking": bool(disable_thinking),
         }
     ]
     assert "secret-value" not in saved.text
@@ -216,9 +224,15 @@ def test_borrowed_model_api_validates_peer_and_preserves_state_on_error() -> Non
 
 @pytest.mark.parametrize(
     "payload",
-    [{}, {"peer_node_id": "invalid"}, {"peer_node_id": str(NodeId.new()), "api_key": "secret"}],
+    [
+        {},
+        {"peer_node_id": "invalid"},
+        {"peer_node_id": str(NodeId.new()), "api_key": "secret"},
+        {"peer_node_id": str(NodeId.new()), "disable_thinking": True},
+        {"peer_node_id": str(NodeId.new()), "chat_template_kwargs": {"enable_thinking": False}},
+    ],
 )
-def test_borrowed_model_api_rejects_invalid_input(payload: dict[str, str]) -> None:
+def test_borrowed_model_api_rejects_invalid_input(payload: dict[str, object]) -> None:
     service = ModelConfigurationService(Repository(), Secrets())
     client = cast(ApiClient, TestClient(create_local_app(service)))
     assert client.put("/api/model/borrowed", json=payload).status_code == 422

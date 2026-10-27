@@ -176,13 +176,19 @@ def service_with(
     return service, repository, secrets
 
 
-def test_file_repository_round_trip_and_delete(tmp_path: Path) -> None:
+@pytest.mark.parametrize("disable_thinking", [False, True])
+def test_file_repository_round_trip_and_delete(tmp_path: Path, disable_thinking: bool) -> None:
     repository = FileModelConfigurationRepository(tmp_path / "nested" / "model.json")
     assert repository.load() is None
-    expected = input_config().provider_config()
+    expected = (
+        input_config().provider_config().model_copy(update={"disable_thinking": disable_thinking})
+    )
     repository.save(expected)
     assert repository.load() == expected
     assert repository.profiles() == (expected,)
+    stored = json.loads((tmp_path / "nested" / "model.json").read_text(encoding="utf-8"))
+    assert stored["active"]["disable_thinking"] is disable_thinking
+    assert stored["profiles"][0]["disable_thinking"] is disable_thinking
     assert "api_key" not in (tmp_path / "nested" / "model.json").read_text(encoding="utf-8")
     repository.delete()
     repository.delete()
@@ -192,11 +198,12 @@ def test_file_repository_round_trip_and_delete(tmp_path: Path) -> None:
 def test_file_repository_reads_legacy_config_and_upgrades_on_save(tmp_path: Path) -> None:
     path = tmp_path / "model.json"
     legacy = input_config(model="legacy").provider_config()
-    path.write_text(legacy.model_dump_json(), encoding="utf-8")
+    path.write_text(legacy.model_dump_json(exclude={"disable_thinking"}), encoding="utf-8")
     repository = FileModelConfigurationRepository(path)
 
     assert repository.load() == legacy
     assert repository.profiles() == (legacy,)
+    assert not legacy.disable_thinking
 
     current = input_config(
         endpoint="https://api.deepseek.com/v1", model="deepseek-chat"
@@ -413,8 +420,9 @@ def test_rejects_incompatible_provider_without_saving(provider: ModelProvider) -
         ('说明\n```json\n{"status": "ok"}\n```', ProviderErrorCode.INVALID_RESPONSE),
     ],
 )
+@pytest.mark.parametrize("disable_thinking", [False, True])
 def test_configuration_validates_fenced_json_before_saving(
-    content: str, error_code: ProviderErrorCode | None
+    content: str, error_code: ProviderErrorCode | None, disable_thinking: bool
 ) -> None:
     calls: list[dict[str, object]] = []
 
@@ -438,19 +446,34 @@ def test_configuration_validates_fenced_json_before_saving(
             message = {"content": content}
         return httpx.Response(200, json={"choices": [{"message": message}]})
 
-    provider = OpenAICompatibleProvider(
-        input_config().provider_config(), transport=httpx.MockTransport(handler)
+    repository = MemoryRepository()
+    secrets = MemorySecrets()
+    service = ModelConfigurationService(
+        repository,
+        secrets,
+        lambda config, api_key: OpenAICompatibleProvider(
+            config, api_key, transport=httpx.MockTransport(handler)
+        ),
     )
-    service, repository, secrets = service_with(provider)
+    value = input_config().model_copy(update={"disable_thinking": disable_thinking})
     if error_code is None:
-        assert asyncio.run(service.configure(input_config())).status == "available"
-        assert repository.value == input_config().provider_config()
+        view = asyncio.run(service.configure(value))
+        assert view.status == "available"
+        assert view.disable_thinking is disable_thinking
+        assert view.profiles[0].disable_thinking is disable_thinking
+        assert repository.value == value.provider_config()
+        assert asyncio.run(service.validate()).status == "available"
     else:
         with pytest.raises(ProviderError) as caught:
-            asyncio.run(service.configure(input_config()))
+            asyncio.run(service.configure(value))
         assert caught.value.code == error_code
         assert repository.value is None
-    assert len(calls) == 2
+    assert len(calls) == (4 if error_code is None else 2)
+    for payload in calls:
+        if disable_thinking:
+            assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+        else:
+            assert "chat_template_kwargs" not in payload
     assert secrets.values == {}
 
 
@@ -515,14 +538,15 @@ def test_file_repository_reads_versioned_state_and_saves_version_three(
         json.dumps(
             {
                 "version": version,
-                "active": config.model_dump(mode="json"),
-                "profiles": [config.model_dump(mode="json")],
+                "active": config.model_dump(mode="json", exclude={"disable_thinking"}),
+                "profiles": [config.model_dump(mode="json", exclude={"disable_thinking"})],
             }
         ),
         encoding="utf-8",
     )
     repository = FileModelConfigurationRepository(path)
     assert repository.load() == config
+    assert not config.disable_thinking
     assert repository.load_borrowed() is None
     assert repository.profiles() == (config,)
     borrowed = BorrowedModelConfig(peer_node_id=NodeId.new())

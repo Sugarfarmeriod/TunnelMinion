@@ -48,6 +48,7 @@ class ModelConfigurationInput(BaseModel):
     endpoint: str
     model: str
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=600.0)
+    disable_thinking: bool = False
     api_key: str | None = Field(default=None, max_length=4096)
 
     def provider_config(self) -> OpenAICompatibleConfig:
@@ -56,6 +57,7 @@ class ModelConfigurationInput(BaseModel):
             endpoint=self.endpoint,
             model=self.model,
             timeout_seconds=self.timeout_seconds,
+            disable_thinking=self.disable_thinking,
         )
 
 
@@ -67,6 +69,7 @@ class ModelConfigurationProfileView(BaseModel):
     endpoint: str
     model: str
     timeout_seconds: float
+    disable_thinking: bool = False
     api_key_configured: bool = False
 
 
@@ -86,6 +89,7 @@ class ModelConfigurationView(BaseModel):
     endpoint: str | None = None
     model: str | None = None
     timeout_seconds: float | None = None
+    disable_thinking: bool = False
     api_key_configured: bool = False
     borrowed_from: NodeId | None = None
     profiles: tuple[ModelConfigurationProfileView, ...] = ()
@@ -239,6 +243,7 @@ class ModelConfigurationService:
             endpoint=config.endpoint if config is not None else None,
             model=config.model if config is not None else None,
             timeout_seconds=config.timeout_seconds if config is not None else None,
+            disable_thinking=config is not None and config.disable_thinking,
             api_key_configured=config is not None and self._optional_api_key(config) is not None,
             borrowed_from=borrowed.peer_node_id if borrowed is not None else None,
             profiles=profiles,
@@ -339,6 +344,7 @@ class ModelConfigurationService:
             endpoint=config.endpoint,
             model=config.model,
             timeout_seconds=config.timeout_seconds,
+            disable_thinking=config.disable_thinking,
             api_key_configured=self._optional_api_key(config) is not None,
         )
 
