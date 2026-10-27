@@ -3,19 +3,36 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.domain.identifiers import ServiceId
-from tunnelminion.incident.contracts import Incident, NormalizedSnapshot, SnapshotSource
+from tunnelminion.incident.contracts import (
+    Incident,
+    IncidentEventType,
+    NormalizedSnapshot,
+    SnapshotObjectKind,
+    SnapshotSource,
+)
 from tunnelminion.incident.snapshot import SnapshotDiffDetector, assemble_overview_snapshot
 from tunnelminion.incident.storage import SQLiteIncidentStore
-from tunnelminion.web.overview import ResourceOverview
+from tunnelminion.web.overview import OverviewSource, ResourceOverview
+
+logger = logging.getLogger(__name__)
+
+
+def _log_exception(message: str, error: Exception) -> None:
+    """保留异常类型与栈，省略可能携带秘密的正文及异常链。"""
+    logger.error(
+        message,
+        exc_info=(RuntimeError, RuntimeError(type(error).__name__), error.__traceback__),
+    )
 
 
 class IncidentRunner(Protocol):
@@ -47,6 +64,7 @@ class IncidentObservationService:
         interval_seconds: float = 30,
         watched_service_id: ServiceId | None = None,
         read_only_preview: bool = False,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not 1 <= interval_seconds <= 3600:
             raise ValueError("观察周期必须位于 1 到 3600 秒")
@@ -58,13 +76,15 @@ class IncidentObservationService:
         self._interval_seconds = interval_seconds
         self._watched_service_id = watched_service_id
         self.read_only_preview = read_only_preview
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._baseline: NormalizedSnapshot | None = None
         self._baseline_stabilized = False
-        self._active: set[str] = set()
-        self._lock = asyncio.Lock()
+        self._baseline_automatic_services: set[str] = set()
+        self._active: dict[str, asyncio.Task[None]] = {}
+        self._last_investigated: dict[str, datetime] = {}
 
     async def observe_once(self) -> ObservationResult:
-        """保存一次快照，并串行调查本轮唯一事件集合。"""
+        """保存快照与全部事件，符合条件的调查交给有界后台任务。"""
         if self._before_snapshot is not None:
             await self._before_snapshot()
         if self.read_only_preview:
@@ -89,25 +109,44 @@ class IncidentObservationService:
                     # 切换观察范围时建立新基线，不把未观察对象当作消失。
                     self._baseline = None
             self._baseline_stabilized = self._baseline is not None
+        overview = self._overview()
+        # 本地与目录的首页名称已由 select_service_presentations 按 show/mine 筛选。
+        automatic_services = {
+            str(item.service_id)
+            for item in overview.services.items
+            if item.display_name is not None
+            and item.source
+            in {OverviewSource.LOCAL_OBSERVATION, OverviewSource.COORDINATOR_DIRECTORY}
+        }
         snapshot = assemble_overview_snapshot(
-            self._overview(),
+            overview,
             revision=self._store.next_revision(),
         )
         self._store.put_snapshot(snapshot)
         if self._baseline is None:
             self._baseline = snapshot
+            self._baseline_automatic_services = automatic_services
             return ObservationResult(snapshot=snapshot)
         if not self._baseline_stabilized:
             self._baseline = snapshot
             self._baseline_stabilized = True
+            self._baseline_automatic_services = automatic_services
             return ObservationResult(snapshot=snapshot)
         events = self._detector.compare(self._scope(self._baseline), self._scope(snapshot))
         values: list[Incident] = []
         for event in events:
             incident = self._store.record_event(event)
-            values.append(await self._investigate_once(incident))
+            values.append(incident)
+            eligible = (
+                self._baseline_automatic_services
+                if event.event_type is IncidentEventType.SERVICE_REMOVED
+                else automatic_services
+            )
+            if event.object_kind is SnapshotObjectKind.SERVICE and event.object_id in eligible:
+                self._schedule_investigation(incident)
         if not self._detector.has_pending:
             self._baseline = snapshot
+            self._baseline_automatic_services = automatic_services
         return ObservationResult(snapshot=snapshot, incidents=tuple(values))
 
     def _scope(self, snapshot: NormalizedSnapshot) -> NormalizedSnapshot:
@@ -127,25 +166,49 @@ class IncidentObservationService:
 
     async def run(self, stop: asyncio.Event) -> None:
         """按有界周期运行，停止信号不会触发额外刷新。"""
-        while not stop.is_set():
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=self._interval_seconds)
-            except TimeoutError:
-                await self.observe_once()
-
-    async def _investigate_once(self, incident: Incident) -> Incident:
-        if self._investigator is None:
-            return incident
-        key = str(incident.incident_id)
-        async with self._lock:
-            if key in self._active:
-                return incident
-            self._active.add(key)
         try:
-            return await self._investigator.run(incident)
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=self._interval_seconds)
+                except TimeoutError:
+                    try:
+                        await self.observe_once()
+                    except Exception as exc:
+                        _log_exception("观察轮次失败，下个周期重试", exc)
         finally:
-            async with self._lock:
-                self._active.discard(key)
+            await self.aclose()
+
+    async def aclose(self) -> None:
+        """取消并收齐当前后台调查。"""
+        tasks = tuple(self._active.values())
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._active.clear()
+
+    def _schedule_investigation(self, incident: Incident) -> None:
+        if self._investigator is None:
+            return
+        key = str(incident.incident_id)
+        if key in self._active or len(self._active) >= 2:
+            return
+        service_id = incident.event.object_id
+        now = self._clock()
+        previous = self._last_investigated.get(service_id)
+        if previous is not None and now - previous < timedelta(hours=1):
+            return
+        self._last_investigated[service_id] = now
+        self._active[key] = asyncio.create_task(
+            self._investigate_once(incident, self._investigator)
+        )
+
+    async def _investigate_once(self, incident: Incident, runner: IncidentRunner) -> None:
+        try:
+            await runner.run(incident)
+        except Exception as exc:
+            _log_exception("自动调查失败", exc)
+        finally:
+            self._active.pop(str(incident.incident_id), None)
 
 
 def incident_observation_lifespan(
@@ -173,5 +236,6 @@ def incident_observation_lifespan(
                 stop.set()
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+                await observer.aclose()
 
     return lifespan

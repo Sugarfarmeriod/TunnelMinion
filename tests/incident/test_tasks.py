@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,12 @@ from tests.incident.test_investigation import (
 )
 from tests.web.test_conversation import program_overview, selected_program
 
-from tunnelminion.agent.conversation import InMemoryConversationService, RunStatus, StartRunInput
+from tunnelminion.agent.conversation import (
+    InMemoryConversationService,
+    RunEvent,
+    RunStatus,
+    StartRunInput,
+)
 from tunnelminion.agent.langchain_model import TunnelMinionChatModel
 from tunnelminion.agent.runtime import AgentRunLimits, AgentStopReason, LangChainReadOnlyAgent
 from tunnelminion.coordinator.contracts import ServiceProtocol
@@ -428,6 +434,47 @@ def test_unavailable_model_is_saved_without_local_fallback(tmp_path: Path) -> No
     last = harness.conversations.get_thread(thread).messages[-1]
     assert harness.conversations.get_run(last.run_id).status is RunStatus.FAILED
     assert len(provider.requests) == 1 and follow_up_provider.requests == []
+
+
+@pytest.mark.parametrize("stuck_stream", [False, True])
+def test_cancelling_background_harness_cancels_shared_run_with_bounded_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stuck_stream: bool
+) -> None:
+    entered = asyncio.Event()
+
+    class WaitingProvider(ScriptedProvider):
+        async def complete(
+            self, request: ModelRequest, cancellation: CancellationToken | None = None
+        ) -> ModelResponse:
+            assert cancellation is not None
+            entered.set()
+            await cancellation.wait()
+            raise ProviderError(ProviderErrorCode.CANCELLED, "已取消")
+
+    harness, _, _, _ = task_harness(tmp_path, provider=WaitingProvider("valid"))
+    incident = _incident(harness.store, event_type=IncidentEventType.SERVICE_ADDED)
+    original_stream = harness.conversations.stream_events
+
+    async def stream(run_id: RunId, after: int = 0) -> AsyncIterator[RunEvent]:
+        async for event in original_stream(run_id, after):
+            yield event
+        if stuck_stream:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(harness.conversations, "stream_events", stream)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(harness.run(incident))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        final = harness.store.get(incident.incident_id)
+        assert final is not None and final.run_id is not None
+        assert final.status is IncidentStatus.CANCELLED
+        assert harness.conversations.get_run(final.run_id).status is RunStatus.CANCELLED
+
+    run(scenario())
 
 
 def test_background_does_not_duplicate_accepted_manual_task_and_pre_cancel_is_kept(

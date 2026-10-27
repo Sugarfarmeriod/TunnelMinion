@@ -386,9 +386,11 @@ def test_macos_local_resources_degrade_without_model(
     assert create_macos_app().title == "TunnelMinion"
 
 
+@pytest.mark.parametrize("shown", [False, True])
 def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    shown: bool,
 ) -> None:
     services = [local_service("service_33333333333333333333333333333333", 18083)]
     model_calls = 0
@@ -398,6 +400,7 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
         return ServiceObservationSnapshot(
             observed_at=datetime.now(UTC),
             services=tuple(services),
+            display_names={str(item.service_id): "测试服务" for item in services} if shown else {},
         )
 
     def unavailable(_self: ModelConfigurationService) -> None:
@@ -427,20 +430,28 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
     client: Any
     with TestClient(bundle.app, base_url="http://127.0.0.1") as client:
         assert incident_observer is not None
-        assert asyncio.run(incident_observer.observe_once()).incidents == ()
-        assert asyncio.run(incident_observer.observe_once()).incidents == ()
+        assert client.portal.call(incident_observer.observe_once).incidents == ()
+        assert client.portal.call(incident_observer.observe_once).incidents == ()
         overview = client.get("/api/resources/overview").json()
         assert [item["port"] for item in overview["services"]["items"]] == [18083]
         assert overview["incidents"]["items"] == []
         assert model_calls == 0
 
         services.append(local_service("service_44444444444444444444444444444444", 18084))
-        assert asyncio.run(incident_observer.observe_once()).incidents == ()
-        assert len(asyncio.run(incident_observer.observe_once()).incidents) == 1
+        assert client.portal.call(incident_observer.observe_once).incidents == ()
+        assert len(client.portal.call(incident_observer.observe_once).incidents) == 1
+
+        async def finish_investigations() -> None:
+            assert incident_observer is not None
+            await asyncio.gather(*incident_observer._active.values())  # pyright: ignore[reportPrivateUsage]
+
+        client.portal.call(finish_investigations)
         overview = client.get("/api/resources/overview").json()
 
-        assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
-        assert model_calls == 1
+        assert overview["incidents"]["items"][0]["status"] == (
+            "investigation_unavailable" if shown else "pending"
+        )
+        assert model_calls == int(shown)
 
 
 def test_macos_managed_runtime_does_not_build_second_service_observer(

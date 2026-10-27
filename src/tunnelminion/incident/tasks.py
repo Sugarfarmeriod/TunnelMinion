@@ -105,8 +105,18 @@ class IncidentTaskHarness:
         started = await self.follow_up(
             incident.incident_id, INVESTIGATION_QUESTIONS[incident.event.event_type]
         )
-        async for _ in self.conversations.stream_events(started.run_id):
-            pass
+        try:
+            async for _ in self.conversations.stream_events(started.run_id):
+                pass
+        except asyncio.CancelledError:
+            self.conversations.cancel_run(started.run_id)
+            try:
+                async with asyncio.timeout(1):
+                    async for _ in self.conversations.stream_events(started.run_id):
+                        pass
+            except TimeoutError:
+                pass
+            raise
         return self.store.get(incident.incident_id) or incident
 
     async def follow_up(self, identifier: IncidentId, question: str) -> RunView:

@@ -1774,6 +1774,7 @@ class MutableOverview:
                     KnownServiceOverview(
                         service_id=service_id,
                         node_id=NODE,
+                        display_name=f"测试服务 {port}",
                         protocol=None,
                         port=port,
                         accessibility=(
@@ -2103,10 +2104,16 @@ def test_observer_guard_loop_and_duplicate_run_shortcuts(tmp_path: Path) -> None
     store = SQLiteIncidentStore(tmp_path / "observer-branches.sqlite3")
     service = IncidentObservationService(MutableOverview(), store)
     incident = _incident(store)
-    assert asyncio.run(service._investigate_once(incident)) is incident  # pyright: ignore[reportPrivateUsage]
+    service._schedule_investigation(incident)  # pyright: ignore[reportPrivateUsage]
+    assert service._active == {}  # pyright: ignore[reportPrivateUsage]
     service._investigator = CountingRunner()  # pyright: ignore[reportPrivateUsage]
-    service._active.add(str(incident.incident_id))  # pyright: ignore[reportPrivateUsage]
-    assert asyncio.run(service._investigate_once(incident)) is incident  # pyright: ignore[reportPrivateUsage]
+
+    async def duplicate() -> None:
+        service._schedule_investigation(incident)  # pyright: ignore[reportPrivateUsage]
+        service._schedule_investigation(incident)  # pyright: ignore[reportPrivateUsage]
+        await service.aclose()
+
+    asyncio.run(duplicate())
 
     loop_store = SQLiteIncidentStore(tmp_path / "observer-loop.sqlite3")
     stop = asyncio.Event()
