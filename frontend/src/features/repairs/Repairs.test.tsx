@@ -175,10 +175,8 @@ describe("地图上的本机修复", () => {
     const bang = await screen.findByRole("button", {
       name: "这台电脑有 1 个待批准的修复",
     });
-    await user.click(screen.getByRole("button", { name: "对话", exact: true }));
-    expect(
-      screen.getByRole("dialog", { name: "对话", exact: true }),
-    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /^对话$/ }));
+    expect(screen.getByRole("dialog", { name: /^对话$/ })).toBeVisible();
     await user.click(bang.querySelector("svg")!);
     expect(
       await screen.findByRole("dialog", { name: "要修好“相册”吗？" }),

@@ -132,6 +132,12 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       if (target instanceof Node && dialog.contains(target)) {
         return;
       }
+      // 带 data-dialog-passthrough 的控件（如地图上的修复感叹号）可在对话打开时直接点击。
+      if (
+        target instanceof Element &&
+        target.closest("[data-dialog-passthrough]") !== null
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       focusSafeTarget();

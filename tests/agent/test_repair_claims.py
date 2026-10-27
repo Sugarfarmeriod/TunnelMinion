@@ -25,37 +25,37 @@ CORRECTION = "这次没有生成修复，需要的话请让我提出修法"
 CLAIM = "我已经提出了一条待批准的修复。"
 
 
-@pytest.mark.parametrize(
-    ("tool_name", "output", "failed", "has_repair"),
-    [
-        (None, {}, False, False),
-        ("probe_service", {}, False, False),
-        ("probe_service", {"proposed": True}, False, False),
-        ("propose_repair", [], False, False),
-        ("propose_repair", {"proposed": False}, False, False),
-        ("propose_repair", {"proposed": True}, True, False),
-        ("propose_repair", {"proposed": True}, False, True),
-        (DELEGATE_TOOL_NAME, {"status": "completed", "result": None}, False, False),
-        (
-            DELEGATE_TOOL_NAME,
-            {"status": "completed", "result": {"proposed_repairs": []}},
-            False,
-            False,
-        ),
-        (
-            DELEGATE_TOOL_NAME,
-            {"status": "completed", "result": {"proposed_repairs": [{}]}},
-            False,
-            True,
-        ),
-        (
-            DELEGATE_TOOL_NAME,
-            {"status": "failed", "result": {"proposed_repairs": [{}]}},
-            False,
-            False,
-        ),
-    ],
-)
+CASES: list[tuple[str | None, JsonValue, bool, bool]] = [
+    (None, {}, False, False),
+    ("probe_service", {}, False, False),
+    ("probe_service", {"proposed": True}, False, False),
+    ("propose_repair", [], False, False),
+    ("propose_repair", {"proposed": False}, False, False),
+    ("propose_repair", {"proposed": True}, True, False),
+    ("propose_repair", {"proposed": True}, False, True),
+    (DELEGATE_TOOL_NAME, {"status": "completed", "result": None}, False, False),
+    (
+        DELEGATE_TOOL_NAME,
+        {"status": "completed", "result": {"proposed_repairs": []}},
+        False,
+        False,
+    ),
+    (
+        DELEGATE_TOOL_NAME,
+        {"status": "completed", "result": {"proposed_repairs": [{}]}},
+        False,
+        True,
+    ),
+    (
+        DELEGATE_TOOL_NAME,
+        {"status": "failed", "result": {"proposed_repairs": [{}]}},
+        False,
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(("tool_name", "output", "failed", "has_repair"), CASES)
 def test_repair_claim_is_checked_and_persisted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -99,7 +99,7 @@ def test_repair_claim_is_checked_and_persisted(
         events = [event async for event in conversations.stream_events(started.run_id)]
         result = conversations.get_run(started.run_id).result
         assert result is not None
-        basis = "inferred" if tool_name and not failed else "none"
+        basis = "inferred" if tool_name and not failed and isinstance(output, dict) else "none"
         assert result.answer_basis == basis
         assert (CORRECTION in result.answer) is not has_repair
         assert (CORRECTION in result.evidence_answer.inferences[0]) is not has_repair

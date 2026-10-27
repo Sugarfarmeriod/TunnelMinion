@@ -11,6 +11,7 @@ export function RepairBang({
     <button
       type="button"
       className="map-repair-bang"
+      data-dialog-passthrough
       aria-label={`${name}有 ${count} 个待批准的修复`}
       onClick={onClick}
     >
