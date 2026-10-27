@@ -8,7 +8,9 @@ export function makeRemoteRepair(
     service_name: "远端相册",
     action: "重启远端相册",
     status: "awaiting_authorization",
-    how_to_approve: "tunnelminion repair-approve operation_" + "b".repeat(32),
+    how_to_approve:
+      "请到对方电脑的地图上点感叹号批准。\n命令行后备：tunnelminion repair-approve --repair-id operation_" +
+      "b".repeat(32),
     expires_at: new Date(Date.now() + 9 * 60_000).toISOString(),
     ...overrides,
   };

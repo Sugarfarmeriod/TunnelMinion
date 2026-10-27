@@ -24,6 +24,7 @@ from tunnelminion.agent.history import ThreadHistoryAssembler
 from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.remote import RemotePreparationError
 from tunnelminion.agent.runtime import (
+    NO_REPAIR_PROPOSED,
     AgentCancellationToken,
     AgentRunLimits,
     AgentStopReason,
@@ -765,6 +766,8 @@ class InMemoryConversationService:
                             "模型这次没有给出回答，所以没有可显示的结论。可以换个说法再问一次。"
                         )
                         unknowns = ("模型没有返回回答，无法确认所问的实际情况。",)
+                    if NO_REPAIR_PROPOSED in draft:
+                        summary = f"{summary}\n\n{NO_REPAIR_PROPOSED}"
                     answer = summary
                 result = result.model_copy(
                     update={

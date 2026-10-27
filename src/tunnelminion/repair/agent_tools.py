@@ -34,8 +34,12 @@ from tunnelminion.tools.runtime import current_tool_call_context
 
 
 def repair_approval_instruction(repair_id: OperationId, data_dir: Path | None = None) -> str:
-    """委派只给本机批准的方法；本机对话可指明实际数据目录。"""
-    prefix = "请到这台电脑本机上运行：" if data_dir is None else "在这台电脑上运行："
+    """优先引导地图批准，命令行只作后备且不向对端透露数据目录。"""
+    prefix = (
+        "请到对方电脑的地图上点感叹号批准"
+        if data_dir is None
+        else "点地图上这台电脑头上的红色感叹号批准"
+    )
     command = f"tunnelminion repair-approve --repair-id {repair_id}"
     if data_dir is not None and data_dir.resolve() != default_runtime_data_dir().resolve():
         path = str(data_dir.resolve())
@@ -43,7 +47,7 @@ def repair_approval_instruction(repair_id: OperationId, data_dir: Path | None = 
         command += (
             f' --data-dir "{path}"' if any(c.isspace() for c in path) else f" --data-dir {path}"
         )
-    return f"{prefix}{command}（10 分钟内有效；不批准就什么都不会做）"
+    return f"{prefix}（10 分钟内有效；不批准就什么都不会做）。\n命令行后备：{command}"
 
 
 def proposed_repairs_for_delegation(

@@ -4,7 +4,8 @@ export function mapLayout(count: number, narrow: boolean) {
     count === 0 ? 420 : list ? (count + 1) * 240 : count > 3 ? 900 : 800;
   const local = { x: 50, y: list && count > 0 ? 120 : height / 2 };
   const peers = Array.from({ length: count }, (_, index) => {
-    const angle = -Math.PI / 2 + (index * Math.PI * 2) / count;
+    // 从正上方偏 30 度起排，避免对端正好压在本机头上的感叹号上。
+    const angle = -Math.PI / 3 + (index * Math.PI * 2) / count;
     return list
       ? { x: 55, y: 360 + index * 240 }
       : {

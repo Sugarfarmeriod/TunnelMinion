@@ -338,16 +338,20 @@ def test_approval_instruction_uses_custom_directory_only_locally(
         "tunnelminion.repair.agent_tools.default_runtime_data_dir", lambda: tmp_path
     )
     command = f"tunnelminion repair-approve --repair-id {repair_id}"
-    suffix = "（10 分钟内有效；不批准就什么都不会做）"
-    assert (
-        repair_approval_instruction(repair_id, tmp_path) == f"在这台电脑上运行：{command}{suffix}"
+    prefix = (
+        "点地图上这台电脑头上的红色感叹号批准"
+        "（10 分钟内有效；不批准就什么都不会做）。\n命令行后备："
     )
+    assert repair_approval_instruction(repair_id, tmp_path) == f"{prefix}{command}"
     custom = tmp_path / "custom data"
     assert repair_approval_instruction(repair_id, custom) == (
-        f'在这台电脑上运行：{command} --data-dir "{custom.resolve()}"{suffix}'
+        f'{prefix}{command} --data-dir "{custom.resolve()}"'
     )
     plain = Path("/tunnelminion-data")
     assert repair_approval_instruction(repair_id, plain) == (
-        f"在这台电脑上运行：{command} --data-dir {plain.resolve()}{suffix}"
+        f"{prefix}{command} --data-dir {plain.resolve()}"
     )
-    assert repair_approval_instruction(repair_id) == f"请到这台电脑本机上运行：{command}{suffix}"
+    assert repair_approval_instruction(repair_id) == (
+        "请到对方电脑的地图上点感叹号批准（10 分钟内有效；不批准就什么都不会做）。"
+        f"\n命令行后备：{command}"
+    )

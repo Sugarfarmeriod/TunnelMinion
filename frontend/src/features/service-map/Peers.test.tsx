@@ -484,7 +484,7 @@ it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc
   await user.keyboard("{Enter}");
   const dialog = screen.getByRole("dialog", { name: "要修好“远端相册”吗？" });
   expect(
-    within(dialog).getByText("请到 测试电脑 1 的地图上批准"),
+    within(dialog).getByText("请到 测试电脑 1 的地图上点感叹号批准"),
   ).toBeVisible();
   expect(within(dialog).getByText("重启远端相册")).toBeVisible();
   expect(
@@ -497,7 +497,8 @@ it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc
   ).toBeNull();
   expect(dialog.querySelector("details")).not.toHaveAttribute("open");
   await user.click(within(dialog).getByText("高级"));
-  expect(within(dialog).getByText(repair.how_to_approve)).toBeVisible();
+  expect(dialog.querySelector("pre")?.textContent).toBe(repair.how_to_approve);
+  expect(within(dialog).getByText(/命令行后备/)).toBeVisible();
   within(dialog).getByRole("button", { name: "知道了" }).focus();
   await user.tab();
   expect(
@@ -508,7 +509,9 @@ it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc
   const panel = await openPeer(peer);
   expect(within(panel).getByText("需要处理的事")).toBeVisible();
   await user.click(within(panel).getByRole("button", { name: "看看怎么修" }));
-  expect(screen.getByText("请到 测试电脑 1 的地图上批准")).toBeVisible();
+  expect(
+    screen.getByText("请到 测试电脑 1 的地图上点感叹号批准"),
+  ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "关闭修复" }));
   expect(
     screen.queryByRole("dialog", { name: "要修好“远端相册”吗？" }),

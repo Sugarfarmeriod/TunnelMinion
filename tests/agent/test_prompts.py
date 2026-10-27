@@ -42,6 +42,10 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
     assert "list_launch_records" in READONLY_AGENT_PROMPT.template
     assert "propose_repair" in READONLY_AGENT_PROMPT.template
     assert "proposed_repairs" in READONLY_AGENT_PROMPT.template
+    assert "只有本次 propose_repair 成功返回 proposed=true 后" in READONLY_AGENT_PROMPT.template
+    assert "点地图上这台电脑头上的红色感叹号批准" in READONLY_AGENT_PROMPT.template
+    assert "请到 X 的地图上点感叹号批准" in READONLY_AGENT_PROMPT.template
+    assert "命令行仅供高级后备" in READONLY_AGENT_PROMPT.template
     assert "read_investigation_skill" in READONLY_AGENT_PROMPT.template
     assert (
         PROMPT_REGISTRY.resolve("readonly-agent", "v3", ContextTaskType.LOCAL_CONVERSATION)
