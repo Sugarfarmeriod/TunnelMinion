@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from tunnelminion.domain.identifiers import OperationId
+from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.operation.contracts import (
     AuthorizationDecision,
     OperationStatus,
@@ -33,6 +33,8 @@ class RepairListItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     repair_id: str
+    node_id: NodeId
+    origin: RepairOrigin
     service_key: str
     service_name: str
     kind: RepairKind
@@ -53,6 +55,8 @@ class RepairListItem(BaseModel):
             expiry = record.authorization.expires_at
         return cls(
             repair_id=str(record.plan.operation_id),
+            node_id=record.plan.node_id,
+            origin=record.plan.origin,
             service_key=record.plan.service_key,
             service_name=record.plan.service_name,
             kind=record.plan.kind,
@@ -103,7 +107,6 @@ class RepairDetail(RepairListItem):
     impact_summary: str
     verification_summary: str
     failure_summary: str
-    origin: RepairOrigin
     authorization: RepairAuthorizationView | None
     advanced: ContainerAdvancedView | PythonAdvancedView
     execution: RepairExecution | None
@@ -137,7 +140,6 @@ def _detail(record: RepairRecord) -> RepairDetail:
         impact_summary=record.plan.impact_summary,
         verification_summary=record.plan.verification_summary,
         failure_summary=record.plan.failure_summary,
-        origin=record.plan.origin,
         authorization=(
             RepairAuthorizationView(
                 operator=authorization.operator,

@@ -9,6 +9,10 @@ from typing import cast
 
 import pytest
 from fastapi import FastAPI
+from tests.agent.test_repair_observation import docker_fact
+from tests.agent.test_service_observation import FakeAdapter, collection
+from tests.repair.factories import launch_record
+from tests.repair.fakes import FakeContainers, FakeHost, MemoryLaunchRecordStore
 
 from tunnelminion.agent.coordinator import CoordinatorTransport
 from tunnelminion.agent.managed_application import (
@@ -33,6 +37,7 @@ from tunnelminion.coordinator.contracts import GatewayEndpoint, NodeRegistration
 from tunnelminion.domain.identifiers import NetworkId, NodeId, RefreshCredentialId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.secrets import SecretStore, SecretStoreError
+from tunnelminion.repair.contracts import PortOwner
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -162,7 +167,25 @@ def test_factory_requires_enrollment_then_builds_all_three_runtime_domains(
             issued_at=datetime(2026, 7, 31, tzinfo=UTC),
         )
     )
-    ready = build(root, node_id)
+    adapter = FakeAdapter(collection())
+    records, host = MemoryLaunchRecordStore(), FakeHost()
+    launch = launch_record()
+    records.put(launch)
+    host.owners[8765] = PortOwner(pid=101, process_name="python", matches_launch=True)
+    ready = build_managed_node_application(
+        root,
+        node_id,
+        Platform.WINDOWS,
+        ToolRegistry(),
+        adapter,
+        adapter,
+        FakeAdapter(collection(docker_fact())),
+        coordinator_transport=cast(CoordinatorTransport, object()),
+        network_transport=cast(ManagedNetworkSyncTransport, object()),
+        containers=FakeContainers(),
+        launch_records=records,
+        host=host,
+    )
     assert ready.enrollment.state is ManagedNodeState.READY
     assert ready.runtime is not None
     assert ready.coordinator is not None
@@ -175,6 +198,23 @@ def test_factory_requires_enrollment_then_builds_all_three_runtime_domains(
     serialized = str(ready.resource_payload()).lower()
     for forbidden in ("10.77", "tmnr_", "private_key", "signature", "endpoint"):
         assert forbidden not in serialized
+
+    async def observe() -> None:
+        assert ready.coordinator is not None
+        stop = asyncio.Event()
+        task = asyncio.create_task(ready.coordinator.services.run(stop))
+        try:
+            async with asyncio.timeout(2):
+                while (snapshot := ready.coordinator.service_cache.read()) is None:
+                    await asyncio.sleep(0)
+            assert snapshot.inventory[0].port == 8080
+            assert snapshot.inventory[0].container_running is False
+            assert snapshot.running_launch_keys == frozenset({launch.service_key})
+        finally:
+            stop.set()
+            await task
+
+    asyncio.run(observe())
 
 
 def test_lifespan_is_inert_without_runtime_and_starts_and_stops_ready_runtime() -> None:

@@ -14,6 +14,7 @@ import type { ResourceOverview } from "../../api/schemas/overview";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import type { ServiceEntry } from "../service-map/api";
+import type { Repair } from "../repairs/api";
 import {
   allowedToolNames,
   cancelRun,
@@ -104,6 +105,8 @@ export function ConversationDrawer({
   services,
   nodes,
   modelStatus,
+  pendingRepairs = [],
+  onRepair,
 }: {
   open: boolean;
   onClose: () => void;
@@ -114,6 +117,8 @@ export function ConversationDrawer({
   services: ServiceEntry[];
   nodes: ResourceOverview["nodes"]["items"];
   modelStatus?: ResourceOverview["model"]["status"];
+  pendingRepairs?: Repair[];
+  onRepair?: (id: string) => void;
 }) {
   const client = useQueryClient();
   const preview = isReadOnlyPreview();
@@ -551,6 +556,10 @@ export function ConversationDrawer({
                     compact
                     detail={detail.data ?? null}
                     contextLabel={contextLabel(savedContext ?? undefined)}
+                    pendingRepairs={pendingRepairs.filter(
+                      (repair) => repair.origin.thread_id === selected,
+                    )}
+                    onRepair={onRepair}
                   />
                 )}
                 <RunPanel

@@ -66,6 +66,8 @@ def test_list_and_details_show_only_local_advanced_fields(tmp_path: Path) -> Non
     ]
     assert listing.repairs[0].approval_expires_at == second.plan.created_at + timedelta(minutes=10)
     assert listing.repairs[0].verification_passed is None
+    assert listing.repairs[0].node_id == second.plan.node_id
+    assert listing.repairs[0].origin == second.plan.origin
     assert "advanced" not in response.json()["repairs"][0]
     detail_response = client.get(f"/api/repairs/{second.plan.operation_id}")
     detail = RepairDetail.model_validate_json(detail_response.text)

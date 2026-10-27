@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from threading import Lock
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,6 +53,8 @@ from tunnelminion.memory.contracts import (
 )
 from tunnelminion.memory.service import MemoryContextQuery, MemoryContextRetriever
 from tunnelminion.model.contracts import ModelMessage
+from tunnelminion.repair.contracts import RepairRecord
+from tunnelminion.repair.results import repair_result_text
 from tunnelminion.tools.contracts import ToolCallContext
 
 
@@ -206,6 +209,7 @@ class _ConversationCheckpointState(BaseModel):
     rolling_summary: RollingSummary | None = None
     service_id: ServiceId | None = None
     continuation: _TaskContinuation | None = None
+    repair_result_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -240,6 +244,7 @@ class _ThreadState:
     service_id: ServiceId | None = None
     incident_id: IncidentId | None = None
     context: ThreadContext | None = None
+    repair_result_ids: list[str] = field(default_factory=lambda: [])
 
 
 class InMemoryConversationService:
@@ -264,6 +269,7 @@ class InMemoryConversationService:
         self._history_assembler = history_assembler or ThreadHistoryAssembler()
         self._memory_retriever = memory_retriever
         self._incident_agent_factory: Callable[[IncidentId], TaskAgent] | None = None
+        self._repair_result_lock = Lock()
         self._restore()
 
     @property
@@ -322,6 +328,55 @@ class InMemoryConversationService:
         if state is None:
             raise KeyError("thread_not_found")
         return state.service_id
+
+    def append_repair_result(self, record: RepairRecord) -> None:
+        """结论和去重标识随同一份对话快照保存。"""
+        with self._repair_result_lock:
+            thread = self._threads.get(str(record.plan.origin.thread_id))
+            repair_id = str(record.plan.operation_id)
+            if thread is None or repair_id in thread.repair_result_ids or self._read_only_preview:
+                return
+            now = datetime.now(UTC)
+            state = next(
+                (
+                    item
+                    for item in reversed(tuple(self._runs.values()))
+                    if item.thread_id == thread.thread_id
+                ),
+                None,
+            )
+            if state is not None and state.status is RunStatus.RUNNING:
+                return
+            if state is None:
+                state = _RunState(
+                    run_id=RunId.new(),
+                    thread_id=thread.thread_id,
+                    created_at=now,
+                    cancellation=AgentCancellationToken(),
+                    status=RunStatus.COMPLETED,
+                    finished_at=now,
+                )
+                self._runs[str(state.run_id)] = state
+            previous_updated = thread.updated_at
+            self._add_message(
+                thread.thread_id,
+                "assistant",
+                repair_result_text(record),
+                state.run_id,
+                answer_checked=True,
+                answer_basis="checked"
+                if record.verification is not None
+                or record.status.value in {"rejected", "authorization_expired"}
+                else "none",
+            )
+            thread.repair_result_ids.append(repair_id)
+            try:
+                self._persist(state)
+            except Exception:
+                thread.messages.pop()
+                thread.repair_result_ids.pop()
+                thread.updated_at = previous_updated
+                raise
 
     def delete_thread(self, thread_id: ThreadId) -> None:
         """删除线程、短期消息和所属 run，并取消仍在执行的 run。"""
@@ -792,6 +847,7 @@ class InMemoryConversationService:
                     rolling_summary=thread.rolling_summary,
                     service_id=thread.service_id,
                     continuation=state.continuation,
+                    repair_result_ids=tuple(thread.repair_result_ids),
                 ).model_dump(mode="json"),
                 tool_run_ids=tuple(
                     item.result.tool_run_id for item in state.continuation.progress.observations
@@ -831,6 +887,7 @@ class InMemoryConversationService:
                 if public.continuation is not None
                 else None,
                 context=thread_view.context,
+                repair_result_ids=list(public.repair_result_ids),
             )
             run_view = public.run
             state = _RunState(
