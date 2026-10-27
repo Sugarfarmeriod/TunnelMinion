@@ -4,7 +4,12 @@ import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import { listOperations } from "../operations/operationsApi";
 import type { OperationSummary } from "../operations/schemas";
-import type { RunEvent, RunStatus, RunView } from "./contracts";
+import type {
+  DelegationPhase,
+  RunEvent,
+  RunStatus,
+  RunView,
+} from "./contracts";
 import type { RunEventState } from "./eventReducer";
 
 const runStatusLabels: Record<RunStatus, string> = {
@@ -26,6 +31,14 @@ const progressLabels: Record<string, string> = {
   list_launch_records: "查看启动记录",
   propose_repair: "整理处理建议",
   delegate_to_node: "请另一台电脑协助检查",
+};
+
+const delegationLabels: Record<DelegationPhase, string> = {
+  submitted: "已交给",
+  investigating: "正在查",
+  answered: "已交回",
+  failed: "没查成",
+  cancelled: "已取消",
 };
 
 const failureMessages = new Map([
@@ -290,28 +303,35 @@ export function RunPanel({
       </div>
       {compact && eventState.events.length > 0 ? (
         <ol className="chat-progress" aria-label="调查进度" aria-live="polite">
-          {eventState.events.map((event) => (
-            <li
-              key={event.sequence}
-              className={
-                effectiveStatus === "running" &&
-                event.sequence === toolEvents.at(-1)?.sequence &&
-                event.tool_status === "started"
-                  ? "is-running"
-                  : undefined
-              }
-            >
-              {event.event_type === "goal"
-                ? "已收到问题，开始检查"
-                : event.event_type === "tool"
-                  ? `${progressLabels[event.tool_name ?? ""] ?? "检查服务"} · ${event.tool_status === "success" ? "已完成" : event.tool_status === "started" ? "开始检查" : "未完成"}`
-                  : event.event_type === "finished"
-                    ? "检查已结束"
-                    : (event.message ?? "检查未完成")}
-            </li>
-          ))}
+          {eventState.events
+            .filter((event) => event.event_type !== "delegation")
+            .map((event) => (
+              <li
+                key={event.sequence}
+                className={
+                  effectiveStatus === "running" &&
+                  event.sequence === toolEvents.at(-1)?.sequence &&
+                  event.tool_status === "started"
+                    ? "is-running"
+                    : undefined
+                }
+              >
+                {event.event_type === "goal"
+                  ? "已收到问题，开始检查"
+                  : event.event_type === "tool"
+                    ? `${progressLabels[event.tool_name ?? ""] ?? "检查服务"} · ${event.tool_status === "success" ? "已完成" : event.tool_status === "started" ? "开始检查" : "未完成"}`
+                    : event.event_type === "finished"
+                      ? "检查已结束"
+                      : (event.message ?? "检查未完成")}
+              </li>
+            ))}
         </ol>
       ) : null}
+      {Object.values(eventState.delegations).map((delegation) => (
+        <p key={delegation.delegation_id}>
+          交给 {delegation.peer_node_id} · {delegationLabels[delegation.phase]}
+        </p>
+      ))}
       {feedback ? (
         <>
           <p className="chat-terminal-message" role="status">

@@ -14,6 +14,7 @@ import {
 const eventNames = [
   "goal",
   "tool",
+  "delegation",
   "finished",
   "failed",
   "interrupted",

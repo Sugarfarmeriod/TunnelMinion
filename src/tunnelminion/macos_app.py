@@ -359,6 +359,9 @@ def build_macos_local_application(
         ),
         node.node_id,
         node.audit_sink,
+        progress_sink=lambda context, progress: conversations.append_delegation_progress(
+            context, progress
+        ),
     )
 
     stores = node.stores

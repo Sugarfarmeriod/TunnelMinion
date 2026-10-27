@@ -19,6 +19,7 @@ from tunnelminion.agent.context_contracts import (
     RollingSummary,
     WorkflowContextState,
 )
+from tunnelminion.agent.delegation_progress import DelegationPhase, DelegationProgress
 from tunnelminion.agent.history import ThreadHistoryAssembler
 from tunnelminion.agent.observability import classify_failure
 from tunnelminion.agent.remote import RemotePreparationError
@@ -35,6 +36,7 @@ from tunnelminion.agent.runtime import (
 from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import (
+    DelegationId,
     IncidentId,
     MemoryId,
     NodeId,
@@ -73,6 +75,7 @@ class RunEventType(StrEnum):
 
     GOAL = "goal"
     TOOL = "tool"
+    DELEGATION = "delegation"
     FINISHED = "finished"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
@@ -179,6 +182,9 @@ class RunEvent(BaseModel):
     tool_run_id: str | None = None
     stop_reason: AgentStopReason | None = None
     message: str | None = None
+    delegation_id: DelegationId | None = None
+    peer_node_id: NodeId | None = None
+    phase: DelegationPhase | None = None
 
 
 class _TaskContinuation(BaseModel):
@@ -662,6 +668,15 @@ class InMemoryConversationService:
         if state.status is RunStatus.RUNNING:
             state.cancellation.cancel()
         return self._view(state)
+
+    def append_delegation_progress(
+        self, context: ToolCallContext, progress: DelegationProgress
+    ) -> None:
+        """把当前 run 的委派进度写入同一条可恢复事件流。"""
+        state = self._runs.get(str(context.run_id))
+        if state is None or state.status is not RunStatus.RUNNING:
+            return
+        self._append(state, RunEventType.DELEGATION, **progress.model_dump())
 
     async def stream_events(self, run_id: RunId, after: int = 0) -> AsyncIterator[RunEvent]:
         """从指定序号后流出事件，直到 run 进入终态。"""
