@@ -18,8 +18,10 @@ from tunnelminion.agent.conversation import (
 )
 from tunnelminion.agent.runtime import ServiceCheckTarget
 from tunnelminion.domain.identifiers import RunId, ServiceId, ThreadId
+from tunnelminion.gateway.contracts import PeerServiceEntry
 from tunnelminion.model.contracts import ProviderError
 from tunnelminion.web.overview import OverviewFreshness, OverviewService
+from tunnelminion.web.peers import PeerServicesView
 from tunnelminion.web.service_map import LocalServiceMap
 
 _CHAT_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -72,6 +74,7 @@ def create_conversation_router(
     service: InMemoryConversationService,
     overview: OverviewService | None = None,
     local_services: Callable[[], LocalServiceMap] | None = None,
+    peer_services: Callable[[str], PeerServicesView] | None = None,
 ) -> APIRouter:
     """创建只由环回绑定应用挂载的对话路由。"""
     router = APIRouter()
@@ -137,28 +140,47 @@ def create_conversation_router(
         about = payload.about or saved
         if about is None:
             return None, None
-        if about.node_id != str(service.node_id):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "目前只能询问这台电脑")
         if saved is not None and (
             saved.node_id != about.node_id or saved.service_key != about.service_key
         ):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "请为另一个对象新建对话")
         details: dict[str, object] = {"node_id": about.node_id}
+        remote = None
+        if about.node_id != str(service.node_id):
+            try:
+                if peer_services is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "对端不存在")
+                remote = peer_services(about.node_id)
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_404_NOT_FOUND:
+                    raise
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "电脑不在当前对端清单中"
+                ) from exc
+            details.update(
+                computer_name=remote.display_name,
+                location="另一台电脑",
+                instruction="请委派给这台电脑的 Agent；联系不上时说明无法联系",
+            )
         name = None
         if about.service_key is not None:
             # 与首页同一份已观察清单，不重新扫描电脑。
-            local = local_services() if local_services is not None else None
-            selected = (
-                next(
-                    (
-                        item
-                        for item in local.services
-                        if item.key == about.service_key and item.tier != "hidden"
-                    ),
-                    None,
-                )
+            local = local_services() if remote is None and local_services is not None else None
+            entries = (
+                remote.services
+                if remote is not None
+                else local.services
                 if local is not None
-                else None
+                else ()
+            )
+            selected = next(
+                (
+                    item
+                    for item in entries
+                    if item.key == about.service_key
+                    and (isinstance(item, PeerServiceEntry) or item.tier != "hidden")
+                ),
+                None,
             )
             if selected is None:
                 raise HTTPException(
@@ -169,7 +191,14 @@ def create_conversation_router(
                 service_name=name,
                 kind=selected.kind,
                 service_key=selected.key,
-                ports=[f"{item.protocol}/{item.port}" for item in selected.endpoints],
+                ports=[
+                    f"{item.protocol}/{item.port}"
+                    for item in (
+                        selected.ports
+                        if isinstance(selected, PeerServiceEntry)
+                        else selected.endpoints
+                    )
+                ],
             )
         context = saved or ThreadContext(
             node_id=about.node_id, service_key=about.service_key, service_name=name

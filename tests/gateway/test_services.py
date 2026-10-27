@@ -167,6 +167,8 @@ def test_services_only_exports_show_and_mine_without_raw_details() -> None:
             assert python.ports[0].port == 8081
             assert len(python.ports) == 1
             assert python.web_title == "示例服务"
+            assert python.state == "running"
+            assert all(entry["state"] == "running" for entry in response.json()["services"])
             assert entries["program:mine-service@8084"].mark is ServiceMark.MINE
             for marker in (
                 "192.0.2.123",
@@ -185,6 +187,37 @@ def test_services_only_exports_show_and_mine_without_raw_details() -> None:
             marks.set("python:app.py@8081", ServiceMark.HIDDEN)
             assert len((await service_reader()).services) == 1
             assert len(listeners.calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_services_exports_stopped_mine_with_default_running_for_older_peers() -> None:
+    service_reader, _, marks = reader()
+    marks.set("docker:photos", ServiceMark.MINE)
+
+    async def scenario() -> None:
+        app, _ = gateway(service_reader)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://127.0.0.1"
+        ) as client:
+            response = await client.get(
+                "/v1/services", headers={"Authorization": f"Bearer {TOKEN}"}
+            )
+        entries = {entry["key"]: entry for entry in response.json()["services"]}
+        assert entries["docker:photos"]["state"] == "stopped"
+        legacy = GatewayServices.model_validate(
+            {
+                **response.json(),
+                "services": [
+                    {
+                        key: value
+                        for key, value in entries["docker:photos"].items()
+                        if key != "state"
+                    }
+                ],
+            }
+        )
+        assert legacy.services[0].state == "running"
 
     asyncio.run(scenario())
 

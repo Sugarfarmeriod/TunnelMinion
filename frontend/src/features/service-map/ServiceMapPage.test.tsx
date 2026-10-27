@@ -33,6 +33,7 @@ import {
 } from "./testFixtures";
 
 const server = setupServer(
+  http.get("/api/peers", () => HttpResponse.json({ peers: [] })),
   http.get("/api/repairs", () => HttpResponse.json({ repairs: [] })),
 );
 let client: QueryClient;

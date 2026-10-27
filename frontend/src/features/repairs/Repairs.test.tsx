@@ -33,7 +33,9 @@ import { makeRun, makeThread } from "../chat/testFixtures";
 import type { RepairDetail } from "./api";
 import { finishedRepair, makeRepair } from "./testFixtures";
 
-const server = setupServer();
+const server = setupServer(
+  http.get("/api/peers", () => HttpResponse.json({ peers: [] })),
+);
 let client: QueryClient;
 let repair: RepairDetail;
 let reads: number;

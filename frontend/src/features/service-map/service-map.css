@@ -160,15 +160,13 @@
 }
 
 .map-node-position {
-  left: 24%;
   position: absolute;
-  top: 50%;
   transform: translate(-50%, -50%);
 }
 
 .map-node {
   align-items: center;
-  background: none;
+  background: var(--map-night);
   border: 0;
   color: var(--map-white);
   cursor: pointer;
@@ -213,12 +211,40 @@
 .map-node-name {
   font-size: 20px;
   margin-top: 8px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .map-node-summary {
   color: var(--map-lime);
   font-size: 14px;
   margin-top: 4px;
+}
+
+.map-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.map-link {
+  fill: none;
+  stroke: var(--map-fog);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+.map-link.is-unreachable {
+  stroke: var(--map-steel);
+  stroke-dasharray: 8 8;
+}
+.map-panel-footer p {
+  color: var(--map-fog);
+  overflow-wrap: anywhere;
 }
 
 .map-blink {

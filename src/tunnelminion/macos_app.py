@@ -549,6 +549,9 @@ def build_macos_local_application(
                 excluded_pid=os.getpid(),
                 launch_records=stores.launch_records.list_all(),
             ),
+            lambda value: peer_poller.services_view(
+                value, views.resource_bindings.coordinator_cache
+            ),
         )
     )
     app.include_router(create_memory_router(memories))

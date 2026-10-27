@@ -44,6 +44,7 @@ class PeerServiceEntry(BaseModel):
     key: str = Field(min_length=1, max_length=160)
     name: str = Field(min_length=1, max_length=80)
     kind: Literal["docker", "python", "program"]
+    state: Literal["running", "stopped"] = "running"
     mark: ServiceMark | None = None
     web_title: str | None = None
     ports: tuple[ServicePort, ...]

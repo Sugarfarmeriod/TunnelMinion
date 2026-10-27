@@ -36,6 +36,7 @@ export interface ChatRequest {
   key: number;
   threadId?: string;
   about?: ConversationAbout;
+  service?: ServiceEntry;
   question?: string;
 }
 
@@ -105,6 +106,7 @@ export function ConversationDrawer({
   services,
   nodes,
   modelStatus,
+  peerServices,
   pendingRepairs = [],
   onRepair,
 }: {
@@ -115,7 +117,8 @@ export function ConversationDrawer({
   onUnread: (threadId: string) => void;
   nodeId?: string;
   services: ServiceEntry[];
-  nodes: ResourceOverview["nodes"]["items"];
+  nodes: { node_id: string; display_name: string }[];
+  peerServices?: { node_id: string; services: ServiceEntry[] };
   modelStatus?: ResourceOverview["model"]["status"];
   pendingRepairs?: Repair[];
   onRepair?: (id: string) => void;
@@ -331,7 +334,17 @@ export function ConversationDrawer({
   }
   function contextLabel(value: ConversationAbout | ThreadContext | undefined) {
     if (!value) return undefined;
-    const service = services.find((item) => item.key === value.service_key);
+    const service =
+      (value.node_id === nodeId
+        ? services
+        : value.node_id === peerServices?.node_id
+          ? peerServices.services
+          : []
+      ).find((item) => item.key === value.service_key) ??
+      (request?.about?.node_id === value.node_id &&
+      request.about.service_key === value.service_key
+        ? request.service
+        : undefined);
     const name = "service_name" in value ? value.service_name : service?.name;
     return (
       computerName(value.node_id) +

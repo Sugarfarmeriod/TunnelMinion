@@ -62,6 +62,45 @@ class PeerServicePoller:
     def read(self, node_id: NodeId) -> PeerCache:
         return self._cache.get(str(node_id), PeerCache())
 
+    def services_view(
+        self, value: str, coordinator_cache: CoordinatorCache | None = None
+    ) -> PeerServicesView:
+        """读取已知对端的缓存，不访问网络。"""
+        peer = next(
+            (peer for peer in self.configuration.view().peers if str(peer.node_id) == value),
+            None,
+        )
+        if peer is None:
+            directory = coordinator_cache.read() if coordinator_cache is not None else None
+            if directory is not None:
+                node = next(
+                    (
+                        node
+                        for node in directory.nodes
+                        if str(node.identity.node_id) == value
+                        and node.identity.node_id != self._node_id
+                    ),
+                    None,
+                )
+                if node is not None:
+                    return PeerServicesView(
+                        node_id=node.identity.node_id,
+                        display_name=node.identity.display_name,
+                        host=None,
+                    )
+            raise HTTPException(404, "对端不存在")
+        cached = self.read(peer.node_id)
+        snapshot = cached.snapshot if cached.services_visible else None
+        return PeerServicesView(
+            node_id=peer.node_id,
+            display_name=peer.display_name or platform_display_name(peer.platform),
+            host=peer.host,
+            observed_at=snapshot.observed_at if snapshot is not None else None,
+            services=snapshot.services if snapshot is not None else (),
+            fetched_at=cached.fetched_at,
+            outcome=cached.outcome,
+        )
+
     async def refresh(self) -> None:
         if self._lock.locked():
             return
@@ -247,39 +286,7 @@ def create_peers_router(
         return PeersView(peers=(own, *peers))
 
     def peer_services(value: str) -> PeerServicesView:
-        peer = next(
-            (peer for peer in poller.configuration.view().peers if str(peer.node_id) == value),
-            None,
-        )
-        if peer is None:
-            directory = coordinator_cache.read() if coordinator_cache is not None else None
-            if directory is not None:
-                node = next(
-                    (
-                        node
-                        for node in directory.nodes
-                        if str(node.identity.node_id) == value and node.identity.node_id != node_id
-                    ),
-                    None,
-                )
-                if node is not None:
-                    return PeerServicesView(
-                        node_id=node.identity.node_id,
-                        display_name=node.identity.display_name,
-                        host=None,
-                    )
-            raise HTTPException(404, "对端不存在")
-        cached = poller.read(peer.node_id)
-        snapshot = cached.snapshot if cached.services_visible else None
-        return PeerServicesView(
-            node_id=peer.node_id,
-            display_name=peer.display_name or platform_display_name(peer.platform),
-            host=peer.host,
-            observed_at=snapshot.observed_at if snapshot is not None else None,
-            services=snapshot.services if snapshot is not None else (),
-            fetched_at=cached.fetched_at,
-            outcome=cached.outcome,
-        )
+        return poller.services_view(value, coordinator_cache)
 
     router.add_api_route("/api/peers", list_peers, response_model=PeersView)
     router.add_api_route(

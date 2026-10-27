@@ -102,6 +102,19 @@ def test_local_app_registers_guarded_routes_and_starts_and_stops_poller(
                 updated = PeersView.model_validate_json((await client.get("/api/peers")).content)
                 assert updated.peers[0].display_name == "新名字"
                 assert (await client.get(f"/api/peers/{JOINER}/services")).status_code == 200
+                headers = {"X-TunnelMinion-Request": "same-origin"}
+                thread = (await client.post("/api/threads", headers=headers)).json()
+                response = await client.post(
+                    f"/api/threads/{thread['thread_id']}/runs",
+                    headers=headers,
+                    json={
+                        "question": "看看对端服务",
+                        "tool_names": ["get_node_summary"],
+                        "about": {"node_id": str(JOINER), "service_key": "missing"},
+                    },
+                )
+                assert response.status_code == 422
+                assert "服务不在当前可见清单" in response.json()["detail"]
                 assert (
                     await client.get("/api/peers", headers={"Host": "untrusted.example"})
                 ).status_code == 403

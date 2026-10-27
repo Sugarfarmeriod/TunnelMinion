@@ -51,6 +51,7 @@ class GatewayServiceReader:
                     key=entry.key,
                     name=entry.name,
                     kind=entry.kind,
+                    state=entry.state,
                     mark=entry.mark,
                     web_title=entry.web_title,
                     ports=tuple(

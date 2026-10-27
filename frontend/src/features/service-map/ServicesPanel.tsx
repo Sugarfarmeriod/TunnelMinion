@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 
-import type { ServiceEntry } from "./api";
+import type { Peer, ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
 import type { Repair } from "../repairs/api";
+import { relativeTime } from "./topology";
 
 const kindNames = { docker: "Docker", python: "Python", program: "程序" };
 const tierNames = { show: "直接显示", review: "可能是服务", hidden: "已隐藏" };
@@ -26,6 +27,9 @@ interface ServicesPanelProps {
   askDisabled: boolean;
   pendingRepairs?: Repair[];
   onRepair?: (id: string) => void;
+  peer?: Peer;
+  remoteHost?: string | null;
+  reportedAt?: string | null;
 }
 
 export function ServicesPanel({
@@ -45,7 +49,21 @@ export function ServicesPanel({
   askDisabled,
   pendingRepairs = [],
   onRepair,
+  peer,
+  remoteHost,
+  reportedAt = null,
 }: ServicesPanelProps) {
+  const name = peer?.display_name ?? "这台电脑";
+  const message =
+    peer?.reachable === false
+      ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
+      : peer?.reachable === null
+        ? "尚未确认能否连上这台电脑。"
+        : peer?.source === "coordinator"
+          ? `只能看到数量：${peer.service_count} 个服务。`
+          : peer?.services_visible === false
+            ? "这台电脑不分享服务清单。"
+            : null;
   const [query, setQuery] = useState("");
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -227,7 +245,7 @@ export function ServicesPanel({
     >
       <header className="map-panel-head">
         <div>
-          <h3 id="local-services-title">这台电脑上的服务</h3>
+          <h3 id="local-services-title">{name}上的服务</h3>
           <p>{platformName(platform)}</p>
         </div>
         <button
@@ -305,11 +323,13 @@ export function ServicesPanel({
         tabIndex={0}
         aria-label="服务清单"
       >
-        {loading ? (
-          <p role="status">正在查看这台电脑上的程序……</p>
+        {message ? (
+          <p className="map-empty">{message}</p>
+        ) : loading ? (
+          <p role="status">正在查看{name}上的程序……</p>
         ) : loadError ? (
           <p role="alert">
-            暂时无法查看这台电脑上的服务。{" "}
+            暂时无法查看{name}上的服务。{" "}
             <button type="button" className="map-button" onClick={onRetry}>
               重试
             </button>
@@ -319,9 +339,9 @@ export function ServicesPanel({
             {search ? "没有找到匹配的服务。" : "还没有可显示的服务。"}
           </p>
         ) : (
-          <ul className="map-services" aria-label="这台电脑上的服务">
+          <ul className="map-services" aria-label={`${name}上的服务`}>
             {shown.map((service, index) => {
-              const url = serviceUrl(service);
+              const url = serviceUrl(service, remoteHost);
               const groupStart =
                 index === 0 || shown[index - 1]!.tier !== service.tier;
               return (
@@ -388,15 +408,17 @@ export function ServicesPanel({
                               打开
                             </a>
                           ) : null}
-                          <button
-                            type="button"
-                            className="map-button"
-                            disabled={busy}
-                            onClick={() => onMark(service.key, "hidden")}
-                            aria-label={`不再显示 ${service.name}`}
-                          >
-                            不再显示
-                          </button>
+                          {!peer ? (
+                            <button
+                              type="button"
+                              className="map-button"
+                              disabled={busy}
+                              onClick={() => onMark(service.key, "hidden")}
+                              aria-label={`不再显示 ${service.name}`}
+                            >
+                              不再显示
+                            </button>
+                          ) : null}
                         </>
                       ) : service.tier === "review" ? (
                         <>
@@ -459,14 +481,21 @@ export function ServicesPanel({
         </div>
       ) : null}
       <footer className="map-panel-footer">
-        <button
-          type="button"
-          className="map-button map-ask"
-          disabled={askDisabled}
-          onClick={() => onAsk()}
-        >
-          问问 这台电脑 的 Agent
-        </button>
+        {peer && !message && reportedAt ? (
+          <p>
+            清单由 {name} 报来 · {relativeTime(reportedAt)}
+          </p>
+        ) : null}
+        {!peer || peer.reachable === true ? (
+          <button
+            type="button"
+            className="map-button map-ask"
+            disabled={askDisabled}
+            onClick={() => onAsk()}
+          >
+            问问 {name} 的 Agent
+          </button>
+        ) : null}
       </footer>
     </div>
   );
