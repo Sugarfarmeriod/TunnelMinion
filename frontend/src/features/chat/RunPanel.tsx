@@ -131,6 +131,7 @@ interface RunPanelProps {
   activeRun: RunView | null;
   effectiveStatus: RunStatus | null;
   eventState: RunEventState;
+  peerName?: (nodeId: string) => string | undefined;
   cancelling: boolean;
   confirmingCancel: boolean;
   continuationBlocked: boolean;
@@ -198,6 +199,7 @@ export function RunPanel({
   activeRun,
   effectiveStatus,
   eventState,
+  peerName,
   cancelling,
   confirmingCancel,
   continuationBlocked,
@@ -329,7 +331,8 @@ export function RunPanel({
       ) : null}
       {Object.values(eventState.delegations).map((delegation) => (
         <p key={delegation.delegation_id}>
-          交给 {delegation.peer_node_id} · {delegationLabels[delegation.phase]}
+          交给 {peerName?.(delegation.peer_node_id) ?? delegation.peer_node_id}{" "}
+          · {delegationLabels[delegation.phase]}
         </p>
       ))}
       {feedback ? (

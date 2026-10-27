@@ -22,8 +22,15 @@ import {
   vi,
 } from "vitest";
 
-import { FakeEventSource, makeRun, makeThread } from "../chat/testFixtures";
-import { makeRepair } from "../repairs/testFixtures";
+import {
+  FakeEventSource,
+  makeEvent,
+  makeRun,
+  makeThread,
+} from "../chat/testFixtures";
+import { makeRepair, makeRemoteRepair } from "../repairs/testFixtures";
+import type { DelegationPhase } from "../chat/contracts";
+import { RemoteRepairDialog } from "../repairs/RemoteRepairDialog";
 import { ServiceMapPage } from "./ServiceMapPage";
 import {
   makeLocalServices,
@@ -84,6 +91,12 @@ function renderMap(
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 beforeEach(() => {
   questions = [];
+  FakeEventSource.reset();
+  Object.defineProperty(window, "innerWidth", {
+    value: 1440,
+    writable: true,
+    configurable: true,
+  });
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal(
     "ResizeObserver",
@@ -312,4 +325,247 @@ it("相对时间使用分钟、小时、天和未知时间", () => {
   expect(relativeTime("2026-10-27T07:58:00Z")).toBe("2 分钟前");
   expect(relativeTime("2026-10-27T06:00:00Z")).toBe("2 小时前");
   expect(relativeTime("2026-10-24T08:00:00Z")).toBe("3 天前");
+});
+
+async function startDelegating() {
+  fireEvent.change(screen.getByRole("textbox", { name: "想问点什么？" }), {
+    target: { value: "看看远端相册" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "问问 Agent" }));
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+  const stream = FakeEventSource.instances[0]!;
+  act(() => stream.open());
+  let sequence = 0;
+  return (phase: DelegationPhase, peer = makePeer(), id = "1") => {
+    act(() =>
+      stream.emit(
+        "delegation",
+        makeEvent(++sequence, "delegation", {
+          delegation_id: `delegation_${id.repeat(32)}`,
+          peer_node_id: peer.node_id,
+          phase,
+        }),
+      ),
+    );
+  };
+}
+
+it("委派包发出、气泡调查、回包结束清除；抽屉关闭后继续更新", async () => {
+  const { container } = renderMap();
+  await screen.findByText("测试电脑 1");
+  const emit = await startDelegating();
+  emit("submitted");
+  await screen.findByText("交给 测试电脑 1 · 已交给");
+  expect(
+    container.querySelector('.map-packet[data-phase="submitted"]'),
+  ).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "关闭对话" }));
+  emit("investigating");
+  const status = await screen.findByText("正在查……");
+  expect(status).toHaveAttribute("aria-live", "polite");
+  expect(container.querySelector(".map-thought")).not.toBeNull();
+  expect(container.querySelector(".map-packet")).toBeNull();
+  emit("answered");
+  await screen.findByText("已交回", { exact: true });
+  const packet = container.querySelector(".map-packet.is-returning")!;
+  expect(packet).not.toBeNull();
+  expect(container.querySelector(".map-thought")).not.toBeNull();
+  fireEvent(packet, new Event("webkitAnimationEnd", { bubbles: true }));
+  expect(container.querySelector(".map-thought")).toBeNull();
+  expect(container.querySelector(".map-packet")).toBeNull();
+});
+
+it.each(["failed", "cancelled"] as const)(
+  "%s 清除气泡且不发回包",
+  async (phase) => {
+    const { container } = renderMap();
+    await screen.findByText("测试电脑 1");
+    const emit = await startDelegating();
+    emit("investigating");
+    await waitFor(() =>
+      expect(container.querySelector(".map-thought")).not.toBeNull(),
+    );
+    emit(phase);
+    await waitFor(() =>
+      expect(container.querySelector(".map-thought")).toBeNull(),
+    );
+    expect(container.querySelector(".map-packet")).toBeNull();
+    expect(
+      screen.getByText(phase === "failed" ? "没查成" : "已取消", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);
+
+it("离线、未确认和未知对端不画委派", async () => {
+  const offline = makePeer(1, { reachable: false });
+  const unknown = makePeer(2, { reachable: null });
+  const { container } = renderMap([offline, unknown]);
+  await screen.findByText(offline.display_name);
+  const emit = await startDelegating();
+  for (const phase of ["submitted", "investigating", "answered"] as const) {
+    emit(phase, offline);
+    emit(phase, unknown, "2");
+    emit(phase, makePeer(3), "3");
+    await waitFor(() =>
+      expect(container.querySelector(".map-packet, .map-thought")).toBeNull(),
+    );
+  }
+  expect(screen.queryByText("正在查……")).toBeNull();
+});
+
+it("多个委派各自结束，不清除其他调查中的气泡", async () => {
+  const { container } = renderMap([makePeer(), makePeer(2)]);
+  await screen.findByText("测试电脑 2");
+  const emit = await startDelegating();
+  emit("investigating");
+  emit("submitted", makePeer(2), "2");
+  emit("investigating", makePeer(), "3");
+  await waitFor(() =>
+    expect(container.querySelectorAll(".map-thought")).toHaveLength(1),
+  );
+  emit("failed");
+  expect(container.querySelectorAll(".map-thought")).toHaveLength(1);
+  expect(container.querySelectorAll(".map-node-position")).toHaveLength(3);
+  expect(container.querySelectorAll(".map-packet")).toHaveLength(1);
+});
+
+it("减少动画时显示静态包和状态", async () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: true })),
+  );
+  const { container } = renderMap();
+  await screen.findByText("测试电脑 1");
+  const emit = await startDelegating();
+  emit("submitted");
+  await waitFor(() =>
+    expect(container.querySelector(".map-packet")).toHaveStyle({
+      animation: "none",
+    }),
+  );
+  expect(screen.getByText("已交给", { exact: true })).toBeVisible();
+  emit("investigating");
+  await screen.findByText("正在查……");
+  emit("answered");
+  await waitFor(() =>
+    expect(container.querySelector(".map-packet.is-returning")).toHaveStyle({
+      animation: "none",
+    }),
+  );
+  expect(container.querySelector(".map-thought")).toBeNull();
+});
+
+it.each([760, 320])("%ipx 列表只在对端显示委派文字", async (width) => {
+  window.innerWidth = width;
+  const { container } = renderMap();
+  await screen.findByText("测试电脑 1");
+  const emit = await startDelegating();
+  for (const phase of ["submitted", "investigating", "answered"] as const) {
+    emit(phase);
+    await waitFor(() =>
+      expect(container.querySelector(".map-packet, .map-thought")).toBeNull(),
+    );
+  }
+  expect(screen.getByText("已交回", { exact: true })).toBeVisible();
+});
+
+it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc 返回", async () => {
+  const repair = makeRemoteRepair();
+  const peer = makePeer(1, { pending_repairs: [repair] });
+  renderMap([peer]);
+  const bang = await screen.findByRole("button", {
+    name: "测试电脑 1有 1 个待批准的修复",
+  });
+  expect(screen.getByText("! 有 1 件事要在 测试电脑 1 上批准")).toBeVisible();
+  const user = userEvent.setup();
+  bang.focus();
+  await user.keyboard("{Enter}");
+  const dialog = screen.getByRole("dialog", { name: "要修好“远端相册”吗？" });
+  expect(
+    within(dialog).getByText("请到 测试电脑 1 的地图上批准"),
+  ).toBeVisible();
+  expect(within(dialog).getByText("重启远端相册")).toBeVisible();
+  expect(
+    within(dialog).getByText(
+      /10 分钟内有效 · 还剩 8:|10 分钟内有效 · 还剩 9:00/,
+    ),
+  ).toBeVisible();
+  expect(
+    within(dialog).queryByRole("button", { name: /批准并修复|先不用/ }),
+  ).toBeNull();
+  expect(dialog.querySelector("details")).not.toHaveAttribute("open");
+  await user.click(within(dialog).getByText("高级"));
+  expect(within(dialog).getByText(repair.how_to_approve)).toBeVisible();
+  within(dialog).getByRole("button", { name: "知道了" }).focus();
+  await user.tab();
+  expect(
+    within(dialog).getByRole("button", { name: "关闭修复" }),
+  ).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(bang).toHaveFocus();
+  const panel = await openPeer(peer);
+  expect(within(panel).getByText("需要处理的事")).toBeVisible();
+  await user.click(within(panel).getByRole("button", { name: "看看怎么修" }));
+  expect(screen.getByText("请到 测试电脑 1 的地图上批准")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "关闭修复" }));
+  expect(
+    screen.queryByRole("dialog", { name: "要修好“远端相册”吗？" }),
+  ).toBeNull();
+});
+
+it("远端倒计时按秒更新，过期仍可关闭，地图不再显示感叹号", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  const repair = makeRemoteRepair({
+    expires_at: new Date(Date.now() + 2_000).toISOString(),
+  });
+  renderMap([makePeer(1, { pending_repairs: [repair] })]);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "测试电脑 1有 1 个待批准的修复",
+    }),
+  );
+  expect(screen.getByText("10 分钟内有效 · 还剩 0:02")).toBeVisible();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+  expect(screen.getByText("10 分钟内有效 · 还剩 0:01")).toBeVisible();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+  expect(screen.getByText("10 分钟内有效 · 已过期")).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: /有 1 个待批准的修复/ }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "知道了" }));
+  expect(
+    screen.queryByRole("dialog", { name: "要修好“远端相册”吗？" }),
+  ).toBeNull();
+});
+
+it("已过期或终态摘要不显示远端感叹号，已打开的终态修复标为过期", async () => {
+  renderMap([
+    makePeer(1, {
+      pending_repairs: [
+        makeRemoteRepair({ status: "succeeded" }),
+        makeRemoteRepair({
+          expires_at: new Date(Date.now() - 1).toISOString(),
+        }),
+      ],
+    }),
+  ]);
+  await screen.findByText("测试电脑 1");
+  expect(
+    screen.queryByRole("button", { name: /有 .* 个待批准的修复/ }),
+  ).toBeNull();
+  cleanup();
+  render(
+    <RemoteRepairDialog
+      repair={makeRemoteRepair({ status: "authorization_expired" })}
+      name="测试电脑"
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("10 分钟内有效 · 已过期")).toBeVisible();
 });

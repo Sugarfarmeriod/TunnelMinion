@@ -25,7 +25,7 @@ interface ServicesPanelProps {
   markError: boolean;
   onAsk: (service?: ServiceEntry) => void;
   askDisabled: boolean;
-  pendingRepairs?: Repair[];
+  pendingRepairs?: Pick<Repair, "repair_id" | "action_summary">[];
   onRepair?: (id: string) => void;
   peer?: Peer;
   remoteHost?: string | null;

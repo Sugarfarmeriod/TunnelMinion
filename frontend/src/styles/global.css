@@ -32,7 +32,7 @@ a {
 .product-shell--map {
   background: #1a1c2c;
 }
-.product-shell--map > main {
+.product-shell.product-shell--map > main {
   max-width: none;
 }
 .product-shell--map .product-chrome {

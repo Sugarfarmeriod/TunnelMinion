@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requestJson } from "../../api/client";
+import { remoteRepairSchema } from "../repairs/api";
 
 export const serviceEndpointSchema = z
   .object({
@@ -71,6 +72,7 @@ export const peerSchema = z
     last_seen_at: z.string().datetime({ offset: true }).nullable(),
     services_visible: z.boolean(),
     service_count: z.number().int().nonnegative(),
+    pending_repairs: z.array(remoteRepairSchema).max(3).default([]),
   })
   .strict();
 

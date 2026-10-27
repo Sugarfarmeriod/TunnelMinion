@@ -4,6 +4,17 @@ import { requestJson } from "../../api/client";
 import { operationStatusSchema } from "../operations/schemas";
 
 const timestamp = z.string().datetime({ offset: true });
+export const remoteRepairSchema = z
+  .object({
+    repair_id: z.string().regex(/^operation_[0-9a-f]{32}$/),
+    service_name: z.string().min(1).max(120),
+    action: z.string().min(1).max(300),
+    status: z.string().min(1).max(40),
+    how_to_approve: z.string().min(1).max(500),
+    expires_at: timestamp,
+  })
+  .strict();
+export type RemoteRepair = z.infer<typeof remoteRepairSchema>;
 export const repairSchema = z.object({
   repair_id: z.string().regex(/^operation_[0-9a-f]{32}$/),
   node_id: z.string().regex(/^node_[0-9a-f]{32}$/),
@@ -96,7 +107,7 @@ export function isRepairExecuting(status: Repair["status"]) {
   );
 }
 
-export function isRepairTerminal(status: Repair["status"]) {
+export function isRepairTerminal(status: string) {
   return [
     "succeeded",
     "rolled_back",

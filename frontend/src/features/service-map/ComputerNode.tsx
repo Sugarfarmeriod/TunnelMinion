@@ -129,19 +129,20 @@ export function ComputerNode({
         </g>
       </svg>
       <span className="map-node-name">{name}</span>
-      <span className="map-node-summary">
+      <span className="map-node-summary" aria-live="polite" aria-atomic="true">
         {repairing
           ? "正在修……"
-          : pendingCount
-            ? `! 有 ${pendingCount} 件事要你批准`
-            : (status ?? (
-                <>
-                  {online ? "在线" : "离线"}
-                  {serviceCount === null
-                    ? " · 正在查看服务"
-                    : ` · ${serviceCount} 个服务`}
-                </>
-              ))}
+          : (status ??
+            (pendingCount ? (
+              `! 有 ${pendingCount} 件事要你批准`
+            ) : (
+              <>
+                {online ? "在线" : "离线"}
+                {serviceCount === null
+                  ? " · 正在查看服务"
+                  : ` · ${serviceCount} 个服务`}
+              </>
+            )))}
       </span>
     </button>
   );
