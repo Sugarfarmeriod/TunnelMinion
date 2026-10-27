@@ -252,7 +252,7 @@ test("大量服务可搜索翻页，小高度保留明显滚动提示，减少�
   await page.locator(".map-scroll").evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  await expect(dialog.getByText("▼ 下面还有")).toHaveCount(0);
+  await expect(dialog.getByText("▼ 下面还有")).not.toBeVisible();
   expect(
     await page
       .locator(".map-blink")
