@@ -11,7 +11,7 @@
 | 系统边界和长期结构 | [`../architecture.md`](../architecture.md) | 架构发生变化 |
 | 不轻易反复的技术决策 | [`../adr`](../adr) | 决策形成或被替代 |
 | 可复核的运行和评测结果 | [`../../evaluations/reports`](../../evaluations/reports) | 产生新证据 |
-| 用户安装和使用方法 | [`../../README.md`](../../README.md) 与 [`../guide`](../guide) | 用户行为变化 |
+| 用户安装和使用方法 | [`../../README.md`](../../README.md) | 用户行为变化 |
 
 `openspec/` 保留为历史记录。已经归档的 change、历史 spec 和路线图不得因停用 OpenSpec 而删除；
 从现在开始不再创建或维护新的 OpenSpec change。

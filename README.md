@@ -1,31 +1,50 @@
 # TunnelMinion
 
-TunnelMinion 是一个面向私有网络的跨平台分布式 AI Agent 平台。每个节点运行一个本地
-Agent，通过受控工具发现和诊断本机及已授权对等节点上的服务，并利用现有 WireGuard
-隧道完成跨节点通信。
+我和朋友的服务散在好几台电脑上。TunnelMinion 在每台电脑上跑一个 Agent：它认得出哪些是"我的服务"；
+服务打不开时，它会去查原因，必要时交给另一台电脑上的 Agent 去查；查清以后，主人在服务地图上点一下批准，
+它才动手修，修完自己再确认一遍。
 
-项目已经交付只读 Windows/macOS Agent MVP、人工审批的临时服务共享、统一 Prompt/Context
-Runtime，以及可恢复的 `local_only` 跨节点调查纵切。当前总流程、阶段状态和下一步统一维护在
-[《产品路线图》](docs/project/roadmap.md)，项目推进方法见
-[《项目推进方式》](docs/project/README.md)。历史 `openspec/` 内容完整保留，但不再创建新的
-OpenSpec change。
+```mermaid
+flowchart LR
+    subgraph A["我的电脑"]
+        UA["服务地图<br/>（本机网页）"] --> AA["Agent"]
+        AA --> TA["只读工具<br/>端口 / 进程 / 容器"]
+    end
+    subgraph B["另一台电脑（例如 Mac mini）"]
+        GB["网关<br/>只认配对过的电脑"] --> AB["Agent"]
+        AB --> TB["只读工具"]
+        AB --> RB["修复<br/>重启容器 / 重新拉起脚本"]
+        M["模型<br/>DeepSeek 或本机 Qwen"]
+    end
+    AA -- "委派：帮我查一下相册为什么打不开" --> GB
+    AA -. "借用模型（不用配 key）" .-> GB
+    GB -.-> M
+    RB -- "等主人在地图上点批准" --> UA
+```
 
-两台电脑上的开发者或 AI 通过 GitHub 协作时，从 `main` 开始，按
-[《跨电脑通过 GitHub 协作》](docs/project/README.md#跨电脑通过-github-协作)确认任务、文件分工和合并人。
-当前任务与讨论放在 GitHub Issue / PR，产品进度仍以总路线图为准。
+组网（WireGuard、n2n 等）默认已经连通。TunnelMinion 不负责组网，也不排查网络本身的故障。
 
-如果希望先用非框架术语理解产品、当前进度以及 FastAPI、LangChain、LangGraph 的分工，
-请阅读[《从零理解 TunnelMinion》](docs/guide/从零理解-tunnelminion.md)。
-实现边界、跨节点调用链和全部架构决策入口见[《TunnelMinion MVP 架构》](docs/architecture.md)。
-实际启动、Qwen 配置、A/B peer、排错、脱敏导出和完整卸载见
-[《A/B 开发启动与运维》](docs/guide/开发启动与运维.md)。
+## 能做什么
 
-## 直接使用 Windows/macOS 运行包
+| 你想做的事 | TunnelMinion 怎么做 | 详细说明 |
+|---|---|---|
+| 一眼看到几台电脑上各有哪些服务 | 首页是一张像素风的服务地图：电脑在不在线、每台跑着哪些服务。系统程序和桌面应用会自动藏起来，可以手动标成"是我的服务"或者"隐藏" | [`node-agents.md`](docs/design/node-agents.md)、[`map-workspace.md`](docs/design/map-workspace.md) |
+| 问"相册怎么打不开了" | 点服务旁边的"问问"，或者在地图下方直接提问，对话会从右侧滑出来。Agent 用只读工具查端口、进程、容器和日志，回答里会注明哪些结论有证据、哪些只是推断 | [`map-workspace.md`](docs/design/map-workspace.md) |
+| 让另一台电脑帮忙查 | 服务在别的电脑上时，Agent 会把问题委派给那台电脑的 Agent，由它用本机工具查完再把结论带回来。查的过程中，地图连线上能看到数据包在走 | [`delegation.md`](docs/design/delegation.md) |
+| 把服务修好 | 第一批只支持两种修法：重启 Docker 容器（或 compose 组），以及按原来的方式重新拉起已经退出的 Python 脚本。Agent 提出修法以后，电脑头上会冒出红色感叹号，点它批准才会动手，修完会自己验证 | [`agent-fix.md`](docs/design/agent-fix.md) |
+| 朋友不配模型也能用 | 朋友粘贴一个邀请码就能加入，直接借用你的模型，不需要 key，也不花钱。每天有用量上限，提供模型的一方只记用量，不保存对话内容 | [`model-borrowing.md`](docs/design/model-borrowing.md) |
+| 让 Claude Code 之类的外部 Agent 用这些工具 | `tunnelminion mcp` 把本机的只读诊断工具通过 MCP 提供出去 | [`mcp.md`](docs/design/mcp.md) |
+| 看清一次提问在几台电脑上都做了什么 | 打开 OpenTelemetry 链路追踪以后，一次提问的模型调用、工具调用和委派会串成同一条链路 | [`tracing.md`](docs/design/tracing.md) |
 
-从成功 CI 的对应平台任务下载 `runtime-package-windows-amd64` 或
-`runtime-package-macos-arm64`，先解开 artifact 外层压缩包，再解开其中的
-`runtime-package.tar`。得到的 `package/` 必须同时包含可执行文件和
-`runtime-package-manifest.json`；运行时不需要安装 Python、uv、Node.js，也不需要源码目录。
+## 快速开始
+
+### 1. 安装和运行
+
+**方式一：直接用运行包（不用装 Python 和 Node.js）**
+
+在 GitHub Actions 里找一次成功的 CI，下载对应平台的产物：`runtime-package-windows-amd64` 或
+`runtime-package-macos-arm64`。先解开下载的压缩包，再解开里面的 `runtime-package.tar`，会得到一个
+`package/` 目录，里面有可执行文件和 `runtime-package-manifest.json`。
 
 Windows PowerShell：
 
@@ -53,91 +72,170 @@ EXE="./package/tunnelminion"
 "$EXE" runtime status --profile "$PROFILE"
 ```
 
-`start` 返回后，本地组件仍在后台运行；浏览器打开
-`http://127.0.0.1:8765/app/overview`。需要停止时执行：
+`start` 返回以后，程序会继续在后台运行。用浏览器打开 `http://127.0.0.1:8765/` 就是服务地图。
+停止用 `runtime stop --profile <同一个 profile>`。目前不会开机自启，电脑重启后要再运行一次 `start`。
+如果提示 `package_invalid`，请重新下载同一次 CI 的完整运行包，不要手工拼文件。
 
-```text
-<包内可执行文件> runtime stop --profile <PROFILE>
-```
+要和别的电脑互相查、互相委派，需要同时运行网关。先按第 3 步生成或使用邀请码，然后在 `configure`
+时加上 `--enable-gateway`，再运行 `start`。
 
-首版不会注册开机或登录自启动，机器重启后需要再次手动执行 `start`。模型服务仍是外部进程；
-`model_unconfigured` 或 `model unavailable` 不会阻止本地确定性功能启动。若返回
-`package_invalid`，不要手工生成或从别处拼接清单，应重新下载同一 CI 任务的完整运行包。
+只想看看、不想让它做任何改动时，可以在 `start`、`status`、`stop` 后面都加 `--read-only-preview`。
+这个预览模式只支持本机组件：不会自动调查，也不能批准或执行任何操作，页面顶部会标着"预览模式"。
 
-只想查看本机程序与已有记录时，在 `start`、`status`、`stop` 后加 `--read-only-preview`：
+**方式二：从源码运行（开发用）**
 
-```text
-<包内可执行文件> runtime start --profile <PROFILE> --read-only-preview
-```
-
-该模式仅支持只启用 `local` 的 profile，不保存为配置。预览启动和查看状态不探测模型，后台不自动调查、
-不观察远端或启动托管网络；发送、修改、批准、执行及真实临时访问均停用。本机程序清单仍会只读刷新，
-历史记录可查看。已在运行的普通组件不会被 `start` 自动切换模式，应先停止该组件，再明确以预览方式启动；
-页面顶部会标明“预览模式”。停止后不带此参数重新启动，恢复正常模式。
-
-程序、聊天、调查和访问请求在同一个工作台处理；原来的聊天、操作网址仍可使用，不需要重新找记录。
-点开程序后选择“帮我看看”，提问会带上所选程序的连接记录。调查旁的追问沿用原调查线程，
-查看请求不丢对话草稿；聊天提问在主动发送后调用模型，正常模式后台还会调查已确认的服务变化。
-批准和执行仍须在原请求中明确确认。
-
-启用私网 Gateway 前，先按[开发启动与运维指南](docs/guide/开发启动与运维.md)完成地址、peer 和
-SecretStore 配置，把其中的 `uv run tunnelminion` 替换为包内可执行文件，再在 `runtime configure`
-后加 `--enable-gateway`。这不会修改 WireGuard、防火墙、路由或 DNS。
-
-首页会按需为 Python 服务显示启动入口，例如 `相册.py` 或 `http.server`。VS Code 等软件的终端
-直接启动脚本时也适用；文件名只说明入口，不代表已经识别业务用途。服务所在电脑临时读取启动参数，
-只返回最多 80 字符的脚本 basename 或模块名。通用的 `app.py` 可额外显示入口所在项目名；相对入口
-在本机临时结合工作目录判断，遇到一层 `src`、`app`、`backend` 或 `server` 目录时使用其上层名称。
-项目名只说明目录名称，不证明业务用途；无法确定时保留 `app.py`。完整参数和路径不保存、不外传、不交给模型；不读取
-环境变量或文件内容。普通监听查询不读取启动参数，旧版电脑、无权读取、内联代码和不支持的调试包装
-仍显示原来的 Python 归属，不影响服务记录及访问状态。
-
-首页按已确认的同一进程或 Docker 容器收拢多个连接入口，程序名称优先，端口与地址展开查看。
-同名但归属不同、归属冲突或记录过期时保持分开；每个入口的状态和调查链接仍绑定原服务。
-完整检测清单保留未知及后台项目，分组本身不增加模型调用或服务访问权限。
-自行安装目录中的普通监听程序也可自动显示名称，TCP/UDP 入口分别保留；系统目录和桌面应用包
-不因此全部进入首页。可执行路径只在本机临时用于筛选，只留下程序名；无法读取或不满足精选条件时
-仍保留技术清单中的原记录。Docker 连续发布端口与单端口使用相同的容器归属判断。
-调查、访问申请和批准确认沿用首页的程序名，具体连接入口单独标明，不因名称相同改变操作对象。
-
-## 开发环境
-
-依赖条件：
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/)
-
-安装锁定后的开发依赖：
+需要 Python 3.11+、[uv](https://docs.astral.sh/uv/)，以及 Node.js 22.14.0（用来构建网页）。
 
 ```shell
 uv sync --locked --all-groups
+uv run python scripts/prepare_frontend_dist.py --root .
+uv run tunnelminion --data-dir .data/a --port 8765
 ```
 
-运行全部本地质量门禁：
+第二条命令会安装前端依赖、构建网页，并把结果放到 `build/frontend-dist/`。
+打开 `http://127.0.0.1:8765/` 即可，按 `Ctrl+C` 停止。网关要另开一个终端运行：
+
+```shell
+uv run tunnelminion gateway --data-dir .data/a
+```
+
+本机网页只监听 `127.0.0.1`，局域网和组网里的其他电脑都访问不到。网关只监听你配置的组网地址。
+
+下面的命令统一写成 `tunnelminion ...`：用运行包时换成包里的可执行文件，从源码运行时换成
+`uv run tunnelminion ...`。数据目录不是默认位置时，记得加上同一个 `--data-dir`。
+
+### 2. 配置模型
+
+打开网页右上角"更多"里的"设置"（`/app/settings`），填写一个兼容 OpenAI 接口的模型：
+
+- **DeepSeek**：endpoint 填 `https://api.deepseek.com/v1`，模型名称填 `deepseek-chat`，再填上 API 密钥。
+- **本机模型**（例如用 llama.cpp 跑的 Qwen）：endpoint 填它的地址，例如 `http://127.0.0.1:8080/v1`。
+  没有密钥就留空。建议勾选"关闭思考模式"：实测同一个问题，本机 Qwen 从约 30 秒缩短到约 1 秒。
+
+保存前会先试调一次模型，确认它支持工具调用和结构化输出，试通过了才保存。API 密钥只存在系统钥匙串里
+（Windows 凭据管理器 / macOS 钥匙串），不会写进配置文件，也不会出现在日志里。
+
+不配模型也能看服务地图，只是不能问 Agent。
+
+### 3. 把第二台电脑加进来
+
+两台电脑之间要先能通过组网互相访问。
+
+**发邀请的电脑**（通常是配好模型的那台）：
+
+```shell
+tunnelminion invite --bind-host <本机组网地址> --allow-delegation --allow-model-borrowing
+```
+
+- `--bind-host` 只在第一次需要，告诉网关监听哪个组网地址。
+- `--allow-delegation` 允许对方把问题委派过来；`--allow-model-borrowing` 允许对方借用本机的模型。
+  两个开关默认都是关的，按需要打开。
+- `--daily-quota` 设置对方每天最多能用多少 token，默认 200000。
+
+命令会打印一行以 `tmi1_` 开头的邀请码。这个码 24 小时内有效、只能用一次，相当于一把钥匙，只发给要加入的人。
+然后启动网关，并让它一直开着。
+
+**要加入的电脑**：
+
+```shell
+tunnelminion join <邀请码>
+```
+
+它会自动找到本机的组网地址，向对方报到，然后把对方登记为配对电脑。如果对方允许借用模型、本机又还没配过模型，
+它会自动改用对方的模型并测试一次。想保留本机原来的模型，就加 `--keep-model`。加入以后，这台电脑也启动网关，
+对方就能在地图上看到它的服务。
+
+其他常用命令：
+
+| 命令 | 作用 |
+|---|---|
+| `tunnelminion node-name <名字>` | 给本机起个显示名 |
+| `tunnelminion peer-rename <节点 ID> <名字>` | 给配对的电脑改显示名 |
+| `tunnelminion model-usage` | 提供模型的一方查看今天每台电脑用了多少次、多少 token |
+| `tunnelminion repair-list` / `repair-approve --repair-id <ID>` | 在命令行查看和批准修复（备用方式，平时点地图上的感叹号就行） |
+
+### 4. 接到 Claude Code 等外部 Agent（MCP）
+
+在外部 Agent 里加一个 MCP 服务端，命令写：
+
+```shell
+tunnelminion mcp --data-dir <数据目录>
+```
+
+这个命令只通过标准输入输出通信，不会打开网络端口。只开放只读工具，比如本机服务清单、监听端口、进程、
+Docker 容器、端口探测和组网状态。委派和修复都不开放。详见 [`mcp.md`](docs/design/mcp.md)。
+
+### 5. 打开链路追踪
+
+用环境变量 `TUNNELMINION_TRACE` 控制，默认关闭：
+
+| 取值 | 效果 |
+|---|---|
+| `console` | 打印到标准错误 |
+| `file` | 写入数据目录下的 `traces.jsonl`，可以用 `TUNNELMINION_TRACE_FILE` 换一个文件 |
+| `otlp` | 发给 Jaeger 这类收集器，地址用 `OTEL_EXPORTER_OTLP_ENDPOINT` 设置 |
+
+追踪记录不包含消息内容、提示词、工具参数和输出、令牌或文件路径。详见 [`tracing.md`](docs/design/tracing.md)。
+
+### 导出与卸载
+
+- `tunnelminion export --output <文件>`：导出一份脱敏后的数据，排查问题时用。
+- `tunnelminion uninstall --confirm DELETE-TUNNELMINION-DATA`：删除 TunnelMinion 自己的数据和保存的密钥。
+
+## 安全边界
+
+- **Agent 只能用只读工具查问题。** 能看端口、进程、容器、日志和启动记录，不能执行任意命令。
+- **修复要本机批准。** 修法只有两种：重启容器和重新拉起脚本。实际执行的命令由本机代码根据服务身份拼出来，
+  模型写的文字不会进入命令。每次动手前，服务所在的电脑都要在本机网页上点批准。一次批准只修一次，10 分钟内有效；
+  动手前还会再核对一遍情况有没有变。同一个服务 1 小时内最多修 3 次，验证没通过也不会自动重试。
+- **别的电脑不能替你批准。** 另一台电脑提出的修复，必须到那台电脑的地图上批准。
+  "允许信任的电脑替我批准"正在开发中，做好以后也会默认关闭，由服务所在电脑的主人为指定电脑单独打开。
+- **只修用户自己的服务。** 系统进程和系统服务、桌面应用、TunnelMinion 自己、Docker 本身、组网、防火墙和系统设置，
+  一律不碰。也不会删数据、改文件、装软件或提权。
+- **令牌只存摘要。** 网关和发邀请的电脑只保存配对令牌的摘要；本机要用的令牌和模型 API 密钥存在系统钥匙串里；没有图形界面的会话可以用 `--secret-store restricted-file` 改存到只有本人可读的文件。
+- **委派和借用模型都要对方明确允许**，而且两个开关默认都是关的。借用模型有每日额度，提供方只记用量，不存内容。
+- **网络边界。** 本机网页只监听 `127.0.0.1`。网关只监听配置好的组网地址，必须是私有网段地址，
+  不能是环回地址、`0.0.0.0` 或公网地址。
+
+更完整的威胁分析见 [`docs/security/`](docs/security)。
+
+## 开发
+
+### 质量门禁
 
 ```shell
 uv run python scripts/quality.py all
 ```
 
-也可以分别执行 `format`、`lint`、`typecheck` 和 `test`：
+这条命令依次做格式、lint、类型检查和测试；也可以单独跑其中一项：`format`、`lint`、`typecheck`、`test`。
+前端在 `frontend/` 目录下：
 
 ```shell
-uv run python scripts/quality.py format
-uv run python scripts/quality.py test
+npm --prefix frontend ci
+npm --prefix frontend run typecheck
+npm --prefix frontend test
 ```
 
-## 启动当前 Windows 资源页
+### 目录结构
 
-```shell
-uv run tunnelminion --data-dir .data/a --port 8765
-```
+| 目录 | 内容 |
+|---|---|
+| `src/tunnelminion/agent/` | Agent 循环、委派、邀请与加入、服务识别 |
+| `src/tunnelminion/tools/`、`platforms/` | 工具注册与执行通道；Windows / macOS 只读适配器 |
+| `src/tunnelminion/gateway/` | 电脑之间的网关：认证、服务清单、委派、模型借用 |
+| `src/tunnelminion/repair/` | 修复：提出、批准、执行、验证 |
+| `src/tunnelminion/model/` | 模型配置、OpenAI 兼容接口、借用的远端模型 |
+| `src/tunnelminion/web/` | 本机网页的后端接口 |
+| `src/tunnelminion/mcp_server.py`、`telemetry.py` | MCP 服务端、链路追踪 |
+| `frontend/` | 网页（React），服务地图在 `src/features/service-map/` |
+| `tests/` | 自动测试 |
+| `evaluations/` | 固定口径的评测数据和报告 |
 
-浏览器打开 `http://127.0.0.1:8765/chat` 使用本地聊天页，打开
-`http://127.0.0.1:8765/resources` 查看本机只读资源，打开
-`http://127.0.0.1:8765/memories` 管理长期记忆，或打开
-`http://127.0.0.1:8765/api/docs` 查看模型配置、thread/run、记忆与资源 API。服务固定绑定环回
-地址，不会直接暴露到局域网或 WireGuard 网络。
+### 文档
 
-默认运行仍将现有 WireGuard 网络视为用户基础设施。仓库包含受管网络 Provider、离线 fake
-门禁和一次隔离的真实 A/B 验收证据，但每次真实写入仍必须使用独立接口、完整回滚计划并获得
-单独明确授权；普通开发命令和测试不得创建、修改或删除现有 WireGuard 配置。
+- [`docs/project/roadmap.md`](docs/project/roadmap.md)：路线图，包括现在做到哪、下一步做什么。
+- [`docs/design/`](docs/design)：每项能力的设计和真机验收记录。
+- [`docs/architecture.md`](docs/architecture.md)：整体架构和各部分的边界。
+- [`docs/adr/`](docs/adr)：重要技术决策。
+- [`docs/project/README.md`](docs/project/README.md)：项目推进方式，以及两台电脑通过 GitHub 协作的方法。
+- 协作约定（分支命名、提交格式等）见 [`AGENTS.md`](AGENTS.md)。
