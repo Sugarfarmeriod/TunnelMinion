@@ -12,7 +12,15 @@ import binascii
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    ValidationError,
+    model_serializer,
+)
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
@@ -58,6 +66,18 @@ class InvitePermissions(BaseModel):
     allow_delegation: bool = False
     allow_model_borrowing: bool = False
     daily_quota: int = Field(default=DEFAULT_DAILY_TOKEN_QUOTA, ge=1, le=100_000_000)
+    # 是否允许加入方替邀请方批准修复；默认关闭。
+    allow_proxy_repair_approval: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_disabled_proxy_approval(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        """关闭时不写出这个字段，旧版本仍能读懂不含代批准的邀请码和配对回执。"""
+        data: dict[str, object] = handler(self)
+        if not self.allow_proxy_repair_approval:
+            data.pop("allow_proxy_repair_approval", None)
+        return data
 
 
 class InviteCode(BaseModel):

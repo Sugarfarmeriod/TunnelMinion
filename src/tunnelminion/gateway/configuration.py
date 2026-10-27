@@ -85,6 +85,8 @@ class GatewayPeerConfig(BaseModel):
     allow_delegation: bool = False
     # 是否允许这个对端借用本机配置的模型；默认关闭，由本机明确打开。
     allow_model_borrowing: bool = False
+    # 是否允许这个对端替本机批准本机提出的修复；默认关闭，只能在本机配置里打开。
+    allow_proxy_repair_approval: bool = False
     # 允许借用时，这个对端每天最多能用的 token 数。
     daily_quota: int = Field(default=DEFAULT_DAILY_TOKEN_QUOTA, ge=1, le=100_000_000)
 
@@ -132,6 +134,7 @@ class GatewayPeerView(BaseModel):
     allowed_operations: frozenset[str]
     allow_delegation: bool = False
     allow_model_borrowing: bool = False
+    allow_proxy_repair_approval: bool = False
     daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA
     credential_configured: bool
 
