@@ -11,7 +11,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import NodeId
-from tunnelminion.domain.invites import DisplayName
+from tunnelminion.domain.invites import DisplayName, platform_display_name
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.security import (
@@ -85,6 +85,8 @@ class GatewayPeerConfig(BaseModel):
     allow_delegation: bool = False
     # 是否允许这个对端借用本机配置的模型；默认关闭，由本机明确打开。
     allow_model_borrowing: bool = False
+    # 是否允许这个对端替本机批准本机提出的修复；默认关闭，只能在本机配置里打开。
+    allow_proxy_repair_approval: bool = False
     # 允许借用时，这个对端每天最多能用的 token 数。
     daily_quota: int = Field(default=DEFAULT_DAILY_TOKEN_QUOTA, ge=1, le=100_000_000)
 
@@ -132,6 +134,7 @@ class GatewayPeerView(BaseModel):
     allowed_operations: frozenset[str]
     allow_delegation: bool = False
     allow_model_borrowing: bool = False
+    allow_proxy_repair_approval: bool = False
     daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA
     credential_configured: bool
 
@@ -304,6 +307,7 @@ class GatewayConfigurationService:
                 allowed_operations=item.allowed_operations,
                 allow_delegation=item.allow_delegation,
                 allow_model_borrowing=item.allow_model_borrowing,
+                allow_proxy_repair_approval=item.allow_proxy_repair_approval,
                 daily_quota=item.daily_quota,
                 credential_configured=(
                     self._secrets.get(gateway_token_name(item.node_id)) is not None
@@ -327,6 +331,31 @@ class GatewayConfigurationService:
             if operation_name in peer.allowed_operations
             and peer.platform is not None
             and peer.credential_configured
+        )
+
+    def set_proxy_repair_approval(self, node_id: NodeId, allowed: bool) -> GatewayConfigurationView:
+        """只修改本机保存的代批准开关，运行中的策略在重启后生效。"""
+        config = self._repository.load()
+        if config is None or not any(peer.node_id == node_id for peer in config.peers):
+            raise KeyError("gateway_peer_not_found")
+        peers = tuple(
+            peer.model_copy(update={"allow_proxy_repair_approval": allowed})
+            if peer.node_id == node_id
+            else peer
+            for peer in config.peers
+        )
+        self._repository.save(config.model_copy(update={"peers": peers}))
+        return self.view()
+
+    def peer_display_name(self, node_id: NodeId) -> str:
+        """只采用本机保存的对端名字，未命名时使用平台名称。"""
+        return next(
+            (
+                peer.display_name or platform_display_name(peer.platform)
+                for peer in self.view().peers
+                if peer.node_id == node_id
+            ),
+            platform_display_name(None),
         )
 
     def resolve_tool_peer(
@@ -449,6 +478,7 @@ class GatewayConfigurationService:
                     source_host=peer.host,
                     allow_delegation=peer.allow_delegation,
                     allow_model_borrowing=peer.allow_model_borrowing,
+                    allow_proxy_repair_approval=peer.allow_proxy_repair_approval,
                     daily_quota=peer.daily_quota,
                 )
             )

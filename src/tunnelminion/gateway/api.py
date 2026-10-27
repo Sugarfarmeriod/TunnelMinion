@@ -11,7 +11,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Header, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Header, Query, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from opentelemetry.trace import SpanKind
@@ -19,7 +19,7 @@ from starlette.responses import Response
 
 from tunnelminion.domain.delegation import DelegationBusyError, DelegationRecord, DelegationRequest
 from tunnelminion.domain.errors import ErrorCode, ToolError
-from tunnelminion.domain.identifiers import DelegationId, NodeId
+from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId
 from tunnelminion.domain.invites import InviteAcceptance, InviteAccepted
 from tunnelminion.domain.model_borrowing import BorrowedModelCall, BorrowedModelResult
 from tunnelminion.domain.tools import Platform, RiskLevel
@@ -32,6 +32,7 @@ from tunnelminion.gateway.contracts import (
     GatewayErrorCode,
     GatewayErrorResponse,
     GatewayServices,
+    PeerRepairView,
     RemoteOperationExecution,
     RemoteOperationResult,
     RemoteOperationSubmission,
@@ -41,6 +42,9 @@ from tunnelminion.gateway.contracts import (
 from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
 from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.operation.contracts import OperationSummary
+from tunnelminion.repair.contracts import RepairRecord
+from tunnelminion.repair.peer_view import peer_repair_view
+from tunnelminion.repair.service import ProxyRepairApprover, RepairService
 from tunnelminion.telemetry import extract_context, set_status, span
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -162,6 +166,8 @@ def create_gateway_router(
     model_lending_service: ModelLendingService | None = None,
     invite_service: InviteService | None = None,
     service_reader: Callable[[], Awaitable[GatewayServices]] | None = None,
+    repair_service: RepairService | None = None,
+    peer_display_name: Callable[[NodeId], str] | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
     router = APIRouter(route_class=_TracedGatewayRoute)
@@ -736,6 +742,120 @@ def create_gateway_router(
         record = await service.cancel(identifier, peer.node_id) if identifier is not None else None
         return record if record is not None else not_found("delegation_cancel", peer)
 
+    def repair_access(
+        repair_id: str, authorization: str | None, action: str
+    ) -> tuple[GatewayPeerPolicy, RepairService, RepairRecord] | JSONResponse:
+        peer = authenticate(authorization, action)
+        if isinstance(peer, JSONResponse):
+            return peer
+        if repair_service is None:
+            return reject(
+                503, GatewayErrorCode.REPAIR_UNAVAILABLE, "本机修复暂不可用", action, peer
+            )
+        if not peer.allow_proxy_repair_approval:
+            return reject(
+                403,
+                GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED,
+                "本机没有允许这台电脑替它批准修复",
+                action,
+                peer,
+            )
+        try:
+            identifier = OperationId(repair_id)
+        except ValueError:
+            identifier = None
+        record = repair_service.get(identifier) if identifier is not None else None
+        if record is None or record.plan.node_id != node_id:
+            return reject(404, GatewayErrorCode.REPAIR_NOT_FOUND, "修复不存在", action, peer)
+        return peer, repair_service, record
+
+    def repair_response(
+        record: RepairRecord, action: str, peer: GatewayPeerPolicy
+    ) -> PeerRepairView | JSONResponse:
+        result = peer_repair_view(record)
+        if len(result.model_dump_json().encode()) > security_policy.limits.max_response_bytes:
+            return reject(
+                413,
+                GatewayErrorCode.RESPONSE_TOO_LARGE,
+                "修复状态超过响应预算",
+                action,
+                peer,
+            )
+        return result
+
+    async def repair_status(
+        repair_id: str, authorization: Annotated[str | None, Header()] = None
+    ) -> PeerRepairView | JSONResponse:
+        action = "repair_status"
+        allowed = repair_access(repair_id, authorization, action)
+        if isinstance(allowed, JSONResponse):
+            return allowed
+        peer, _service, record = allowed
+        return repair_response(record, action, peer)
+
+    def decide_repair(
+        repair_id: str,
+        authorization: str | None,
+        action: str,
+        background: BackgroundTasks,
+    ) -> PeerRepairView | JSONResponse:
+        allowed = repair_access(repair_id, authorization, action)
+        if isinstance(allowed, JSONResponse):
+            return allowed
+        peer, service, record = allowed
+        approver = ProxyRepairApprover(
+            peer.node_id, peer_display_name(peer.node_id) if peer_display_name else "电脑"
+        )
+        try:
+            if action == "repair_approve":
+                record = service.approve(
+                    record.plan.operation_id, operator="gateway", proxy_approver=approver
+                )
+                background.add_task(service.execute, record.plan.operation_id)
+            else:
+                record = service.reject(
+                    record.plan.operation_id,
+                    operator="gateway",
+                    reason=None,
+                    proxy_approver=approver,
+                )
+        except ValueError:
+            return reject(
+                409,
+                GatewayErrorCode.REPAIR_STATE_CONFLICT,
+                "这个修复现在不等批准",
+                action,
+                peer,
+            )
+        return repair_response(record, action, peer)
+
+    async def repair_approve(
+        repair_id: str,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> PeerRepairView | JSONResponse:
+        return decide_repair(repair_id, authorization, "repair_approve", background)
+
+    async def repair_reject(
+        repair_id: str,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> PeerRepairView | JSONResponse:
+        return decide_repair(repair_id, authorization, "repair_reject", background)
+
+    router.add_api_route(
+        "/v1/repairs/{repair_id}", repair_status, methods=["GET"], response_model=None
+    )
+    router.add_api_route(
+        "/v1/repairs/{repair_id}:approve",
+        repair_approve,
+        methods=["POST"],
+        status_code=202,
+        response_model=None,
+    )
+    router.add_api_route(
+        "/v1/repairs/{repair_id}:reject", repair_reject, methods=["POST"], response_model=None
+    )
     router.add_api_route("/v1/services", services, methods=["GET"], response_model=None)
     router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(

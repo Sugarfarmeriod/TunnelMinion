@@ -101,9 +101,61 @@ export function decideRepair(id: string, action: "approve" | "reject") {
   );
 }
 
-export function isRepairExecuting(status: Repair["status"]) {
+export function isRepairExecuting(status: string) {
   return ["authorized", "executing", "verifying", "rolling_back"].includes(
     status,
+  );
+}
+
+export const peerRepairSchema = z.object({
+  repair_id: remoteRepairSchema.shape.repair_id,
+  node_id: repairSchema.shape.node_id,
+  service_name: z.string(),
+  kind: z.string(),
+  status: z.string(),
+  action_summary: z.string(),
+  reason: z.string(),
+  impact_summary: z.string(),
+  verification_summary: z.string(),
+  failure_summary: z.string(),
+  created_at: timestamp,
+  updated_at: timestamp,
+  approval_expires_at: timestamp.nullable(),
+  approved_by_peer: z.boolean().nullable(),
+  verification_passed: z.boolean().nullable(),
+  error_code: z.string().nullable(),
+  error_message: z.string().nullable(),
+});
+
+export const peerRepairAccessSchema = z.object({
+  node_id: repairSchema.shape.node_id,
+  repair_id: remoteRepairSchema.shape.repair_id,
+  access: z.enum(["allowed", "not_allowed", "not_found", "unreachable"]),
+  repair: peerRepairSchema.nullable(),
+});
+export type PeerRepair = z.infer<typeof peerRepairSchema>;
+
+export function loadPeerRepair(
+  nodeId: string,
+  repairId: string,
+  signal?: AbortSignal,
+) {
+  return requestJson(
+    `/api/peers/${encodeURIComponent(nodeId)}/repairs/${encodeURIComponent(repairId)}`,
+    peerRepairAccessSchema,
+    { signal },
+  );
+}
+
+export function decidePeerRepair(
+  nodeId: string,
+  repairId: string,
+  action: "approve" | "reject",
+) {
+  return requestJson(
+    `/api/peers/${encodeURIComponent(nodeId)}/repairs/${encodeURIComponent(repairId)}/${action}`,
+    peerRepairAccessSchema,
+    { method: "POST" },
   );
 }
 

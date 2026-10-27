@@ -62,6 +62,36 @@ class GatewayServices(BaseModel):
     pending_repair_ids: tuple[OperationId, ...] = ()
 
 
+class PeerRepairView(BaseModel):
+    """给获准代批准的对端看的修复摘要，只出现在 /v1/repairs 接口里。
+
+    不含命令、路径和启动参数；修法种类、状态和错误码用字符串，读取方忽略未知字段，
+    这样提供方新增修法或字段时，旧版本的读取方仍能显示。
+    """
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    repair_id: OperationId
+    node_id: NodeId
+    service_name: str = Field(min_length=1, max_length=120)
+    kind: str = Field(min_length=1, max_length=40)
+    status: str = Field(min_length=1, max_length=40)
+    action_summary: str = Field(min_length=1, max_length=300)
+    reason: str = Field(min_length=1, max_length=500)
+    impact_summary: str = Field(min_length=1, max_length=500)
+    verification_summary: str = Field(min_length=1, max_length=300)
+    failure_summary: str = Field(min_length=1, max_length=300)
+    created_at: datetime
+    updated_at: datetime
+    # 仍在等批准时是批准截止时间，其余状态为空。
+    approval_expires_at: datetime | None = None
+    # 这次修复是否由对端代为批准；等批准或被拒绝时为空。
+    approved_by_peer: bool | None = None
+    verification_passed: bool | None = None
+    error_code: str | None = Field(default=None, max_length=40)
+    error_message: str | None = Field(default=None, max_length=500)
+
+
 class GatewayErrorCode(StrEnum):
     """传输和版本协商层的稳定错误码。"""
 
@@ -86,6 +116,10 @@ class GatewayErrorCode(StrEnum):
     MODEL_BUSY = "model_busy"
     MODEL_CALL_FAILED = "model_call_failed"
     INVITE_INVALID = "invite_invalid"
+    REPAIR_APPROVAL_NOT_ALLOWED = "repair_approval_not_allowed"
+    REPAIR_NOT_FOUND = "repair_not_found"
+    REPAIR_STATE_CONFLICT = "repair_state_conflict"
+    REPAIR_UNAVAILABLE = "repair_unavailable"
 
 
 class GatewayError(BaseModel):

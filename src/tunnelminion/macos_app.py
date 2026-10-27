@@ -715,6 +715,8 @@ def build_macos_gateway_application(
             delegation_service,
             model_lending_service,
             invite_service=invite_service,
+            repair_service=node.repair_service,
+            peer_display_name=gateway_service.peer_display_name,
             service_reader=GatewayServiceReader(
                 node.node_id,
                 lambda: load_node_name(node.root, Platform.MACOS),

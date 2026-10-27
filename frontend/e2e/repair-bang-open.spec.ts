@@ -19,6 +19,16 @@ for (const width of [1440, 320]) {
       await page.route("**/api/peers", (route) =>
         route.fulfill({ json: { peers: [peer] } }),
       );
+      await page.route("**/api/peers/*/repairs/*", (route) =>
+        route.fulfill({
+          json: {
+            node_id: peer.node_id,
+            repair_id: peer.pending_repairs[0]!.repair_id,
+            access: "not_allowed",
+            repair: null,
+          },
+        }),
+      );
       await page.route("**/api/repairs", (route) =>
         route.fulfill({ json: { repairs: [repair] } }),
       );

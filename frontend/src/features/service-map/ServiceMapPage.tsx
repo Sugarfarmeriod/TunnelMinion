@@ -661,6 +661,7 @@ export function ServiceMapPage() {
       ) : null}
       {remoteRepair ? (
         <RemoteRepairDialog
+          nodeId={remoteRepair.peer.node_id}
           repair={remoteRepair.repair}
           name={remoteRepair.peer.display_name}
           onClose={() => setRemoteRepair(null)}
