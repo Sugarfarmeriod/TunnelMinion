@@ -265,7 +265,7 @@ def test_factories_feed_remote_changes_to_normal_incident_observer(
         await captured[0].observe_once()
 
     asyncio.run(run())
-    assert model_calls == int(initial == "10.77.0.1")
+    assert model_calls == 0
     from fastapi.testclient import TestClient
 
     client: Any

@@ -432,9 +432,11 @@ def test_windows_factory_binds_configured_coordinator_and_real_path_views(
     assert overview["network_path"]["handshake"]["status"] == "passed"
 
 
+@pytest.mark.parametrize("shown", [False, True])
 def test_windows_default_runtime_observes_local_services_before_incident_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    shown: bool,
 ) -> None:
     services = [local_service("service_11111111111111111111111111111111", 18081)]
     observations = 0
@@ -446,6 +448,7 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         return ServiceObservationSnapshot(
             observed_at=datetime.now(UTC),
             services=tuple(services),
+            display_names={str(item.service_id): "测试服务" for item in services} if shown else {},
         )
 
     def unavailable(_self: ModelConfigurationService) -> None:
@@ -488,9 +491,16 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         assert len(client.portal.call(observer.observe_once).incidents) == 1
         assert observations == 4
 
+        async def finish_investigations() -> None:
+            await asyncio.gather(*observer._active.values())  # pyright: ignore[reportPrivateUsage]
+
+        client.portal.call(finish_investigations)
+
         overview = client.get("/api/resources/overview").json()
-        assert overview["incidents"]["items"][0]["status"] == "investigation_unavailable"
-        assert model_calls == 1
+        assert overview["incidents"]["items"][0]["status"] == (
+            "investigation_unavailable" if shown else "pending"
+        )
+        assert model_calls == int(shown)
 
 
 def test_windows_managed_runtime_does_not_build_second_service_observer(
