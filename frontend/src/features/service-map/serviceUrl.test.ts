@@ -4,6 +4,18 @@ import { serviceUrl } from "./serviceUrl";
 import { makeService } from "./testFixtures";
 
 describe("服务打开地址", () => {
+  it("远端使用对端主机，缺少地址时不给打开入口", () => {
+    expect(serviceUrl(makeService(), "192.0.2.42")).toBe(
+      "http://192.0.2.42:8787",
+    );
+    expect(serviceUrl(makeService(), "2001:db8::42")).toBe(
+      "http://[2001:db8::42]:8787",
+    );
+    expect(serviceUrl(makeService(), "127.0.0.2")).toBe(
+      "http://127.0.0.2:8787",
+    );
+    expect(serviceUrl(makeService(), null)).toBeNull();
+  });
   it.each([
     "0.0.0.0",
     "::",

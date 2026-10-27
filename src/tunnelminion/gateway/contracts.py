@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.domain.errors import ToolError
 from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId, ToolRunId
+from tunnelminion.domain.invites import DisplayName
+from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.domain.tools import Platform, ToolDefinition
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.operation.contracts import (
@@ -20,6 +24,41 @@ from tunnelminion.operation.contracts import (
 from tunnelminion.tools.contracts import ToolExecutionStatus
 
 GATEWAY_PROTOCOL = ProtocolVersion(major=1, minor=0)
+
+
+class ServicePort(BaseModel):
+    """对外只提供端口，不提供监听地址。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    port: int = Field(ge=1, le=65535)
+    protocol: Literal["tcp", "udp"]
+    has_web_page: bool | None = None
+
+
+class PeerServiceEntry(BaseModel):
+    """对端允许展示的一项服务。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=80)
+    kind: Literal["docker", "python", "program"]
+    state: Literal["running", "stopped"] = "running"
+    mark: ServiceMark | None = None
+    web_title: str | None = None
+    ports: tuple[ServicePort, ...]
+
+
+class GatewayServices(BaseModel):
+    """经本机筛选后的服务快照。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: NodeId
+    display_name: DisplayName
+    observed_at: datetime
+    services: tuple[PeerServiceEntry, ...] = ()
 
 
 class GatewayErrorCode(StrEnum):

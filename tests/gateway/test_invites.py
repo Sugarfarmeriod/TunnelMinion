@@ -151,7 +151,7 @@ def test_create_round_trip_and_accept_updates_the_running_gateway(harness: Invit
     )
     assert response.status_code == 200
     assert InviteAccepted.model_validate(response.json()) == InviteAccepted(
-        inviter_node_id=LOCAL, permissions=PERMISSIONS
+        inviter_node_id=LOCAL, inviter_display_name="Windows 电脑", permissions=PERMISSIONS
     )
     peer = harness.configuration.view().peers[0]
     assert (peer.node_id, peer.platform, peer.host, peer.port) == (

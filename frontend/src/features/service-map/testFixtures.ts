@@ -1,5 +1,5 @@
 import type { ResourceOverview } from "../../api/schemas/overview";
-import type { LocalServices, ServiceEntry } from "./api";
+import type { LocalServices, Peer, PeerServices, ServiceEntry } from "./api";
 
 export function makeService(
   overrides: Partial<ServiceEntry> = {},
@@ -72,5 +72,46 @@ export function makeMapOverview(
     nodes: { ...section, items: [] },
     services: { ...section, items: [] },
     incidents: { ...section, items: [] },
+  };
+}
+
+export function makePeer(index = 1, overrides: Partial<Peer> = {}): Peer {
+  return {
+    node_id: `node_${index.toString(16).padStart(32, "0")}`,
+    display_name: `测试电脑 ${index}`,
+    platform: "macos",
+    is_local: false,
+    source: "gateway",
+    reachable: true,
+    last_seen_at: "2026-10-27T08:00:00Z",
+    services_visible: true,
+    service_count: 1,
+    ...overrides,
+  };
+}
+
+export function makePeerServices(
+  peer = makePeer(),
+  overrides: Partial<PeerServices> = {},
+): PeerServices {
+  return {
+    node_id: peer.node_id,
+    display_name: peer.display_name,
+    host: "192.0.2.42",
+    observed_at: "2026-10-27T08:00:00Z",
+    fetched_at: "2026-10-27T08:00:01Z",
+    outcome: "ok",
+    services: [
+      {
+        key: "python:app.py",
+        name: "远端相册",
+        kind: "python",
+        state: "running",
+        mark: null,
+        web_title: null,
+        ports: [{ protocol: "tcp", port: 8080, has_web_page: true }],
+      },
+    ],
+    ...overrides,
   };
 }

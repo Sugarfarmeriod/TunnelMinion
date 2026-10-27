@@ -10,8 +10,9 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime, timedelta
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
@@ -21,6 +22,28 @@ from tunnelminion.domain.tools import Platform
 INVITE_CODE_PREFIX = "tmi1_"
 # 邀请码的有效期。
 INVITE_LIFETIME = timedelta(hours=24)
+
+
+def validate_display_name(value: str) -> str:
+    """显示名只能是非空的单行可打印文本。"""
+    if not value.strip() or not value.isprintable():
+        raise ValueError("显示名须为 1-40 个字符的单行纯文本")
+    return value
+
+
+DisplayName = Annotated[
+    str, Field(min_length=1, max_length=40), AfterValidator(validate_display_name)
+]
+
+
+def platform_display_name(platform: Platform | None) -> str:
+    """默认名字只取平台，不读取主机名。"""
+    return {
+        Platform.WINDOWS: "Windows 电脑",
+        Platform.MACOS: "Mac",
+        Platform.LINUX: "Linux 电脑",
+        None: "电脑",
+    }[platform]
 
 
 class InvalidInviteCodeError(ValueError):
@@ -79,6 +102,7 @@ class InviteAcceptance(BaseModel):
 
     node_id: NodeId
     platform: Platform
+    display_name: DisplayName | None = None
     host: str
     port: int = Field(ge=1024, le=65535)
 
@@ -89,4 +113,5 @@ class InviteAccepted(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     inviter_node_id: NodeId
+    inviter_display_name: DisplayName | None = None
     permissions: InvitePermissions

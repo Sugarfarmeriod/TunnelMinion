@@ -62,6 +62,7 @@ interface ComputerNodeProps {
   onClick: () => void;
   repairing?: boolean;
   pendingCount?: number;
+  status?: string;
 }
 
 export function ComputerNode({
@@ -74,6 +75,7 @@ export function ComputerNode({
   onClick,
   repairing = false,
   pendingCount = 0,
+  status,
 }: ComputerNodeProps) {
   const kind = platform === "macos" ? "mini" : "desktop";
   return (
@@ -128,18 +130,18 @@ export function ComputerNode({
       </svg>
       <span className="map-node-name">{name}</span>
       <span className="map-node-summary">
-        {repairing ? (
-          "正在修……"
-        ) : pendingCount ? (
-          `! 有 ${pendingCount} 件事要你批准`
-        ) : (
-          <>
-            {online ? "在线" : "离线"}
-            {serviceCount === null
-              ? " · 正在查看服务"
-              : ` · ${serviceCount} 个服务`}
-          </>
-        )}
+        {repairing
+          ? "正在修……"
+          : pendingCount
+            ? `! 有 ${pendingCount} 件事要你批准`
+            : (status ?? (
+                <>
+                  {online ? "在线" : "离线"}
+                  {serviceCount === null
+                    ? " · 正在查看服务"
+                    : ` · ${serviceCount} 个服务`}
+                </>
+              ))}
       </span>
     </button>
   );
