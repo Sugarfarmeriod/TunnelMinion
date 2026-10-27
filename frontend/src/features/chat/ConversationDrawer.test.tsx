@@ -44,7 +44,9 @@ import {
   timestamp,
 } from "./testFixtures";
 
-const server = setupServer();
+const server = setupServer(
+  http.get("/api/repairs", () => HttpResponse.json({ repairs: [] })),
+);
 let client: QueryClient;
 let threads: ThreadDetail[];
 let runs: Record<string, RunView>;

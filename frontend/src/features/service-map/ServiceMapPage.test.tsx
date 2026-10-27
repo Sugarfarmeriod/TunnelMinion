@@ -32,7 +32,9 @@ import {
   makeService,
 } from "./testFixtures";
 
-const server = setupServer();
+const server = setupServer(
+  http.get("/api/repairs", () => HttpResponse.json({ repairs: [] })),
+);
 let client: QueryClient;
 
 function renderMap(
@@ -130,7 +132,7 @@ describe("服务地图页面", () => {
     expect(reads).toHaveBeenCalledTimes(2);
   });
 
-  it("三个档位保持接口顺序，隐藏项默认折叠，显示类型、端口和正确按钮", async () => {
+  it("打不开的服务排在正常服务前，隐藏项默认折叠，显示类型、端口和正确按钮", async () => {
     renderMap(
       makeLocalServices([
         makeService({ key: "program:z", name: "Z 服务", kind: "program" }),
@@ -165,7 +167,7 @@ describe("服务地图页面", () => {
       within(dialog)
         .getAllByRole("listitem")
         .map((item) => item.querySelector(".map-service-name")?.textContent),
-    ).toEqual(["Z 服务", "A 服务", "待确认程序"]);
+    ).toEqual(["A 服务", "Z 服务", "待确认程序"]);
     expect(within(dialog).getByText("Docker · 444")).toBeVisible();
     expect(within(dialog).getByText("Python · 8787")).toBeVisible();
     expect(

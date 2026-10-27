@@ -60,6 +60,8 @@ interface ComputerNodeProps {
   selected: boolean;
   buttonRef: Ref<HTMLButtonElement>;
   onClick: () => void;
+  repairing?: boolean;
+  pendingCount?: number;
 }
 
 export function ComputerNode({
@@ -70,13 +72,15 @@ export function ComputerNode({
   selected,
   buttonRef,
   onClick,
+  repairing = false,
+  pendingCount = 0,
 }: ComputerNodeProps) {
   const kind = platform === "macos" ? "mini" : "desktop";
   return (
     <button
       ref={buttonRef}
       type="button"
-      className={`map-node${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`}
+      className={`map-node${selected ? " is-selected" : ""}${online ? "" : " is-offline"}${repairing ? " is-repairing" : ""}`}
       aria-label={`${name}，${online ? "在线" : "离线"}，${serviceCount === null ? "正在查看服务" : `${serviceCount} 个服务`}`}
       aria-haspopup="dialog"
       aria-expanded={selected}
@@ -124,10 +128,18 @@ export function ComputerNode({
       </svg>
       <span className="map-node-name">{name}</span>
       <span className="map-node-summary">
-        {online ? "在线" : "离线"}
-        {serviceCount === null
-          ? " · 正在查看服务"
-          : ` · ${serviceCount} 个服务`}
+        {repairing ? (
+          "正在修……"
+        ) : pendingCount ? (
+          `! 有 ${pendingCount} 件事要你批准`
+        ) : (
+          <>
+            {online ? "在线" : "离线"}
+            {serviceCount === null
+              ? " · 正在查看服务"
+              : ` · ${serviceCount} 个服务`}
+          </>
+        )}
       </span>
     </button>
   );

@@ -4,6 +4,7 @@ import type { CSSProperties, RefObject } from "react";
 import type { ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
+import type { Repair } from "../repairs/api";
 
 const kindNames = { docker: "Docker", python: "Python", program: "程序" };
 const tierNames = { show: "直接显示", review: "可能是服务", hidden: "已隐藏" };
@@ -23,6 +24,8 @@ interface ServicesPanelProps {
   markError: boolean;
   onAsk: (service?: ServiceEntry) => void;
   askDisabled: boolean;
+  pendingRepairs?: Repair[];
+  onRepair?: (id: string) => void;
 }
 
 export function ServicesPanel({
@@ -40,6 +43,8 @@ export function ServicesPanel({
   markError,
   onAsk,
   askDisabled,
+  pendingRepairs = [],
+  onRepair,
 }: ServicesPanelProps) {
   const [query, setQuery] = useState("");
   const [hiddenOpen, setHiddenOpen] = useState(false);
@@ -56,20 +61,32 @@ export function ServicesPanel({
     (service) => service.tier === "hidden",
   ).length;
   const search = query.trim().toLowerCase();
-  const filtered = services.filter(
-    (service) =>
-      (service.tier !== "hidden" || hiddenOpen) &&
-      (!search ||
-        [
-          service.name,
-          service.kind,
-          kindNames[service.kind],
-          ...service.endpoints.map((endpoint) => endpoint.port),
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(search)),
-  );
+  const stateOrder = (service: ServiceEntry) =>
+    service.state === "stopped"
+      ? 1
+      : service.endpoints.some((endpoint) => endpoint.has_web_page === false)
+        ? 0
+        : 2;
+  const filtered = services
+    .filter(
+      (service) =>
+        (service.tier !== "hidden" || hiddenOpen) &&
+        (!search ||
+          [
+            service.name,
+            service.kind,
+            kindNames[service.kind],
+            ...service.endpoints.map((endpoint) => endpoint.port),
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(search)),
+    )
+    .sort(
+      (a, b) =>
+        Number(a.tier === "hidden") - Number(b.tier === "hidden") ||
+        stateOrder(a) - stateOrder(b),
+    );
   const pages = compact
     ? Math.max(1, Math.ceil(filtered.length / pageSize))
     : 1;
@@ -260,6 +277,23 @@ export function ServicesPanel({
           </nav>
         </div>
       ) : null}
+      {pendingRepairs.length ? (
+        <div className="map-repair-box">
+          <strong>需要处理的事</strong>
+          {pendingRepairs.map((repair) => (
+            <div key={repair.repair_id}>
+              <p title={repair.action_summary}>{repair.action_summary}</p>
+              <button
+                type="button"
+                className="map-button"
+                onClick={() => onRepair?.(repair.repair_id)}
+              >
+                看看怎么修
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {markError ? (
         <p className="map-error" role="alert">
           标记没有保存，请再试一次。
@@ -302,6 +336,17 @@ export function ServicesPanel({
                     <div className="map-service-info">
                       <span className="map-service-name" title={service.name}>
                         {service.name}
+                      </span>
+                      <span
+                        className={`map-service-state state-${service.state ?? "running"}`}
+                      >
+                        {service.state === "stopped"
+                          ? "已停止"
+                          : service.endpoints.some(
+                                (endpoint) => endpoint.has_web_page === false,
+                              )
+                            ? "打不开"
+                            : "正常"}
                       </span>
                       <span
                         className="map-service-meta"

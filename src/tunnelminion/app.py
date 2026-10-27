@@ -423,6 +423,7 @@ def build_windows_application(
         read_only_preview=read_only_preview,
     )
     memories = LongTermMemoryService(stores.memories, (conversations,))
+    node.repair_service.set_result_handler(conversations.append_repair_result)
     authorization = AuthorizationService(
         stores.operations,
         stores.preauthorizations,
@@ -455,6 +456,9 @@ def build_windows_application(
         processes,
         docker,
         managed_path_platform_factory=build_windows_managed_path_platform,
+        containers=node.repair_service.containers,
+        launch_records=stores.launch_records,
+        host=node.repair_service.host,
     )
     service_cache = (
         managed.coordinator.service_cache
@@ -488,6 +492,9 @@ def build_windows_application(
             processes,
             docker,
             marks=stores.service_marks.all,
+            containers=node.repair_service.containers,
+            launch_records=stores.launch_records,
+            host=node.repair_service.host,
             launch_recorder=(
                 None if read_only_preview else LaunchRecorder(stores.launch_records).record
             ),
@@ -573,14 +580,22 @@ def build_windows_application(
             conversations,
             views.overview_service,
             lambda: build_local_service_map(
-                node_id, service_cache.read(), stores.service_marks.all(), excluded_pid=os.getpid()
+                node_id,
+                service_cache.read(),
+                stores.service_marks.all(),
+                excluded_pid=os.getpid(),
+                launch_records=stores.launch_records.list_all(),
             ),
         )
     )
     app.include_router(create_memory_router(memories))
     app.include_router(
         create_service_map_router(
-            node_id, stores.service_marks, service_cache.read, service_cache.replace
+            node_id,
+            stores.service_marks,
+            service_cache.read,
+            service_cache.replace,
+            stores.launch_records,
         )
     )
     app.include_router(create_operation_router(operation_control))
