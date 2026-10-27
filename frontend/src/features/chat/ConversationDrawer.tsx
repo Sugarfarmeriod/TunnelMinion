@@ -594,11 +594,13 @@ export function ConversationDrawer({
               </section>
             )}
           </div>
-          {below ? (
-            <div className="map-scroll-hint" aria-hidden="true">
-              ▼ 下面还有
-            </div>
-          ) : null}
+          {/* 常驻占位，滚到底时只隐藏，避免内容跳动 */}
+          <div
+            className={below ? "map-scroll-hint" : "map-scroll-hint is-idle"}
+            aria-hidden="true"
+          >
+            ▼ 下面还有
+          </div>
           {error ? (
             <p className="map-error" role="alert">
               {error}

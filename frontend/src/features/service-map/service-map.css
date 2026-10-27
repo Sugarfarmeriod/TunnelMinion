@@ -555,6 +555,9 @@
   padding-top: 4px;
   text-align: center;
 }
+.map-scroll-hint.is-idle {
+  visibility: hidden;
+}
 .map-error {
   color: var(--map-red);
   margin: 0 0 8px;

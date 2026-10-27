@@ -475,11 +475,13 @@ export function ServicesPanel({
           </div>
         ) : null}
       </div>
-      {below ? (
-        <div className="map-scroll-hint" aria-hidden="true">
-          ▼ 下面还有
-        </div>
-      ) : null}
+      {/* 常驻占位，滚到底时只隐藏，避免内容跳动 */}
+      <div
+        className={below ? "map-scroll-hint" : "map-scroll-hint is-idle"}
+        aria-hidden="true"
+      >
+        ▼ 下面还有
+      </div>
       <footer className="map-panel-footer">
         {peer && !message && reportedAt ? (
           <p>
