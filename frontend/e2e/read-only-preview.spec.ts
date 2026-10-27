@@ -82,14 +82,11 @@ for (const width of [1280, 320]) {
       route.fulfill({ json: makeOperationDetail() }),
     );
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/app/overview");
+    await page.goto(`/app/map?thread=${thread.thread_id}`);
     await expect(page.getByText(/预览模式：只看程序和已有记录/)).toBeVisible();
     await expect(
       page.getByText("这是一条已有的问题", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "开始新对话" }),
-    ).toBeDisabled();
     await expect(
       page.getByRole("textbox", { name: "问题", exact: true }),
     ).toBeDisabled();
@@ -97,31 +94,23 @@ for (const width of [1280, 320]) {
       page.getByRole("button", { name: "发送问题", exact: true }),
     ).toBeDisabled();
     await expect(
-      page.getByText(
-        "当前只展示记录。发送问题和操作已停用，不会使用模型额度。",
-      ),
-    ).toBeVisible();
-    await expect(
       page.getByRole("link", { name: "连接模型", exact: true }),
     ).toHaveCount(0);
-    await expect(
-      page.getByRole("link", { name: "继续提问", exact: true }),
-    ).toHaveCount(0);
     await page.getByRole("button", { name: "刷新这段对话" }).click();
-    const navigation = page.getByRole("navigation", { name: "主要导航" });
-    await navigation.getByRole("link", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "关闭对话" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "想问点什么？" }),
+    ).toBeDisabled();
+    await page.getByRole("button", { name: "更多 ▾" }).click();
+    await page.getByRole("link", { name: "设置", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "检查并确认保存" }),
     ).toBeDisabled();
     await expect(
       page.getByRole("button", { name: "重新验证一次" }),
     ).toBeDisabled();
-    await page
-      .getByRole("link", { name: "返回刚才的问题", exact: true })
-      .click();
-    await expect(
-      page.getByText("这是一条已有的问题", { exact: true }),
-    ).toBeVisible();
+    await page.getByRole("link", { name: "← 回到地图" }).click();
+    await page.getByRole("button", { name: "更多 ▾" }).click();
     await page.getByRole("link", { name: "请求记录", exact: true }).click();
     await page.getByRole("link", { name: "查看请求", exact: true }).click();
     await expect(

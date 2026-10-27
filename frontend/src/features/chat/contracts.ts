@@ -25,12 +25,25 @@ export const stopReasonSchema = z.enum([
   "cancelled",
 ]);
 
+export const threadContextSchema = z
+  .object({
+    node_id: nodeIdSchema,
+    service_key: z.string().nullable(),
+    service_name: z.string().nullable(),
+  })
+  .strict();
+
+export type ThreadContext = z.infer<typeof threadContextSchema>;
+export type ConversationAbout = Pick<ThreadContext, "node_id" | "service_key">;
+
 export const threadSchema = z
   .object({
     thread_id: threadIdSchema,
     created_at: timestampSchema,
     updated_at: timestampSchema,
     message_count: z.number().int().nonnegative(),
+    title: z.string().nullable().optional(),
+    context: threadContextSchema.nullable().optional(),
   })
   .strict();
 
@@ -49,6 +62,7 @@ export const threadDetailSchema = z
   .object({
     thread: threadSchema,
     messages: z.array(threadMessageSchema),
+    context: threadContextSchema.nullable().optional(),
     service_id: identifierSchema("service").nullable().optional(),
   })
   .strict();

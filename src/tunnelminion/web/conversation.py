@@ -4,17 +4,23 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Callable
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from tunnelminion.agent.conversation import InMemoryConversationService, StartRunInput
+from tunnelminion.agent.conversation import (
+    InMemoryConversationService,
+    StartRunInput,
+    ThreadContext,
+)
 from tunnelminion.agent.runtime import ServiceCheckTarget
 from tunnelminion.domain.identifiers import RunId, ServiceId, ThreadId
 from tunnelminion.model.contracts import ProviderError
 from tunnelminion.web.overview import OverviewFreshness, OverviewService
+from tunnelminion.web.service_map import LocalServiceMap
 
 _CHAT_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>TunnelMinion 聊天</title><style>
@@ -51,7 +57,7 @@ refresh();</script></main></body></html>"""
 class StartProgramRunInput(StartRunInput):
     """工作台专用的所选程序身份，不改变既有对话请求契约。"""
 
-    service_id: ServiceId
+    service_id: ServiceId | None = None
 
 
 class ResumeRunInput(BaseModel):
@@ -63,7 +69,9 @@ class ResumeRunInput(BaseModel):
 
 
 def create_conversation_router(
-    service: InMemoryConversationService, overview: OverviewService | None = None
+    service: InMemoryConversationService,
+    overview: OverviewService | None = None,
+    local_services: Callable[[], LocalServiceMap] | None = None,
 ) -> APIRouter:
     """创建只由环回绑定应用挂载的对话路由。"""
     router = APIRouter()
@@ -119,7 +127,54 @@ def create_conversation_router(
         return await begin_run(value, payload)
 
     async def start_program_run(value: str, payload: StartProgramRunInput) -> dict[str, object]:
-        return await begin_run(value, payload, current_target(payload.service_id))
+        target = current_target(payload.service_id) if payload.service_id is not None else None
+        return await begin_run(value, payload, target)
+
+    async def about_context(
+        identifier: ThreadId, payload: StartRunInput
+    ) -> tuple[ThreadContext | None, str | None]:
+        saved = service.get_thread(identifier).context
+        about = payload.about or saved
+        if about is None:
+            return None, None
+        if about.node_id != str(service.node_id):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "目前只能询问这台电脑")
+        if saved is not None and (
+            saved.node_id != about.node_id or saved.service_key != about.service_key
+        ):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "请为另一个对象新建对话")
+        details: dict[str, object] = {"node_id": about.node_id}
+        name = None
+        if about.service_key is not None:
+            # 与首页同一份已观察清单，不重新扫描电脑。
+            local = local_services() if local_services is not None else None
+            selected = (
+                next(
+                    (
+                        item
+                        for item in local.services
+                        if item.key == about.service_key and item.tier != "hidden"
+                    ),
+                    None,
+                )
+                if local is not None
+                else None
+            )
+            if selected is None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "服务不在当前可见清单中，请刷新后重试"
+                )
+            name = selected.name
+            details.update(
+                service_name=name,
+                kind=selected.kind,
+                service_key=selected.key,
+                ports=[f"{item.protocol}/{item.port}" for item in selected.endpoints],
+            )
+        context = saved or ThreadContext(
+            node_id=about.node_id, service_key=about.service_key, service_name=name
+        )
+        return context, "关于：" + json.dumps(details, ensure_ascii=False, separators=(",", ":"))
 
     def current_target(service_id: ServiceId) -> ServiceCheckTarget:
         items = overview.view_for_programs().services.items if overview is not None else ()
@@ -169,10 +224,16 @@ def create_conversation_router(
             ) from exc
 
     async def begin_run(
-        value: str, payload: StartRunInput, target: ServiceCheckTarget | None = None
+        value: str,
+        payload: StartRunInput,
+        target: ServiceCheckTarget | None = None,
     ) -> dict[str, object]:
         try:
-            view = await service.start_run(thread_id(value), payload, target)
+            identifier = thread_id(value)
+            context, context_line = await about_context(identifier, payload)
+            view = await service.start_run(
+                identifier, payload, target, context=context, context_line=context_line
+            )
         except KeyError as exc:
             raise not_found(exc) from exc
         except ProviderError as exc:

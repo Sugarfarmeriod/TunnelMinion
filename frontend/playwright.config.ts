@@ -18,14 +18,14 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4174",
+        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --host 127.0.0.1 --port 4174",
       url: "http://127.0.0.1:4174/app/overview",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
       command:
-        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --port 4176 --read-only-preview",
+        "uv run --project .. python ../scripts/run_frontend_e2e_server.py --host 127.0.0.1 --port 4176 --read-only-preview",
       url: "http://127.0.0.1:4176/app/overview",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

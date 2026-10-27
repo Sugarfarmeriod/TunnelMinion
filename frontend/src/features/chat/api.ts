@@ -5,6 +5,7 @@ import {
   threadDetailSchema,
   threadListSchema,
   threadSchema,
+  type ConversationAbout,
 } from "./contracts";
 
 export const allowedToolNames = [
@@ -55,6 +56,7 @@ export function startRun(
   toolName: AllowedToolName | readonly AllowedToolName[],
   signal?: AbortSignal,
   serviceId?: string,
+  about?: ConversationAbout,
 ) {
   return requestJson(
     `/api/${serviceId ? "ui/" : ""}threads/${encodeURIComponent(threadId)}/runs`,
@@ -64,6 +66,9 @@ export function startRun(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question,
+        about: about
+          ? { node_id: about.node_id, service_key: about.service_key }
+          : undefined,
         service_id: serviceId,
         tool_names: typeof toolName === "string" ? [toolName] : toolName,
       }),

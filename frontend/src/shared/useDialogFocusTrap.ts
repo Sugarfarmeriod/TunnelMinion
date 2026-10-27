@@ -7,6 +7,7 @@ const FOCUSABLE_SELECTOR = [
   "button",
   "input:not([type='hidden'])",
   "select",
+  "summary",
   "textarea",
   "iframe",
   "object",
@@ -16,6 +17,12 @@ const FOCUSABLE_SELECTOR = [
 ].join(", ");
 
 function isInertOrHidden(element: HTMLElement): boolean {
+  let closed = element.closest("details:not([open])");
+  while (closed) {
+    if (!closed.querySelector(":scope > summary")?.contains(element))
+      return true;
+    closed = closed.parentElement?.closest("details:not([open])") ?? null;
+  }
   return (
     element.hasAttribute("hidden") ||
     element.getAttribute("aria-hidden") === "true" ||
@@ -56,6 +63,7 @@ export interface UseDialogFocusTrapOptions {
   returnFocus?: readonly (HTMLElement | null)[];
   onEscape: () => void;
   escapeDisabled?: boolean;
+  toggleRef?: RefObject<HTMLElement | null>;
 }
 
 export function useDialogFocusTrap<T extends HTMLElement>({
@@ -63,6 +71,7 @@ export function useDialogFocusTrap<T extends HTMLElement>({
   returnFocus = [],
   onEscape,
   escapeDisabled = false,
+  toggleRef,
 }: UseDialogFocusTrapOptions): {
   dialogRef: RefObject<T | null>;
   handleKeyDown: (event: ReactKeyboardEvent<T>) => void;
@@ -118,6 +127,8 @@ export function useDialogFocusTrap<T extends HTMLElement>({
     };
     const preventOutsideInteraction = (event: Event) => {
       const target = event.target;
+      if (target instanceof Node && toggleRef?.current?.contains(target))
+        return;
       if (target instanceof Node && dialog.contains(target)) {
         return;
       }
@@ -150,7 +161,7 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       const target = returnFocusRef.current.find(canRestoreFocus);
       target?.focus();
     };
-  }, [focusSafeTarget]);
+  }, [focusSafeTarget, toggleRef]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -172,6 +183,7 @@ export function useDialogFocusTrap<T extends HTMLElement>({
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<T>) => {
       if (event.key === "Escape") {
+        event.stopPropagation();
         if (!escapeDisabled) {
           event.preventDefault();
           onEscape();
@@ -183,6 +195,7 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       }
 
       event.preventDefault();
+      event.stopPropagation();
       const dialog = dialogRef.current;
       if (dialog === null) {
         return;

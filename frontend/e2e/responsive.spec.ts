@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 const pages = [
-  ["/app/map", "服务地图"],
-  ["/app/overview", "工作台"],
-  ["/app/chat", "工作台"],
+  ["/app/map", "我的服务网络"],
+  ["/app/overview", "我的服务网络"],
+  ["/app/chat", "我的服务网络"],
   ["/app/operations", "操作"],
   ["/app/memories", "长期记忆"],
   ["/app/settings", "模型设置"],
@@ -20,7 +20,7 @@ async function expectOperable(page: import("@playwright/test").Page) {
     ).toBeVisible();
     const navigation = page.getByRole("navigation", { name: "主要导航" });
     const links = await navigation.getByRole("link").all();
-    expect(links).toHaveLength(4);
+    expect(links).toHaveLength(1);
     const positions = await Promise.all(
       links.map((link) => link.boundingBox()),
     );
@@ -49,7 +49,7 @@ async function expectOperable(page: import("@playwright/test").Page) {
   }
 }
 
-test("320 CSS px 下统一工作台与历史地址可操作且没有横向阻断", async ({
+test("320 CSS px 下地图与历史地址可操作且没有横向阻断", async ({
   page,
   request,
 }) => {

@@ -6,11 +6,13 @@ const localBrowserHeaders = {
   "Sec-Fetch-Site": "same-origin",
 };
 
-test("默认入口进入 React 总览", async ({ page }) => {
+test("默认入口进入服务地图", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
-  expect(page.url()).toBe(`${baseURL}/app/overview`);
-  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+  await expect(page).toHaveURL(`${baseURL}/app/map`);
+  await expect(
+    page.getByRole("heading", { name: "我的服务网络" }),
+  ).toBeVisible();
 });
 
 test("FastAPI 交付深链、严格缓存和同源 CSP", async ({ page, request }) => {
@@ -117,7 +119,11 @@ test("React 写请求穿过真实守卫且浏览器不留下持久数据", async
       response.url().endsWith("/api/threads") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "开始新对话" }).click();
+  await page.route("**/api/threads/*/runs", (route) =>
+    route.fulfill({ status: 503, json: { detail: "模型不可用" } }),
+  );
+  await page.getByRole("textbox", { name: "想问点什么？" }).fill("测试问题");
+  await page.getByRole("button", { name: "问问 Agent", exact: true }).click();
   const response = await responsePromise;
   expect(response.status()).toBe(200);
   expect(response.request().headers()["x-tunnelminion-request"]).toBe(

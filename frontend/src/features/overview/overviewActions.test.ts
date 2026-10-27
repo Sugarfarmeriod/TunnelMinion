@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ResourceOverview } from "../../api/schemas/overview";
-import { makeOperationListItem } from "../operations/testFixtures";
 
 import {
   incidentOperationHandoff,
-  operationsRequiringAttention,
-  serviceIncidentLinks,
   type IncidentHandoffInput,
-  groupServiceApplications,
   serviceDisplayName,
 } from "./overviewActions";
 
@@ -108,98 +104,6 @@ describe("serviceDisplayName", () => {
   });
 });
 
-describe("groupServiceApplications", () => {
-  const app = {
-    group_id: `application_${"a".repeat(32)}`,
-    name: "app.py",
-    kind: "python" as const,
-  };
-  const service = services[0]!;
-  it("同程序收拢入口，同名不同归属和不同节点仍分开", () => {
-    const items = [
-      { ...service, application: app },
-      {
-        ...service,
-        service_id: `service_${"4".repeat(32)}`,
-        port: 8081,
-        state: "unavailable" as const,
-        application: app,
-      },
-      {
-        ...service,
-        service_id: `service_${"5".repeat(32)}`,
-        application: { ...app, group_id: `application_${"b".repeat(32)}` },
-      },
-      { ...service, node_id: localNodeId, application: app },
-    ];
-    const grouped = groupServiceApplications(items);
-    expect(grouped).toHaveLength(3);
-    expect(grouped[0]?.services).toEqual(items.slice(0, 2));
-    expect(grouped.flatMap((group) => group.services)).toEqual(items);
-    expect(grouped[0]?.services[1]?.state).toBe("unavailable");
-  });
-  it("过期、没有归属或归属冲突的记录各自保留", () => {
-    const items = [
-      { ...service, application: app },
-      { ...service, application: { ...app, name: "other.py" } },
-      { ...service, freshness: "stale" as const, application: app },
-      service,
-    ];
-    const grouped = groupServiceApplications(items);
-    expect(grouped).toHaveLength(4);
-    expect(grouped.every((group) => group.application === null)).toBe(true);
-    expect(new Set(grouped.map((group) => group.key)).size).toBe(4);
-  });
-  it("归属缺少可读名称时不生成空程序行", () => {
-    expect(
-      groupServiceApplications([
-        { ...service, application: { ...app, name: " " } },
-      ])[0]?.application,
-    ).toBeNull();
-  });
-});
-
-describe("serviceIncidentLinks", () => {
-  const event: ResourceOverview["incidents"]["items"][number] = {
-    incident_id: incidentId,
-    event_type: "local_only",
-    object_kind: "service",
-    object_id: serviceId,
-    severity: "warning",
-    status: "confirmed",
-    first_observed_at: observedAt,
-    last_observed_at: observedAt,
-    conclusion: null,
-  };
-  it("按准确身份选最近记录，不串同名同端口或节点事件", () => {
-    const newer = {
-      ...event,
-      incident_id: `incident_${"5".repeat(32)}`,
-      last_observed_at: "2026-09-09T09:00:00+08:00",
-    };
-    const other = { ...services[0], service_id: `service_${"6".repeat(32)}` };
-    const events = [
-      event,
-      newer,
-      { ...newer, object_kind: "node" as const, object_id: other.service_id },
-    ];
-    expect(serviceIncidentLinks([...services, other], events)).toEqual(
-      new Map([[serviceId, newer.incident_id]]),
-    );
-    expect(events[0]).toBe(event);
-  });
-  it("重复身份和没有同一服务记录时不生成入口", () => {
-    expect(
-      serviceIncidentLinks(
-        [...services, { ...services[0], node_id: localNodeId }],
-        [event],
-      ).size,
-    ).toBe(0);
-    expect(serviceIncidentLinks(services, []).size).toBe(0);
-    expect(serviceIncidentLinks([], [event]).size).toBe(0);
-  });
-});
-
 describe("incidentOperationHandoff", () => {
   it("只为已确认且仍新鲜的远端 local-only 服务生成预填链接", () => {
     expect(incidentOperationHandoff(incident, nodes, services)).toEqual({
@@ -251,44 +155,4 @@ describe("incidentOperationHandoff", () => {
       );
     },
   );
-});
-
-describe("operationsRequiringAttention", () => {
-  it("只保留本机待批准、待执行、结果未知和清理失败", () => {
-    const attention = operationsRequiringAttention([
-      makeOperationListItem({ operation_id: `operation_${"1".repeat(32)}` }),
-      makeOperationListItem({
-        operation_id: `operation_${"2".repeat(32)}`,
-        role: "requester",
-        status: "authorized",
-      }),
-      makeOperationListItem({
-        operation_id: `operation_${"3".repeat(32)}`,
-        role: "requester",
-        status: "awaiting_authorization",
-      }),
-      makeOperationListItem({
-        operation_id: `operation_${"4".repeat(32)}`,
-        status: "succeeded",
-      }),
-      makeOperationListItem({
-        operation_id: `operation_${"5".repeat(32)}`,
-        role: "requester",
-        submission_result_unknown: true,
-      }),
-      makeOperationListItem({
-        operation_id: `operation_${"6".repeat(32)}`,
-        status: "cleanup_failed",
-      }),
-    ]);
-
-    expect(
-      attention.map(({ kind, operation }) => [kind, operation.operation_id]),
-    ).toEqual([
-      ["approval", `operation_${"1".repeat(32)}`],
-      ["execution", `operation_${"2".repeat(32)}`],
-      ["unknown_result", `operation_${"5".repeat(32)}`],
-      ["cleanup", `operation_${"6".repeat(32)}`],
-    ]);
-  });
 });

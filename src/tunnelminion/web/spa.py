@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 
 _DEFAULT_UI_ENV = "TUNNELMINION_DEFAULT_UI"
 _UI_ENTRYPOINTS = {
-    "react": "/app/overview",
+    "react": "/app/map",
     "legacy": "/resources",
 }
 

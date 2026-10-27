@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -118,7 +119,7 @@ from tunnelminion.web.overview import create_overview_router
 from tunnelminion.web.repairs import create_repair_router
 from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
-from tunnelminion.web.service_map import create_service_map_router
+from tunnelminion.web.service_map import build_local_service_map, create_service_map_router
 from tunnelminion.web.spa import create_spa_router
 
 
@@ -518,7 +519,18 @@ def build_macos_local_application(
     app.include_router(create_overview_router(views.overview_service))
     app.include_router(create_incident_router(incident_store, conversations, tasks=incident_tasks))
     app.include_router(create_diagnostics_router(DiagnosticsExportService(views.overview_service)))
-    app.include_router(create_conversation_router(conversations, views.overview_service))
+    app.include_router(
+        create_conversation_router(
+            conversations,
+            views.overview_service,
+            lambda: build_local_service_map(
+                node.node_id,
+                service_cache.read(),
+                stores.service_marks.all(),
+                excluded_pid=os.getpid(),
+            ),
+        )
+    )
     app.include_router(create_memory_router(memories))
     app.include_router(
         create_service_map_router(

@@ -477,6 +477,10 @@ def test_restart_restores_completed_thread_and_run(tmp_path: Path, legacy: bool)
     public = dict(checkpoint.public_state)
     public.pop("service_id")
     if legacy:
+        saved_thread = public["thread"]
+        assert isinstance(saved_thread, dict)
+        saved_thread.pop("title")
+        saved_thread.pop("context")
         messages = public["messages"]
         assert isinstance(messages, list)
         for message in messages:
@@ -502,6 +506,8 @@ def test_restart_restores_completed_thread_and_run(tmp_path: Path, legacy: bool)
     assert result is not None and result.checked_service_id is None
     assert result.answer_basis == ("checked" if legacy else "inferred")
     assert restored.get_thread_service_id(thread.thread_id) is None
+    assert restored.get_thread(thread.thread_id).context is None
+    assert restored.list_threads()[0].title == "持久化检查"
     restored.delete_thread(thread.thread_id)
     assert stores.checkpoints.list_all() == ()
 

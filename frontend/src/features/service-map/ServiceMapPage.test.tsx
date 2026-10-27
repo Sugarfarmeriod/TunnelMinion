@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { MemoryRouter } from "react-router-dom";
 import {
   afterAll,
   afterEach,
@@ -51,7 +52,9 @@ function renderMap(
   });
   render(
     <QueryClientProvider client={client}>
-      <ServiceMapPage />
+      <MemoryRouter>
+        <ServiceMapPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return reads;
@@ -370,13 +373,13 @@ describe("服务地图页面", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(node).toHaveFocus();
     await user.click(node);
-    fireEvent.pointerDown(screen.getByLabelText("电脑拓扑图"));
+    fireEvent.click(screen.getByLabelText("电脑拓扑图"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(node).toHaveFocus();
   });
 
-  it("宽度 700 及以下使用下方面板，并随窗口变化切换", async () => {
-    window.innerWidth = 700;
+  it("宽度 760 及以下使用下方面板，并随窗口变化切换", async () => {
+    window.innerWidth = 760;
     renderMap(makeLocalServices(), "macos");
     const { dialog } = await openComputer();
     expect(dialog).toHaveClass("is-inline");
@@ -385,7 +388,7 @@ describe("服务地图页面", () => {
       document.querySelector("svg[data-platform='mini']"),
     ).toBeInTheDocument();
     act(() => {
-      window.innerWidth = 701;
+      window.innerWidth = 761;
       fireEvent(window, new Event("resize"));
     });
     expect(dialog).toHaveClass("is-floating");

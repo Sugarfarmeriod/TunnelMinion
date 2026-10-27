@@ -172,7 +172,7 @@ describe("OperationDetailPage", () => {
     ).toBeVisible();
     expect(await screen.findByText(incidentId)).toHaveAttribute(
       "href",
-      `/app/overview?incident_id=${incidentId}#overview-incidents`,
+      `/app/incidents?incident_id=${incidentId}#overview-incidents`,
     );
   });
 

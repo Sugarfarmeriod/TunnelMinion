@@ -21,6 +21,8 @@ interface ServicesPanelProps {
   onMark: (key: string, mark: "mine" | "hidden" | null) => void;
   busy: boolean;
   markError: boolean;
+  onAsk: (service?: ServiceEntry) => void;
+  askDisabled: boolean;
 }
 
 export function ServicesPanel({
@@ -36,12 +38,14 @@ export function ServicesPanel({
   onMark,
   busy,
   markError,
+  onAsk,
+  askDisabled,
 }: ServicesPanelProps) {
   const [query, setQuery] = useState("");
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(6);
-  const [narrow, setNarrow] = useState(() => window.innerWidth <= 700);
+  const [narrow, setNarrow] = useState(() => window.innerWidth <= 760);
   const [position, setPosition] = useState<CSSProperties>({});
   const [side, setSide] = useState("right");
   const [below, setBelow] = useState(false);
@@ -84,7 +88,7 @@ export function ServicesPanel({
       const node = nodeRef.current?.getBoundingClientRect();
       const panel = panelRef.current;
       if (!stage || !node || !panel) return;
-      const isNarrow = window.innerWidth <= 700;
+      const isNarrow = window.innerWidth <= 760;
       setNarrow(isNarrow);
       const maxHeight = Math.max(
         180,
@@ -315,9 +319,20 @@ export function ServicesPanel({
                       </span>
                     </div>
                     <div className="map-service-actions">
+                      {service.tier !== "hidden" ? (
+                        <button
+                          type="button"
+                          className="map-button map-ask"
+                          disabled={askDisabled}
+                          aria-label={`问问 ${service.name}`}
+                          onClick={() => onAsk(service)}
+                        >
+                          问问
+                        </button>
+                      ) : null}
                       {service.tier === "show" ? (
                         <>
-                          {url ? (
+                          {url && service.state !== "stopped" ? (
                             <a
                               className="map-button map-go"
                               href={url}
@@ -398,6 +413,16 @@ export function ServicesPanel({
           ▼ 下面还有
         </div>
       ) : null}
+      <footer className="map-panel-footer">
+        <button
+          type="button"
+          className="map-button map-ask"
+          disabled={askDisabled}
+          onClick={() => onAsk()}
+        >
+          问问 这台电脑 的 Agent
+        </button>
+      </footer>
     </div>
   );
 }
