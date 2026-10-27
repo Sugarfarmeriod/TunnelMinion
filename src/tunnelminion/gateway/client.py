@@ -28,6 +28,7 @@ from tunnelminion.gateway.contracts import (
     GatewayErrorCode,
     GatewayErrorResponse,
     GatewayServices,
+    PeerRepairView,
     RemoteOperationExecution,
     RemoteOperationResult,
     RemoteOperationSubmission,
@@ -130,6 +131,10 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.MODEL_BUSY: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.MODEL_CALL_FAILED: ErrorCode.INTERNAL,
     GatewayErrorCode.INVITE_INVALID: ErrorCode.UNAUTHENTICATED,
+    GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED: ErrorCode.FORBIDDEN,
+    GatewayErrorCode.REPAIR_NOT_FOUND: ErrorCode.INVALID_ARGUMENT,
+    GatewayErrorCode.REPAIR_STATE_CONFLICT: ErrorCode.INVALID_ARGUMENT,
+    GatewayErrorCode.REPAIR_UNAVAILABLE: ErrorCode.OPERATION_NOT_SUPPORTED,
 }
 
 
@@ -160,6 +165,48 @@ class FixedGatewayClient:
         self._audit = audit_sink
         self._max_response_bytes = max_response_bytes
         self._transport = transport
+
+    async def get_repair(self, repair_id: OperationId | str) -> PeerRepairView:
+        """只读取固定对端的一件修复，不从服务清单推测执行进度。"""
+        return await self._request_repair(repair_id)
+
+    async def approve_repair(self, repair_id: OperationId | str) -> PeerRepairView:
+        """只传修复编号，具体修法始终由对端本机保存。"""
+        return await self._request_repair(repair_id, "approve")
+
+    async def reject_repair(self, repair_id: OperationId | str) -> PeerRepairView:
+        """只传修复编号，不向对端提交拒绝理由。"""
+        return await self._request_repair(repair_id, "reject")
+
+    async def _request_repair(
+        self, repair_id: OperationId | str, action: Literal["approve", "reject"] | None = None
+    ) -> PeerRepairView:
+        identifier = OperationId(str(repair_id))
+        path = f"/v1/repairs/{identifier}" + (f":{action}" if action else "")
+        async with self._http_client(f"repair_{action or 'status'}") as client:
+            try:
+                response = await client.request("POST" if action else "GET", path, timeout=10)
+            except httpx.TimeoutException as exc:
+                raise RemoteGatewayError(ErrorCode.REMOTE_TIMEOUT, "远端修复请求超时") from exc
+            except httpx.RequestError as exc:
+                raise RemoteGatewayError(ErrorCode.NODE_UNREACHABLE, "远端节点不可达") from exc
+        self._check_response_size(response)
+        if not response.is_success:
+            error = self._protocol_error(response)
+            if response.status_code == 404 and error.gateway_code is None:
+                raise RemoteGatewayError(
+                    ErrorCode.FORBIDDEN,
+                    "对方尚不支持代批准修复",
+                    gateway_code=GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED,
+                )
+            raise error
+        try:
+            result = PeerRepairView.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise RemoteGatewayError(ErrorCode.INTERNAL, "远端修复响应格式无效") from exc
+        if result.repair_id != identifier or result.node_id != self._remote_node_id:
+            raise RemoteGatewayError(ErrorCode.FORBIDDEN, "远端修复响应身份不匹配")
+        return result
 
     async def discover(self) -> GatewayCapabilities:
         """认证并协商能力清单，同时验证响应来源节点。"""

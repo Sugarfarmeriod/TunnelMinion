@@ -72,6 +72,16 @@ for (const width of [1440, 760, 320]) {
     services.services[0]!.state = "stopped";
     let pending = false;
     const repair = makeRemoteRepair();
+    await page.route("**/api/peers/*/repairs/*", (route) =>
+      route.fulfill({
+        json: {
+          node_id: peer.node_id,
+          repair_id: repair.repair_id,
+          access: "not_allowed",
+          repair: null,
+        },
+      }),
+    );
     await page.route("**/api/peers", (route) =>
       route.fulfill({
         json: {

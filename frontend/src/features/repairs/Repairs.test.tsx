@@ -36,6 +36,14 @@ import { finishedRepair, makeRemoteRepair, makeRepair } from "./testFixtures";
 
 const server = setupServer(
   http.get("/api/peers", () => HttpResponse.json({ peers: [] })),
+  http.get("/api/peers/:node/repairs/:id", ({ params }) =>
+    HttpResponse.json({
+      node_id: params.node,
+      repair_id: params.id,
+      access: "not_allowed",
+      repair: null,
+    }),
+  ),
 );
 let client: QueryClient;
 let repair: RepairDetail;
@@ -152,7 +160,9 @@ describe("地图上的本机修复", () => {
           ).toBeEnabled();
         else {
           expect(
-            within(dialog).getByText(`请到 ${name} 的地图上点感叹号批准`),
+            await within(dialog).findByText(
+              `请到 ${name} 的地图上点感叹号批准`,
+            ),
           ).toBeVisible();
           expect(
             within(dialog).queryByRole("button", { name: "批准并修复" }),

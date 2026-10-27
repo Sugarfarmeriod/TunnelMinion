@@ -137,6 +137,8 @@ async def join(
     print(f"已加入。对方：{str(code.node_id)[:12]}，平台：{platform}", flush=True)
     if accepted.permissions.allow_delegation:
         print("- 可以把问题交给对方的 Agent 处理", flush=True)
+    if accepted.permissions.allow_proxy_repair_approval:
+        print("- 可以在你的地图上替对方批准修复", flush=True)
     if accepted.permissions.allow_model_borrowing:
         print(f"- 可以借用对方的模型，每天 {accepted.permissions.daily_quota} 个 token", flush=True)
     if not accepted.permissions.allow_model_borrowing or use_borrowed_model is False:

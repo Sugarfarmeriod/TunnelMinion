@@ -605,6 +605,11 @@ def _configure_gateway(values: list[str]) -> int:
         action="store_true",
         help="允许这个对端借用本机配置的模型（默认不允许）",
     )
+    parser.add_argument(
+        "--allow-proxy-approval",
+        action="store_true",
+        help="允许这个对端在它的地图上替本机批准修复（默认不允许）",
+    )
     parser.add_argument("--daily-quota", type=int, default=DEFAULT_DAILY_TOKEN_QUOTA)
     parser.add_argument(
         "--secret-store",
@@ -644,6 +649,7 @@ def _configure_gateway(values: list[str]) -> int:
                 allowed_operations=frozenset(args.allowed_operation or ()),
                 allow_delegation=args.allow_delegation,
                 allow_model_borrowing=args.allow_model_borrowing,
+                allow_proxy_repair_approval=args.allow_proxy_approval,
                 daily_quota=args.daily_quota,
             ),
             token=token,
@@ -698,6 +704,44 @@ def _name_command(values: list[str]) -> int:
     return 0
 
 
+def _peer_proxy_approval(values: list[str]) -> int:
+    """仅在本机修改指定对端的代批准权限。"""
+    from tunnelminion.app import default_data_dir
+    from tunnelminion.domain.identifiers import NodeId
+    from tunnelminion.gateway.configuration import (
+        FileGatewayConfigurationRepository,
+        GatewayConfigurationService,
+        gateway_secret_store,
+    )
+
+    parser = argparse.ArgumentParser(description="允许或关闭对端替本机批准修复")
+    parser.add_argument("peer-proxy-approval")
+    parser.add_argument("node_id")
+    parser.add_argument("state", choices=("on", "off"))
+    parser.add_argument("--data-dir", type=Path)
+    args = parser.parse_args(values)
+    root = args.data_dir or default_data_dir()
+    try:
+        node_id = NodeId(args.node_id)
+    except ValueError:
+        print("电脑编号无效")
+        return 2
+    service = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(root / "gateway.json"), gateway_secret_store(root)
+    )
+    try:
+        service.set_proxy_repair_approval(node_id, args.state == "on")
+    except (KeyError, RuntimeError):
+        print("尚未配置这个对端")
+        return 2
+    action = "允许" if args.state == "on" else "关闭"
+    print(
+        f"已{action} {service.peer_display_name(node_id)} 替这台电脑批准修复。"
+        "重启 TunnelMinion 后生效。"
+    )
+    return 0
+
+
 def _invite(values: list[str]) -> int:
     """生成仅可用一次的邀请码，必要时配置本机网关地址。"""
     from tunnelminion.agent.invites import InviteService
@@ -723,12 +767,14 @@ def _invite(values: list[str]) -> int:
     parser.add_argument("--bind-port", type=int, default=8787)
     parser.add_argument("--allow-delegation", action="store_true")
     parser.add_argument("--allow-model-borrowing", action="store_true")
+    parser.add_argument("--allow-proxy-approval", action="store_true")
     parser.add_argument("--daily-quota", type=int, default=DEFAULT_DAILY_TOKEN_QUOTA)
     parser.add_argument("--secret-store", choices=("keyring", "restricted-file"))
     args = parser.parse_args(values)
     permissions = InvitePermissions(
         allow_delegation=args.allow_delegation,
         allow_model_borrowing=args.allow_model_borrowing,
+        allow_proxy_repair_approval=args.allow_proxy_approval,
         daily_quota=args.daily_quota,
     )
     root = args.data_dir or default_data_dir()
@@ -769,6 +815,8 @@ def _invite(values: list[str]) -> int:
         print(
             f"对方借用模型时，他发出的问题会经过本机的模型；每天额度 {args.daily_quota} 个 token。"
         )
+    if args.allow_proxy_approval:
+        print("对方可以在它的地图上替这台电脑批准修复；每次动手前，这台电脑仍会再核对一次。")
     return 0
 
 
@@ -998,6 +1046,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _invite(values)
     if values and values[0] in {"node-name", "peer-rename"}:
         return _name_command(values)
+    if values and values[0] == "peer-proxy-approval":
+        return _peer_proxy_approval(values)
     if values and values[0] == "model-usage":
         return _model_usage(values)
     if values and values[0] == "coordinator-enroll":

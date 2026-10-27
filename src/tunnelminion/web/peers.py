@@ -17,12 +17,17 @@ from tunnelminion.agent.coordinator import CoordinatorCache
 from tunnelminion.coordinator.contracts import DirectoryFreshness, NodeStatus
 from tunnelminion.domain.delegation import DelegationProposedRepair
 from tunnelminion.domain.errors import ErrorCode
-from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.domain.invites import platform_display_name
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
 from tunnelminion.gateway.configuration import GatewayConfigurationService
-from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayServices, PeerServiceEntry
+from tunnelminion.gateway.contracts import (
+    GatewayErrorCode,
+    GatewayServices,
+    PeerRepairView,
+    PeerServiceEntry,
+)
 from tunnelminion.repair.contracts import REPAIR_TERMINAL_STATUSES
 from tunnelminion.tools.audit import AuditSink
 from tunnelminion.web.service_map import LocalServiceMap
@@ -86,6 +91,19 @@ class PeerServicePoller:
     def read(self, node_id: NodeId) -> PeerCache:
         return self._cache.get(str(node_id), PeerCache())
 
+    def forget_repair(self, node_id: NodeId, repair_id: OperationId) -> None:
+        """代批准或拒绝成功后立即去掉地图上的待批准提示。"""
+        self._pending_repairs[str(node_id)] = tuple(
+            repair for repair in self.pending_repairs(node_id) if repair.repair_id != repair_id
+        )
+
+    def gateway_client(self, node_id: NodeId) -> FixedGatewayClient:
+        """只解析本机已配置的固定对端地址和凭据。"""
+        endpoint, token = self.configuration.resolve_service_peer(node_id)
+        return FixedGatewayClient(
+            endpoint, token, self._node_id, node_id, self._audit, transport=self._transport
+        )
+
     def services_view(
         self, value: str, coordinator_cache: CoordinatorCache | None = None
     ) -> PeerServicesView:
@@ -137,15 +155,7 @@ class PeerServicePoller:
                 outcome: PollOutcome = "ok"
                 reachable = True
                 try:
-                    endpoint, token = self.configuration.resolve_service_peer(peer.node_id)
-                    client = FixedGatewayClient(
-                        endpoint,
-                        token,
-                        self._node_id,
-                        peer.node_id,
-                        self._audit,
-                        transport=self._transport,
-                    )
+                    client = self.gateway_client(peer.node_id)
                     async with asyncio.timeout(10):
                         snapshot = await client.get_services()
                     if "pending_repair_ids" in snapshot.model_fields_set:
@@ -254,6 +264,17 @@ class PeerServicesView(BaseModel):
     outcome: PollOutcome | None = None
 
 
+class PeerRepairAccessView(BaseModel):
+    """本机页面查询对端代批准权限和修复进展的结果。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: NodeId
+    repair_id: OperationId
+    access: Literal["allowed", "not_allowed", "not_found", "unreachable"]
+    repair: PeerRepairView | None = None
+
+
 def create_peers_router(
     node_id: NodeId,
     platform: Platform,
@@ -332,6 +353,67 @@ def create_peers_router(
     def peer_services(value: str) -> PeerServicesView:
         return poller.services_view(value, coordinator_cache)
 
+    async def request_repair(
+        value: str, repair_id: str, action: Literal["approve", "reject"] | None = None
+    ) -> PeerRepairAccessView:
+        try:
+            identifier = OperationId(repair_id)
+            target = NodeId(value)
+        except ValueError as exc:
+            raise HTTPException(404, "修复不存在") from exc
+        if not any(peer.node_id == target for peer in poller.configuration.view().peers):
+            raise HTTPException(404, "对端不存在")
+        result = PeerRepairAccessView(node_id=target, repair_id=identifier, access="unreachable")
+        try:
+            client = poller.gateway_client(target)
+            if action == "approve":
+                repair = await client.approve_repair(identifier)
+            elif action == "reject":
+                repair = await client.reject_repair(identifier)
+            else:
+                repair = await client.get_repair(identifier)
+        except (RemoteGatewayError, KeyError, RuntimeError, ValueError) as exc:
+            code = exc.gateway_code if isinstance(exc, RemoteGatewayError) else None
+            if action is not None:
+                name = poller.configuration.peer_display_name(target)
+                errors: dict[GatewayErrorCode | None, tuple[int, str]] = {
+                    GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED: (
+                        403,
+                        f"{name} 没有允许这台电脑替它批准修复",
+                    ),
+                    GatewayErrorCode.REPAIR_NOT_FOUND: (404, "修复不存在"),
+                    GatewayErrorCode.REPAIR_STATE_CONFLICT: (409, "这个修复已经不等批准了"),
+                }
+                status_code, message = errors.get(code, (502, f"连不上 {name}，稍后再试"))
+                raise HTTPException(status_code, message) from exc
+            if code is GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED:
+                result = result.model_copy(update={"access": "not_allowed"})
+            elif code is GatewayErrorCode.REPAIR_NOT_FOUND:
+                result = result.model_copy(update={"access": "not_found"})
+            return result
+        if action is not None:
+            poller.forget_repair(target, identifier)
+        return result.model_copy(update={"access": "allowed", "repair": repair})
+
+    async def peer_repair(node_id: str, repair_id: str) -> PeerRepairAccessView:
+        return await request_repair(node_id, repair_id)
+
+    async def approve_peer_repair(node_id: str, repair_id: str) -> PeerRepairAccessView:
+        return await request_repair(node_id, repair_id, "approve")
+
+    async def reject_peer_repair(node_id: str, repair_id: str) -> PeerRepairAccessView:
+        return await request_repair(node_id, repair_id, "reject")
+
+    router.add_api_route("/api/peers/{node_id}/repairs/{repair_id}", peer_repair, methods=["GET"])
+    router.add_api_route(
+        "/api/peers/{node_id}/repairs/{repair_id}/approve",
+        approve_peer_repair,
+        methods=["POST"],
+        status_code=202,
+    )
+    router.add_api_route(
+        "/api/peers/{node_id}/repairs/{repair_id}/reject", reject_peer_repair, methods=["POST"]
+    )
     router.add_api_route("/api/peers", list_peers, response_model=PeersView)
     router.add_api_route(
         "/api/peers/{value}/services", peer_services, response_model=PeerServicesView

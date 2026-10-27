@@ -1,4 +1,31 @@
-import type { RepairDetail, RemoteRepair } from "./api";
+import type { PeerRepair, RepairDetail, RemoteRepair } from "./api";
+
+export function makePeerRepair(
+  overrides: Partial<PeerRepair> = {},
+): PeerRepair {
+  const local = makeRepair();
+  const summary = makeRemoteRepair();
+  return {
+    repair_id: summary.repair_id,
+    node_id: "node_" + "1".repeat(32),
+    service_name: summary.service_name,
+    kind: local.kind,
+    status: local.status,
+    action_summary: summary.action,
+    reason: local.reason,
+    impact_summary: local.impact_summary,
+    verification_summary: local.verification_summary,
+    failure_summary: local.failure_summary,
+    created_at: local.created_at,
+    updated_at: local.created_at,
+    approval_expires_at: local.approval_expires_at,
+    approved_by_peer: null,
+    verification_passed: null,
+    error_code: null,
+    error_message: null,
+    ...overrides,
+  };
+}
 
 export function makeRemoteRepair(
   overrides: Partial<RemoteRepair> = {},

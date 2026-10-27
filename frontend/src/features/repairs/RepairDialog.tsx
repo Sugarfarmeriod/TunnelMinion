@@ -14,6 +14,11 @@ import {
   type RepairDetail,
 } from "./api";
 import "./repairs.css";
+import {
+  RepairFacts,
+  RepairProgress,
+  repairResultTitle,
+} from "./RepairPresentation";
 
 export function RepairDialog({
   repairId,
@@ -107,12 +112,6 @@ export function RepairDialog({
     repair?.status === "authorization_expired" ||
     repair?.status === "expired";
   const terminal = repair !== undefined && isRepairTerminal(repair.status);
-  const step =
-    repair?.status === "authorized"
-      ? 0
-      : repair?.status === "executing"
-        ? 1
-        : 2;
   return (
     <div className="repair-mask">
       <div
@@ -159,20 +158,7 @@ export function RepairDialog({
           ) : null}
           {repair ? (
             <>
-              <dl>
-                {[
-                  ["要做什么", repair.action_summary],
-                  ["为什么", repair.reason],
-                  ["会有什么影响", repair.impact_summary],
-                  ["怎么确认修好", repair.verification_summary],
-                  ["没修好怎么办", repair.failure_summary],
-                ].map(([title, text]) => (
-                  <div key={title}>
-                    <dt>{title}</dt>
-                    <dd>{text}</dd>
-                  </div>
-                ))}
-              </dl>
+              <RepairFacts repair={repair} />
               <details>
                 <summary>高级：将执行的命令</summary>
                 <pre>
@@ -195,39 +181,13 @@ export function RepairDialog({
                     : "先不用没有确认成功，请重试。"}
                 </p>
               ) : null}
-              {executing ? (
-                <ol
-                  className="repair-steps"
-                  aria-label="修复进度"
-                  aria-live="polite"
-                >
-                  {["再核对一次", "正在执行", "正在确认"].map((text, index) => (
-                    <li
-                      key={text}
-                      className={
-                        index < step ? "done" : index === step ? "doing" : ""
-                      }
-                      aria-current={index === step ? "step" : undefined}
-                    >
-                      {text}
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
+              {executing ? <RepairProgress status={repair.status} /> : null}
               {terminal ? (
                 <div
                   className={`repair-result ${repair.status === "succeeded" ? "success" : ""}`}
                   role="status"
                 >
-                  <strong>
-                    {repair.status === "succeeded"
-                      ? "修好了"
-                      : expired
-                        ? "已过期"
-                        : ["rejected", "cancelled"].includes(repair.status)
-                          ? "已取消"
-                          : "没修好"}
-                  </strong>
+                  <strong>{repairResultTitle(repair.status)}</strong>
                   {repair.error ? <p>{repair.error.message}</p> : null}
                   {repair.verification?.checks.map((check, index) => (
                     <p key={index}>{check.detail}</p>

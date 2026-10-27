@@ -82,6 +82,7 @@ class GatewayPeerPolicy:
     authentication_kind: GatewayAuthenticationKind = GatewayAuthenticationKind.STATIC
     allow_delegation: bool = False
     allow_model_borrowing: bool = False
+    allow_proxy_repair_approval: bool = False
     daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA
 
     @classmethod
@@ -95,6 +96,7 @@ class GatewayPeerPolicy:
         source_host: str | None = None,
         allow_delegation: bool = False,
         allow_model_borrowing: bool = False,
+        allow_proxy_repair_approval: bool = False,
         daily_quota: int = DEFAULT_DAILY_TOKEN_QUOTA,
     ) -> GatewayPeerPolicy:
         """把独立应用令牌立即转换为 SHA-256 摘要。"""
@@ -111,6 +113,7 @@ class GatewayPeerPolicy:
             source_host,
             allow_delegation=allow_delegation,
             allow_model_borrowing=allow_model_borrowing,
+            allow_proxy_repair_approval=allow_proxy_repair_approval,
             daily_quota=daily_quota,
         )
 

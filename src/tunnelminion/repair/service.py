@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +29,14 @@ from tunnelminion.repair.eligibility import AUTHORIZATION_EXPIRED_ERROR
 from tunnelminion.repair.planning import RepairPlanner
 from tunnelminion.repair.workflow import RepairWorkflow
 from tunnelminion.tools.registry import ToolRegistry
+
+
+@dataclass(frozen=True)
+class ProxyRepairApprover:
+    """由本机 Gateway 认证并从本机配置解析的代批准方。"""
+
+    node_id: NodeId
+    display_name: str
 
 
 class NoPreauthorizations:
@@ -135,32 +144,65 @@ class RepairService:
             raise ValueError("这个修复现在不等批准")
         return record
 
-    def approve(self, operation_id: OperationId, *, operator: str) -> RepairRecord:
+    def approve(
+        self,
+        operation_id: OperationId,
+        *,
+        operator: str,
+        proxy_approver: ProxyRepairApprover | None = None,
+    ) -> RepairRecord:
         now = self._clock()
         self.expire_due(now)
         self._waiting(operation_id)
+        if proxy_approver is not None:
+            operator = f"peer:{proxy_approver.node_id}"
         record = self._authorization.approve_once(
             operation_id,
             operator=operator,
             decided_at=now,
             expires_at=now + timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS),
             local_control=True,
+            basis=(
+                "目标节点已授权的对端代为批准"
+                if proxy_approver is not None
+                else "目标节点本地用户逐次批准"
+            ),
         )
         record = record.with_event(
-            RepairAuditAction.APPROVED, f"{operator} 批准了修复。", actor=operator, at=now
+            RepairAuditAction.APPROVED,
+            (
+                f"由 {proxy_approver.display_name}（{proxy_approver.node_id}）代为批准了修复。"
+                if proxy_approver is not None
+                else f"{operator} 批准了修复。"
+            ),
+            actor=operator,
+            at=now,
         )
         self._store.put(record)
         return record
 
     def reject(
-        self, operation_id: OperationId, *, operator: str, reason: str | None
+        self,
+        operation_id: OperationId,
+        *,
+        operator: str,
+        reason: str | None,
+        proxy_approver: ProxyRepairApprover | None = None,
     ) -> RepairRecord:
         now = self._clock()
         self.expire_due(now)
         self._waiting(operation_id)
         reason = (reason or "").strip() or "主人选择先不修。"
+        if proxy_approver is not None:
+            operator = f"peer:{proxy_approver.node_id}"
+            reason = f"{proxy_approver.display_name} 代为选择先不修。"
         record = self._authorization.reject_once(
-            operation_id, operator=operator, reason=reason, decided_at=now, local_control=True
+            operation_id,
+            operator=operator,
+            reason=reason,
+            decided_at=now,
+            local_control=True,
+            basis="目标节点已授权的对端代为批准" if proxy_approver is not None else None,
         )
         record = record.with_event(RepairAuditAction.REJECTED, reason, actor=operator, at=now)
         self._store.put(record)

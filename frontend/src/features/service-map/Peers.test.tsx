@@ -40,7 +40,16 @@ import {
 } from "./testFixtures";
 import { mapLayout, relativeTime } from "./topology";
 
-const server = setupServer();
+const server = setupServer(
+  http.get("/api/peers/:node/repairs/:id", ({ params }) =>
+    HttpResponse.json({
+      node_id: params.node,
+      repair_id: params.id,
+      access: "not_allowed",
+      repair: null,
+    }),
+  ),
+);
 let client: QueryClient;
 let questions: {
   question: string;
@@ -484,7 +493,7 @@ it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc
   await user.keyboard("{Enter}");
   const dialog = screen.getByRole("dialog", { name: "要修好“远端相册”吗？" });
   expect(
-    within(dialog).getByText("请到 测试电脑 1 的地图上点感叹号批准"),
+    await within(dialog).findByText("请到 测试电脑 1 的地图上点感叹号批准"),
   ).toBeVisible();
   expect(within(dialog).getByText("重启远端相册")).toBeVisible();
   expect(
@@ -510,7 +519,7 @@ it("远端感叹号和服务框都打开只读批准框，键盘锁焦点且 Esc
   expect(within(panel).getByText("需要处理的事")).toBeVisible();
   await user.click(within(panel).getByRole("button", { name: "看看怎么修" }));
   expect(
-    screen.getByText("请到 测试电脑 1 的地图上点感叹号批准"),
+    await screen.findByText("请到 测试电脑 1 的地图上点感叹号批准"),
   ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "关闭修复" }));
   expect(
@@ -529,7 +538,7 @@ it("远端倒计时按秒更新，过期仍可关闭，地图不再显示感叹�
       name: "测试电脑 1有 1 个待批准的修复",
     }),
   );
-  expect(screen.getByText("10 分钟内有效 · 还剩 0:02")).toBeVisible();
+  expect(await screen.findByText("10 分钟内有效 · 还剩 0:02")).toBeVisible();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(1_000);
   });
@@ -564,11 +573,14 @@ it("已过期或终态摘要不显示远端感叹号，已打开的终态修复�
   ).toBeNull();
   cleanup();
   render(
-    <RemoteRepairDialog
-      repair={makeRemoteRepair({ status: "authorization_expired" })}
-      name="测试电脑"
-      onClose={vi.fn()}
-    />,
+    <QueryClientProvider client={client}>
+      <RemoteRepairDialog
+        nodeId={makePeer().node_id}
+        repair={makeRemoteRepair({ status: "authorization_expired" })}
+        name="测试电脑"
+        onClose={vi.fn()}
+      />
+    </QueryClientProvider>,
   );
-  expect(screen.getByText("10 分钟内有效 · 已过期")).toBeVisible();
+  expect(await screen.findByText("10 分钟内有效 · 已过期")).toBeVisible();
 });

@@ -257,6 +257,7 @@ class AuthorizationService(Generic[RecordT]):
         decided_at: datetime,
         expires_at: datetime,
         local_control: bool,
+        basis: str = "目标节点本地用户逐次批准",
     ) -> RecordT:
         """记录目标节点本地逐次批准。"""
         self._require_local(local_control)
@@ -269,7 +270,7 @@ class AuthorizationService(Generic[RecordT]):
             kind=AuthorizationKind.ONE_TIME,
             decision=AuthorizationDecision.APPROVED,
             operator=operator,
-            basis="目标节点本地用户逐次批准",
+            basis=basis,
             decided_at=decided_at,
             expires_at=expires_at,
         )
@@ -291,6 +292,7 @@ class AuthorizationService(Generic[RecordT]):
         reason: str,
         decided_at: datetime,
         local_control: bool,
+        basis: str | None = None,
     ) -> RecordT:
         """记录目标节点本地拒绝且不创建任何资源。"""
         self._require_local(local_control)
@@ -303,7 +305,7 @@ class AuthorizationService(Generic[RecordT]):
             kind=AuthorizationKind.ONE_TIME,
             decision=AuthorizationDecision.REJECTED,
             operator=operator,
-            basis=reason,
+            basis=reason if basis is None else basis,
             decided_at=decided_at,
         )
         updated = record.model_copy(update={"authorization": authorization})

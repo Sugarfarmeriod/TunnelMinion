@@ -133,6 +133,7 @@ class InviteService:
             allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
             allow_delegation=permissions.allow_delegation,
             allow_model_borrowing=permissions.allow_model_borrowing,
+            allow_proxy_repair_approval=permissions.allow_proxy_repair_approval,
             daily_quota=permissions.daily_quota,
         )
         self._configuration.provision_peer(GatewayPeerInput(peer=peer, token=token))
@@ -145,6 +146,7 @@ class InviteService:
                     source_host=peer.host,
                     allow_delegation=peer.allow_delegation,
                     allow_model_borrowing=peer.allow_model_borrowing,
+                    allow_proxy_repair_approval=peer.allow_proxy_repair_approval,
                     daily_quota=peer.daily_quota,
                 )
             )
