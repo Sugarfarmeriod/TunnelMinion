@@ -338,3 +338,44 @@ def test_reset_rollback_after_database_failure_keeps_no_backup(
     with pytest.raises(sqlite3.OperationalError):
         OwnerIdentityService(a.service.store, a.secrets).reset()
     assert a.secrets.values == before
+
+
+def test_finished_reset_clears_keys_and_drops_leftover_backup(tmp_path: Path) -> None:
+    a, _ = recoverable_computer(tmp_path / "a", 1, {})
+    old = dict(a.secrets.values)
+    service = OwnerIdentityService(a.service.store, a.secrets)
+    service.reset()
+    assert a.secrets.values == {}
+    assert a.service.store.owner_fingerprint() is None
+    # 重置已提交、删备份前断电：数据库里已经没有身份，正是"换之后"的样子，只删备份。
+    a.secrets.set(
+        KEY_BACKUP_NAME,
+        KeyBackup.model_validate(
+            {
+                "created_at": "2026-10-01T00:00:00Z",
+                "before": {"owner_fingerprint": "sha256:old"},
+                "after": {},
+                "keys": {OWNER_KEY_NAME: old[OWNER_KEY_NAME]},
+            }
+        ).model_dump_json(),
+    )
+    assert not service.status().has_owner_key
+    assert a.secrets.values == {}
+
+
+def test_backup_settled_by_another_process_meanwhile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, before, _ = interrupted_recovery(tmp_path, monkeypatch)
+    store = a.service.store
+    original = store.exclusive
+
+    def other_process_first(action: Callable[[], None]) -> None:
+        # 等写锁期间，另一个进程已经处理完备份。
+        monkeypatch.setattr(store, "exclusive", original)
+        settle_key_backup(store, a.secrets)
+        original(action)
+
+    monkeypatch.setattr(store, "exclusive", other_process_first)
+    settle_key_backup(store, a.secrets)
+    assert a.secrets.values == before

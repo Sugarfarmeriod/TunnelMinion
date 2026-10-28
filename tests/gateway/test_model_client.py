@@ -99,7 +99,7 @@ def test_model_client_preserves_gateway_error_codes(
     [
         (httpx.Response(200, json={"provider_node_id": str(LOCAL)}), ErrorCode.FORBIDDEN),
         (
-            httpx.Response(200, json={"provider_node_id": str(REMOTE), "extra": 1}),
+            httpx.Response(200, json={"provider_node_id": str(REMOTE), "tool_calls": "x"}),
             ErrorCode.INTERNAL,
         ),
         (httpx.Response(200, content="not-json"), ErrorCode.INTERNAL),
