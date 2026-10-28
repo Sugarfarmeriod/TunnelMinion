@@ -201,6 +201,10 @@ class GatewaySecurityPolicy:
         self._requests: defaultdict[str, deque[float]] = defaultdict(deque)
         self._request_pass_verifier = request_pass_verifier
 
+    def static_source_hosts(self, node_id: NodeId) -> tuple[str | None, ...]:
+        """同一节点 ID 下已有旧式配对登记的来源地址。"""
+        return tuple(peer.source_host for peer in self._peers if peer.node_id == node_id)
+
     def upsert_static_peer(self, peer: GatewayPeerPolicy) -> None:
         """替换单个静态 peer，保留其他 peer 和已有速率窗口。"""
         self._peers = (*(item for item in self._peers if item.node_id != peer.node_id), peer)
@@ -228,19 +232,23 @@ class GatewaySecurityPolicy:
         if self._request_pass_verifier is not None and credential.count(".") == 2:
             owner = self._request_pass_verifier.authenticate(credential, audience, source_host)
             if owner is not None:
+                # 只有地址一致的旧式配对才算同一台电脑，才能沿用它的受控操作和收紧设置。
+                legacy = next(
+                    (
+                        peer
+                        for peer in self._peers
+                        if peer.node_id == owner.node_id and peer.source_host == owner.source_host
+                    ),
+                    None,
+                )
                 return identity_permissions(
                     replace(
                         owner,
-                        allowed_operations=next(
-                            (
-                                peer.allowed_operations
-                                for peer in self._peers
-                                if peer.node_id == owner.node_id
-                            ),
-                            frozenset[str](),
+                        allowed_operations=(
+                            legacy.allowed_operations if legacy is not None else frozenset[str]()
                         ),
                     ),
-                    next((peer for peer in self._peers if peer.node_id == owner.node_id), None),
+                    legacy,
                 )
         return self._authenticate_managed(credential, audience)
 

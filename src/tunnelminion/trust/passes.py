@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from threading import Lock
 from uuid import uuid4
 
@@ -91,14 +92,27 @@ class RequestPassVerifier:
     def static_peer(
         self, peer: GatewayPeerPolicy, source_host: str | None
     ) -> GatewayPeerPolicy | None:
+        """旧令牌命中名单上的电脑时，权限不超过名单身份；已移出的电脑旧令牌一律作废。"""
         if self.service.roster().device(peer.node_id) is not None:
-            return peer
+            limits = self.service.store.device_permissions(peer.node_id)
+            return replace(
+                peer,
+                allow_delegation=peer.allow_delegation and limits.allow_delegation,
+                allow_model_borrowing=peer.allow_model_borrowing and limits.allow_model_borrowing,
+                allow_proxy_repair_approval=peer.allow_proxy_repair_approval
+                and limits.allow_proxy_repair_approval,
+                daily_quota=min(peer.daily_quota, limits.daily_quota),
+            )
         friend = self.friend_peer(peer.node_id)
         if friend is not None:
             if not self.service.active() or source_host != friend.source_host:
                 return None
             return identity_permissions(friend, peer)
-        return None if self.service.store.was_friend_device(peer.node_id) else peer
+        if self.service.store.was_friend_device(peer.node_id) or self.service.store.was_own_device(
+            peer.node_id
+        ):
+            return None
+        return peer
 
     def authenticate(
         self, credential: str, scope: str, source_host: str | None

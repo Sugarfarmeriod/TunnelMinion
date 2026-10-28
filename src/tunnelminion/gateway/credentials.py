@@ -21,6 +21,10 @@ class GatewayCredentials:
 GatewayCredential = str | GatewayCredentials
 
 
+class GatewayCredentialError(httpx.RequestError):
+    """本机签不出通行证（例如本机刚被移出我的电脑）；调用方按"请求没能发出"处理。"""
+
+
 class GatewayRequestAuth(httpx.Auth):
     """重试前交换已签名名单，再签一张新通行证。"""
 
@@ -35,7 +39,7 @@ class GatewayRequestAuth(httpx.Auth):
             if request.url.path.startswith("/v1/operations")
             else PassScope.TOOL_GATEWAY
         )
-        request.headers["Authorization"] = f"Bearer {self._credentials.provide(scope)}"
+        request.headers["Authorization"] = f"Bearer {self._pass(request, scope)}"
         response = yield request
         if response.status_code != 401:
             return
@@ -48,6 +52,16 @@ class GatewayRequestAuth(httpx.Auth):
             return
         if error.error.code is not GatewayErrorCode.TRUST_SYNC_REQUIRED:
             return
-        await self._credentials.synchronize()
-        request.headers["Authorization"] = f"Bearer {self._credentials.provide(scope)}"
+        try:
+            await self._credentials.synchronize()
+        except Exception:
+            # 同步失败时保留第一次的 401，调用方照常得到"认证失败"。
+            return
+        request.headers["Authorization"] = f"Bearer {self._pass(request, scope)}"
         yield request
+
+    def _pass(self, request: httpx.Request, scope: PassScope) -> str:
+        try:
+            return self._credentials.provide(scope)
+        except Exception:
+            raise GatewayCredentialError("本机无法签发通行证", request=request) from None

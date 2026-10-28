@@ -14,6 +14,7 @@ import httpx
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import (
     JOIN_CODE_LIFETIME,
+    JOIN_PROOF_MAX_AGE,
     DeviceCertificate,
     DeviceEntry,
     JoinCode,
@@ -159,6 +160,9 @@ class OwnDevicesService:
                 or proof.inviter_node_id != self.node_id
                 or proof.node_id != request.node_id
                 or proof.device_public_key != request.device_public_key
+                or proof.host != request.host
+                or proof.port != request.port
+                or abs(self.clock() - proof.issued_at) > JOIN_PROOF_MAX_AGE
             ):
                 raise ValueError
             with self.changes:

@@ -100,6 +100,8 @@ async def join_owner(
                 inviter_node_id=code.inviter_node_id,
                 node_id=node_id,
                 device_public_key=key.public_key,
+                host=bind.host,
+                port=bind.port,
                 issued_at=now,
             ),
             key,

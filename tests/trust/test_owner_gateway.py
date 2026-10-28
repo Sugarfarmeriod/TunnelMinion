@@ -163,8 +163,51 @@ def test_public_trust_endpoints_are_rate_limited_and_recover(
             assert (await client.post(path, content="{}")).status_code == 429
             tick += 60
             assert (await client.post(path, content="{}")).status_code != 429
+        # 另一台机器有自己的计数，不受前面刷请求的影响。
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(gateway(a), client=("10.0.0.9", 50000)),
+            base_url="http://127.0.0.1",
+        ) as other:
+            for _ in range(count):
+                assert (await other.post(path, content="{}")).status_code != 429
 
     asyncio.run(scenario())
+
+
+def test_trust_sync_rejects_public_source_before_counting(tmp_path: Path) -> None:
+    a = computer(tmp_path / "a", 1, {})
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(gateway(a), client=("8.8.8.8", 50000)),
+            base_url="http://127.0.0.1",
+        ) as client:
+            for _ in range(70):
+                assert (await client.post("/v1/trust:sync", content="{}")).status_code == 401
+
+    asyncio.run(scenario())
+
+
+def test_startup_push_failure_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    a = computer(tmp_path / "a", 1, {})
+
+    async def broken(*_args: object) -> tuple[NodeId, ...]:
+        raise IdentityError("本机身份记录不完整")
+
+    monkeypatch.setattr(a.service, "push", broken)
+    app = gateway(a)
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app):
+            for _ in range(100):
+                if "启动时同步名单失败" in caplog.text:
+                    break
+                await asyncio.sleep(0.01)
+
+    asyncio.run(scenario())
+    assert "启动时同步名单失败" in caplog.text
 
 
 def test_startup_sync_accepts_new_roster_and_trust_list(tmp_path: Path) -> None:
@@ -194,6 +237,7 @@ def test_startup_sync_accepts_new_roster_and_trust_list(tmp_path: Path) -> None:
                     break
                 await asyncio.sleep(0.01)
             assert b.service.roster().device(c.service.node_id) is not None
+            # 我的电脑之间同步时带通行证，"我信任的人"名单也一并同步。
             assert b.service.message().trust_list == a.service.message().trust_list
         assert b.service.receive(TrustSyncMessage(), "空消息") == b.service.message()
 
@@ -335,3 +379,29 @@ def test_sync_failure_is_safe_and_does_not_block_startup(
 
     asyncio.run(scenario())
     assert "秘密不能进入报错" not in caplog.text
+
+
+def test_rate_limit_window_slides_per_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = computer(tmp_path / "a", 1, {})
+    tick = 100.0
+    monkeypatch.setattr("tunnelminion.gateway.api.monotonic", lambda: tick)
+
+    async def scenario() -> None:
+        nonlocal tick
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(gateway(a)), base_url="http://127.0.0.1"
+        ) as client:
+            for _ in range(9):
+                assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            tick += 30
+            assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            assert (await client.post("/v1/owner:join", content="{}")).status_code == 429
+            # 一分钟前的 9 次滑出窗口，30 秒前那次还在。
+            tick += 35
+            for _ in range(9):
+                assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            assert (await client.post("/v1/owner:join", content="{}")).status_code == 429
+
+    asyncio.run(scenario())

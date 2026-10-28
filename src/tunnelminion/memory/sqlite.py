@@ -1220,6 +1220,13 @@ class SQLiteTrustStore:
                 reason,
             )
 
+    def was_own_device(self, node_id: NodeId) -> bool:
+        """曾经在"我的电脑"名单上的节点；移出后不能再用残留旧令牌进来。"""
+        return any(
+            item.kind is SignaturePurpose.OWNER_ROSTER and str(node_id) in item.subjects
+            for item in self.audits()
+        )
+
     def was_friend_device(self, node_id: NodeId) -> bool:
         """已移除的朋友电脑不能借残留旧令牌绕过撤销。"""
         with self._database.connect() as connection:

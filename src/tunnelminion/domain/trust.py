@@ -53,6 +53,8 @@ OWNER_JOIN_CODE_PREFIX = "tmo1_"
 FRIEND_JOIN_CODE_PREFIX = "tmf1_"
 # 加入码与配对码的有效期，与邀请码一致。
 JOIN_CODE_LIFETIME = timedelta(hours=24)
+# 加入应答从签出到被接受的最长间隔（含时钟误差）。
+JOIN_PROOF_MAX_AGE = timedelta(minutes=5)
 
 _FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PASS_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -330,13 +332,16 @@ class OwnerRotation(_Payload):
 class JoinProof(_Payload):
     """加入方用新生成的电脑密钥签的应答，用途 `tm-join-proof`。
 
-    `token_digest` 是加入码令牌的 SHA-256 十六进制，把这份应答绑在这一次加入上。
+    `token_digest` 是加入码令牌的 SHA-256 十六进制，把这份应答绑在这一次加入上；
+    `host`、`port` 是加入方报上来的组网地址，别人截获应答后不能换成自己的地址报到。
     """
 
     token_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     inviter_node_id: NodeId
     node_id: NodeId
     device_public_key: PublicKeyText
+    host: str
+    port: int = Field(ge=1024, le=65535)
     issued_at: datetime
 
 
