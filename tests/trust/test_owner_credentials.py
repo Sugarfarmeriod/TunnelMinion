@@ -11,11 +11,16 @@ from fastapi import FastAPI
 from tests.trust.test_identity import MemorySecrets
 from tests.trust.test_own_devices import computer
 
+from tunnelminion.domain.errors import ErrorCode
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import PassScope, SignaturePurpose
-from tunnelminion.gateway.client import FixedGatewayClient
+from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
 from tunnelminion.gateway.configuration import GatewayPeerConfig, GatewayPeerInput
-from tunnelminion.gateway.credentials import GatewayCredentials, GatewayRequestAuth
+from tunnelminion.gateway.credentials import (
+    GatewayCredentialError,
+    GatewayCredentials,
+    GatewayRequestAuth,
+)
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.trust.contracts import (
@@ -68,12 +73,9 @@ def test_per_request_auth_scope_and_single_retry(mode: str) -> None:
             auth=GatewayRequestAuth(GatewayCredentials(provide, synchronize)),
             base_url="http://127.0.0.1",
         ) as client:
-            if mode == "sync_fail":
-                with pytest.raises(IdentityError):
-                    await client.get("/v1/operations/example")
-            else:
-                response = await client.get("/v1/operations/example")
-                assert response.status_code == (200 if mode in ("ok", "sync") else 401)
+            # 同步失败时保留第一次的 401，不把内部异常抛给调用方。
+            response = await client.get("/v1/operations/example")
+            assert response.status_code == (200 if mode in ("ok", "sync") else 401)
 
     asyncio.run(scenario())
     assert synced == ([True] if mode in ("sync", "twice", "sync_fail") else [])
@@ -188,3 +190,68 @@ def test_removed_computer_can_sync_later_versions_without_recreating_certificate
         )
     )
     assert a.config.resolve_service_peer(a.service.node_id)[1] == "tmn_" + "x" * 40
+
+
+@pytest.mark.parametrize("fail_on", [1, 2])
+def test_pass_signing_failure_becomes_request_error(fail_on: int) -> None:
+    issued: list[int] = []
+
+    def provide(_scope: PassScope) -> str:
+        issued.append(1)
+        if len(issued) == fail_on:
+            raise IdentityError("本机已被移出我的电脑，不能使用通行证")
+        return "fresh"
+
+    async def synchronize() -> None:
+        return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401, json={"error": {"code": "trust_sync_required", "message": "需要同步名单"}}
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            auth=GatewayRequestAuth(GatewayCredentials(provide, synchronize)),
+            base_url="http://127.0.0.1",
+        ) as client:
+            with pytest.raises(GatewayCredentialError) as caught:
+                await client.get("/v1/services")
+            assert isinstance(caught.value, httpx.RequestError)
+            assert "移出" not in str(caught.value)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["sign", "sync"])
+def test_client_reports_credential_failures_as_gateway_errors(failure: str) -> None:
+    def provide(_scope: PassScope) -> str:
+        if failure == "sign":
+            raise IdentityError("本机已被移出我的电脑，不能使用通行证")
+        return "fresh"
+
+    async def synchronize() -> None:
+        raise IdentityError("名单同步失败")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401, json={"error": {"code": "trust_sync_required", "message": "需要同步名单"}}
+        )
+
+    client = FixedGatewayClient(
+        "http://10.0.0.1:8787",
+        GatewayCredentials(provide, synchronize),
+        NodeId.new(),
+        NodeId.new(),
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(RemoteGatewayError) as caught:
+            await client.get_services()
+        expected = ErrorCode.NODE_UNREACHABLE if failure == "sign" else ErrorCode.UNAUTHENTICATED
+        assert caught.value.code is expected
+
+    asyncio.run(scenario())

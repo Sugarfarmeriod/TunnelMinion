@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
@@ -159,6 +160,17 @@ class _TracedGatewayRoute(APIRoute):
         return traced
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _startup_push(owner_devices: OwnDevicesService) -> None:
+    """启动时同步名单；任何失败只记日志。"""
+    try:
+        await owner_devices.push()
+    except Exception:
+        logger.warning("启动时同步名单失败", exc_info=False)
+
+
 def create_gateway_router(
     node_id: NodeId,
     platform: Platform,
@@ -180,18 +192,24 @@ def create_gateway_router(
     @asynccontextmanager
     async def lifespan(_app: Any):
         # 启动时在后台同步名单，离线电脑的超时不拖慢网关启动。
-        task = asyncio.create_task(owner_devices.push()) if owner_devices is not None else None
+        task = (
+            asyncio.create_task(_startup_push(owner_devices)) if owner_devices is not None else None
+        )
         yield
         if task is not None and not task.done():
             task.cancel()
 
     router = APIRouter(route_class=_TracedGatewayRoute, lifespan=lifespan)
     invite_attempts: deque[float] = deque()
-    owner_attempts: deque[float] = deque()
-    sync_attempts: deque[float] = deque()
+    # 加入和名单同步按来源地址分别限流，一台机器刷请求不会挡住其他电脑。
+    owner_attempts: dict[str, deque[float]] = {}
+    sync_attempts: dict[str, deque[float]] = {}
 
-    def limited(attempts: deque[float], limit: int) -> bool:
+    def limited(buckets: dict[str, deque[float]], source: str, limit: int) -> bool:
         now = monotonic()
+        for key in [key for key, value in buckets.items() if not value or now - value[-1] >= 60]:
+            del buckets[key]
+        attempts = buckets.setdefault(source, deque())
         while attempts and now - attempts[0] >= 60:
             attempts.popleft()
         if len(attempts) >= limit:
@@ -204,7 +222,8 @@ def create_gateway_router(
         background: BackgroundTasks,
         authorization: Annotated[str | None, Header()] = None,
     ) -> OwnerJoinResponse | JSONResponse:
-        if limited(owner_attempts, 10):
+        source = http_request.client.host if http_request.client else ""
+        if limited(owner_attempts, source, 10):
             return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "owner_join")
         try:
             if (
@@ -219,7 +238,7 @@ def create_gateway_router(
             result = owner_devices.accept_join(
                 authorization.removeprefix("Bearer "),
                 OwnerJoinRequest.model_validate_json(body),
-                http_request.client.host if http_request.client else "",
+                source,
             )
         except Exception:
             return reject(
@@ -229,10 +248,8 @@ def create_gateway_router(
         return result
 
     async def trust_sync(http_request: Request) -> TrustSyncMessage | JSONResponse:
-        if limited(sync_attempts, 60):
-            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "trust_sync")
+        source = http_request.client.host if http_request.client else ""
         try:
-            source = http_request.client.host if http_request.client else ""
             address = ipaddress.ip_address(source)
             if (
                 owner_devices is None
@@ -241,6 +258,11 @@ def create_gateway_router(
                 or address.is_multicast
             ):
                 raise ValueError
+        except ValueError:
+            return reject(401, GatewayErrorCode.UNAUTHENTICATED, "名单同步验证失败", "trust_sync")
+        if limited(sync_attempts, source, 60):
+            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "trust_sync")
+        try:
             body = await http_request.body()
             if len(body) > 512_000:
                 raise ValueError
@@ -250,7 +272,8 @@ def create_gateway_router(
                 and message.trust_list.purpose.value != "tm-trust-list"
             ):
                 raise ValueError
-            return owner_devices.receive(message, source)
+            # 不要求通行证的同步只回"我的电脑"名单，"我信任的人"名单不给任意私网来源。
+            return TrustSyncMessage(roster=owner_devices.receive(message, source).roster)
         except ValueError:
             return reject(401, GatewayErrorCode.UNAUTHENTICATED, "名单同步验证失败", "trust_sync")
 
