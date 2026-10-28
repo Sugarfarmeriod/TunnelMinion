@@ -1,6 +1,6 @@
 # 机主身份与访客权限：我的电脑自动互信，朋友按人配对
 
-> 状态：已实现（#197、#199、#201、#202），待真机验收。总体方向见 [`node-agents.md`](node-agents.md)，配对现状见 [`model-borrowing.md`](model-borrowing.md) 的"邀请码"一节，代批准见 [`agent-fix.md`](agent-fix.md)。
+> 状态：已实现（#197、#199、#201、#202、#204、#205），2026-10-28 真机验收通过，记录见文末。总体方向见 [`node-agents.md`](node-agents.md)，配对现状见 [`model-borrowing.md`](model-borrowing.md) 的"邀请码"一节，代批准见 [`agent-fix.md`](agent-fix.md)。
 
 ## 一句话
 
@@ -208,7 +208,7 @@ sequenceDiagram
 - 旧式配对：升级后行为与今天一致；`peers migrate` 不经确认不删除任何东西。
 - 任何日志、数据库、错误信息里都没有私钥、恢复码和令牌明文。
 
-**真机验收**用这台 Windows 电脑和 Mac mini。Mac mini 上再开两个数据目录，分别扮演"第三台电脑"（`.data/c`，端口 8788）和"朋友"（`.data/f`，端口 8789）。下面的命令都在仓库目录里运行；`<PC 数据目录>`、`<Mac 数据目录>` 是两台电脑平时用的数据目录（用默认位置时可以省掉 `--data-dir`），`<PC 组网地址>`、`<Mac 组网地址>` 是两台电脑的 WireGuard 地址。
+**真机验收**用这台 Windows 电脑和 Mac mini。"第三台电脑"（`.data/c`，端口 8788）和"朋友"（`.data/f`，端口 8789）放在另一台电脑上，或者这台电脑上的单独数据目录里。Mac 访问不了自己的组网地址，所以这两个角色不能放在 Mac 上。下面的命令都在仓库目录里运行；`<PC 数据目录>`、`<Mac 数据目录>` 是两台电脑平时用的数据目录（用默认位置时可以省掉 `--data-dir`），`<PC 组网地址>`、`<Mac 组网地址>` 是两台电脑的 WireGuard 地址，`<C 组网地址>` 是放"第三台电脑"和"朋友"的那台电脑的地址（放在这台电脑上时就是 `<PC 组网地址>`）。
 
 **准备**：两台电脑都更新到最新的 `main`，运行 `uv sync`。验收前两台电脑之间已经有旧式配对。每启动一个网关就单独开一个终端，验收结束再按 `Ctrl+C` 停掉。
 
@@ -219,7 +219,7 @@ sequenceDiagram
    - 检查：两边运行 `uv run tunnelminion owner status --data-dir <数据目录>`，都列出 2 台电脑、名单版本相同；网页设置页里，对方标为"我的电脑"。在这台电脑上运行 `uv run tunnelminion peers migrate --data-dir <PC 数据目录>`，能看到原来那条旧式配对，回答 `n` 保留。
 2. **第三台电脑只和这台电脑打交道**
    - 这台电脑：再运行一次 `owner invite`，拿到新的加入码。
-   - Mac：`uv run tunnelminion owner join <加入码> --data-dir .data/c --bind-host <Mac 组网地址> --bind-port 8788`，然后 `uv run tunnelminion gateway --data-dir .data/c`。
+   - 放"第三台电脑"的那台电脑：`uv run tunnelminion owner join <加入码> --data-dir .data/c --bind-host <C 组网地址> --bind-port 8788`，然后 `uv run tunnelminion gateway --data-dir .data/c`。
    - 检查：`uv run tunnelminion owner status --data-dir <Mac 数据目录>` 列出 3 台电脑；Mac 的地图上出现"第三台电脑"，在 Mac 上点"问问"，能把问题委派给它。Mac 和第三台电脑之间没有做过任何配对。
 3. **我的电脑之间默认可以代批准**：按 [`agent-fix.md`](agent-fix.md) 里的办法，让 Mac 本机提出一个修复（例如停掉一个被观察的 Docker 容器）。在这台电脑的地图上点 Mac 头上的感叹号批准，Mac 动手修好。这一次没有运行 `peer-proxy-approval`。
 4. **离线的电脑上线后同步到移除**
@@ -228,13 +228,36 @@ sequenceDiagram
    - 重新启动 Mac 的网关，等十几秒。
    - 检查：`uv run tunnelminion owner status --data-dir <Mac 数据目录>` 只剩 2 台电脑；`uv run tunnelminion owner status --data-dir .data/c` 显示本机已被移出；Mac 的地图上不再有第三台电脑。Mac 的审计里有这次移除，可以用 `sqlite3 <Mac 数据目录>/runtime.sqlite3 "select payload from trust_audit order by sequence desc limit 3"` 查看。
 5. **朋友按人配对，只能提问、看结论**
-   - Mac：`uv run tunnelminion owner init --data-dir .data/f --bind-host <Mac 组网地址> --bind-port 8789 --display-name 朋友的电脑`，然后 `uv run tunnelminion gateway --data-dir .data/f`。
+   - 放"朋友"的那台电脑：`uv run tunnelminion owner init --data-dir .data/f --bind-host <C 组网地址> --bind-port 8789 --display-name 朋友的电脑`，然后 `uv run tunnelminion gateway --data-dir .data/f`。
    - 这台电脑：`uv run tunnelminion friend invite --data-dir <PC 数据目录>`，记下 `tmf1_` 开头的配对码。
-   - Mac：`uv run tunnelminion friend join <配对码> --data-dir .data/f`。
-   - 检查：两边 `friend list` 都能看到对方。朋友的网页用 `uv run tunnelminion --data-dir .data/f --port 8767` 启动，在 Mac 上打开 `http://127.0.0.1:8767/`（或在这台电脑上用 `ssh -L 8767:127.0.0.1:8767` 转发后打开）。朋友的地图上能看到这台电脑和 Mac；向 Mac 提问能拿到结论；Mac 再提出一个修复时，朋友那边点批准会被拒绝。朋友不能直接调只读工具，这一条由自动测试覆盖。
+   - 放"朋友"的那台电脑：`uv run tunnelminion friend join <配对码> --data-dir .data/f`。
+   - 检查：两边 `friend list` 都能看到对方。朋友的网页用 `uv run tunnelminion --data-dir .data/f --port 8767` 启动，在那台电脑上打开 `http://127.0.0.1:8767/`。朋友的地图上能看到这台电脑和 Mac；向 Mac 提问能拿到结论；Mac 再提出一个修复时，朋友那边点批准会被拒绝。朋友不能直接调只读工具，这一条由自动测试覆盖。
 6. **没配对过的电脑什么都做不了**：在这台电脑的 PowerShell 里运行 `curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer a.b.c" http://<Mac 组网地址>:8787/v1/capabilities`，应返回 `401`。
 7. **用恢复码换机主密钥**
    - Mac：`uv run tunnelminion owner recover --data-dir <Mac 数据目录>`，按提示输入第 1 步抄下的恢复码，再把新显示的恢复码完整输入一遍。
    - 检查：这台电脑的 `owner status` 显示机主指纹已经换成新的，并且"本机持有机主密钥：否"；Mac 的 `owner status` 显示"本机持有机主密钥：是"。朋友那边运行 `uv run tunnelminion friend list --data-dir .data/f`，仍然列着我，而且没有重新配对。这台电脑和 Mac 之间照常互相看得见、能委派。旧恢复码随即作废，要立刻销毁。
 
-验收记录写回本文末尾，只写示例地址和节点 ID 的缩写，不写真实 IP、机器名和令牌。
+验收记录只写示例地址和节点 ID 的缩写，不写真实 IP、机器名、令牌和恢复码。
+
+## 真机验收结果（2026-10-28）
+
+基于 `main` 的 `9b2170a`。实际布置和上面的步骤有一处不同：Mac 访问不了自己的组网地址，所以"第三台电脑" C 和"朋友" F 都放在这台 Windows 电脑上，各用一个单独的数据目录和端口，而不是放在 Mac 上。第 1～7 步全部通过。
+
+1. **建立机主身份、Mac 加入**：两边的 `owner status` 都列出 2 台电脑，名单版本一致；网页设置页里对方标为"我的电脑"。`peers migrate` 能看到原来的旧式配对，回答 `n` 后保留。
+2. **C 只和这台电脑打交道**：三方名单一致（版本 5），Mac 的地图上出现了 C，Mac 把问题委派给 C 成功，C 返回了本机服务概况。Mac 和 C 之间没有做过任何配对。
+   这一步发现并修好了一个真实问题：通行证原来只容许 5 秒的时钟误差，而 Mac 的时钟比这台电脑快大约 11 秒，Mac 签的通行证一律被拒（401）。#205 把误差放宽到 2 分钟；一次性编号的缓存一直保留到过期时间加这段误差，所以可重放的时间没有变长。
+3. **我的电脑之间默认可以代批准**：Mac 的 Agent 查出一个测试容器停了，提出"重启容器"。在这台电脑上批准后，Mac 执行前再核对一遍，然后重启容器、自己验证通过（修复状态成功，标记为由对端批准，验证通过）。全程没有运行 `peer-proxy-approval`，本机收紧设置一条都没有。
+4. **离线的电脑上线后同步到移除**：停掉 Mac 的网关后，这台电脑执行 `owner remove C`，输出提示"这次没推到 Mac，下次接触时会同步"。重启 Mac 的网关，大约 30 秒后 Mac 的名单变成版本 6、只剩 2 台。C 的 `owner status` 显示"本机已被移出我的电脑，已停止使用通行证"，Mac 的地图上也不再有 C。
+5. **朋友按人配对**：F 用 `owner init` 建立了自己的机主身份，`friend invite` / `friend join` 成功。两边的 `friend list` 都能看到对方，这台电脑和 Mac 都在朋友那边的名单里，权限是可以提问、不能借模型、每日额度 20 万。F 向 Mac 提问拿到了结论。Mac 再提出一个修复时，F 查看修复只得到"不允许"、看不到详情；F 去批准，被 Mac 拒绝（403，"没有允许这台电脑替它批准修复"）。
+6. **没配对过的请求**：带伪造的令牌、或者不带令牌访问 Mac 网关的 `/v1/capabilities`，都返回 401。
+7. **用恢复码换机主密钥**：在 Mac 上用第 1 步的恢复码执行 `owner recover` 成功，旧恢复码作废。Mac 显示"本机持有机主密钥：是"，这台电脑显示"否"；两边的机主指纹都换成了同一把新的，名单版本 7。F 那边自动换成了新的指纹，没有重新配对。换密钥之后，这台电脑委派给 Mac 照常成功。
+
+验收结束后，停掉了全部临时网关和网页，关掉了临时开放的端口，删掉了两台电脑上的验收数据目录和测试容器。
+
+**验收中发现、尚未处理的问题**（已记进路线图的"以后再说"）：
+
+- 对方认证失败（401）时，`/api/peers` 里的"可达"仍然显示为是，容易误导。
+- 第 4 步里，Mac 的审计只记了"从某节点同步名单，版本 6"，没有直接写出移除了哪台电脑。
+- 朋友的地图把朋友自己这台电脑也列成了一个"我的电脑"对端。
+- 朋友那边显示我的名字时，用的是这台电脑的电脑名（"这台电脑"），对朋友来说容易混淆，应该改用机主的显示名。
+- 本机的 Qwen 小模型在可用工具很多时，容易不去调用 Docker 工具；换成 DeepSeek，或者在问题里点名工具后就正常了。
