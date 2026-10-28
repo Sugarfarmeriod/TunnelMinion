@@ -99,7 +99,7 @@ class OwnDevicesService:
         return verify_trust_list(envelope, roster.owner_public_key, roster.owner_fingerprint)
 
     def friends(self) -> tuple[tuple[TrustedPerson, OwnerRoster], ...]:
-        people = {item.owner_fingerprint: item for item in self.trust_list().people}
+        people = {item.owner_fingerprint: item for item in self.trusted_people()}
         return tuple(
             (
                 people[envelope.signer_fingerprint],
@@ -108,6 +108,9 @@ class OwnDevicesService:
             for envelope in self.store.friend_rosters()
             if envelope.signer_fingerprint in people
         )
+
+    def trusted_people(self) -> tuple[TrustedPerson, ...]:
+        return tuple(self.store.resolve_friend(item) for item in self.trust_list().people)
 
     def known_device(self, node_id: NodeId) -> DeviceEntry | None:
         return self.roster().device(node_id) or next(
@@ -197,6 +200,7 @@ class OwnDevicesService:
                     ),
                     roster=message.roster,
                     trust_list=message.trust_list,
+                    rotations=message.rotations,
                 )
         except (ValueError, IdentityError):
             raise IdentityError(INVALID_INVITE) from None
@@ -233,6 +237,7 @@ class OwnDevicesService:
                 response.trust_list,
                 response.certificate,
                 persist,
+                response.rotations,
             )
         except Exception:
             if written:
@@ -266,17 +271,34 @@ class OwnDevicesService:
         self.store.restrict_device(node_id, permissions)
 
     def message(self, *, include_private: bool = True) -> TrustSyncMessage:
+        friend_rosters = self.store.friend_rosters() if include_private else ()
         return TrustSyncMessage(
             roster=self.store.load(SignaturePurpose.OWNER_ROSTER),
             trust_list=self.store.load(SignaturePurpose.TRUST_LIST) if include_private else None,
-            friend_rosters=self.store.friend_rosters() if include_private else (),
+            friend_rosters=friend_rosters,
+            rotations=self.store.rotations(self.roster().owner_fingerprint),
+            friend_rotations={
+                item.signer_fingerprint: chain
+                for item in friend_rosters
+                if (chain := self.store.rotations(item.signer_fingerprint))
+            },
         )
 
     def receive(self, message: TrustSyncMessage, source: str) -> TrustSyncMessage:
-        for envelope in (message.roster, message.trust_list, *message.friend_rosters):
+        reason = f"从 {source} 同步名单"
+        if message.rotations:
+            if message.roster is None:
+                raise VerificationError("身份签名验证失败")
+            self.store.rotate(message.rotations, message.roster, message.trust_list, reason)
+        for envelope in (message.roster, message.trust_list):
             if envelope is not None:
                 with suppress(VersionRejectedError):
-                    self.store.accept(envelope, f"从 {source} 同步名单")
+                    self.store.accept(envelope, reason)
+        for envelope in message.friend_rosters:
+            if chain := message.friend_rotations.get(envelope.signer_fingerprint):
+                self.store.rotate(chain, envelope, None, reason)
+            with suppress(VersionRejectedError):
+                self.store.accept(envelope, reason)
         return self.message()
 
     async def sync(self, device: DeviceEntry) -> None:

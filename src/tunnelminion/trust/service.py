@@ -130,3 +130,24 @@ class OwnerIdentityService:
             devices=roster.devices,
             removed=self._store.load(SignaturePurpose.DEVICE_CERTIFICATE) is None,
         )
+
+    def reset(self) -> None:
+        """清除两把身份密钥；数据库或钥匙串失败时保留原身份。"""
+        previous = {
+            name: load_private_key(self._secrets, name)
+            for name in (OWNER_KEY_NAME, DEVICE_KEY_NAME)
+        }
+        deleted: list[str] = []
+
+        def clear_keys() -> None:
+            for name in previous:
+                deleted.append(name)
+                delete_private_key(self._secrets, name)
+
+        try:
+            self._store.reset(clear_keys)
+        except Exception:
+            for name in reversed(deleted):
+                if (key := previous[name]) is not None:
+                    save_private_key(self._secrets, name, key)
+            raise

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -36,7 +37,8 @@ from tunnelminion.trust.contracts import (
 )
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.join import join_owner
-from tunnelminion.trust.keys import InitializationKeys
+from tunnelminion.trust.keys import InitializationKeys, PrivateKey
+from tunnelminion.trust.recovery import check_recovery_devices, recover_owner, recovery_key
 from tunnelminion.trust.service import OwnerIdentityService, ensure_no_identity_keys
 from tunnelminion.trust.signatures import VerificationError
 
@@ -68,6 +70,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     init.add_argument("--bind-host")
     init.add_argument("--bind-port", type=int, default=8787)
     init.add_argument("--display-name")
+    init.add_argument("--reset", action="store_true")
     status = commands.add_parser("status", help="查看本机身份和名单")
     status.add_argument("--data-dir", type=Path)
     status.add_argument("--json", action="store_true")
@@ -78,6 +81,10 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     join.add_argument("--data-dir", type=Path)
     join.add_argument("--secret-store", choices=("keyring", "restricted-file"))
     join.add_argument("--bind-host")
+    join.add_argument("--reset", action="store_true")
+    recover = commands.add_parser("recover", help="用交互输入的恢复码更换机主密钥")
+    recover.add_argument("--data-dir", type=Path)
+    recover.add_argument("--remove", type=NodeId, action="append", default=[])
     remove = commands.add_parser("remove", help="移除我的一台电脑")
     remove.add_argument("node_id", type=NodeId)
     remove.add_argument("--data-dir", type=Path)
@@ -92,6 +99,38 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     root = args.data_dir or default_data_dir()
     database = root / "runtime.sqlite3"
     try:
+        if args.action in ("init", "join") and args.reset:
+            confirmation = (input_fn or input)("这会清除本机现有身份。请输入“重置”确认：")
+            if confirmation.strip() != "重置":
+                print("未确认重置，本机身份未改动")
+                return 2
+            OwnerIdentityService(
+                SQLiteStores.open(database).trust, gateway_secret_store(root)
+            ).reset()
+        if args.action == "recover":
+            if not SQLiteTrustStore.is_initialized(database):
+                raise IdentityError("本机身份尚未初始化")
+            roster = SQLiteTrustStore.read_roster(database)
+            node_id = NodeId((root / "node-id").read_text(encoding="utf-8").strip())
+            removed = tuple(args.remove)
+            check_recovery_devices(roster, node_id, removed)
+            key = recovery_key(roster, (input_fn or getpass.getpass)("请输入恢复码："))
+            new_owner, new_recovery = PrivateKey.generate(), PrivateKey.generate()
+            code = new_recovery.recovery_code()
+            print(f"恢复码（只显示这一次，请抄写并妥善保管）：\n{code}")
+            confirmation = (input_fn or input)("抄好后，请输入恢复码前 4 个字符：")
+            if confirmation.strip().upper() != code[:4]:
+                print("确认不符，未保存身份或密钥")
+                return 2
+            service = OwnDevicesService(
+                node_id, SQLiteStores.open(database).trust, gateway_secret_store(root)
+            )
+            targets = recover_owner(service, key, new_owner, new_recovery, removed)
+            failed = asyncio.run(service.push(targets))
+            print("已恢复机主身份并更换密钥，旧恢复码已作废")
+            for target in failed:
+                print(f"这次没推到 {target}，下次接触时会同步")
+            return 0
         if args.action == "join":
             asyncio.run(
                 join_owner(

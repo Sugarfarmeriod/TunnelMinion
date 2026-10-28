@@ -17,6 +17,7 @@ from tunnelminion.domain.trust import (
     PublicKeyText,
     SignaturePurpose,
     SignedEnvelope,
+    TrustedPerson,
 )
 
 
@@ -68,12 +69,21 @@ class OwnerJoinRequest(BaseModel):
     proof: SignedEnvelope
 
 
+class OwnerRotationStep(BaseModel):
+    """恢复密钥签的声明及新机主签的对应电脑名单。"""
+
+    rotation: SignedEnvelope
+    roster: SignedEnvelope
+
+
 class TrustSyncMessage(BaseModel):
     """可独立验签和比较版本的本机与朋友名单。"""
 
     roster: SignedEnvelope | None = None
     trust_list: SignedEnvelope | None = None
     friend_rosters: tuple[SignedEnvelope, ...] = ()
+    rotations: tuple[OwnerRotationStep, ...] = ()
+    friend_rotations: dict[str, tuple[OwnerRotationStep, ...]] = Field(default_factory=dict)
 
 
 class FriendPairing(BaseModel):
@@ -91,6 +101,7 @@ class OwnerJoinResponse(BaseModel):
     certificate: SignedEnvelope
     roster: SignedEnvelope
     trust_list: SignedEnvelope
+    rotations: tuple[OwnerRotationStep, ...] = ()
 
 
 class TrustAudit(BaseModel):
@@ -121,9 +132,25 @@ class TrustStore(Protocol):
         trust_list: SignedEnvelope,
         certificate: SignedEnvelope,
         persist_keys: Callable[[], None],
+        rotations: tuple[OwnerRotationStep, ...] = (),
     ) -> None: ...
 
     def accept(self, envelope: SignedEnvelope, reason: str) -> None: ...
+
+    def rotate(
+        self,
+        rotations: tuple[OwnerRotationStep, ...],
+        roster: SignedEnvelope,
+        trust_list: SignedEnvelope | None,
+        reason: str,
+        persist_keys: Callable[[], None] | None = None,
+    ) -> None: ...
+
+    def rotations(self, owner_fingerprint: str) -> tuple[OwnerRotationStep, ...]: ...
+
+    def resolve_friend(self, person: TrustedPerson) -> TrustedPerson: ...
+
+    def reset(self, clear_keys: Callable[[], None]) -> None: ...
 
     def create_invite(self, digest: bytes, expires_at: datetime) -> None: ...
 

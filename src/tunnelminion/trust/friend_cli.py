@@ -112,7 +112,7 @@ def friend_command(values: list[str]) -> int:
                         for device in rosters.get(friend.owner_fingerprint, ())
                     ),
                 )
-                for friend in devices.trust_list().people
+                for friend in devices.trusted_people()
             ]
             if args.json:
                 print(
