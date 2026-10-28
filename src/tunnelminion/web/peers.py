@@ -21,7 +21,7 @@ from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.domain.invites import platform_display_name
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
-from tunnelminion.gateway.configuration import GatewayConfigurationService
+from tunnelminion.gateway.configuration import GatewayConfigurationService, GatewayPeerView
 from tunnelminion.gateway.contracts import (
     GatewayErrorCode,
     GatewayServices,
@@ -32,7 +32,7 @@ from tunnelminion.repair.contracts import REPAIR_TERMINAL_STATUSES
 from tunnelminion.tools.audit import AuditSink
 from tunnelminion.web.service_map import LocalServiceMap
 
-PollOutcome = Literal["ok", "unreachable", "forbidden", "error"]
+PollOutcome = Literal["ok", "unreachable", "rejected", "forbidden", "error"]
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 
 
@@ -88,6 +88,12 @@ class PeerServicePoller:
         )
         self._pending_repairs[str(node_id)] = self.pending_repairs(node_id)[:3]
 
+    def peers(self) -> tuple[GatewayPeerView, ...]:
+        """已配置的对端；本机自己不是对端。"""
+        return tuple(
+            peer for peer in self.configuration.view().peers if peer.node_id != self._node_id
+        )
+
     def read(self, node_id: NodeId) -> PeerCache:
         return self._cache.get(str(node_id), PeerCache())
 
@@ -109,7 +115,7 @@ class PeerServicePoller:
     ) -> PeerServicesView:
         """读取已知对端的缓存，不访问网络。"""
         peer = next(
-            (peer for peer in self.configuration.view().peers if str(peer.node_id) == value),
+            (peer for peer in self.peers() if str(peer.node_id) == value),
             None,
         )
         if peer is None:
@@ -147,7 +153,7 @@ class PeerServicePoller:
         if self._lock.locked():
             return
         async with self._lock:
-            peers = self.configuration.view().peers
+            peers = self.peers()
             self._cache = {str(peer.node_id): self.read(peer.node_id) for peer in peers}
             for peer in peers:
                 previous = self.read(peer.node_id)
@@ -178,6 +184,8 @@ class PeerServicePoller:
                 except RemoteGatewayError as exc:
                     if exc.code in {ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT}:
                         outcome, reachable = "unreachable", False
+                    elif exc.code is ErrorCode.UNAUTHENTICATED:
+                        outcome, reachable = "rejected", False
                     elif exc.gateway_code is GatewayErrorCode.DELEGATION_NOT_ALLOWED:
                         outcome = "forbidden"
                     else:
@@ -226,6 +234,7 @@ class PeerSummary(BaseModel):
     is_local: bool = False
     source: Literal["local", "gateway", "coordinator"]
     reachable: bool | None
+    auth_rejected: bool = False
     last_seen_at: datetime | None
     services_visible: bool
     service_count: int
@@ -303,7 +312,7 @@ def create_peers_router(
         )
         peers: list[PeerSummary] = []
         known = {str(node_id)}
-        for peer in poller.configuration.view().peers:
+        for peer in poller.peers():
             known.add(str(peer.node_id))
             cached = poller.read(peer.node_id)
             visible = cached.services_visible
@@ -315,6 +324,7 @@ def create_peers_router(
                     platform=peer.platform,
                     source="gateway",
                     reachable=cached.reachable,
+                    auth_rejected=cached.outcome == "rejected",
                     last_seen_at=cached.last_seen_at,
                     services_visible=visible,
                     service_count=len(cached.snapshot.services)
@@ -364,7 +374,7 @@ def create_peers_router(
             target = NodeId(value)
         except ValueError as exc:
             raise HTTPException(404, "修复不存在") from exc
-        if not any(peer.node_id == target for peer in poller.configuration.view().peers):
+        if not any(peer.node_id == target for peer in poller.peers()):
             raise HTTPException(404, "对端不存在")
         result = PeerRepairAccessView(node_id=target, repair_id=identifier, access="unreachable")
         try:

@@ -442,13 +442,15 @@ export function ServiceMapPage() {
                   ? delegationStatus[phase]
                   : peer.pending_repairs.length
                     ? `! 有 ${peer.pending_repairs.length} 件事要在 ${peer.display_name} 上批准`
-                    : peer.reachable === false
-                      ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
-                      : peer.reachable === null
-                        ? "尚未确认能否连上"
-                        : phase
-                          ? delegationStatus[phase]
-                          : undefined;
+                    : peer.auth_rejected
+                      ? "对方不认这台电脑"
+                      : peer.reachable === false
+                        ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
+                        : peer.reachable === null
+                          ? "尚未确认能否连上"
+                          : phase
+                            ? delegationStatus[phase]
+                            : undefined;
               return (
                 <div
                   className={`map-node-position${phase === "investigating" || phase === "answered" ? " is-delegating" : ""}`}

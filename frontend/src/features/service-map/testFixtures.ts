@@ -83,6 +83,7 @@ export function makePeer(index = 1, overrides: Partial<Peer> = {}): Peer {
     is_local: false,
     source: "gateway",
     reachable: true,
+    auth_rejected: false,
     last_seen_at: "2026-10-27T08:00:00Z",
     services_visible: true,
     service_count: 1,

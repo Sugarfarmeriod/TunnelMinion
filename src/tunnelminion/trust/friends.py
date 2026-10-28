@@ -45,7 +45,9 @@ class FriendsService:
         return FriendPairing(
             owner_public_key=roster.owner_public_key,
             recovery_fingerprint=roster.recovery_fingerprint,
-            display_name=display_name if display_name is not None else local.display_name,
+            display_name=display_name
+            if display_name is not None
+            else f"机主 {roster.owner_fingerprint.removeprefix('sha256:')[:8]}",
             roster=envelope,
         )
 

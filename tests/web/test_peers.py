@@ -76,7 +76,9 @@ def snapshot() -> httpx.Response:
     return httpx.Response(200, content=value.model_dump_json())
 
 
-@pytest.mark.parametrize("mode", ["unreachable", "forbidden", "error", "timeout", "bad_response"])
+@pytest.mark.parametrize(
+    "mode", ["unreachable", "rejected", "forbidden", "error", "timeout", "bad_response"]
+)
 def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode: str) -> None:
     calls = 0
 
@@ -93,6 +95,10 @@ def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode:
             raise httpx.ReadTimeout("fake", request=request)
         if mode == "bad_response":
             return httpx.Response(200, text="invalid")
+        if mode == "rejected":
+            return httpx.Response(
+                401, json={"error": {"code": "unauthenticated", "message": "示例失败"}}
+            )
         return httpx.Response(
             403 if mode == "forbidden" else 503,
             json={
@@ -129,7 +135,7 @@ def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode:
         )
         assert second.outcome == expected and second.snapshot == first.snapshot
         assert second.fetched_at is not None and second.fetched_at >= first.fetched_at
-        if expected == "unreachable":
+        if expected in {"unreachable", "rejected"}:
             assert second.reachable is False and second.last_seen_at == first.last_seen_at
         else:
             assert second.reachable is True and second.last_seen_at == second.fetched_at
@@ -400,6 +406,13 @@ def test_local_peers_routes_order_names_merge_directory_and_serve_cache(tmp_path
             final = PeersView.model_validate_json((await client.get("/api/peers")).content)
             remote = next(p for p in final.peers if p.node_id == REMOTE)
             assert not remote.services_visible and remote.service_count == 0
+            assert not remote.auth_rejected
+            poller._cache[str(REMOTE)] = PeerCache(  # pyright: ignore[reportPrivateUsage]
+                outcome="rejected", reachable=False
+            )
+            rejected = PeersView.model_validate_json((await client.get("/api/peers")).content)
+            remote = next(p for p in rejected.peers if p.node_id == REMOTE)
+            assert remote.auth_rejected and remote.reachable is False
             directory.replace(
                 value.model_copy(update={"expires_at": datetime.now(UTC) - timedelta(seconds=1)})
             )
@@ -431,3 +444,41 @@ def test_platform_fallback_and_unknown_services_without_a_directory(tmp_path: Pa
             assert (await client.get("/api/peers/invalid/services")).status_code == 404
 
     asyncio.run(scenario())
+
+
+def test_local_computer_configured_as_a_peer_is_not_listed_or_polled(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return snapshot()
+
+    poller = PeerServicePoller(
+        configuration(tmp_path, peer(LOCAL, "自己"), peer(REMOTE, "对端")),
+        LOCAL,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(handler),
+    )
+    app = FastAPI()
+    install_local_request_guard(app)
+    app.include_router(
+        create_peers_router(
+            LOCAL, Platform.WINDOWS, lambda: "本机", poller, lambda: LocalServiceMap(node_id=LOCAL)
+        )
+    )
+
+    async def scenario() -> None:
+        await poller.refresh()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765"
+        ) as client:
+            peers = PeersView.model_validate_json((await client.get("/api/peers")).content).peers
+            assert [p.node_id for p in peers] == [LOCAL, REMOTE]
+            assert peers[0].is_local and peers[0].display_name == "本机"
+            assert (await client.get(f"/api/peers/{LOCAL}/services")).status_code == 404
+            repair = f"/api/peers/{LOCAL}/repairs/op_{'a' * 32}/approve"
+            assert (await client.post(repair)).status_code == 404
+
+    asyncio.run(scenario())
+    assert calls == 1

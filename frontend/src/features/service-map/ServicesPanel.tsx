@@ -54,8 +54,9 @@ export function ServicesPanel({
   reportedAt = null,
 }: ServicesPanelProps) {
   const name = peer?.display_name ?? "这台电脑";
-  const message =
-    peer?.reachable === false
+  const message = peer?.auth_rejected
+    ? "对方不认这台电脑，请检查两边是否还在同一份名单里。"
+    : peer?.reachable === false
       ? `离线，上次在线 ${relativeTime(peer.last_seen_at)}`
       : peer?.reachable === null
         ? "尚未确认能否连上这台电脑。"

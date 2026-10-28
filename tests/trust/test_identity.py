@@ -370,6 +370,7 @@ def test_accept_versions_and_audit_removed_subjects(tmp_path: Path, kind: Signat
     original = store.load(kind)
     assert original is not None
     subjects: tuple[str, ...]
+    new_subject: str
     if kind is SignaturePurpose.OWNER_ROSTER:
         first = verify_owner_roster(original, key_fingerprint(keys.owner.public_key))
         added = first.devices[0].model_copy(
@@ -378,6 +379,7 @@ def test_accept_versions_and_audit_removed_subjects(tmp_path: Path, kind: Signat
         second = first.model_copy(update={"version": 2, "devices": (*first.devices, added)})
         third = first.model_copy(update={"version": 3})
         subjects = tuple(sorted(str(item.node_id) for item in second.devices))
+        new_subject = str(added.node_id)
     else:
         person = TrustedPerson(
             owner_public_key=PrivateKey.generate().public_key,
@@ -389,6 +391,7 @@ def test_accept_versions_and_audit_removed_subjects(tmp_path: Path, kind: Signat
         second = first.model_copy(update={"version": 2, "people": (person,)})
         third = first.model_copy(update={"version": 3})
         subjects = (person.owner_fingerprint,)
+        new_subject = person.owner_fingerprint
     for payload in (second, third):
         envelope = seal(kind, payload, keys.owner)
         store.accept(envelope, "本机名单更新")
@@ -401,6 +404,10 @@ def test_accept_versions_and_audit_removed_subjects(tmp_path: Path, kind: Signat
     assert [item.version for item in audits if item.kind is kind] == [1, 2, 3]
     assert all(item.reason != "拒绝旧版本" for item in audits)
     assert store.owner_fingerprint() == status.owner_fingerprint
+    changed = [item for item in audits if item.kind is kind]
+    assert changed[1].reason == f"本机名单更新；新增 {new_subject}"
+    assert changed[2].reason == f"本机名单更新；移除 {new_subject}"
+    assert "新增" not in changed[0].reason + changed[2].reason
 
 
 @pytest.mark.parametrize("kind", [SignaturePurpose.OWNER_ROSTER, SignaturePurpose.TRUST_LIST])
