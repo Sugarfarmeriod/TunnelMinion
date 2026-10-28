@@ -13,6 +13,10 @@ from fastapi import FastAPI
 from prepare_local_product_package_fixture import seed_operation
 from stage_frontend import stage_frontend
 from tunnelminion.app import build_windows_application
+from tunnelminion.gateway.configuration import (
+    GatewaySecretStoreKind,
+    configure_gateway_secret_store,
+)
 from tunnelminion.macos_app import build_macos_local_application
 
 
@@ -41,6 +45,8 @@ def main() -> int:
         repository / "build" / "frontend-dist",
     )
     with TemporaryDirectory(prefix="tunnelminion-playwright-") as temporary:
+        # 验收里会建立机主身份；密钥只写进临时目录，不碰系统钥匙串。
+        configure_gateway_secret_store(Path(temporary), GatewaySecretStoreKind.RESTRICTED_FILE)
         application = build_application(Path(temporary), read_only_preview=args.read_only_preview)
         uvicorn.run(
             application,

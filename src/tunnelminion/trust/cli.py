@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,17 +12,12 @@ from pydantic import ValidationError
 
 from tunnelminion.app import default_data_dir, load_or_create_node_id
 from tunnelminion.domain.identifiers import NodeId
-from tunnelminion.domain.tools import Platform
 from tunnelminion.domain.trust import InvalidJoinCodeError, JoinCode, JoinCodeKind
 from tunnelminion.gateway.configuration import (
-    FileGatewayConfigurationRepository,
-    GatewayConfigurationService,
     GatewaySecretStoreKind,
     configure_gateway_secret_store,
     gateway_secret_store,
 )
-from tunnelminion.gateway.names import NodeNameConfiguration, load_node_name
-from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
 from tunnelminion.model.secrets import (
     KeyringSecretStore,
@@ -31,16 +25,21 @@ from tunnelminion.model.secrets import (
     SecretStoreError,
 )
 from tunnelminion.trust.contracts import (
-    AlreadyInitializedError,
-    DevicePermissions,
     IdentityError,
     IdentityStatus,
 )
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.join import join_owner
 from tunnelminion.trust.keys import InitializationKeys, PrivateKey
+from tunnelminion.trust.local import (
+    BindHostRequiredError,
+    initialize,
+    normalized_recovery_code,
+    plan_setup,
+    restrict_device,
+)
 from tunnelminion.trust.recovery import check_recovery_devices, recover_owner, recovery_key
-from tunnelminion.trust.service import OwnerIdentityService, ensure_no_identity_keys
+from tunnelminion.trust.service import OwnerIdentityService
 from tunnelminion.trust.signatures import VerificationError
 
 
@@ -60,13 +59,11 @@ def _print_status(status: IdentityStatus, as_json: bool) -> None:
             print(f"{device.display_name}（{device.node_id}）：{device.host}:{device.port}")
 
 
-def _normalized_code(value: str) -> str:
-    return "".join(char for char in value.upper() if char != "-" and not char.isspace())
-
-
 def _confirm_recovery_code(read: Callable[[str], str], code: str) -> bool:
     """请机主把恢复码完整输入一遍；忽略大小写、空格和连字符。"""
-    return _normalized_code(read("抄好后，请把恢复码完整输入一遍：")) == _normalized_code(code)
+    return normalized_recovery_code(
+        read("抄好后，请把恢复码完整输入一遍：")
+    ) == normalized_recovery_code(code)
 
 
 def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = None) -> int:
@@ -182,24 +179,16 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
                 for node_id in failed:
                     print(f"这次没推到 {node_id}，下次接触时会同步")
             else:
-                current = service.store.device_permissions(args.node_id)
-                service.restrict(
+                restrict_device(
+                    service,
                     args.node_id,
-                    DevicePermissions(
-                        allow_proxy_repair_approval=current.allow_proxy_repair_approval
-                        and not args.no_proxy_repair_approval,
-                        allow_delegation=current.allow_delegation and not args.no_delegation,
-                        allow_model_borrowing=current.allow_model_borrowing
-                        and not args.no_model_borrowing,
-                        daily_quota=args.daily_quota
-                        if args.daily_quota is not None
-                        else current.daily_quota,
-                    ),
+                    allow_proxy_repair_approval=False if args.no_proxy_repair_approval else None,
+                    allow_delegation=False if args.no_delegation else None,
+                    allow_model_borrowing=False if args.no_model_borrowing else None,
+                    daily_quota=args.daily_quota,
                 )
                 print("已收紧这台电脑在本机的权限")
             return 0
-        if not reset and SQLiteTrustStore.is_initialized(database):
-            raise AlreadyInitializedError("本机身份已经初始化，不能重复初始化")
         previous_secrets = gateway_secret_store(root)
         secrets = (
             RestrictedFileSecretStore(root / "gateway-secrets")
@@ -208,53 +197,28 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
             if args.secret_store == "keyring"
             else gateway_secret_store(root)
         )
-        if not reset:
-            ensure_no_identity_keys(secrets)
-        configuration = FileGatewayConfigurationRepository(root / "gateway.json").load()
-        if configuration is None and args.bind_host is None:
+        try:
+            plan = plan_setup(
+                root,
+                secrets,
+                previous_secrets,
+                host=args.bind_host,
+                port=args.bind_port,
+                display_name=args.display_name,
+                reset=reset,
+            )
+        except BindHostRequiredError:
             print("本机网关还没有配置，请加上 --bind-host <本机组网地址>")
             return 2
-        bind = (
-            configuration.bind
-            if configuration is not None
-            else GatewayBindConfig(host=args.bind_host, port=args.bind_port)
-        )
-        platform = (
-            Platform.MACOS
-            if sys.platform == "darwin"
-            else Platform.WINDOWS
-            if sys.platform == "win32"
-            else Platform.LINUX
-        )
-        name = NodeNameConfiguration(
-            display_name=(
-                args.display_name
-                if args.display_name is not None
-                else load_node_name(root, platform, persist_default=False)
-            )
-        ).display_name
         keys = InitializationKeys.generate()
         print(f"恢复码（只显示这一次，请抄写并妥善保管）：\n{keys.recovery_code}")
         if not _confirm_recovery_code(input_fn or input, keys.recovery_code):
             print("确认不符，未保存身份或密钥")
             return 2
-        view = OwnerIdentityService(SQLiteStores.open(database).trust, secrets).init(
-            load_or_create_node_id(root / "node-id"),
-            bind,
-            name,
-            keys,
-            platform,
-            replace=reset,
-            previous_secrets=previous_secrets if reset else None,
-        )
+        view = initialize(plan, keys, load_or_create_node_id(root / "node-id"))
         # 身份写入成功后才记下秘密后端的选择，失败时原来的选择不变。
         if args.secret_store is not None:
             configure_gateway_secret_store(root, GatewaySecretStoreKind(args.secret_store))
-        # 本机还没有网关配置时，按这次的组网地址写一份，之后可以直接启动网关。
-        if configuration is None:
-            GatewayConfigurationService(
-                FileGatewayConfigurationRepository(root / "gateway.json"), secrets
-            ).configure_local(bind)
         _print_status(view, False)
         return 0
     except (EOFError, KeyboardInterrupt):

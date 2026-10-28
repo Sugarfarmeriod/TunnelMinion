@@ -7,7 +7,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tunnelminion.app import default_data_dir
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.invites import (
     InvalidInviteCodeError,
@@ -38,6 +37,7 @@ from tunnelminion.model.configuration import (
 from tunnelminion.model.contracts import ProviderError
 from tunnelminion.model.remote import RemoteModelProvider
 from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.runtime.profile import default_runtime_data_dir as default_data_dir
 from tunnelminion.tools.audit import InMemoryAuditSink
 
 

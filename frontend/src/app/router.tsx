@@ -8,6 +8,7 @@ import {
 
 import { MemoriesPage } from "../features/memories";
 import { OperationDetailPage, OperationsPage } from "../features/operations";
+import { PeoplePage } from "../features/people";
 import { IncidentsPage } from "../features/overview";
 import { SettingsPage } from "../features/settings";
 import { ServiceMapPage } from "../features/service-map/ServiceMapPage";
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
       { path: "operations/:operationId", element: <OperationDetailPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "memories", element: <MemoriesPage /> },
+      { path: "people", element: <PeoplePage /> },
     ],
   },
 ]);
