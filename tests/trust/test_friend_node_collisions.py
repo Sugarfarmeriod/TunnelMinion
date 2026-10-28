@@ -12,6 +12,12 @@ from tests.trust.test_own_devices import NOW, Computer, computer
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import PassScope, RequestPassClaims, SignaturePurpose
+from tunnelminion.gateway.configuration import (
+    FileGatewayConfigurationRepository,
+    GatewayConfigurationService,
+    GatewayPeerConfig,
+    GatewayPeerInput,
+)
 from tunnelminion.gateway.security import GatewayAuthenticationKind, GatewayPeerPolicy
 from tunnelminion.trust.contracts import IdentityError
 from tunnelminion.trust.friends import FriendsService
@@ -129,3 +135,39 @@ def test_own_device_history_ignores_friend_rosters(tmp_path: Path) -> None:
     pair(a, f)
     assert a.service.store.was_own_device(b.service.node_id)
     assert not a.service.store.was_own_device(f.service.node_id)
+
+
+def test_outbound_keeps_legacy_address_when_friend_reuses_its_node_id(tmp_path: Path) -> None:
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f = computer(tmp_path / "f", 3, apps)
+    pair(a, f)
+    a.config.provision_peer(
+        GatewayPeerInput(
+            peer=GatewayPeerConfig(
+                node_id=LEGACY_NODE,
+                host=LEGACY_HOST,
+                allowed_tools=frozenset({"get_node_summary"}),
+            ),
+            token=LEGACY_TOKEN,
+        )
+    )
+    a.service.store.accept(impostor(f, LEGACY_NODE, PrivateKey.generate()), "朋友名单更新")
+    view = next(peer for peer in a.config.view().peers if peer.node_id == LEGACY_NODE)
+    assert view.host == LEGACY_HOST
+    assert a.config.relationship(LEGACY_NODE) == "legacy"
+    endpoint, credential = a.config.resolve_service_peer(LEGACY_NODE)
+    assert LEGACY_HOST in endpoint and credential == LEGACY_TOKEN
+
+
+def test_relationship_without_gateway_configuration(tmp_path: Path) -> None:
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f = computer(tmp_path / "f", 3, apps)
+    pair(a, f)
+    bare = GatewayConfigurationService(
+        FileGatewayConfigurationRepository(tmp_path / "none.json"),
+        a.secrets,
+        owner_devices=a.service,
+    )
+    assert bare.relationship(f.service.node_id) == "friend"
