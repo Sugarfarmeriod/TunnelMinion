@@ -253,3 +253,37 @@ def test_reset_secret_failure_rolls_back_database_and_keys(
     with pytest.raises(SecretStoreError):
         OwnerIdentityService(a.service.store, a.secrets).reset()
     assert dump(a.root / "runtime.sqlite3") == before and a.secrets.values == private
+
+
+def test_recover_requires_initialized_identity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "empty"
+    root.mkdir()
+    assert owner_command(["owner", "recover", "--data-dir", str(root)]) == 2
+    assert "本机身份尚未初始化" in capsys.readouterr().out
+
+
+def test_recover_reports_computers_it_could_not_reach(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    apps: dict[str, FastAPI] = {}
+    a, keys = recoverable_computer(tmp_path / "a", 1, apps)
+    b = computer(tmp_path / "b", 2, apps, a)
+    a.mesh.offline.add(b.host)
+    shown: list[str] = []
+
+    def answer(prompt: str) -> str:
+        if "前 4 个字符" in prompt:
+            return confirmation(capsys, shown)
+        return keys.recovery_code
+
+    def devices(node_id: NodeId, store: TrustStore, secrets: SecretStore) -> OwnDevicesService:
+        return a.service
+
+    monkeypatch.setattr("tunnelminion.trust.cli.OwnDevicesService", devices)
+    use_secrets(monkeypatch, a)
+    assert owner_command(["owner", "recover", "--data-dir", str(a.root)], input_fn=answer) == 0
+    assert f"这次没推到 {b.service.node_id}" in capsys.readouterr().out
