@@ -124,6 +124,8 @@ def request_for(code: JoinCode, node_id: NodeId, key: PrivateKey, host: str) -> 
                 inviter_node_id=code.inviter_node_id,
                 node_id=node_id,
                 device_public_key=key.public_key,
+                host=host,
+                port=8787,
                 issued_at=NOW,
             ),
             key,

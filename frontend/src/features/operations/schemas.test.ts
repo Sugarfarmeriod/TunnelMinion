@@ -19,6 +19,11 @@ describe("eligibleOperationPeersSchema", () => {
       expect(eligibleOperationPeersSchema.parse([actual])).toEqual([actual]);
     },
   );
+  it.each(["mine", "friend", "legacy"])("接受关系字段 %s", (relationship) => {
+    expect(
+      eligibleOperationPeersSchema.parse([{ ...peer, relationship }]),
+    ).toEqual([{ ...peer, relationship }]);
+  });
   it("仍拒绝非法平台与未约定字段，不用平台字段放宽授权", () => {
     expect(
       eligibleOperationPeersSchema.safeParse([{ ...peer, platform: "other" }])

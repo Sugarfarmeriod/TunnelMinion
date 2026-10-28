@@ -70,6 +70,7 @@ class GatewayAuthenticationKind(StrEnum):
     STATIC = "static"
     COORDINATOR = "coordinator"
     OWNER_DEVICE = "owner_device"
+    FRIEND_DEVICE = "friend_device"
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,36 @@ class GatewayManagedPeerPolicy:
             raise ValueError("Coordinator-managed peer 至少需要一个允许的只读工具")
 
 
+def identity_permissions(
+    peer: GatewayPeerPolicy, local: GatewayPeerPolicy | None = None
+) -> GatewayPeerPolicy:
+    """身份决定不可突破的上限，配置开关只能在上限内收紧。"""
+    if peer.authentication_kind is GatewayAuthenticationKind.FRIEND_DEVICE:
+        return replace(
+            peer,
+            allowed_tools=frozenset(),
+            allowed_operations=frozenset(),
+            allow_proxy_repair_approval=False,
+            allow_delegation=peer.allow_delegation and (local is None or local.allow_delegation),
+            allow_model_borrowing=peer.allow_model_borrowing
+            and (local is None or local.allow_model_borrowing),
+            daily_quota=min(peer.daily_quota, local.daily_quota) if local else peer.daily_quota,
+        )
+    return peer
+
+
+def identity_allows(peer: GatewayPeerPolicy, action: str) -> bool:
+    """朋友只开放服务地图、委派与按权限借模型。"""
+    return peer.authentication_kind is not GatewayAuthenticationKind.FRIEND_DEVICE or action in {
+        "capabilities",
+        "services",
+        "delegation_submit",
+        "delegation_status",
+        "delegation_cancel",
+        "model_complete",
+    }
+
+
 class GatewaySecurityPolicy:
     """使用常量时间摘要比较认证 peer，并应用每节点滑动窗口限流。"""
 
@@ -170,6 +201,10 @@ class GatewaySecurityPolicy:
         self._requests: defaultdict[str, deque[float]] = defaultdict(deque)
         self._request_pass_verifier = request_pass_verifier
 
+    def static_source_hosts(self, node_id: NodeId) -> tuple[str | None, ...]:
+        """同一节点 ID 下已有旧式配对登记的来源地址。"""
+        return tuple(peer.source_host for peer in self._peers if peer.node_id == node_id)
+
     def upsert_static_peer(self, peer: GatewayPeerPolicy) -> None:
         """替换单个静态 peer，保留其他 peer 和已有速率窗口。"""
         self._peers = (*(item for item in self._peers if item.node_id != peer.node_id), peer)
@@ -191,20 +226,38 @@ class GatewaySecurityPolicy:
             if hmac.compare_digest(candidate, peer.token_digest):
                 matched = peer
         if matched is not None:
-            return matched
+            if self._request_pass_verifier is not None:
+                matched = self._request_pass_verifier.static_peer(matched, source_host)
+            return identity_permissions(matched) if matched is not None else None
         if self._request_pass_verifier is not None and credential.count(".") == 2:
             owner = self._request_pass_verifier.authenticate(credential, audience, source_host)
+            if (
+                owner is not None
+                and owner.authentication_kind is GatewayAuthenticationKind.FRIEND_DEVICE
+                and any(
+                    host != owner.source_host for host in self.static_source_hosts(owner.node_id)
+                )
+            ):
+                # 朋友名单占用了旧式配对的节点 ID（地址不同），不认这个朋友身份。
+                owner = None
             if owner is not None:
-                return replace(
-                    owner,
-                    allowed_operations=next(
-                        (
-                            peer.allowed_operations
-                            for peer in self._peers
-                            if peer.node_id == owner.node_id
-                        ),
-                        frozenset[str](),
+                # 只有地址一致的旧式配对才算同一台电脑，才能沿用它的受控操作和收紧设置。
+                legacy = next(
+                    (
+                        peer
+                        for peer in self._peers
+                        if peer.node_id == owner.node_id and peer.source_host == owner.source_host
                     ),
+                    None,
+                )
+                return identity_permissions(
+                    replace(
+                        owner,
+                        allowed_operations=(
+                            legacy.allowed_operations if legacy is not None else frozenset[str]()
+                        ),
+                    ),
+                    legacy,
                 )
         return self._authenticate_managed(credential, audience)
 

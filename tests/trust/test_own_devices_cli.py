@@ -75,9 +75,9 @@ def test_join_owner_saves_only_device_key_after_verified_handshake(
         FileGatewayConfigurationRepository(root / "gateway.json").save(
             GatewayConfiguration(bind=GatewayBindConfig(host="10.20.0.2"))
         )
-    code = a.service.invite().model_copy(
-        update={"expires_at": datetime.now(UTC) + timedelta(hours=24)}
-    )
+    # 加入方用真实时间签应答，邀请方也按真实时间检查应答是否新鲜。
+    a.service.clock = lambda: datetime.now(UTC)
+    code = a.service.invite()
     asyncio.run(join_owner(code, root, secret_store_kind=store_kind))
     assert SQLiteTrustStore.is_initialized(root / "runtime.sqlite3")
     assert set(secrets.values) == {DEVICE_KEY_NAME}

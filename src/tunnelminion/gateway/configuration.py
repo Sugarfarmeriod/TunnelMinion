@@ -6,7 +6,7 @@ import secrets
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -130,6 +130,7 @@ class GatewayPeerView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     node_id: NodeId
+    relationship: Literal["mine", "friend", "legacy"] = "legacy"
     platform: Platform | None = None
     display_name: DisplayName | None = None
     host: str
@@ -258,11 +259,36 @@ class GatewayConfigurationService:
         return self._owner_devices
 
     def _effective_config(self, config: GatewayConfiguration) -> GatewayConfiguration:
-        """我的电脑覆盖同节点旧配对的显示资料，旧配对配置和令牌仍保留。"""
+        """身份名单覆盖旧配对资料；朋友权限只取各层限制的交集。"""
         owner = self.owner_devices
         if owner is None or not owner.active():
             return config
         peers = {str(peer.node_id): peer for peer in config.peers}
+        from tunnelminion.trust.passes import RequestPassVerifier
+
+        verifier = RequestPassVerifier(owner)
+        for friend, roster in owner.friends():
+            for device in roster.devices:
+                previous = peers.get(str(device.node_id))
+                policy = verifier.friend_peer(device.node_id)
+                if policy is None or (previous is not None and previous.host != device.host):
+                    # 节点 ID 有冲突时不让朋友名单改写已有对端的地址。
+                    continue
+                peers[str(device.node_id)] = GatewayPeerConfig(
+                    node_id=device.node_id,
+                    platform=device.platform,
+                    display_name=f"{friend.display_name} · {device.display_name}"[:40],
+                    host=device.host,
+                    port=device.port,
+                    allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
+                    allow_delegation=policy.allow_delegation
+                    and (previous is None or previous.allow_delegation),
+                    allow_model_borrowing=policy.allow_model_borrowing
+                    and (previous is None or previous.allow_model_borrowing),
+                    daily_quota=min(policy.daily_quota, previous.daily_quota)
+                    if previous
+                    else policy.daily_quota,
+                ).model_copy(update={"allowed_tools": frozenset()})
         for device in owner.roster().devices:
             if device.node_id != owner.node_id:
                 previous = peers.get(str(device.node_id))
@@ -281,10 +307,28 @@ class GatewayConfigurationService:
     def _credential(self, node_id: NodeId) -> GatewayCredential | None:
         owner = self.owner_devices
         if owner is not None and owner.active():
-            device = owner.roster().device(node_id)
-            if device is not None and node_id != owner.node_id:
+            legacy = self._legacy_host(node_id)
+            device = owner.known_device(node_id)
+            if (
+                device is not None
+                and node_id != owner.node_id
+                and (
+                    owner.roster().device(node_id) is not None
+                    or legacy is None
+                    or legacy == device.host
+                )
+            ):
                 return owner.credentials(device)
+            if owner.store.was_friend_device(node_id, legacy):
+                return None
         return self._secrets.get(gateway_token_name(node_id))
+
+    def _legacy_host(self, node_id: NodeId) -> str | None:
+        """本机旧式配置里这个节点登记的地址。"""
+        config = self._repository.load()
+        if config is None:
+            return None
+        return next((peer.host for peer in config.peers if peer.node_id == node_id), None)
 
     def configure_local(
         self,
@@ -359,6 +403,7 @@ class GatewayConfigurationService:
         peers = tuple(
             GatewayPeerView(
                 node_id=item.node_id,
+                relationship=self.relationship(item.node_id),
                 platform=item.platform,
                 display_name=item.display_name,
                 host=item.host,
@@ -380,6 +425,20 @@ class GatewayConfigurationService:
             requester_callback_port=config.requester_callback_port,
             peers=peers,
         )
+
+    def relationship(self, node_id: NodeId) -> Literal["mine", "friend", "legacy"]:
+        owner = self.owner_devices
+        if owner is not None and owner.active():
+            if owner.roster().device(node_id) is not None:
+                return "mine"
+            legacy = self._legacy_host(node_id)
+            if any(
+                (device := roster.device(node_id)) is not None
+                and (legacy is None or legacy == device.host)
+                for _, roster in owner.friends()
+            ):
+                return "friend"
+        return "legacy"
 
     def eligible_operation_peers(self, operation_name: str) -> tuple[GatewayPeerView, ...]:
         """只返回明确允许该操作且凭据可用的固定对端。"""

@@ -220,6 +220,7 @@ class PeerSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     node_id: NodeId
+    relationship: Literal["mine", "friend", "legacy"] = "legacy"
     display_name: str
     platform: Platform | None
     is_local: bool = False
@@ -290,6 +291,7 @@ def create_peers_router(
         local = local_services()
         own = PeerSummary(
             node_id=node_id,
+            relationship="mine",
             display_name=display_name(),
             platform=platform,
             is_local=True,
@@ -308,6 +310,7 @@ def create_peers_router(
             peers.append(
                 PeerSummary(
                     node_id=peer.node_id,
+                    relationship=peer.relationship,
                     display_name=peer.display_name or platform_display_name(peer.platform),
                     platform=peer.platform,
                     source="gateway",

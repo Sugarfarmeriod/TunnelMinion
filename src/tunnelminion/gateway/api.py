@@ -43,7 +43,12 @@ from tunnelminion.gateway.contracts import (
     RemoteToolResult,
 )
 from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
-from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
+from tunnelminion.gateway.security import (
+    GatewayAuthenticationKind,
+    GatewayPeerPolicy,
+    GatewaySecurityPolicy,
+    identity_allows,
+)
 from tunnelminion.operation.contracts import OperationSummary
 from tunnelminion.repair.contracts import RepairRecord
 from tunnelminion.repair.peer_view import peer_repair_view
@@ -58,8 +63,14 @@ from tunnelminion.tools.contracts import (
 )
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
-from tunnelminion.trust.contracts import OwnerJoinRequest, OwnerJoinResponse, TrustSyncMessage
+from tunnelminion.trust.contracts import (
+    FriendPairing,
+    OwnerJoinRequest,
+    OwnerJoinResponse,
+    TrustSyncMessage,
+)
 from tunnelminion.trust.devices import OwnDevicesService
+from tunnelminion.trust.friends import FriendsService
 from tunnelminion.trust.passes import TrustSyncRequired
 
 if TYPE_CHECKING:
@@ -201,8 +212,9 @@ def create_gateway_router(
 
     router = APIRouter(route_class=_TracedGatewayRoute, lifespan=lifespan)
     invite_attempts: deque[float] = deque()
-    # 加入和名单同步按来源地址分别限流，一台机器刷请求不会挡住其他电脑。
+    # 加入、朋友配对和名单同步按来源地址分别限流，一台机器刷请求不会挡住其他电脑。
     owner_attempts: dict[str, deque[float]] = {}
+    friend_attempts: dict[str, deque[float]] = {}
     sync_attempts: dict[str, deque[float]] = {}
 
     def limited(buckets: dict[str, deque[float]], source: str, limit: int) -> bool:
@@ -235,10 +247,15 @@ def create_gateway_router(
             body = await http_request.body()
             if len(body) > 512_000:
                 raise ValueError
+            join_request = OwnerJoinRequest.model_validate_json(body)
+            # 不能借用旧式配对的节点 ID 冒充那台电脑（继承它的权限和地址）。
+            if any(
+                host != join_request.host
+                for host in security_policy.static_source_hosts(join_request.node_id)
+            ):
+                raise ValueError
             result = owner_devices.accept_join(
-                authorization.removeprefix("Bearer "),
-                OwnerJoinRequest.model_validate_json(body),
-                source,
+                authorization.removeprefix("Bearer "), join_request, source
             )
         except Exception:
             return reject(
@@ -247,7 +264,41 @@ def create_gateway_router(
         background.add_task(owner_devices.push)
         return result
 
-    async def trust_sync(http_request: Request) -> TrustSyncMessage | JSONResponse:
+    async def friend_pair(
+        http_request: Request,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> FriendPairing | JSONResponse:
+        source = http_request.client.host if http_request.client else ""
+        if limited(friend_attempts, source, 10):
+            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "friend_pair")
+        try:
+            if (
+                owner_devices is None
+                or authorization is None
+                or not authorization.startswith("Bearer ")
+            ):
+                raise ValueError
+            body = await http_request.body()
+            if len(body) > 512_000:
+                raise ValueError
+            result = FriendsService(owner_devices).accept_pair(
+                authorization.removeprefix("Bearer "),
+                FriendPairing.model_validate_json(body),
+                source,
+            )
+        except Exception:
+            return reject(
+                401, GatewayErrorCode.INVITE_INVALID, "邀请码无效、已过期或已被使用", "friend_pair"
+            )
+        background.add_task(owner_devices.push, owner_devices.roster().devices)
+        return result
+
+    async def trust_sync(
+        http_request: Request,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> TrustSyncMessage | JSONResponse:
         source = http_request.client.host if http_request.client else ""
         try:
             address = ipaddress.ip_address(source)
@@ -272,8 +323,22 @@ def create_gateway_router(
                 and message.trust_list.purpose.value != "tm-trust-list"
             ):
                 raise ValueError
-            # 不要求通行证的同步只回"我的电脑"名单，"我信任的人"名单不给任意私网来源。
-            return TrustSyncMessage(roster=owner_devices.receive(message, source).roster)
+            before = owner_devices.message()
+            received = owner_devices.receive(message, source)
+            if received != before and owner_devices.active():
+                background.add_task(owner_devices.push, owner_devices.roster().devices)
+            try:
+                peer = security_policy.authenticate(
+                    authorization, audience="trust-sync", source_host=source
+                )
+            except TrustSyncRequired:
+                peer = None
+            return owner_devices.message(
+                include_private=(
+                    peer is not None
+                    and peer.authentication_kind is GatewayAuthenticationKind.OWNER_DEVICE
+                )
+            )
         except ValueError:
             return reject(401, GatewayErrorCode.UNAUTHENTICATED, "名单同步验证失败", "trust_sync")
 
@@ -310,6 +375,15 @@ def create_gateway_router(
                 "节点认证失败",
                 action,
             )
+        if not identity_allows(peer, action):
+            code = (
+                GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED
+                if action.startswith("repair_")
+                else GatewayErrorCode.OPERATION_NOT_ALLOWED
+                if action.startswith("operation_")
+                else GatewayErrorCode.FORBIDDEN
+            )
+            return reject(403, code, "朋友的电脑不能执行这项操作", action, peer)
         if not security_policy.consume(peer):
             return reject(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -983,6 +1057,7 @@ def create_gateway_router(
     )
     router.add_api_route("/v1/services", services, methods=["GET"], response_model=None)
     router.add_api_route("/v1/owner:join", owner_join, methods=["POST"], response_model=None)
+    router.add_api_route("/v1/friends:pair", friend_pair, methods=["POST"], response_model=None)
     router.add_api_route("/v1/trust:sync", trust_sync, methods=["POST"], response_model=None)
     router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(

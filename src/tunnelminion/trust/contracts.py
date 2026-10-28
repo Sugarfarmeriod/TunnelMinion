@@ -10,7 +10,14 @@ from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.invites import DisplayName
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.domain.tools import Platform
-from tunnelminion.domain.trust import DeviceEntry, SignaturePurpose, SignedEnvelope
+from tunnelminion.domain.trust import (
+    DeviceEntry,
+    Fingerprint,
+    FriendPermissions,
+    PublicKeyText,
+    SignaturePurpose,
+    SignedEnvelope,
+)
 
 
 class IdentityError(ValueError):
@@ -62,10 +69,20 @@ class OwnerJoinRequest(BaseModel):
 
 
 class TrustSyncMessage(BaseModel):
-    """两份可独立验签和比较版本的名单。"""
+    """可独立验签和比较版本的本机与朋友名单。"""
 
     roster: SignedEnvelope | None = None
     trust_list: SignedEnvelope | None = None
+    friend_rosters: tuple[SignedEnvelope, ...] = ()
+
+
+class FriendPairing(BaseModel):
+    """配对双方只交换公开身份和各自签名的电脑名单。"""
+
+    owner_public_key: PublicKeyText
+    recovery_fingerprint: Fingerprint
+    display_name: DisplayName
+    roster: SignedEnvelope
 
 
 class OwnerJoinResponse(BaseModel):
@@ -115,3 +132,21 @@ class TrustStore(Protocol):
     def device_permissions(self, node_id: NodeId) -> DevicePermissions: ...
 
     def restrict_device(self, node_id: NodeId, permissions: DevicePermissions) -> None: ...
+
+    def friend_rosters(self) -> tuple[SignedEnvelope, ...]: ...
+
+    def friend_permissions(self, owner_fingerprint: str) -> FriendPermissions: ...
+
+    def restrict_friend(self, owner_fingerprint: str, permissions: FriendPermissions) -> None: ...
+
+    def create_friend_invite(
+        self, digest: bytes, expires_at: datetime, display_name: str
+    ) -> None: ...
+
+    def consume_friend_invite(
+        self, digest: bytes, node_id: NodeId, now: datetime
+    ) -> str | None: ...
+
+    def was_own_device(self, node_id: NodeId) -> bool: ...
+
+    def was_friend_device(self, node_id: NodeId, host: str | None) -> bool: ...

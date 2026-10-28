@@ -1019,6 +1019,14 @@ def _join(values: list[str]) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "friend":
+        from tunnelminion.trust.friend_cli import friend_command
+
+        return friend_command(values)
+    if values and values[0] == "peers":
+        from tunnelminion.trust.friend_cli import peers_command
+
+        return peers_command(values)
     if values and values[0] == "owner":
         from tunnelminion.trust.cli import owner_command
 

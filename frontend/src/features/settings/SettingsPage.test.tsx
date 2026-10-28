@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { modelConfigurationSchema, type ModelConfiguration } from "./api";
 import { SettingsPage } from "./SettingsPage";
+import { makePeer } from "../service-map/testFixtures";
 
 function makeConfiguration(
   overrides: Partial<ModelConfiguration> = {},
@@ -113,15 +114,36 @@ function renderSettings() {
 
 describe("SettingsPage", () => {
   let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
+  let peers: ReturnType<typeof makePeer>[];
 
   beforeEach(() => {
     fetchMock = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", fetchMock);
+    peers = [];
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/peers"
+        ? Promise.resolve(jsonResponse({ peers }))
+        : fetchMock(input, init),
+    );
   });
 
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("对端列表显示我的电脑、朋友和旧式配对", async () => {
+    peers = (["mine", "friend", "legacy"] as const).map((relationship, index) =>
+      makePeer(index + 1, {
+        node_id: `node_${String(index + 1).repeat(32)}`,
+        display_name: ["书房电脑", "小林的电脑", "旧电脑"][index],
+        relationship,
+      }),
+    );
+    fetchMock.mockResolvedValue(jsonResponse(makeConfiguration()));
+    renderSettings();
+    expect(await screen.findByText("书房电脑 · 我的电脑")).toBeInTheDocument();
+    expect(screen.getByText("小林的电脑 · 朋友")).toBeInTheDocument();
+    expect(screen.getByText("旧电脑 · 旧式配对")).toBeInTheDocument();
   });
 
   it.each(["available", "unavailable"] as const)(

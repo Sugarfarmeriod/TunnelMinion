@@ -210,7 +210,7 @@ def test_startup_push_failure_is_logged(
     assert "启动时同步名单失败" in caplog.text
 
 
-def test_startup_sync_accepts_new_roster_only(tmp_path: Path) -> None:
+def test_startup_sync_accepts_new_roster_and_trust_list(tmp_path: Path) -> None:
     apps: dict[str, FastAPI] = {}
     a = computer(tmp_path / "a", 1, apps)
     b = computer(tmp_path / "b", 2, apps, a)
@@ -237,8 +237,8 @@ def test_startup_sync_accepts_new_roster_only(tmp_path: Path) -> None:
                     break
                 await asyncio.sleep(0.01)
             assert b.service.roster().device(c.service.node_id) is not None
-            # 不带通行证的同步只交换"我的电脑"名单，"我信任的人"名单不会被发出去。
-            assert b.service.message().trust_list != a.service.message().trust_list
+            # 我的电脑之间同步时带通行证，"我信任的人"名单也一并同步。
+            assert b.service.message().trust_list == a.service.message().trust_list
         assert b.service.receive(TrustSyncMessage(), "空消息") == b.service.message()
 
     asyncio.run(scenario())
