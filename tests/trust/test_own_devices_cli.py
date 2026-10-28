@@ -54,7 +54,7 @@ def test_join_owner_saves_only_device_key_after_verified_handshake(
         return secrets
 
     monkeypatch.setattr("tunnelminion.trust.join.gateway_secret_store", secret_backend)
-    monkeypatch.setattr("tunnelminion.trust.join.KeyringSecretStore", lambda: secrets)
+    monkeypatch.setattr("tunnelminion.trust.join.gateway_keyring_store", secret_backend)
     monkeypatch.setattr("tunnelminion.trust.join.RestrictedFileSecretStore", secret_backend)
     monkeypatch.setattr("tunnelminion.trust.join.sys", SimpleNamespace(platform=platform))
 

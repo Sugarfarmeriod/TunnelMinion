@@ -22,6 +22,7 @@ from tunnelminion.trust.backup import (
     IdentityState,
     discard_backup,
     identity_state,
+    key_labels,
     new_backup,
     read_backup,
     restore_keys,
@@ -48,10 +49,17 @@ from tunnelminion.trust.signatures import seal, verify_owner_roster, verify_trus
 
 
 def ensure_no_identity_keys(secrets: SecretStore) -> None:
-    """钥匙串里已有身份密钥时拒绝初始化，避免覆盖。"""
-    for name in IDENTITY_KEY_NAMES:
-        if load_private_key(secrets, name) is not None:
-            raise AlreadyInitializedError("本机已有身份密钥，不能重复初始化")
+    """这个数据目录的秘密存储里已有身份密钥时拒绝初始化，避免覆盖。"""
+    found = [name for name in IDENTITY_KEY_NAMES if load_private_key(secrets, name) is not None]
+    if found:
+        raise AlreadyInitializedError(
+            f"这个数据目录的秘密存储里还留着{key_labels(found)}，但数据库里没有对应的身份"
+            "（通常是上次建立身份没做完，或数据库文件 runtime.sqlite3 被删掉了），为了不覆盖它们，"
+            "这次没有建立身份。想找回原来的身份，把原来的 runtime.sqlite3 放回这个数据目录；"
+            "确定不要它们了，在命令行运行"
+            " `tunnelminion owner init --reset --data-dir <这个数据目录>`"
+            " 重新建立身份（会清掉留下的密钥）"
+        )
 
 
 class IdentityKeySwap:
