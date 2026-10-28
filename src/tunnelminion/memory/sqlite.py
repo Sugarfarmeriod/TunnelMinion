@@ -25,8 +25,11 @@ from tunnelminion.domain.model_borrowing import ModelUsageRecord
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.domain.trust import (
     FriendPermissions,
+    OwnerRoster,
     SignaturePurpose,
     SignedEnvelope,
+    TrustedPerson,
+    key_fingerprint,
 )
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
@@ -60,6 +63,7 @@ from tunnelminion.trust.contracts import (
     AlreadyInitializedError,
     DevicePermissions,
     IdentityError,
+    OwnerRotationStep,
     TrustAudit,
     VersionRejectedError,
 )
@@ -68,8 +72,40 @@ from tunnelminion.trust.signatures import (
     roster_conflicts,
     verify_device_certificate,
     verify_owner_roster,
+    verify_owner_rotation,
     verify_trust_list,
 )
+
+
+def _migrate_friend_device_history(connection: sqlite3.Connection) -> None:
+    """早期开发版的朋友电脑历史只按节点记录；遇到旧表结构时按"节点 + 地址"重建。
+
+    旧记录没有地址，用已保存的朋友名单补回"节点 + 地址"；已经移除的朋友不在名单里，补不回来。
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(friend_device_history)")}
+    if "host" in columns:
+        return
+    connection.executescript(
+        """
+        DROP TABLE friend_device_history;
+        CREATE TABLE friend_device_history (
+            node_id TEXT NOT NULL,
+            host TEXT NOT NULL,
+            PRIMARY KEY (node_id, host)
+        );
+        """
+    )
+    for (raw,) in connection.execute("SELECT envelope_json FROM friend_rosters").fetchall():
+        devices = SignedEnvelope.model_validate_json(raw).payload.get("devices")
+        connection.executemany(
+            "INSERT OR IGNORE INTO friend_device_history VALUES (?, ?)",
+            (
+                (str(item["node_id"]), str(item["host"]))
+                for item in (devices if isinstance(devices, list) else [])
+                if isinstance(item, dict)
+            ),
+        )
+    connection.commit()
 
 
 class _SQLiteDatabase:
@@ -129,6 +165,12 @@ class _SQLiteDatabase:
                 CREATE TABLE IF NOT EXISTS trust_audit (
                     sequence INTEGER PRIMARY KEY,
                     payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS trust_rotations (
+                    previous_owner_fingerprint TEXT PRIMARY KEY,
+                    owner_fingerprint TEXT NOT NULL UNIQUE,
+                    step_json TEXT NOT NULL,
+                    previous_roster_json TEXT
                 );
                 CREATE TABLE IF NOT EXISTS owner_invites (
                     token_digest BLOB PRIMARY KEY,
@@ -282,6 +324,7 @@ class _SQLiteDatabase:
                     ON launch_records(recorded_at DESC);
                 """
             )
+            _migrate_friend_device_history(connection)
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -959,6 +1002,7 @@ class SQLiteInviteStore:
 
 
 # 本机没有单独收紧某个朋友时的上限：不在本地额外限制，以"我信任的人"名单里的权限为准。
+_FRIEND_CONFLICT_NOTE = "；名单里有电脑和其他朋友的电脑编号冲突，这些电脑暂不认"
 _UNRESTRICTED_FRIEND = FriendPermissions(allow_model_borrowing=True, daily_quota=100_000_000)
 
 
@@ -969,11 +1013,17 @@ class SQLiteTrustStore:
         self._database = database
 
     @staticmethod
+    def _read_connection(path: Path) -> sqlite3.Connection:
+        """有 WAL 时读取已提交事务；没有 WAL 时避免只读预检创建辅助文件。"""
+        immutable = "" if path.with_name(path.name + "-wal").exists() else "&immutable=1"
+        return sqlite3.connect(path.resolve().as_uri() + "?mode=ro" + immutable, uri=True)
+
+    @staticmethod
     def is_initialized(path: Path) -> bool:
         """确认恢复码前只读检查，旧数据库也不创建新表。"""
         if not path.exists():
             return False
-        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+        connection = SQLiteTrustStore._read_connection(path)
         try:
             return (
                 connection.execute(
@@ -993,6 +1043,22 @@ class SQLiteTrustStore:
             ).fetchone()
         return row[0] if row is not None else None
 
+    @staticmethod
+    def read_roster(path: Path) -> OwnerRoster:
+        """恢复确认前只读名单；保存时仍须在写锁内重查当前名单。"""
+        connection = SQLiteTrustStore._read_connection(path)
+        try:
+            owner = connection.execute("SELECT owner_fingerprint FROM trust_identity").fetchone()
+            row = connection.execute(
+                "SELECT envelope_json FROM trust_documents WHERE kind=?",
+                (SignaturePurpose.OWNER_ROSTER.value,),
+            ).fetchone()
+            if owner is None or row is None:
+                raise IdentityError("本机身份记录不完整")
+            return verify_owner_roster(SignedEnvelope.model_validate_json(row[0]), owner[0])
+        finally:
+            connection.close()
+
     def load(self, kind: SignaturePurpose) -> SignedEnvelope | None:
         """读取已接受的某类签名原文。"""
         with self._database.connect() as connection:
@@ -1008,8 +1074,14 @@ class SQLiteTrustStore:
         trust_list: SignedEnvelope,
         certificate: SignedEnvelope,
         persist_keys: Callable[[], None],
+        rotations: tuple[OwnerRotationStep, ...] = (),
+        *,
+        replace: bool = False,
     ) -> None:
-        """验签后一次写入信任锚、两份名单、证书和审计；`persist_keys` 在同一事务内执行。"""
+        """验签后一次写入信任锚、两份名单、证书和审计；`persist_keys` 在同一事务内执行。
+
+        `replace` 为真时，在同一个事务里先清掉本机旧身份再写入新身份，任何一步失败都整体回滚。
+        """
         owner_roster = verify_owner_roster(roster, owner_fingerprint)
         people = verify_trust_list(trust_list, owner_roster.owner_public_key, owner_fingerprint)
         device = verify_device_certificate(
@@ -1018,14 +1090,19 @@ class SQLiteTrustStore:
         entry = owner_roster.device(device.node_id)
         if entry is None or entry.device_public_key != device.device_public_key:
             raise VerificationError("身份签名验证失败")
+        if rotations:
+            self._verify_history(rotations, roster)
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if replace:
+                self._clear_identity(connection)
             if connection.execute("SELECT 1 FROM trust_identity").fetchone() is not None:
                 raise AlreadyInitializedError("本机身份已经初始化，不能重复初始化")
             connection.execute("INSERT INTO trust_identity VALUES (1, ?)", (owner_fingerprint,))
             self._write(connection, roster, owner_roster.version)
             self._write(connection, trust_list, people.version)
             self._write(connection, certificate, owner_roster.version)
+            self._record_rotations(connection, rotations, None)
             self._audit(
                 connection,
                 roster,
@@ -1045,31 +1122,31 @@ class SQLiteTrustStore:
 
     def accept(self, envelope: SignedEnvelope, reason: str) -> None:
         """验签通过且版本严格更大时才写入，并记一条审计。"""
-        owner = self.owner_fingerprint()
-        if owner is None:
-            raise IdentityError("本机身份尚未初始化")
-        if (
-            envelope.purpose is SignaturePurpose.OWNER_ROSTER
-            and envelope.signer_fingerprint != owner
-        ):
-            self._accept_friend_roster(envelope, reason)
-            return
-        if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
-            roster = verify_owner_roster(envelope, owner)
-            version = roster.version
-            subjects = tuple(str(item.node_id) for item in roster.devices)
-        elif envelope.purpose is SignaturePurpose.TRUST_LIST:
-            current = self.load(SignaturePurpose.OWNER_ROSTER)
-            if current is None:
-                raise IdentityError("本机身份记录不完整")
-            roster = verify_owner_roster(current, owner)
-            people = verify_trust_list(envelope, roster.owner_public_key, owner)
-            version = people.version
-            subjects = tuple(item.owner_fingerprint for item in people.people)
-        else:
-            raise VerificationError("身份签名验证失败")
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            owner = self.owner_fingerprint()
+            if owner is None:
+                raise IdentityError("本机身份尚未初始化")
+            if (
+                envelope.purpose is SignaturePurpose.OWNER_ROSTER
+                and envelope.signer_fingerprint != owner
+            ):
+                self._accept_friend_roster(connection, envelope, reason)
+                return
+            if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
+                roster = verify_owner_roster(envelope, owner)
+                version = roster.version
+                subjects = tuple(str(item.node_id) for item in roster.devices)
+            elif envelope.purpose is SignaturePurpose.TRUST_LIST:
+                current = self.load(SignaturePurpose.OWNER_ROSTER)
+                if current is None:
+                    raise IdentityError("本机身份记录不完整")
+                roster = verify_owner_roster(current, owner)
+                people = verify_trust_list(envelope, roster.owner_public_key, owner)
+                version = people.version
+                subjects = tuple(item.owner_fingerprint for item in people.people)
+            else:
+                raise VerificationError("身份签名验证失败")
             row = connection.execute(
                 "SELECT version, envelope_json FROM trust_documents WHERE kind=?",
                 (envelope.purpose.value,),
@@ -1094,7 +1171,10 @@ class SQLiteTrustStore:
             self._audit(connection, envelope, version, subjects, reason)
             if envelope.purpose is SignaturePurpose.TRUST_LIST:
                 people = verify_trust_list(envelope, roster.owner_public_key, owner)
-                trusted = {item.owner_fingerprint for item in people.people}
+                trusted = {
+                    self._resolve_friend(connection, item).owner_fingerprint
+                    for item in people.people
+                }
                 for fingerprint, previous_version, raw in connection.execute(
                     "SELECT owner_fingerprint, version, envelope_json FROM friend_rosters"
                 ).fetchall():
@@ -1116,21 +1196,310 @@ class SQLiteTrustStore:
                             (fingerprint,),
                         )
             if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
-                certificate = connection.execute(
-                    "SELECT envelope_json FROM trust_documents WHERE kind=?",
-                    (SignaturePurpose.DEVICE_CERTIFICATE.value,),
+                self._check_local_certificate(connection, roster)
+
+    @staticmethod
+    def _verify_steps(
+        steps: tuple[OwnerRotationStep, ...], owner: str, recovery: str, version: int
+    ) -> OwnerRoster:
+        seen = {owner}
+        roster: OwnerRoster | None = None
+        for step in steps:
+            roster = verify_owner_rotation(step.rotation, step.roster, owner, recovery, version)
+            if roster.owner_fingerprint in seen:
+                raise VerificationError("身份签名验证失败")
+            seen.add(roster.owner_fingerprint)
+            owner, recovery, version = (
+                roster.owner_fingerprint,
+                roster.recovery_fingerprint,
+                roster.version,
+            )
+        assert roster is not None
+        return roster
+
+    @classmethod
+    def _verify_history(
+        cls, steps: tuple[OwnerRotationStep, ...], envelope: SignedEnvelope
+    ) -> None:
+        first = steps[0].rotation.payload
+        public_key = first.get("recovery_public_key")
+        previous = first.get("previous_owner_fingerprint")
+        if not isinstance(public_key, str) or not isinstance(previous, str):
+            raise VerificationError("身份签名验证失败")
+        last = cls._verify_steps(steps, previous, key_fingerprint(public_key), 0)
+        roster = verify_owner_roster(envelope, last.owner_fingerprint)
+        if (
+            roster.recovery_fingerprint != last.recovery_fingerprint
+            or roster.version < last.version
+            or (roster.version == last.version and envelope != steps[-1].roster)
+        ):
+            raise VerificationError("身份签名验证失败")
+
+    @staticmethod
+    def _record_rotations(
+        connection: sqlite3.Connection,
+        steps: tuple[OwnerRotationStep, ...],
+        previous: SignedEnvelope | None,
+    ) -> None:
+        for step in steps:
+            connection.execute(
+                "INSERT INTO trust_rotations VALUES (?, ?, ?, ?)",
+                (
+                    step.rotation.payload["previous_owner_fingerprint"],
+                    step.roster.signer_fingerprint,
+                    step.model_dump_json(),
+                    previous.model_dump_json() if previous is not None else None,
+                ),
+            )
+            previous = step.roster
+
+    def rotations(self, owner_fingerprint: str) -> tuple[OwnerRotationStep, ...]:
+        """保留完整声明链，供离线电脑逐步跟上当前身份。"""
+        steps: list[OwnerRotationStep] = []
+        with self._database.connect() as connection:
+            while row := connection.execute(
+                "SELECT previous_owner_fingerprint, step_json FROM trust_rotations "
+                "WHERE owner_fingerprint=?",
+                (owner_fingerprint,),
+            ).fetchone():
+                steps.append(OwnerRotationStep.model_validate_json(row[1]))
+                owner_fingerprint = row[0]
+        return tuple(reversed(steps))
+
+    @staticmethod
+    def _resolve_friend(connection: sqlite3.Connection, person: TrustedPerson) -> TrustedPerson:
+        while row := connection.execute(
+            "SELECT step_json FROM trust_rotations WHERE previous_owner_fingerprint=?",
+            (person.owner_fingerprint,),
+        ).fetchone():
+            step = OwnerRotationStep.model_validate_json(row[0])
+            roster = verify_owner_rotation(
+                step.rotation, step.roster, person.owner_fingerprint, person.recovery_fingerprint, 0
+            )
+            person = person.model_copy(
+                update={
+                    "owner_public_key": roster.owner_public_key,
+                    "recovery_fingerprint": roster.recovery_fingerprint,
+                }
+            )
+        return person
+
+    def resolve_friend(self, person: TrustedPerson) -> TrustedPerson:
+        """朋友原名单保持签名原文，本机只应用经恢复密钥验证的公钥替换。"""
+        with self._database.connect() as connection:
+            return self._resolve_friend(connection, person)
+
+    def _check_local_certificate(self, connection: sqlite3.Connection, roster: OwnerRoster) -> None:
+        row = connection.execute(
+            "SELECT envelope_json FROM trust_documents WHERE kind=?",
+            (SignaturePurpose.DEVICE_CERTIFICATE.value,),
+        ).fetchone()
+        if row is None:
+            return
+        certificate = SignedEnvelope.model_validate_json(row[0])
+        issuer = roster
+        if certificate.signer_fingerprint != roster.owner_fingerprint:
+            previous = connection.execute(
+                "SELECT previous_roster_json FROM trust_rotations "
+                "WHERE previous_owner_fingerprint=?",
+                (certificate.signer_fingerprint,),
+            ).fetchone()
+            if previous is None or previous[0] is None:
+                raise VerificationError("身份签名验证失败")
+            issuer = verify_owner_roster(
+                SignedEnvelope.model_validate_json(previous[0]), certificate.signer_fingerprint
+            )
+        local = verify_device_certificate(
+            certificate, issuer.owner_public_key, issuer.owner_fingerprint
+        )
+        device = roster.device(local.node_id)
+        if device is None or device.device_public_key != local.device_public_key:
+            connection.execute(
+                "DELETE FROM trust_documents WHERE kind=?",
+                (SignaturePurpose.DEVICE_CERTIFICATE.value,),
+            )
+
+    def rotate(
+        self,
+        rotations: tuple[OwnerRotationStep, ...],
+        roster: SignedEnvelope,
+        trust_list: SignedEnvelope | None,
+        reason: str,
+        persist_keys: Callable[[], None] | None = None,
+    ) -> None:
+        """接受换密钥声明链；同一条声明被并发重复写入时，按验证失败处理。"""
+        try:
+            self._rotate(rotations, roster, trust_list, reason, persist_keys)
+        except sqlite3.IntegrityError:
+            raise VerificationError("身份签名验证失败") from None
+
+    def _rotate(
+        self,
+        rotations: tuple[OwnerRotationStep, ...],
+        roster: SignedEnvelope,
+        trust_list: SignedEnvelope | None,
+        reason: str,
+        persist_keys: Callable[[], None] | None = None,
+    ) -> None:
+        """写锁内验证完整声明链和新名单，再一起替换信任锚、名单与审计。"""
+        if not rotations:
+            raise VerificationError("身份签名验证失败")
+        self._verify_history(rotations, roster)
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            owner = self.owner_fingerprint()
+            current = self.load(SignaturePurpose.OWNER_ROSTER)
+            trusted = self.load(SignaturePurpose.TRUST_LIST)
+            if owner is None or current is None or trusted is None:
+                raise IdentityError("本机身份记录不完整")
+            own = verify_owner_roster(current, owner)
+            people = verify_trust_list(trusted, own.owner_public_key, owner)
+            friends = tuple(self._resolve_friend(connection, item) for item in people.people)
+            if roster.signer_fingerprint in (owner, *(item.owner_fingerprint for item in friends)):
+                return
+            candidates: list[tuple[str, str, int, SignedEnvelope | None]] = [
+                (owner, own.recovery_fingerprint, own.version, current)
+            ]
+            for friend in friends:
+                row = connection.execute(
+                    "SELECT version, envelope_json FROM friend_rosters WHERE owner_fingerprint=?",
+                    (friend.owner_fingerprint,),
                 ).fetchone()
-                if certificate is not None:
-                    local = verify_device_certificate(
-                        SignedEnvelope.model_validate_json(certificate[0]),
-                        roster.owner_public_key,
-                        owner,
+                candidates.append(
+                    (
+                        friend.owner_fingerprint,
+                        friend.recovery_fingerprint,
+                        row[0] if row is not None else 0,
+                        SignedEnvelope.model_validate_json(row[1]) if row is not None else None,
                     )
-                    if roster.device(local.node_id) is None:
-                        connection.execute(
-                            "DELETE FROM trust_documents WHERE kind=?",
-                            (SignaturePurpose.DEVICE_CERTIFICATE.value,),
-                        )
+                )
+            match = next(
+                (
+                    (index, candidate)
+                    for index, step in enumerate(rotations)
+                    for candidate in candidates
+                    if step.rotation.payload.get("previous_owner_fingerprint") == candidate[0]
+                ),
+                None,
+            )
+            if match is None:
+                raise VerificationError("身份签名验证失败")
+            index, (previous_owner, recovery, version, previous) = match
+            steps = rotations[index:]
+            self._verify_steps(steps, previous_owner, recovery, version)
+            for step in steps:
+                if connection.execute(
+                    "SELECT 1 FROM trust_rotations WHERE previous_owner_fingerprint=?",
+                    (step.roster.signer_fingerprint,),
+                ).fetchone():
+                    raise VerificationError("身份签名验证失败")
+            updated = verify_owner_roster(roster, roster.signer_fingerprint)
+            is_own = previous_owner == owner
+            new_people = None
+            if is_own:
+                if trust_list is None:
+                    raise VerificationError("身份签名验证失败")
+                new_people = verify_trust_list(
+                    trust_list, updated.owner_public_key, updated.owner_fingerprint
+                )
+                if new_people.version <= people.version:
+                    raise VersionRejectedError("名单版本必须大于已接受的版本")
+            self._record_rotations(connection, steps, previous)
+            for step in steps:
+                self._audit(
+                    connection,
+                    step.rotation,
+                    step.roster.parse(OwnerRoster, SignaturePurpose.OWNER_ROSTER).version,
+                    (
+                        str(step.rotation.payload["previous_owner_fingerprint"]),
+                        step.roster.signer_fingerprint,
+                    ),
+                    reason,
+                )
+            if is_own:
+                assert trust_list is not None and new_people is not None
+                self._write(connection, roster, updated.version)
+                self._write(connection, trust_list, new_people.version)
+                connection.execute(
+                    "UPDATE trust_identity SET owner_fingerprint=? WHERE singleton=1",
+                    (updated.owner_fingerprint,),
+                )
+                self._check_local_certificate(connection, updated)
+                self._audit(
+                    connection,
+                    roster,
+                    updated.version,
+                    tuple(sorted({str(item.node_id) for item in (*own.devices, *updated.devices)})),
+                    reason,
+                )
+                self._audit(
+                    connection,
+                    trust_list,
+                    new_people.version,
+                    tuple(item.owner_fingerprint for item in new_people.people),
+                    reason,
+                )
+                connection.execute("DELETE FROM owner_invites")
+                connection.execute("DELETE FROM friend_invites")
+            else:
+                others = tuple(
+                    verify_owner_roster(SignedEnvelope.model_validate_json(raw), fingerprint)
+                    for fingerprint, raw in connection.execute(
+                        "SELECT owner_fingerprint, envelope_json FROM friend_rosters"
+                        " WHERE owner_fingerprint<>?",
+                        (previous_owner,),
+                    )
+                )
+                if roster_conflicts(updated, (own,)):
+                    raise VerificationError("朋友名单里的电脑与已有电脑冲突")
+                if roster_conflicts(updated, others):
+                    reason += _FRIEND_CONFLICT_NOTE
+                connection.execute(
+                    "DELETE FROM friend_rosters WHERE owner_fingerprint=?", (previous_owner,)
+                )
+                connection.execute(
+                    "UPDATE friend_permissions SET owner_fingerprint=? WHERE owner_fingerprint=?",
+                    (updated.owner_fingerprint, previous_owner),
+                )
+                self._write_friend_roster(connection, roster, updated, reason)
+            if persist_keys is not None:
+                persist_keys()
+
+    def reset(self, clear_keys: Callable[[], None]) -> None:
+        """仅清理身份资料及其限制和邀请码，保留审计、旧式配对和其他运行数据。"""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._clear_identity(connection)
+            clear_keys()
+
+    def _clear_identity(self, connection: sqlite3.Connection) -> None:
+        """在调用方的事务里清掉身份资料，并记一条重置审计。"""
+        row = connection.execute(
+            "SELECT envelope_json, version FROM trust_documents WHERE kind=?",
+            (SignaturePurpose.OWNER_ROSTER.value,),
+        ).fetchone()
+        if row is not None:
+            self._audit(
+                connection,
+                SignedEnvelope.model_validate_json(row[0]),
+                row[1],
+                (),
+                "本机确认重置身份",
+                action="reset",
+            )
+        for table in (
+            "trust_identity",
+            "trust_documents",
+            "trust_rotations",
+            "owner_invites",
+            "device_permissions",
+            "friend_rosters",
+            "friend_permissions",
+            "friend_invites",
+            "friend_device_history",
+            "own_device_history",
+        ):
+            connection.execute(f"DELETE FROM {table}")
 
     def create_invite(self, digest: bytes, expires_at: datetime) -> None:
         """加入码只存摘要，与旧式配对邀请码分表。"""
@@ -1178,71 +1547,83 @@ class SQLiteTrustStore:
             ).fetchall()
         return tuple(SignedEnvelope.model_validate_json(row[0]) for row in rows)
 
-    def _accept_friend_roster(self, envelope: SignedEnvelope, reason: str) -> None:
+    def _accept_friend_roster(
+        self, connection: sqlite3.Connection, envelope: SignedEnvelope, reason: str
+    ) -> None:
         """在同一写锁里核对配对关系、签名和版本，移除后不能重新写入。"""
-        with self._database.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            documents = {
-                kind: SignedEnvelope.model_validate_json(raw)
-                for kind, raw in connection.execute(
-                    "SELECT kind, envelope_json FROM trust_documents"
-                )
-            }
-            owner = self.owner_fingerprint()
-            assert owner is not None
-            own = verify_owner_roster(documents[SignaturePurpose.OWNER_ROSTER.value], owner)
-            trust = verify_trust_list(
-                documents[SignaturePurpose.TRUST_LIST.value], own.owner_public_key, owner
-            )
-            friend = next(
-                (
-                    item
-                    for item in trust.people
-                    if item.owner_fingerprint == envelope.signer_fingerprint
-                ),
-                None,
-            )
-            if friend is None:
-                raise VerificationError("身份签名验证失败")
-            roster = verify_owner_roster(envelope, friend.owner_fingerprint)
-            if (
-                roster.owner_public_key != friend.owner_public_key
-                or roster.recovery_fingerprint != friend.recovery_fingerprint
-            ):
-                raise VerificationError("身份签名验证失败")
-            row = connection.execute(
-                "SELECT version FROM friend_rosters WHERE owner_fingerprint=?",
+        documents = {
+            kind: SignedEnvelope.model_validate_json(raw)
+            for kind, raw in connection.execute("SELECT kind, envelope_json FROM trust_documents")
+        }
+        owner = self.owner_fingerprint()
+        assert owner is not None
+        own = verify_owner_roster(documents[SignaturePurpose.OWNER_ROSTER.value], owner)
+        trust = verify_trust_list(
+            documents[SignaturePurpose.TRUST_LIST.value], own.owner_public_key, owner
+        )
+        friend = next(
+            (
+                resolved
+                for item in trust.people
+                if (resolved := self._resolve_friend(connection, item)).owner_fingerprint
+                == envelope.signer_fingerprint
+            ),
+            None,
+        )
+        if friend is None:
+            raise VerificationError("身份签名验证失败")
+        roster = verify_owner_roster(envelope, friend.owner_fingerprint)
+        if (
+            roster.owner_public_key != friend.owner_public_key
+            or roster.recovery_fingerprint != friend.recovery_fingerprint
+        ):
+            raise VerificationError("身份签名验证失败")
+        row = connection.execute(
+            "SELECT version FROM friend_rosters WHERE owner_fingerprint=?",
+            (friend.owner_fingerprint,),
+        ).fetchone()
+        if row is not None and roster.version <= row[0]:
+            raise VersionRejectedError("名单版本必须大于已接受的版本")
+        others = tuple(
+            verify_owner_roster(SignedEnvelope.model_validate_json(raw), fingerprint)
+            for fingerprint, raw in connection.execute(
+                "SELECT owner_fingerprint, envelope_json FROM friend_rosters"
+                " WHERE owner_fingerprint<>?",
                 (friend.owner_fingerprint,),
-            ).fetchone()
-            if row is not None and roster.version <= row[0]:
-                raise VersionRejectedError("名单版本必须大于已接受的版本")
-            others = tuple(
-                verify_owner_roster(SignedEnvelope.model_validate_json(raw), fingerprint)
-                for fingerprint, raw in connection.execute(
-                    "SELECT owner_fingerprint, envelope_json FROM friend_rosters"
-                    " WHERE owner_fingerprint<>?",
-                    (friend.owner_fingerprint,),
-                )
             )
-            if roster_conflicts(roster, (own, *others)):
-                raise VerificationError("朋友名单里的电脑与已有电脑冲突")
-            connection.execute(
-                """INSERT INTO friend_rosters VALUES (?, ?, ?)
-                ON CONFLICT(owner_fingerprint) DO UPDATE SET
-                    version=excluded.version, envelope_json=excluded.envelope_json""",
-                (friend.owner_fingerprint, roster.version, envelope.model_dump_json()),
-            )
-            connection.executemany(
-                "INSERT OR IGNORE INTO friend_device_history VALUES (?, ?)",
-                ((str(device.node_id), device.host) for device in roster.devices),
-            )
-            self._audit(
-                connection,
-                envelope,
-                roster.version,
-                tuple(str(device.node_id) for device in roster.devices),
-                reason,
-            )
+        )
+        # 和我的电脑撞号整份拒收；和其他朋友撞号照常保存（不然别人能抢先占号，冻结这个朋友的
+        # 名单更新），撞号的电脑由 friend_peer 两边都不认，并在审计里记一笔。
+        if roster_conflicts(roster, (own,)):
+            raise VerificationError("朋友名单里的电脑与已有电脑冲突")
+        if roster_conflicts(roster, others):
+            reason += _FRIEND_CONFLICT_NOTE
+        self._write_friend_roster(connection, envelope, roster, reason)
+
+    def _write_friend_roster(
+        self,
+        connection: sqlite3.Connection,
+        envelope: SignedEnvelope,
+        roster: OwnerRoster,
+        reason: str,
+    ) -> None:
+        connection.execute(
+            """INSERT INTO friend_rosters VALUES (?, ?, ?)
+            ON CONFLICT(owner_fingerprint) DO UPDATE SET
+                version=excluded.version, envelope_json=excluded.envelope_json""",
+            (roster.owner_fingerprint, roster.version, envelope.model_dump_json()),
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO friend_device_history VALUES (?, ?)",
+            ((str(device.node_id), device.host) for device in roster.devices),
+        )
+        self._audit(
+            connection,
+            envelope,
+            roster.version,
+            tuple(str(device.node_id) for device in roster.devices),
+            reason,
+        )
 
     def was_own_device(self, node_id: NodeId) -> bool:
         """曾经在本机机主签发的"我的电脑"名单上的节点；移出后不能再用残留旧令牌进来。"""

@@ -11,6 +11,7 @@ from pydantic import BaseModel, JsonValue
 from tunnelminion.domain.trust import (
     DeviceCertificate,
     OwnerRoster,
+    OwnerRotation,
     SignaturePurpose,
     SignedEnvelope,
     TrustList,
@@ -69,6 +70,32 @@ def verify_owner_roster(envelope: SignedEnvelope, owner_fingerprint: str) -> Own
         if not isinstance(public_key, str) or key_fingerprint(public_key) != owner_fingerprint:
             raise ValueError
         return verify(envelope, SignaturePurpose.OWNER_ROSTER, public_key, OwnerRoster)
+    except ValueError:
+        raise VerificationError("身份签名验证失败") from None
+
+
+def verify_owner_rotation(
+    envelope: SignedEnvelope,
+    roster: SignedEnvelope,
+    previous_owner_fingerprint: str,
+    recovery_fingerprint: str,
+    previous_version: int,
+) -> OwnerRoster:
+    """每一步都从已信任的机主与恢复指纹出发，不能用新名单自证身份。"""
+    try:
+        public_key = envelope.payload.get("recovery_public_key")
+        if not isinstance(public_key, str) or key_fingerprint(public_key) != recovery_fingerprint:
+            raise ValueError
+        rotation = verify(envelope, SignaturePurpose.OWNER_ROTATION, public_key, OwnerRotation)
+        updated = verify_owner_roster(roster, key_fingerprint(rotation.new_owner_public_key))
+        if (
+            rotation.previous_owner_fingerprint != previous_owner_fingerprint
+            or updated.owner_public_key != rotation.new_owner_public_key
+            or updated.recovery_fingerprint != rotation.new_recovery_fingerprint
+            or updated.version <= previous_version
+        ):
+            raise ValueError
+        return updated
     except ValueError:
         raise VerificationError("身份签名验证失败") from None
 

@@ -78,29 +78,24 @@ class FriendsService:
             raise VerificationError("朋友身份与电脑名单不符")
         for device in roster.devices:
             GatewayBindConfig(host=device.host, port=device.port)
-        existing = (
-            self.devices.roster(),
-            *(
-                other
-                for friend, other in self.devices.friends()
-                if friend.owner_fingerprint != roster.owner_fingerprint
-            ),
-        )
-        if roster_conflicts(roster, existing):
+        if roster_conflicts(roster, (self.devices.roster(),)):
             raise VerificationError("朋友名单里的电脑与已有电脑冲突")
         return roster
 
     def _save_pairing(self, pairing: FriendPairing) -> None:
         roster = self._verify_pairing(pairing)
         trust = self.devices.trust_list()
-        if any(item.owner_fingerprint == roster.owner_fingerprint for item in trust.people):
+        if any(
+            item.owner_fingerprint == roster.owner_fingerprint
+            for item in self.devices.trusted_people()
+        ):
             raise IdentityError("已经和这个朋友配对")
         updated = trust.model_copy(
             update={
                 "version": trust.version + 1,
                 "issued_at": self.devices.clock(),
                 "people": (
-                    *trust.people,
+                    *self.devices.trusted_people(),
                     TrustedPerson(
                         owner_public_key=pairing.owner_public_key,
                         recovery_fingerprint=pairing.recovery_fingerprint,
@@ -125,7 +120,7 @@ class FriendsService:
                 )
                 if source is None or any(
                     item.owner_fingerprint == roster.owner_fingerprint
-                    for item in self.devices.trust_list().people
+                    for item in self.devices.trusted_people()
                 ):
                     raise ValueError
                 display_name = self.devices.store.consume_friend_invite(
@@ -199,7 +194,7 @@ class FriendsService:
     def resolve(self, value: str) -> TrustedPerson:
         matches = [
             item
-            for item in self.devices.trust_list().people
+            for item in self.devices.trusted_people()
             if value in (item.owner_fingerprint, item.display_name)
         ]
         if len(matches) != 1:
@@ -215,7 +210,9 @@ class FriendsService:
                 update={
                     "version": trust.version + 1,
                     "issued_at": self.devices.clock(),
-                    "people": tuple(item for item in trust.people if item != friend),
+                    "people": tuple(
+                        item for item in self.devices.trusted_people() if item != friend
+                    ),
                 }
             )
             self.devices.store.accept(seal(SignaturePurpose.TRUST_LIST, updated, key), "移除朋友")
@@ -233,7 +230,7 @@ class FriendsService:
                         item.model_copy(update={"permissions": permissions})
                         if item == friend
                         else item
-                        for item in trust.people
+                        for item in self.devices.trusted_people()
                     ),
                 }
             )

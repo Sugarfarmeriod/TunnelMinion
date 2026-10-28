@@ -324,6 +324,27 @@ def create_gateway_router(
             ):
                 raise ValueError
             before = owner_devices.message()
+            retired = {
+                str(step.rotation.payload["previous_owner_fingerprint"])
+                for step in before.rotations
+            }
+            stale_owner = (
+                message.roster is not None and message.roster.signer_fingerprint in retired
+            )
+            if stale_owner:
+                # 仍在新名单上的离线电脑可取回声明链，旧机主签的材料不再写入。
+                try:
+                    peer = security_policy.authenticate(
+                        authorization, audience="trust-sync", source_host=source
+                    )
+                except TrustSyncRequired:
+                    peer = None
+                if (
+                    peer is None
+                    or peer.authentication_kind is not GatewayAuthenticationKind.OWNER_DEVICE
+                ):
+                    raise ValueError
+                return owner_devices.message()
             received = owner_devices.receive(message, source)
             if received != before and owner_devices.active():
                 background.add_task(owner_devices.push, owner_devices.roster().devices)

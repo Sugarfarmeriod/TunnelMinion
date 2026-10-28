@@ -228,8 +228,9 @@ def test_owner_join_cli_passes_options_and_hides_bad_codes(
         *,
         host_override: str | None,
         secret_store_kind: GatewaySecretStoreKind | None,
+        reset: bool,
     ) -> None:
-        assert received == code and root == tmp_path
+        assert received == code and root == tmp_path and reset is False
         assert host_override == "10.20.0.2"
         assert secret_store_kind is GatewaySecretStoreKind.RESTRICTED_FILE
 
@@ -257,8 +258,9 @@ def test_owner_join_cli_passes_options_and_hides_bad_codes(
         *,
         host_override: str | None,
         secret_store_kind: GatewaySecretStoreKind | None,
+        reset: bool,
     ) -> None:
-        assert received == code and root == tmp_path
+        assert received == code and root == tmp_path and reset is False
         assert host_override is None and secret_store_kind is None
 
     monkeypatch.setattr("tunnelminion.trust.cli.join_owner", default_joined)
