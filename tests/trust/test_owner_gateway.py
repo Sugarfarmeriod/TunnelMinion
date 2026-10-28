@@ -379,3 +379,29 @@ def test_sync_failure_is_safe_and_does_not_block_startup(
 
     asyncio.run(scenario())
     assert "秘密不能进入报错" not in caplog.text
+
+
+def test_rate_limit_window_slides_per_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = computer(tmp_path / "a", 1, {})
+    tick = 100.0
+    monkeypatch.setattr("tunnelminion.gateway.api.monotonic", lambda: tick)
+
+    async def scenario() -> None:
+        nonlocal tick
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(gateway(a)), base_url="http://127.0.0.1"
+        ) as client:
+            for _ in range(9):
+                assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            tick += 30
+            assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            assert (await client.post("/v1/owner:join", content="{}")).status_code == 429
+            # 一分钟前的 9 次滑出窗口，30 秒前那次还在。
+            tick += 35
+            for _ in range(9):
+                assert (await client.post("/v1/owner:join", content="{}")).status_code != 429
+            assert (await client.post("/v1/owner:join", content="{}")).status_code == 429
+
+    asyncio.run(scenario())
