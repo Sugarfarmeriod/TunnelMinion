@@ -38,6 +38,7 @@ import { RemoteRepairDialog } from "../repairs/RemoteRepairDialog";
 import { RepairBang } from "../repairs/RepairBang";
 import type { RunEventState } from "../chat/eventReducer";
 import { DelegationActivity, delegationStatus } from "./DelegationActivity";
+import { WelcomeGate } from "../people/WelcomeGate";
 import "./service-map.css";
 
 export function ServiceMapPage() {
@@ -274,6 +275,9 @@ export function ServiceMapPage() {
             </p>
           </div>
           <div className="map-heading-actions">
+            <Link className="map-button" to="/app/people">
+              电脑与朋友
+            </Link>
             <button
               type="button"
               ref={toggleRef}
@@ -345,12 +349,14 @@ export function ServiceMapPage() {
                   <Link to="/app/operations">请求记录</Link>
                   <Link to="/app/incidents">最近事件</Link>
                   <Link to="/app/memories">记忆</Link>
+                  <Link to="/app/people">电脑与朋友</Link>
                   <Link to="/app/settings">设置</Link>
                 </nav>
               ) : null}
             </div>
           </div>
         </header>
+        <WelcomeGate />
         <div className="map-stage" ref={stageRef}>
           <div
             className="map-canvas"

@@ -42,8 +42,8 @@
     }
   ],
   "openapi": {
-    "canonical_json_bytes": 135269,
-    "sha256": "888acb1d1ac2fb75fdc80b83a26223adbb31addf0a17037599bcf1ec73c20bae",
+    "canonical_json_bytes": 153000,
+    "sha256": "373b12f4204e7a24504fca341f35bcfa214fb61403c32b7249d2ddecd06adc1f",
     "critical_paths": [
       "/api/resources/overview",
       "/api/incidents/{value}",
@@ -67,7 +67,12 @@
       "/api/repairs/{repair_id}/reject",
       "/api/peers/{node_id}/repairs/{repair_id}",
       "/api/peers/{node_id}/repairs/{repair_id}/approve",
-      "/api/peers/{node_id}/repairs/{repair_id}/reject"
+      "/api/peers/{node_id}/repairs/{repair_id}/reject",
+      "/api/identity",
+      "/api/identity/setup",
+      "/api/identity/setup/{setup_id}:confirm",
+      "/api/identity/owner:join",
+      "/api/identity/friends:join"
     ]
   },
   "production_spa": {

@@ -640,6 +640,7 @@ export function SettingsPage() {
         aria-labelledby="peer-settings-title"
       >
         <h3 id="peer-settings-title">对端电脑</h3>
+        <a href="/app/people">在“电脑与朋友”里加电脑、邀请朋友</a>
         {peersQuery.data ? (
           <ul>
             {peersQuery.data.peers
