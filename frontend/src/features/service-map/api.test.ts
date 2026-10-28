@@ -14,6 +14,15 @@ import {
 } from "./testFixtures";
 
 describe("服务地图严格契约", () => {
+  it.each(["mine", "friend", "legacy"] as const)(
+    "保留对端关系 %s",
+    (relationship) => {
+      const peer = makePeer(1, { relationship });
+      expect(peersSchema.parse({ peers: [peer] }).peers[0]?.relationship).toBe(
+        relationship,
+      );
+    },
+  );
   it("接受对端清单与缓存状态，旧对端缺少 state 时默认为运行中", () => {
     expect(peersSchema.parse({ peers: [makePeer()] }).peers).toEqual([
       makePeer(),

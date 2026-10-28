@@ -20,7 +20,10 @@ from tunnelminion.domain.trust import (
     JoinCodeKind,
     JoinProof,
     OwnerRoster,
+    PassScope,
     SignaturePurpose,
+    TrustedPerson,
+    TrustList,
     key_fingerprint,
 )
 from tunnelminion.gateway.configuration import generate_gateway_token
@@ -75,7 +78,7 @@ class OwnDevicesService:
         self.secrets = secrets
         self.transport = transport
         self.clock = clock or (lambda: datetime.now(UTC))
-        self._changes = Lock()
+        self.changes = Lock()
 
     def roster(self) -> OwnerRoster:
         owner = self.store.owner_fingerprint()
@@ -86,6 +89,34 @@ class OwnDevicesService:
 
     def active(self) -> bool:
         return self.store.load(SignaturePurpose.DEVICE_CERTIFICATE) is not None
+
+    def trust_list(self) -> TrustList:
+        roster = self.roster()
+        envelope = self.store.load(SignaturePurpose.TRUST_LIST)
+        if envelope is None:
+            raise IdentityError("本机身份记录不完整")
+        return verify_trust_list(envelope, roster.owner_public_key, roster.owner_fingerprint)
+
+    def friends(self) -> tuple[tuple[TrustedPerson, OwnerRoster], ...]:
+        people = {item.owner_fingerprint: item for item in self.trust_list().people}
+        return tuple(
+            (
+                people[envelope.signer_fingerprint],
+                verify_owner_roster(envelope, envelope.signer_fingerprint),
+            )
+            for envelope in self.store.friend_rosters()
+            if envelope.signer_fingerprint in people
+        )
+
+    def known_device(self, node_id: NodeId) -> DeviceEntry | None:
+        return self.roster().device(node_id) or next(
+            (
+                device
+                for _, roster in self.friends()
+                if (device := roster.device(node_id)) is not None
+            ),
+            None,
+        )
 
     def owner_key(self) -> PrivateKey:
         key = load_private_key(self.secrets, OWNER_KEY_NAME)
@@ -130,7 +161,7 @@ class OwnDevicesService:
                 or proof.device_public_key != request.device_public_key
             ):
                 raise ValueError
-            with self._changes:
+            with self.changes:
                 key = self.owner_key()
                 roster = self.roster()
                 now = self.clock()
@@ -206,7 +237,7 @@ class OwnDevicesService:
 
     def remove(self, node_id: NodeId) -> tuple[DeviceEntry, ...]:
         """返回变更前的推送对象，包含被移除的电脑。"""
-        with self._changes:
+        with self.changes:
             key = self.owner_key()
             roster = self.roster()
             if node_id == self.node_id:
@@ -230,27 +261,40 @@ class OwnDevicesService:
             raise IdentityError("请指定名单上的其他电脑")
         self.store.restrict_device(node_id, permissions)
 
-    def message(self) -> TrustSyncMessage:
+    def message(self, *, include_private: bool = True) -> TrustSyncMessage:
         return TrustSyncMessage(
             roster=self.store.load(SignaturePurpose.OWNER_ROSTER),
-            trust_list=self.store.load(SignaturePurpose.TRUST_LIST),
+            trust_list=self.store.load(SignaturePurpose.TRUST_LIST) if include_private else None,
+            friend_rosters=self.store.friend_rosters() if include_private else (),
         )
 
     def receive(self, message: TrustSyncMessage, source: str) -> TrustSyncMessage:
-        for envelope in (message.roster, message.trust_list):
+        for envelope in (message.roster, message.trust_list, *message.friend_rosters):
             if envelope is not None:
                 with suppress(VersionRejectedError):
                     self.store.accept(envelope, f"从 {source} 同步名单")
         return self.message()
 
     async def sync(self, device: DeviceEntry) -> None:
-        """双方只接受机主签名的新名单，不需要可重放凭据。"""
+        """我的电脑带通行证交换完整名单；朋友之间只交换各自电脑名单。"""
+        from tunnelminion.trust.passes import issue_pass
+
         bind = GatewayBindConfig(host=device.host, port=device.port)
         local = self.roster().device(self.node_id)
+        mine = self.roster().device(device.node_id) is not None
         transport = self.transport or httpx.AsyncHTTPTransport(
             local_address=local.host if local is not None else None
         )
         try:
+            headers = {"Content-Type": "application/json"}
+            if (
+                local is not None
+                and self.active()
+                and self.known_device(device.node_id) is not None
+            ):
+                headers["Authorization"] = (
+                    f"Bearer {issue_pass(self, device.node_id, PassScope.TRUST_SYNC)}"
+                )
             async with httpx.AsyncClient(
                 base_url=httpx.URL(scheme="http", host=bind.host, port=bind.port),
                 transport=transport,
@@ -259,8 +303,8 @@ class OwnDevicesService:
             ) as client:
                 response = await client.post(
                     "/v1/trust:sync",
-                    content=self.message().model_dump_json(),
-                    headers={"Content-Type": "application/json"},
+                    content=self.message(include_private=mine).model_dump_json(),
+                    headers=headers,
                 )
             if not response.is_success or len(response.content) > 512_000:
                 raise ValueError
@@ -272,7 +316,15 @@ class OwnDevicesService:
 
     async def push(self, devices: Iterable[DeviceEntry] | None = None) -> tuple[NodeId, ...]:
         failed: list[NodeId] = []
-        for device in self.roster().devices if devices is None else devices:
+        targets = (
+            (
+                *self.roster().devices,
+                *(device for _, roster in self.friends() for device in roster.devices),
+            )
+            if devices is None
+            else devices
+        )
+        for device in targets:
             if device.node_id != self.node_id:
                 try:
                     await self.sync(device)

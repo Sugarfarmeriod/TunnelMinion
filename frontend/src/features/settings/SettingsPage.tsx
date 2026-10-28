@@ -6,6 +6,7 @@ import { ApiError } from "../../api/client";
 import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
 import { RuntimeOverview } from "../overview/OverviewCards";
+import { loadPeers, peersQueryKey } from "../service-map/api";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 
@@ -127,6 +128,11 @@ export function SettingsPage() {
     queryKey: ["resource-overview"],
     queryFn: () =>
       requestJson("/api/resources/overview", resourceOverviewSchema),
+    retry: false,
+  });
+  const peersQuery = useQuery({
+    queryKey: peersQueryKey,
+    queryFn: loadPeers,
     retry: false,
   });
   const [endpoint, setEndpoint] = useState("");
@@ -628,6 +634,33 @@ export function SettingsPage() {
           </form>
         </>
       )}
+
+      <article
+        className="settings-status-card"
+        aria-labelledby="peer-settings-title"
+      >
+        <h3 id="peer-settings-title">对端电脑</h3>
+        {peersQuery.data ? (
+          <ul>
+            {peersQuery.data.peers
+              .filter((peer) => !peer.is_local)
+              .map((peer) => (
+                <li key={peer.node_id}>
+                  {peer.display_name} ·{" "}
+                  {
+                    { mine: "我的电脑", friend: "朋友", legacy: "旧式配对" }[
+                      peer.relationship ?? "legacy"
+                    ]
+                  }
+                </li>
+              ))}
+          </ul>
+        ) : (
+          <p>
+            {peersQuery.isPending ? "正在读取对端……" : "暂时读不到对端列表。"}
+          </p>
+        )}
+      </article>
 
       <article
         aria-labelledby="system-status-title"

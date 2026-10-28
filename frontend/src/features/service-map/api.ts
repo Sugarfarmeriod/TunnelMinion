@@ -64,6 +64,7 @@ export function updateServiceMark({
 export const peerSchema = z
   .object({
     node_id: localServicesSchema.shape.node_id,
+    relationship: z.enum(["mine", "friend", "legacy"]).optional(),
     display_name: z.string(),
     platform: z.enum(["windows", "macos", "linux"]).nullable(),
     is_local: z.boolean(),

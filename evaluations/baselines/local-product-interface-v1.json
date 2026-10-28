@@ -42,8 +42,8 @@
     }
   ],
   "openapi": {
-    "canonical_json_bytes": 134935,
-    "sha256": "2bf05cccba23d429333237309b742c76339d9e98c8f2b3ae291ccb3ae15b5753",
+    "canonical_json_bytes": 135175,
+    "sha256": "4fdaecbf9a31cb28bb384cd96d2d4a39ae6374821c955262f9781058511fa8f7",
     "critical_paths": [
       "/api/resources/overview",
       "/api/incidents/{value}",

@@ -70,6 +70,7 @@ class GatewayAuthenticationKind(StrEnum):
     STATIC = "static"
     COORDINATOR = "coordinator"
     OWNER_DEVICE = "owner_device"
+    FRIEND_DEVICE = "friend_device"
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,36 @@ class GatewayManagedPeerPolicy:
             raise ValueError("Coordinator-managed peer 至少需要一个允许的只读工具")
 
 
+def identity_permissions(
+    peer: GatewayPeerPolicy, local: GatewayPeerPolicy | None = None
+) -> GatewayPeerPolicy:
+    """身份决定不可突破的上限，配置开关只能在上限内收紧。"""
+    if peer.authentication_kind is GatewayAuthenticationKind.FRIEND_DEVICE:
+        return replace(
+            peer,
+            allowed_tools=frozenset(),
+            allowed_operations=frozenset(),
+            allow_proxy_repair_approval=False,
+            allow_delegation=peer.allow_delegation and (local is None or local.allow_delegation),
+            allow_model_borrowing=peer.allow_model_borrowing
+            and (local is None or local.allow_model_borrowing),
+            daily_quota=min(peer.daily_quota, local.daily_quota) if local else peer.daily_quota,
+        )
+    return peer
+
+
+def identity_allows(peer: GatewayPeerPolicy, action: str) -> bool:
+    """朋友只开放服务地图、委派与按权限借模型。"""
+    return peer.authentication_kind is not GatewayAuthenticationKind.FRIEND_DEVICE or action in {
+        "capabilities",
+        "services",
+        "delegation_submit",
+        "delegation_status",
+        "delegation_cancel",
+        "model_complete",
+    }
+
+
 class GatewaySecurityPolicy:
     """使用常量时间摘要比较认证 peer，并应用每节点滑动窗口限流。"""
 
@@ -191,20 +222,25 @@ class GatewaySecurityPolicy:
             if hmac.compare_digest(candidate, peer.token_digest):
                 matched = peer
         if matched is not None:
-            return matched
+            if self._request_pass_verifier is not None:
+                matched = self._request_pass_verifier.static_peer(matched, source_host)
+            return identity_permissions(matched) if matched is not None else None
         if self._request_pass_verifier is not None and credential.count(".") == 2:
             owner = self._request_pass_verifier.authenticate(credential, audience, source_host)
             if owner is not None:
-                return replace(
-                    owner,
-                    allowed_operations=next(
-                        (
-                            peer.allowed_operations
-                            for peer in self._peers
-                            if peer.node_id == owner.node_id
+                return identity_permissions(
+                    replace(
+                        owner,
+                        allowed_operations=next(
+                            (
+                                peer.allowed_operations
+                                for peer in self._peers
+                                if peer.node_id == owner.node_id
+                            ),
+                            frozenset[str](),
                         ),
-                        frozenset[str](),
                     ),
+                    next((peer for peer in self._peers if peer.node_id == owner.node_id), None),
                 )
         return self._authenticate_managed(credential, audience)
 

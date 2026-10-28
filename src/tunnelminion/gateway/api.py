@@ -42,7 +42,12 @@ from tunnelminion.gateway.contracts import (
     RemoteToolResult,
 )
 from tunnelminion.gateway.operations import CallbackRequesterVerifier, TargetOperationGatewayService
-from tunnelminion.gateway.security import GatewayPeerPolicy, GatewaySecurityPolicy
+from tunnelminion.gateway.security import (
+    GatewayAuthenticationKind,
+    GatewayPeerPolicy,
+    GatewaySecurityPolicy,
+    identity_allows,
+)
 from tunnelminion.operation.contracts import OperationSummary
 from tunnelminion.repair.contracts import RepairRecord
 from tunnelminion.repair.peer_view import peer_repair_view
@@ -57,8 +62,14 @@ from tunnelminion.tools.contracts import (
 )
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
-from tunnelminion.trust.contracts import OwnerJoinRequest, OwnerJoinResponse, TrustSyncMessage
+from tunnelminion.trust.contracts import (
+    FriendPairing,
+    OwnerJoinRequest,
+    OwnerJoinResponse,
+    TrustSyncMessage,
+)
 from tunnelminion.trust.devices import OwnDevicesService
+from tunnelminion.trust.friends import FriendsService
 from tunnelminion.trust.passes import TrustSyncRequired
 
 if TYPE_CHECKING:
@@ -188,6 +199,7 @@ def create_gateway_router(
     router = APIRouter(route_class=_TracedGatewayRoute, lifespan=lifespan)
     invite_attempts: deque[float] = deque()
     owner_attempts: deque[float] = deque()
+    friend_attempts: deque[float] = deque()
     sync_attempts: deque[float] = deque()
 
     def limited(attempts: deque[float], limit: int) -> bool:
@@ -228,7 +240,40 @@ def create_gateway_router(
         background.add_task(owner_devices.push)
         return result
 
-    async def trust_sync(http_request: Request) -> TrustSyncMessage | JSONResponse:
+    async def friend_pair(
+        http_request: Request,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> FriendPairing | JSONResponse:
+        if limited(friend_attempts, 10):
+            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "friend_pair")
+        try:
+            if (
+                owner_devices is None
+                or authorization is None
+                or not authorization.startswith("Bearer ")
+            ):
+                raise ValueError
+            body = await http_request.body()
+            if len(body) > 512_000:
+                raise ValueError
+            result = FriendsService(owner_devices).accept_pair(
+                authorization.removeprefix("Bearer "),
+                FriendPairing.model_validate_json(body),
+                http_request.client.host if http_request.client else "",
+            )
+        except Exception:
+            return reject(
+                401, GatewayErrorCode.INVITE_INVALID, "邀请码无效、已过期或已被使用", "friend_pair"
+            )
+        background.add_task(owner_devices.push, owner_devices.roster().devices)
+        return result
+
+    async def trust_sync(
+        http_request: Request,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> TrustSyncMessage | JSONResponse:
         if limited(sync_attempts, 60):
             return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "trust_sync")
         try:
@@ -250,7 +295,22 @@ def create_gateway_router(
                 and message.trust_list.purpose.value != "tm-trust-list"
             ):
                 raise ValueError
-            return owner_devices.receive(message, source)
+            before = owner_devices.message()
+            received = owner_devices.receive(message, source)
+            if received != before and owner_devices.active():
+                background.add_task(owner_devices.push, owner_devices.roster().devices)
+            try:
+                peer = security_policy.authenticate(
+                    authorization, audience="trust-sync", source_host=source
+                )
+            except TrustSyncRequired:
+                peer = None
+            return owner_devices.message(
+                include_private=(
+                    peer is not None
+                    and peer.authentication_kind is GatewayAuthenticationKind.OWNER_DEVICE
+                )
+            )
         except ValueError:
             return reject(401, GatewayErrorCode.UNAUTHENTICATED, "名单同步验证失败", "trust_sync")
 
@@ -287,6 +347,15 @@ def create_gateway_router(
                 "节点认证失败",
                 action,
             )
+        if not identity_allows(peer, action):
+            code = (
+                GatewayErrorCode.REPAIR_APPROVAL_NOT_ALLOWED
+                if action.startswith("repair_")
+                else GatewayErrorCode.OPERATION_NOT_ALLOWED
+                if action.startswith("operation_")
+                else GatewayErrorCode.FORBIDDEN
+            )
+            return reject(403, code, "朋友的电脑不能执行这项操作", action, peer)
         if not security_policy.consume(peer):
             return reject(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -960,6 +1029,7 @@ def create_gateway_router(
     )
     router.add_api_route("/v1/services", services, methods=["GET"], response_model=None)
     router.add_api_route("/v1/owner:join", owner_join, methods=["POST"], response_model=None)
+    router.add_api_route("/v1/friends:pair", friend_pair, methods=["POST"], response_model=None)
     router.add_api_route("/v1/trust:sync", trust_sync, methods=["POST"], response_model=None)
     router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(
