@@ -271,7 +271,9 @@ class GatewayConfigurationService:
             for device in roster.devices:
                 previous = peers.get(str(device.node_id))
                 policy = verifier.friend_peer(device.node_id)
-                assert policy is not None
+                if policy is None or (previous is not None and previous.host != device.host):
+                    # 节点 ID 有冲突时不让朋友名单改写已有对端的地址。
+                    continue
                 peers[str(device.node_id)] = GatewayPeerConfig(
                     node_id=device.node_id,
                     platform=device.platform,
@@ -305,12 +307,28 @@ class GatewayConfigurationService:
     def _credential(self, node_id: NodeId) -> GatewayCredential | None:
         owner = self.owner_devices
         if owner is not None and owner.active():
+            legacy = self._legacy_host(node_id)
             device = owner.known_device(node_id)
-            if device is not None and node_id != owner.node_id:
+            if (
+                device is not None
+                and node_id != owner.node_id
+                and (
+                    owner.roster().device(node_id) is not None
+                    or legacy is None
+                    or legacy == device.host
+                )
+            ):
                 return owner.credentials(device)
-            if owner.store.was_friend_device(node_id):
+            if owner.store.was_friend_device(node_id, legacy):
                 return None
         return self._secrets.get(gateway_token_name(node_id))
+
+    def _legacy_host(self, node_id: NodeId) -> str | None:
+        """本机旧式配置里这个节点登记的地址。"""
+        config = self._repository.load()
+        if config is None:
+            return None
+        return next((peer.host for peer in config.peers if peer.node_id == node_id), None)
 
     def configure_local(
         self,
@@ -413,7 +431,12 @@ class GatewayConfigurationService:
         if owner is not None and owner.active():
             if owner.roster().device(node_id) is not None:
                 return "mine"
-            if any(roster.device(node_id) is not None for _, roster in owner.friends()):
+            legacy = self._legacy_host(node_id)
+            if any(
+                (device := roster.device(node_id)) is not None
+                and (legacy is None or legacy == device.host)
+                for _, roster in owner.friends()
+            ):
                 return "friend"
         return "legacy"
 

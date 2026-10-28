@@ -231,6 +231,15 @@ class GatewaySecurityPolicy:
             return identity_permissions(matched) if matched is not None else None
         if self._request_pass_verifier is not None and credential.count(".") == 2:
             owner = self._request_pass_verifier.authenticate(credential, audience, source_host)
+            if (
+                owner is not None
+                and owner.authentication_kind is GatewayAuthenticationKind.FRIEND_DEVICE
+                and any(
+                    host != owner.source_host for host in self.static_source_hosts(owner.node_id)
+                )
+            ):
+                # 朋友名单占用了旧式配对的节点 ID（地址不同），不认这个朋友身份。
+                owner = None
             if owner is not None:
                 # 只有地址一致的旧式配对才算同一台电脑，才能沿用它的受控操作和收紧设置。
                 legacy = next(
