@@ -78,15 +78,7 @@ class FriendsService:
             raise VerificationError("朋友身份与电脑名单不符")
         for device in roster.devices:
             GatewayBindConfig(host=device.host, port=device.port)
-        existing = (
-            self.devices.roster(),
-            *(
-                other
-                for friend, other in self.devices.friends()
-                if friend.owner_fingerprint != roster.owner_fingerprint
-            ),
-        )
-        if roster_conflicts(roster, existing):
+        if roster_conflicts(roster, (self.devices.roster(),)):
             raise VerificationError("朋友名单里的电脑与已有电脑冲突")
         return roster
 

@@ -87,11 +87,15 @@ def friend_command(values: list[str]) -> int:
                 friend.owner_fingerprint: roster.devices for friend, roster in devices.friends()
             }
             verifier = RequestPassVerifier(devices)
+            conflicting: set[str] = set()
             for entries in rosters.values():
                 for entry in entries:
                     if str(entry.node_id) not in peers:
                         policy = verifier.friend_peer(entry.node_id)
-                        assert policy is not None
+                        if policy is None:
+                            # 多个朋友的名单里出现同一个节点 ID，两边都不认。
+                            conflicting.add(str(entry.node_id))
+                            continue
                         peers[str(entry.node_id)] = GatewayPeerView(
                             node_id=entry.node_id,
                             relationship="friend",
@@ -112,6 +116,12 @@ def friend_command(values: list[str]) -> int:
                     tuple(
                         peers[str(device.node_id)]
                         for device in rosters.get(friend.owner_fingerprint, ())
+                        if str(device.node_id) in peers
+                    ),
+                    tuple(
+                        str(device.node_id)
+                        for device in rosters.get(friend.owner_fingerprint, ())
+                        if str(device.node_id) in conflicting
                     ),
                 )
                 for friend in devices.trusted_people()
@@ -127,16 +137,19 @@ def friend_command(values: list[str]) -> int:
                                 "devices": [
                                     device.model_dump(mode="json") for device in friend_devices
                                 ],
+                                "conflicting_devices": list(conflicts),
                             }
-                            for friend, friend_devices in people
+                            for friend, friend_devices, conflicts in people
                         ],
                         ensure_ascii=False,
                         indent=2,
                     )
                 )
             else:
-                for friend, friend_devices in people:
+                for friend, friend_devices, conflicts in people:
                     print(f"{friend.display_name}（{friend.owner_fingerprint}）")
+                    for node_id in conflicts:
+                        print(f"  {node_id}：和其他朋友的电脑编号冲突，暂不认")
                     for device in friend_devices:
                         print(
                             f"  {device.display_name}："

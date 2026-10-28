@@ -77,6 +77,37 @@ from tunnelminion.trust.signatures import (
 )
 
 
+def _migrate_friend_device_history(connection: sqlite3.Connection) -> None:
+    """早期开发版的朋友电脑历史只按节点记录；遇到旧表结构时按"节点 + 地址"重建。
+
+    旧记录没有地址，用已保存的朋友名单补回"节点 + 地址"；已经移除的朋友不在名单里，补不回来。
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(friend_device_history)")}
+    if "host" in columns:
+        return
+    connection.executescript(
+        """
+        DROP TABLE friend_device_history;
+        CREATE TABLE friend_device_history (
+            node_id TEXT NOT NULL,
+            host TEXT NOT NULL,
+            PRIMARY KEY (node_id, host)
+        );
+        """
+    )
+    for (raw,) in connection.execute("SELECT envelope_json FROM friend_rosters").fetchall():
+        devices = SignedEnvelope.model_validate_json(raw).payload.get("devices")
+        connection.executemany(
+            "INSERT OR IGNORE INTO friend_device_history VALUES (?, ?)",
+            (
+                (str(item["node_id"]), str(item["host"]))
+                for item in (devices if isinstance(devices, list) else [])
+                if isinstance(item, dict)
+            ),
+        )
+    connection.commit()
+
+
 class _SQLiteDatabase:
     """每次操作使用短连接，避免跨线程共享 sqlite3 连接。"""
 
@@ -293,6 +324,7 @@ class _SQLiteDatabase:
                     ON launch_records(recorded_at DESC);
                 """
             )
+            _migrate_friend_device_history(connection)
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -970,6 +1002,7 @@ class SQLiteInviteStore:
 
 
 # 本机没有单独收紧某个朋友时的上限：不在本地额外限制，以"我信任的人"名单里的权限为准。
+_FRIEND_CONFLICT_NOTE = "；名单里有电脑和其他朋友的电脑编号冲突，这些电脑暂不认"
 _UNRESTRICTED_FRIEND = FriendPermissions(allow_model_borrowing=True, daily_quota=100_000_000)
 
 
@@ -1396,8 +1429,10 @@ class SQLiteTrustStore:
                         (previous_owner,),
                     )
                 )
-                if roster_conflicts(updated, (own, *others)):
+                if roster_conflicts(updated, (own,)):
                     raise VerificationError("朋友名单里的电脑与已有电脑冲突")
+                if roster_conflicts(updated, others):
+                    reason += _FRIEND_CONFLICT_NOTE
                 connection.execute(
                     "DELETE FROM friend_rosters WHERE owner_fingerprint=?", (previous_owner,)
                 )
@@ -1532,8 +1567,12 @@ class SQLiteTrustStore:
                 (friend.owner_fingerprint,),
             )
         )
-        if roster_conflicts(roster, (own, *others)):
+        # 和我的电脑撞号整份拒收；和其他朋友撞号照常保存（不然别人能抢先占号，冻结这个朋友的
+        # 名单更新），撞号的电脑由 friend_peer 两边都不认，并在审计里记一笔。
+        if roster_conflicts(roster, (own,)):
             raise VerificationError("朋友名单里的电脑与已有电脑冲突")
+        if roster_conflicts(roster, others):
+            reason += _FRIEND_CONFLICT_NOTE
         self._write_friend_roster(connection, envelope, roster, reason)
 
     def _write_friend_roster(

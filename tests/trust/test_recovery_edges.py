@@ -241,3 +241,28 @@ def test_reset_failure_restores_only_existing_keys(
     with pytest.raises(sqlite3.OperationalError):
         OwnerIdentityService(b.service.store, b.secrets).reset()
     assert b.secrets.values == before
+
+
+def test_friend_rotation_overlapping_another_friend_is_kept_but_flagged(tmp_path: Path) -> None:
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f, keys = recoverable_computer(tmp_path / "f", 3, apps)
+    g = computer(tmp_path / "g", 4, apps)
+    pair(a, f)
+    pair(a, g)
+    roster = f.service.roster()
+    impostor = roster.devices[0].model_copy(
+        update={"node_id": g.service.node_id, "device_public_key": PrivateKey.generate().public_key}
+    )
+    new_owner = PrivateKey.generate()
+    step = rotation_step(
+        roster,
+        parse_recovery_code(keys.recovery_code),
+        new_owner,
+        PrivateKey.generate(),
+        devices=(*roster.devices, impostor),
+    )
+    a.service.store.rotate((step,), step.roster, None, "朋友换了机主密钥")
+    assert any(other.owner_public_key == new_owner.public_key for _, other in a.service.friends())
+    audits = SQLiteStores.open(a.root / "runtime.sqlite3").trust.audits()
+    assert "编号冲突" in audits[-1].reason
