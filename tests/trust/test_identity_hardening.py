@@ -55,6 +55,10 @@ def test_join_proof_is_bound_to_reported_address(tmp_path: Path) -> None:
         a.service.accept_join(code.token, moved_port, "10.20.0.9")
     # 地址没被改过的原应答仍然可以用，说明前两次失败没有烧掉加入码。
     assert a.service.accept_join(code.token, request, "10.20.0.9").roster is not None
+    # 同一个加入码只能用一次，换一台电脑、换一份新应答也不行。
+    again = request_for(code, NodeId.new(), PrivateKey.generate(), "10.20.0.10")
+    with pytest.raises(IdentityError):
+        a.service.accept_join(code.token, again, "10.20.0.10")
 
 
 @pytest.mark.parametrize("offset", [timedelta(minutes=6), -timedelta(minutes=6)])
