@@ -32,7 +32,7 @@ from tunnelminion.memory.contracts import (
 )
 from tunnelminion.memory.service import MemoryContextRetriever
 from tunnelminion.memory.sqlite import SQLiteStores
-from tunnelminion.model.contracts import ModelResponse
+from tunnelminion.model.contracts import ModelResponse, ProviderError, ProviderErrorCode
 from tunnelminion.tools.fakes import FakeToolBehavior
 
 T = TypeVar("T")
@@ -365,6 +365,33 @@ def test_user_cancel_and_failed_run_reach_terminal_events() -> None:
     assert failed.failure.category.value == "harness_or_tool"
     assert failed.failure.reason.value == "agent_runtime_failed"
     assert failed_events[-1].event_type is RunEventType.FAILED
+
+
+def test_truncated_model_response_has_a_plain_language_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent, provider, adapter = build_agent()
+    monkeypatch.setattr(
+        provider,
+        "complete",
+        AsyncMock(side_effect=ProviderError(ProviderErrorCode.OUTPUT_TRUNCATED, "未采用的正文")),
+    )
+    conversations = InMemoryConversationService(NodeId.new(), lambda: agent)
+    thread = conversations.create_thread()
+
+    async def scenario() -> RunView:
+        started = await conversations.start_run(
+            thread.thread_id, StartRunInput(question="检查服务", tool_names=("probe_service",))
+        )
+        await collect(conversations.stream_events(started.run_id))
+        return conversations.get_run(started.run_id)
+
+    result = run(scenario())
+    assert result.status is RunStatus.FAILED
+    assert result.error_code == "model_output_truncated"
+    assert result.error_message == "模型这次回答太长被截断了，可以把问题问得更具体一些再试"
+    assert result.result is None and adapter.calls == []
+    assert "未采用的正文" not in result.model_dump_json()
 
 
 def test_concurrent_run_creates_structured_unfinished_workflow_state() -> None:

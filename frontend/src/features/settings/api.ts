@@ -8,6 +8,7 @@ const modelConfigurationProfileSchema = z
     model: z.string(),
     timeout_seconds: z.number().min(0.1).max(600),
     disable_thinking: z.boolean().default(false),
+    max_output_tokens: z.number().int().min(16).max(32768).default(2048),
     api_key_configured: z.boolean(),
   })
   .strict();
@@ -18,6 +19,13 @@ export const modelConfigurationSchema = z
     model: z.string().nullable(),
     timeout_seconds: z.number().min(0.1).max(600).nullable(),
     disable_thinking: z.boolean().default(false),
+    max_output_tokens: z
+      .number()
+      .int()
+      .min(16)
+      .max(32768)
+      .nullable()
+      .default(null),
     api_key_configured: z.boolean(),
     profiles: z.array(modelConfigurationProfileSchema),
     borrowed_from: z

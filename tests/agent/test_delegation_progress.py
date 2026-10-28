@@ -236,6 +236,8 @@ class DelegatingProvider(ScriptedProvider):
     async def complete(
         self, request: ModelRequest, cancellation: CancellationToken | None = None
     ) -> ModelResponse:
+        if request.response_schema is not None:
+            return ModelResponse(structured_output={"category": "allowed"})
         if not self.requests:
             self.requests.append(request)
             return ModelResponse(

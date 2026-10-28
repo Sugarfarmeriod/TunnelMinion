@@ -19,6 +19,7 @@ class ProviderErrorCode(StrEnum):
     CAPABILITY_INCOMPATIBLE = "capability_incompatible"
     CANCELLED = "cancelled"
     INVALID_RESPONSE = "invalid_response"
+    OUTPUT_TRUNCATED = "output_truncated"
     INVALID_CONTEXT = "invalid_context"
     QUOTA_EXCEEDED = "quota_exceeded"
     BUSY = "busy"
@@ -27,10 +28,19 @@ class ProviderErrorCode(StrEnum):
 class ProviderError(Exception):
     """不包含凭据或原始响应正文的模型错误。"""
 
-    def __init__(self, code: ProviderErrorCode, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: ProviderErrorCode,
+        message: str,
+        *,
+        retryable: bool = False,
+        usage: ModelUsage | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+        # 调用已经消耗、但结果未被采用时的用量，例如输出被截断。
+        self.usage = usage
 
 
 class CancellationToken:
@@ -81,6 +91,7 @@ class ModelRequest(BaseModel):
     tools: tuple[ToolDefinition, ...] = ()
     require_tool_call: bool = False
     response_schema: dict[str, JsonValue] | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
 
 
 class ToolCall(BaseModel):

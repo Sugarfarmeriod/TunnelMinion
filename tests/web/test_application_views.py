@@ -437,6 +437,14 @@ def test_runtime_package_detection_distinguishes_raw_freeze_and_source(tmp_path:
         (ModelConfigurationView(status="available"), ModelStatus.AVAILABLE, "fresh", False),
         (
             ModelConfigurationView(
+                status="unavailable", error_code=ProviderErrorCode.OUTPUT_TRUNCATED
+            ),
+            ModelStatus.UNAVAILABLE,
+            "unavailable",
+            False,
+        ),
+        (
+            ModelConfigurationView(
                 status="unavailable",
                 error_code=ProviderErrorCode.NETWORK_UNREACHABLE,
             ),

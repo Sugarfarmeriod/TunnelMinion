@@ -19,7 +19,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 11
+    assert len(definitions) == 12
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.content_hash == (

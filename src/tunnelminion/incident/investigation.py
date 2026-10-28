@@ -1182,7 +1182,12 @@ class IncidentInvestigator:
             if status is IncidentStatus.CANCELLED
             else InvestigationStopReason.FAILED
         )
-        return self._finish(incident, status, reason, "模型调查不可用", evidence=evidence)
+        message = (
+            "模型这次回答太长被截断了，可以把问题问得更具体一些再试"
+            if error.code is ProviderErrorCode.OUTPUT_TRUNCATED
+            else "模型调查不可用"
+        )
+        return self._finish(incident, status, reason, message, evidence=evidence)
 
     @staticmethod
     def _eligible_tools(

@@ -15,6 +15,7 @@ function makeConfiguration(
     model: "qwen-local",
     timeout_seconds: 30,
     disable_thinking: false,
+    max_output_tokens: 2048,
     api_key_configured: false,
     profiles: [],
     borrowed_from: null,
@@ -173,6 +174,38 @@ describe("SettingsPage", () => {
         ...makeConfiguration(),
         borrowed_from: null,
         api_key: "secret",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("接受后端返回的单次输出上限，并拒绝越界值", () => {
+    const profile = {
+      endpoint: "http://127.0.0.1:8080/v1",
+      model: "qwen-local",
+      timeout_seconds: 30,
+      disable_thinking: true,
+      max_output_tokens: 4096,
+      api_key_configured: false,
+    };
+    const parsed = modelConfigurationSchema.parse({
+      ...makeConfiguration(),
+      max_output_tokens: 4096,
+      profiles: [profile],
+    });
+    expect(parsed.max_output_tokens).toBe(4096);
+    expect(parsed.profiles[0]?.max_output_tokens).toBe(4096);
+    const { max_output_tokens: _omitted, ...legacyProfile } = profile;
+    const { max_output_tokens: _unused, ...legacy } = makeConfiguration();
+    const legacyParsed = modelConfigurationSchema.parse({
+      ...legacy,
+      profiles: [legacyProfile],
+    });
+    expect(legacyParsed.max_output_tokens).toBeNull();
+    expect(legacyParsed.profiles[0]?.max_output_tokens).toBe(2048);
+    expect(
+      modelConfigurationSchema.safeParse({
+        ...makeConfiguration(),
+        max_output_tokens: 8,
       }).success,
     ).toBe(false);
   });
@@ -361,6 +394,7 @@ describe("SettingsPage", () => {
         model: "qwen-local",
         timeout_seconds: 30,
         disable_thinking: true,
+        max_output_tokens: 2048,
         api_key_configured: false,
       },
       {
@@ -368,6 +402,7 @@ describe("SettingsPage", () => {
         model: "deepseek-chat",
         timeout_seconds: 60,
         disable_thinking: false,
+        max_output_tokens: 2048,
         api_key_configured: true,
       },
     ];

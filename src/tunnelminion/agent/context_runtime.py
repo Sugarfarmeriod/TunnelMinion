@@ -122,6 +122,7 @@ class ContextSnapshotBuilder:
             tools=built.tools,
             require_tool_call=request.require_tool_call,
             response_schema=request.response_schema,
+            max_output_tokens=request.max_output_tokens,
         )
         generated_references = tuple(
             make_context_reference(

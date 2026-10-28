@@ -32,6 +32,9 @@ class OpenAICompatibleConfig(BaseModel):
     model: str = Field(min_length=1)
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=600.0)
     disable_thinking: bool = False
+    # DeepSeek 实测每个问题平均约 900 个输出 token，分多轮时单轮更少；Qwen 关闭思考后仅几十到几百。
+    # 2048 留出一倍以上余量，同时挡住失控的长输出。
+    max_output_tokens: int = Field(default=2048, ge=16, le=32768)
 
     @field_validator("endpoint")
     @classmethod
@@ -166,6 +169,10 @@ class OpenAICompatibleProvider:
         payload: dict[str, object] = {
             "model": self._config.model,
             "messages": messages,
+            "max_tokens": min(
+                self._config.max_output_tokens,
+                request.max_output_tokens or self._config.max_output_tokens,
+            ),
         }
         if self._config.disable_thinking:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
@@ -224,7 +231,21 @@ class OpenAICompatibleProvider:
     def _parse_response(response: httpx.Response, request: ModelRequest) -> ModelResponse:
         try:
             data = cast(dict[str, Any], response.json())
-            message = cast(dict[str, Any], data["choices"][0]["message"])
+            choice = data["choices"][0]
+            raw_usage = cast(dict[str, Any], data.get("usage", {}))
+            usage = ModelUsage(
+                input_tokens=raw_usage.get("prompt_tokens"),
+                output_tokens=raw_usage.get("completion_tokens"),
+                total_tokens=raw_usage.get("total_tokens"),
+            )
+            if choice.get("finish_reason") == "length":
+                raise ProviderError(
+                    ProviderErrorCode.OUTPUT_TRUNCATED,
+                    "模型回答超过单次长度上限被截断，这次结果没有采用",
+                    retryable=False,
+                    usage=usage,
+                )
+            message = cast(dict[str, Any], choice["message"])
             raw_calls = cast(list[dict[str, Any]], message.get("tool_calls") or [])
             tool_calls = tuple(
                 ToolCall(
@@ -241,12 +262,6 @@ class OpenAICompatibleProvider:
                 serialized = str(content).strip()
                 fenced = re.fullmatch(r"```json\r?\n([\s\S]*)\r?\n```", serialized)
                 structured = cast(JsonValue, json.loads(fenced[1] if fenced else serialized))
-            raw_usage = cast(dict[str, Any], data.get("usage", {}))
-            usage = ModelUsage(
-                input_tokens=raw_usage.get("prompt_tokens"),
-                output_tokens=raw_usage.get("completion_tokens"),
-                total_tokens=raw_usage.get("total_tokens"),
-            )
             return ModelResponse(
                 content=cast(str | None, content),
                 reasoning_content=cast(str | None, reasoning_content),
@@ -254,7 +269,14 @@ class OpenAICompatibleProvider:
                 structured_output=structured,
                 usage=usage,
             )
-        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (
+            AttributeError,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE,
                 "模型响应不符合兼容协议",

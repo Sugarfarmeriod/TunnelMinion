@@ -86,6 +86,15 @@ class RemoteModelProvider:
                 record_usage(current, response.usage)
                 return response
             except RemoteGatewayError as exc:
+                if (
+                    exc.gateway_code is GatewayErrorCode.MODEL_CALL_FAILED
+                    and str(exc) == ProviderErrorCode.OUTPUT_TRUNCATED.value
+                ):
+                    raise ProviderError(
+                        ProviderErrorCode.OUTPUT_TRUNCATED,
+                        "模型这次回答太长被截断了，可以把问题问得更具体一些再试",
+                        retryable=False,
+                    ) from exc
                 code, message, retryable = _ERRORS.get(
                     exc.gateway_code or exc.code,
                     (ProviderErrorCode.INVALID_RESPONSE, "对方电脑的模型调用失败", False),
