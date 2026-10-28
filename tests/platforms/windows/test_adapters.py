@@ -591,3 +591,35 @@ def test_wireguard_observes_pre_cancel() -> None:
     adapter = WireGuardStatusAdapter(FakeReader(), FakeRunner({}), "wg.exe")
     with pytest.raises(asyncio.CancelledError):
         run(adapter.execute({}, token(True)))
+
+
+def test_abandoned_slow_observation_does_not_hold_the_shared_thread_pool() -> None:
+    """观察超时被放弃后线程仍在跑；它不能占住事件循环共用的线程池（地址解析也要用）。"""
+    release = threading.Event()
+
+    class Slow(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            release.wait(10)
+            return ()
+
+        def processes(self, limit: int) -> tuple[ProcessInfo, ...]:
+            release.wait(10)
+            return ()
+
+    async def scenario() -> int:
+        from concurrent.futures import ThreadPoolExecutor
+
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        for adapter in (NetworkListenersAdapter(Slow()), ProcessSummaryAdapter(Slow())):
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.05):
+                    await adapter.execute({}, token())
+        try:
+            # 换成真实场景：轮询对端时 httpx 解析地址走的就是这个默认线程池。
+            await asyncio.wait_for(loop.getaddrinfo("127.0.0.1", 80), 2)
+            return len(await asyncio.wait_for(loop.getaddrinfo("127.0.0.1", 80), 2))
+        finally:
+            release.set()
+
+    assert run(scenario()) > 0

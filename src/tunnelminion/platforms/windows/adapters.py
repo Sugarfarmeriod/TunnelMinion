@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import ipaddress
 import json
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
+from functools import partial
 from time import perf_counter
-from typing import cast
+from typing import TypeVar, cast
 
 from pydantic import JsonValue
 
@@ -35,6 +37,21 @@ from tunnelminion.platforms.windows.models import (
 from tunnelminion.platforms.windows.system import CommandRunner, SystemReader
 from tunnelminion.tools.contracts import ToolCancellationToken
 from tunnelminion.tools.registry import ToolRegistry
+
+# 进程很多的电脑上，读监听端口和进程可能比观察超时还慢；超时后协程被放弃，线程却会跑完。这些读取
+# 放在自己的小线程池里，慢线程最多拖住下一次观察，不会占满事件循环共用的默认线程池（httpx 连接
+# 对端前解析地址也用它）。还没开始的读取在超时取消时会从队列里撤掉，不会越积越多。
+_OBSERVATION_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tunnelminion-observe")
+
+
+_T = TypeVar("_T")
+
+
+async def _observe(function: Callable[..., _T], *arguments: object) -> _T:
+    context = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(
+        _OBSERVATION_EXECUTOR, partial(context.run, function, *arguments)
+    )
 
 
 def _json_value(value: object) -> JsonValue:
@@ -173,7 +190,7 @@ class NetworkListenersAdapter:
         if cancellation.cancelled:
             raise asyncio.CancelledError
         try:
-            items = await asyncio.to_thread(
+            items = await _observe(
                 self._items,
                 arguments.get("include_python_entrypoint") is True,
                 arguments.get("include_program_names") is True,
@@ -279,7 +296,7 @@ class ProcessSummaryAdapter:
             raise asyncio.CancelledError
         limit = int(cast(int, arguments.get("limit", 50)))
         try:
-            values = await asyncio.to_thread(self._reader.processes, limit)
+            values = await _observe(self._reader.processes, limit)
             items = tuple(item.model_dump(mode="json") for item in values)
             result = CollectionResult(availability=Availability.AVAILABLE, items=items)
         except PermissionError:
