@@ -160,10 +160,7 @@ def friend_command(values: list[str]) -> int:
                 for friend, friend_devices, conflicts in people:
                     print(f"{friend.display_name}（{friend.owner_fingerprint}）")
                     for node_id in conflicts:
-                        print(
-                            f"  {node_id}：和其他朋友的电脑编号冲突，暂不认"
-                            "（可用 friend resolve-conflict 指定归属）"
-                        )
+                        print(f"  {node_id}：和其他朋友的电脑编号冲突，暂不认")
                     for device in friend_devices:
                         print(
                             f"  {device.display_name}："

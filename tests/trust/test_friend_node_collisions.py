@@ -335,7 +335,7 @@ def test_resolve_conflict_command(
     monkeypatch.setattr("tunnelminion.trust.friend_cli.load_devices", local_devices)
     monkeypatch.setattr("tunnelminion.trust.friend_cli.default_data_dir", lambda: a.root)
     assert friend_command(["friend", "list"]) == 0
-    assert "friend resolve-conflict" in capsys.readouterr().out
+    assert "编号冲突，暂不认" in capsys.readouterr().out
     g_owner = g.service.roster().owner_fingerprint
     assert friend_command(["friend", "resolve-conflict", str(g.service.node_id), g_owner]) == 0
     assert f"已把 {g.service.node_id} 判给" in capsys.readouterr().out
