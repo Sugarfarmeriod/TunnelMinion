@@ -46,9 +46,8 @@ from tunnelminion.trust.keys import (
     PrivateKey,
     delete_private_key,
     load_private_key,
-    save_private_key,
 )
-from tunnelminion.trust.service import OwnerIdentityService, ensure_no_identity_keys
+from tunnelminion.trust.service import IdentityKeySwap, OwnerIdentityService
 from tunnelminion.trust.signatures import (
     VerificationError,
     seal,
@@ -205,9 +204,21 @@ class OwnDevicesService:
         except (ValueError, IdentityError):
             raise IdentityError(INVALID_INVITE) from None
 
-    def install_join(self, code: JoinCode, response: OwnerJoinResponse, key: PrivateKey) -> None:
-        """核对邀请中的机主和本机公钥后，才把电脑私钥写入秘密存储。"""
-        OwnerIdentityService(self.store, self.secrets).ensure_uninitialized()
+    def install_join(
+        self,
+        code: JoinCode,
+        response: OwnerJoinResponse,
+        key: PrivateKey,
+        *,
+        replace: bool = False,
+        previous_secrets: SecretStore | None = None,
+    ) -> None:
+        """核对邀请中的机主和本机公钥后，才把电脑私钥写入秘密存储。
+
+        `replace` 为真时，在同一个事务里替换掉本机旧身份；失败时旧身份和旧密钥原样保留。
+        """
+        if not replace:
+            OwnerIdentityService(self.store, self.secrets).ensure_uninitialized()
         roster = verify_owner_roster(response.roster, code.owner_fingerprint)
         verify_trust_list(response.trust_list, roster.owner_public_key, code.owner_fingerprint)
         certificate = verify_device_certificate(
@@ -222,26 +233,24 @@ class OwnDevicesService:
             or roster.device(code.inviter_node_id) is None
         ):
             raise VerificationError("加入响应中的本机身份不符")
-        written = False
-
-        def persist() -> None:
-            nonlocal written
-            ensure_no_identity_keys(self.secrets)
-            written = True
-            save_private_key(self.secrets, DEVICE_KEY_NAME, key)
-
+        swap = IdentityKeySwap(
+            self.secrets,
+            {DEVICE_KEY_NAME: key},
+            replace=replace,
+            previous_secrets=previous_secrets,
+        )
         try:
             self.store.initialize(
                 code.owner_fingerprint,
                 response.roster,
                 response.trust_list,
                 response.certificate,
-                persist,
+                swap.persist,
                 response.rotations,
+                replace=replace,
             )
         except Exception:
-            if written:
-                delete_private_key(self.secrets, DEVICE_KEY_NAME)
+            swap.rollback()
             raise
 
     def remove(self, node_id: NodeId) -> tuple[DeviceEntry, ...]:
@@ -290,6 +299,7 @@ class OwnDevicesService:
             if message.roster is None:
                 raise VerificationError("身份签名验证失败")
             self.store.rotate(message.rotations, message.roster, message.trust_list, reason)
+            self._drop_retired_owner_key()
         for envelope in (message.roster, message.trust_list):
             if envelope is not None:
                 with suppress(VersionRejectedError):
@@ -300,6 +310,12 @@ class OwnDevicesService:
             with suppress(VersionRejectedError):
                 self.store.accept(envelope, reason)
         return self.message()
+
+    def _drop_retired_owner_key(self) -> None:
+        """机主换了密钥以后，钥匙串里残留的旧机主密钥已经没用，删掉免得泄露。"""
+        key = load_private_key(self.secrets, OWNER_KEY_NAME)
+        if key is not None and key_fingerprint(key.public_key) != self.roster().owner_fingerprint:
+            delete_private_key(self.secrets, OWNER_KEY_NAME)
 
     async def sync(self, device: DeviceEntry) -> None:
         """我的电脑带通行证交换完整名单；朋友之间只交换各自电脑名单。"""

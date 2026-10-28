@@ -54,7 +54,8 @@ def confirmation(capsys: pytest.CaptureFixture[str], shown: list[str]) -> str:
     assert text.count("恢复码（只显示这一次") == 1
     code = text.splitlines()[-1]
     shown.append(code)
-    return code[:4].lower()
+    # 小写、去掉连字符也算输对。
+    return code.replace("-", " ").lower()
 
 
 @pytest.mark.parametrize("backend", [None, "keyring", "restricted-file"])
@@ -73,7 +74,7 @@ def test_init_and_status_never_repeat_recovery_code_or_private_keys(
 
     def confirm(prompt: str) -> str:
         assert not root.exists() and memory_keyring.values == {}
-        assert "前 4 个字符" in prompt
+        assert "完整输入一遍" in prompt
         return confirmation(capsys, shown)
 
     arguments = ["owner", "init", "--data-dir", str(root), "--bind-host", "10.0.0.1"]

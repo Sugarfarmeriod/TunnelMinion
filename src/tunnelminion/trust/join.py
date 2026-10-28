@@ -43,11 +43,17 @@ async def join_owner(
     host_override: str | None = None,
     secret_store_kind: GatewaySecretStoreKind | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    reset: bool = False,
 ) -> None:
-    """核对响应后落盘；失败时不留下电脑私钥。"""
+    """核对响应后落盘；失败时不留下电脑私钥。
+
+    `reset` 为真时，拿到并核对完对方的响应后，才在同一个事务里把本机旧身份换成新身份；
+    中途任何一步失败，旧身份和旧密钥都原样保留。
+    """
     database = root / "runtime.sqlite3"
-    if SQLiteTrustStore.is_initialized(database):
+    if not reset and SQLiteTrustStore.is_initialized(database):
         raise AlreadyInitializedError("本机身份已经初始化，不能重复加入")
+    previous_secrets = gateway_secret_store(root)
     secrets = (
         RestrictedFileSecretStore(root / "gateway-secrets")
         if secret_store_kind is GatewaySecretStoreKind.RESTRICTED_FILE
@@ -55,7 +61,8 @@ async def join_owner(
         if secret_store_kind is GatewaySecretStoreKind.KEYRING
         else gateway_secret_store(root)
     )
-    ensure_no_identity_keys(secrets)
+    if not reset:
+        ensure_no_identity_keys(secrets)
     now = datetime.now(UTC)
     if (
         code.kind is not JoinCodeKind.OWNER
@@ -136,7 +143,9 @@ async def join_owner(
             raise
         raise IdentityError("加入响应格式无效") from None
     service = OwnDevicesService(node_id, SQLiteStores.open(database).trust, secrets)
-    service.install_join(code, accepted, key)
+    service.install_join(
+        code, accepted, key, replace=reset, previous_secrets=previous_secrets if reset else None
+    )
     if secret_store_kind is not None:
         configure_gateway_secret_store(root, secret_store_kind)
     if not path.exists():

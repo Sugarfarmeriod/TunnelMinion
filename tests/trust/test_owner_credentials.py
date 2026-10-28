@@ -124,7 +124,7 @@ def test_join_install_fails_before_persisting_keys(
     with pytest.raises(VerificationError):
         fresh.install_join(a.service.invite(), response, PrivateKey.generate())
 
-    def fail(*args: object) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
         raise IdentityError("未写入密钥")
 
     monkeypatch.setattr(fresh.store, "initialize", fail)

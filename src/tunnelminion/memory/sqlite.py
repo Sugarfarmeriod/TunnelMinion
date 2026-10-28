@@ -1075,8 +1075,13 @@ class SQLiteTrustStore:
         certificate: SignedEnvelope,
         persist_keys: Callable[[], None],
         rotations: tuple[OwnerRotationStep, ...] = (),
+        *,
+        replace: bool = False,
     ) -> None:
-        """验签后一次写入信任锚、两份名单、证书和审计；`persist_keys` 在同一事务内执行。"""
+        """验签后一次写入信任锚、两份名单、证书和审计；`persist_keys` 在同一事务内执行。
+
+        `replace` 为真时，在同一个事务里先清掉本机旧身份再写入新身份，任何一步失败都整体回滚。
+        """
         owner_roster = verify_owner_roster(roster, owner_fingerprint)
         people = verify_trust_list(trust_list, owner_roster.owner_public_key, owner_fingerprint)
         device = verify_device_certificate(
@@ -1089,6 +1094,8 @@ class SQLiteTrustStore:
             self._verify_history(rotations, roster)
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if replace:
+                self._clear_identity(connection)
             if connection.execute("SELECT 1 FROM trust_identity").fetchone() is not None:
                 raise AlreadyInitializedError("本机身份已经初始化，不能重复初始化")
             connection.execute("INSERT INTO trust_identity VALUES (1, ?)", (owner_fingerprint,))
@@ -1320,6 +1327,20 @@ class SQLiteTrustStore:
         reason: str,
         persist_keys: Callable[[], None] | None = None,
     ) -> None:
+        """接受换密钥声明链；同一条声明被并发重复写入时，按验证失败处理。"""
+        try:
+            self._rotate(rotations, roster, trust_list, reason, persist_keys)
+        except sqlite3.IntegrityError:
+            raise VerificationError("身份签名验证失败") from None
+
+    def _rotate(
+        self,
+        rotations: tuple[OwnerRotationStep, ...],
+        roster: SignedEnvelope,
+        trust_list: SignedEnvelope | None,
+        reason: str,
+        persist_keys: Callable[[], None] | None = None,
+    ) -> None:
         """写锁内验证完整声明链和新名单，再一起替换信任锚、名单与审计。"""
         if not rotations:
             raise VerificationError("身份签名验证失败")
@@ -1448,33 +1469,37 @@ class SQLiteTrustStore:
         """仅清理身份资料及其限制和邀请码，保留审计、旧式配对和其他运行数据。"""
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT envelope_json, version FROM trust_documents WHERE kind=?",
-                (SignaturePurpose.OWNER_ROSTER.value,),
-            ).fetchone()
-            if row is not None:
-                self._audit(
-                    connection,
-                    SignedEnvelope.model_validate_json(row[0]),
-                    row[1],
-                    (),
-                    "本机确认重置身份",
-                    action="reset",
-                )
-            for table in (
-                "trust_identity",
-                "trust_documents",
-                "trust_rotations",
-                "owner_invites",
-                "device_permissions",
-                "friend_rosters",
-                "friend_permissions",
-                "friend_invites",
-                "friend_device_history",
-                "own_device_history",
-            ):
-                connection.execute(f"DELETE FROM {table}")
+            self._clear_identity(connection)
             clear_keys()
+
+    def _clear_identity(self, connection: sqlite3.Connection) -> None:
+        """在调用方的事务里清掉身份资料，并记一条重置审计。"""
+        row = connection.execute(
+            "SELECT envelope_json, version FROM trust_documents WHERE kind=?",
+            (SignaturePurpose.OWNER_ROSTER.value,),
+        ).fetchone()
+        if row is not None:
+            self._audit(
+                connection,
+                SignedEnvelope.model_validate_json(row[0]),
+                row[1],
+                (),
+                "本机确认重置身份",
+                action="reset",
+            )
+        for table in (
+            "trust_identity",
+            "trust_documents",
+            "trust_rotations",
+            "owner_invites",
+            "device_permissions",
+            "friend_rosters",
+            "friend_permissions",
+            "friend_invites",
+            "friend_device_history",
+            "own_device_history",
+        ):
+            connection.execute(f"DELETE FROM {table}")
 
     def create_invite(self, digest: bytes, expires_at: datetime) -> None:
         """加入码只存摘要，与旧式配对邀请码分表。"""

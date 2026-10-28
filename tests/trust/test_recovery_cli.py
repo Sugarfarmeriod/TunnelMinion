@@ -61,7 +61,7 @@ def test_failed_recovery_never_writes_or_echoes_code(
     shown: list[str] = []
 
     def answer(prompt: str) -> str:
-        if "前 4 个字符" not in prompt:
+        if "完整输入一遍" not in prompt:
             return code
         if fault == "eof":
             raise EOFError
@@ -97,7 +97,7 @@ def test_recover_command_uses_interactive_input_and_pushes_removals(
     shown: list[str] = []
 
     def answer(prompt: str) -> str:
-        if "前 4 个字符" in prompt:
+        if "完整输入一遍" in prompt:
             return confirmation(capsys, shown)
         return keys.recovery_code
 
@@ -276,7 +276,7 @@ def test_recover_reports_computers_it_could_not_reach(
     shown: list[str] = []
 
     def answer(prompt: str) -> str:
-        if "前 4 个字符" in prompt:
+        if "完整输入一遍" in prompt:
             return confirmation(capsys, shown)
         return keys.recovery_code
 

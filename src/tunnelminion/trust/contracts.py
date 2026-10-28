@@ -133,6 +133,8 @@ class TrustStore(Protocol):
         certificate: SignedEnvelope,
         persist_keys: Callable[[], None],
         rotations: tuple[OwnerRotationStep, ...] = (),
+        *,
+        replace: bool = False,
     ) -> None: ...
 
     def accept(self, envelope: SignedEnvelope, reason: str) -> None: ...

@@ -26,6 +26,7 @@ from tunnelminion.trust.keys import (
     DEVICE_KEY_NAME,
     OWNER_KEY_NAME,
     InitializationKeys,
+    PrivateKey,
     delete_private_key,
     load_private_key,
     save_private_key,
@@ -38,6 +39,54 @@ def ensure_no_identity_keys(secrets: SecretStore) -> None:
     for name in (OWNER_KEY_NAME, DEVICE_KEY_NAME):
         if load_private_key(secrets, name) is not None:
             raise AlreadyInitializedError("本机已有身份密钥，不能重复初始化")
+
+
+class IdentityKeySwap:
+    """把本机身份密钥换成新的；失败时恢复成换之前的样子。
+
+    `replace` 为假时要求本机原本没有身份密钥；为真时先删掉旧密钥（可能在另一个秘密后端里）
+    再写新的。`persist` 在数据库事务内调用，事务失败后由调用方调用 `rollback`。
+    """
+
+    def __init__(
+        self,
+        secrets: SecretStore,
+        keys: dict[str, PrivateKey],
+        *,
+        replace: bool = False,
+        previous_secrets: SecretStore | None = None,
+    ) -> None:
+        self._secrets = secrets
+        self._keys = keys
+        self._replace = replace
+        self._previous_secrets = previous_secrets or secrets
+        self._previous = (
+            {
+                name: load_private_key(self._previous_secrets, name)
+                for name in (OWNER_KEY_NAME, DEVICE_KEY_NAME)
+            }
+            if replace
+            else {}
+        )
+        self._touched = False
+
+    def persist(self) -> None:
+        if not self._replace:
+            ensure_no_identity_keys(self._secrets)
+        self._touched = True
+        for name in self._previous:
+            delete_private_key(self._previous_secrets, name)
+        for name, key in self._keys.items():
+            save_private_key(self._secrets, name, key)
+
+    def rollback(self) -> None:
+        if not self._touched:
+            return
+        for name in self._keys:
+            delete_private_key(self._secrets, name)
+        for name, key in self._previous.items():
+            if key is not None:
+                save_private_key(self._previous_secrets, name, key)
 
 
 class OwnerIdentityService:
@@ -59,9 +108,16 @@ class OwnerIdentityService:
         display_name: str,
         keys: InitializationKeys,
         platform: Platform | None = None,
+        *,
+        replace: bool = False,
+        previous_secrets: SecretStore | None = None,
     ) -> IdentityStatus:
-        """生成版本 1 的两份名单和本机证书；密钥在同一事务内写入钥匙串，失败时一并清理。"""
-        self.ensure_uninitialized()
+        """生成版本 1 的两份名单和本机证书；密钥在同一事务内写入钥匙串，失败时一并清理。
+
+        `replace` 为真时，在同一个事务里替换掉本机旧身份；失败时旧身份和旧密钥原样保留。
+        """
+        if not replace:
+            self.ensure_uninitialized()
         now = datetime.now(UTC)
         owner_fingerprint = key_fingerprint(keys.owner.public_key)
         roster = OwnerRoster(
@@ -88,25 +144,23 @@ class OwnerIdentityService:
             device_public_key=keys.device.public_key,
             issued_at=now,
         )
-        written: list[str] = []
-
-        def persist_keys() -> None:
-            ensure_no_identity_keys(self._secrets)
-            for name, key in ((OWNER_KEY_NAME, keys.owner), (DEVICE_KEY_NAME, keys.device)):
-                written.append(name)
-                save_private_key(self._secrets, name, key)
-
+        swap = IdentityKeySwap(
+            self._secrets,
+            {OWNER_KEY_NAME: keys.owner, DEVICE_KEY_NAME: keys.device},
+            replace=replace,
+            previous_secrets=previous_secrets,
+        )
         try:
             self._store.initialize(
                 owner_fingerprint,
                 seal(SignaturePurpose.OWNER_ROSTER, roster, keys.owner),
                 seal(SignaturePurpose.TRUST_LIST, trust_list, keys.owner),
                 seal(SignaturePurpose.DEVICE_CERTIFICATE, certificate, keys.owner),
-                persist_keys,
+                swap.persist,
+                replace=replace,
             )
         except Exception:
-            for name in reversed(written):
-                delete_private_key(self._secrets, name)
+            swap.rollback()
             raise
         return self.status()
 
