@@ -1,0 +1,292 @@
+"""我的电脑的加入、移除、权限和点对点名单交换。"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+from collections.abc import Callable, Iterable
+from contextlib import suppress
+from datetime import UTC, datetime
+from threading import Lock
+
+import httpx
+
+from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.trust import (
+    JOIN_CODE_LIFETIME,
+    DeviceCertificate,
+    DeviceEntry,
+    JoinCode,
+    JoinCodeKind,
+    JoinProof,
+    OwnerRoster,
+    SignaturePurpose,
+    key_fingerprint,
+)
+from tunnelminion.gateway.configuration import generate_gateway_token
+from tunnelminion.gateway.credentials import GatewayCredentials
+from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.model.secrets import SecretStore
+from tunnelminion.trust.contracts import (
+    DevicePermissions,
+    IdentityError,
+    OwnerJoinRequest,
+    OwnerJoinResponse,
+    TrustStore,
+    TrustSyncMessage,
+    VersionRejectedError,
+)
+from tunnelminion.trust.keys import (
+    DEVICE_KEY_NAME,
+    OWNER_KEY_NAME,
+    PrivateKey,
+    delete_private_key,
+    load_private_key,
+    save_private_key,
+)
+from tunnelminion.trust.service import OwnerIdentityService, ensure_no_identity_keys
+from tunnelminion.trust.signatures import (
+    VerificationError,
+    seal,
+    verify,
+    verify_device_certificate,
+    verify_owner_roster,
+    verify_trust_list,
+)
+
+logger = logging.getLogger(__name__)
+INVALID_INVITE = "邀请码无效、已过期或已被使用"
+
+
+class OwnDevicesService:
+    """机主密钥只用于名单和证书，网络请求只用本机电脑密钥。"""
+
+    def __init__(
+        self,
+        node_id: NodeId,
+        store: TrustStore,
+        secrets: SecretStore,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.node_id = node_id
+        self.store = store
+        self.secrets = secrets
+        self.transport = transport
+        self.clock = clock or (lambda: datetime.now(UTC))
+        self._changes = Lock()
+
+    def roster(self) -> OwnerRoster:
+        owner = self.store.owner_fingerprint()
+        envelope = self.store.load(SignaturePurpose.OWNER_ROSTER)
+        if owner is None or envelope is None:
+            raise IdentityError("本机身份尚未初始化")
+        return verify_owner_roster(envelope, owner)
+
+    def active(self) -> bool:
+        return self.store.load(SignaturePurpose.DEVICE_CERTIFICATE) is not None
+
+    def owner_key(self) -> PrivateKey:
+        key = load_private_key(self.secrets, OWNER_KEY_NAME)
+        if key is None or key_fingerprint(key.public_key) != self.roster().owner_fingerprint:
+            raise IdentityError("只能在持有机主密钥的电脑上操作")
+        return key
+
+    def invite(self) -> JoinCode:
+        self.owner_key()
+        roster = self.roster()
+        local = roster.device(self.node_id)
+        if local is None:
+            raise IdentityError("本机已被移出我的电脑")
+        code = JoinCode(
+            kind=JoinCodeKind.OWNER,
+            inviter_node_id=self.node_id,
+            owner_fingerprint=roster.owner_fingerprint,
+            host=local.host,
+            port=local.port,
+            token=generate_gateway_token(),
+            expires_at=self.clock() + JOIN_CODE_LIFETIME,
+        )
+        self.store.create_invite(hashlib.sha256(code.token.encode()).digest(), code.expires_at)
+        return code
+
+    def accept_join(
+        self, token: str, request: OwnerJoinRequest, source_host: str
+    ) -> OwnerJoinResponse:
+        """先验证地址和持钥证明，再消费令牌；并发报到串行更新名单。"""
+        try:
+            if request.host != source_host or request.node_id == self.node_id:
+                raise ValueError
+            GatewayBindConfig(host=request.host, port=request.port)
+            proof = verify(
+                request.proof, SignaturePurpose.JOIN_PROOF, request.device_public_key, JoinProof
+            )
+            digest = hashlib.sha256(token.encode()).digest()
+            if (
+                proof.token_digest != digest.hex()
+                or proof.inviter_node_id != self.node_id
+                or proof.node_id != request.node_id
+                or proof.device_public_key != request.device_public_key
+            ):
+                raise ValueError
+            with self._changes:
+                key = self.owner_key()
+                roster = self.roster()
+                now = self.clock()
+                device = DeviceEntry(**request.model_dump(exclude={"proof"}), added_at=now)
+                updated = OwnerRoster(
+                    **roster.model_dump(exclude={"devices", "version", "issued_at"}),
+                    devices=(*roster.devices, device),
+                    version=roster.version + 1,
+                    issued_at=now,
+                )
+                if not self.store.consume_invite(digest, device.node_id, now):
+                    raise ValueError
+                self.store.accept(
+                    seal(SignaturePurpose.OWNER_ROSTER, updated, key),
+                    f"本机 {self.node_id} 接纳电脑 {device.node_id}",
+                )
+                message = self.message()
+                assert message.roster is not None and message.trust_list is not None
+                return OwnerJoinResponse(
+                    certificate=seal(
+                        SignaturePurpose.DEVICE_CERTIFICATE,
+                        DeviceCertificate(
+                            owner_fingerprint=roster.owner_fingerprint,
+                            node_id=device.node_id,
+                            device_public_key=device.device_public_key,
+                            issued_at=now,
+                        ),
+                        key,
+                    ),
+                    roster=message.roster,
+                    trust_list=message.trust_list,
+                )
+        except (ValueError, IdentityError):
+            raise IdentityError(INVALID_INVITE) from None
+
+    def install_join(self, code: JoinCode, response: OwnerJoinResponse, key: PrivateKey) -> None:
+        """核对邀请中的机主和本机公钥后，才把电脑私钥写入秘密存储。"""
+        OwnerIdentityService(self.store, self.secrets).ensure_uninitialized()
+        roster = verify_owner_roster(response.roster, code.owner_fingerprint)
+        verify_trust_list(response.trust_list, roster.owner_public_key, code.owner_fingerprint)
+        certificate = verify_device_certificate(
+            response.certificate, roster.owner_public_key, code.owner_fingerprint
+        )
+        local = roster.device(self.node_id)
+        if (
+            local is None
+            or local.device_public_key != key.public_key
+            or certificate.node_id != self.node_id
+            or certificate.device_public_key != key.public_key
+            or roster.device(code.inviter_node_id) is None
+        ):
+            raise VerificationError("加入响应中的本机身份不符")
+        written = False
+
+        def persist() -> None:
+            nonlocal written
+            ensure_no_identity_keys(self.secrets)
+            written = True
+            save_private_key(self.secrets, DEVICE_KEY_NAME, key)
+
+        try:
+            self.store.initialize(
+                code.owner_fingerprint,
+                response.roster,
+                response.trust_list,
+                response.certificate,
+                persist,
+            )
+        except Exception:
+            if written:
+                delete_private_key(self.secrets, DEVICE_KEY_NAME)
+            raise
+
+    def remove(self, node_id: NodeId) -> tuple[DeviceEntry, ...]:
+        """返回变更前的推送对象，包含被移除的电脑。"""
+        with self._changes:
+            key = self.owner_key()
+            roster = self.roster()
+            if node_id == self.node_id:
+                raise IdentityError("不能移除本机")
+            if roster.device(node_id) is None:
+                raise IdentityError("我的电脑名单里没有这个节点")
+            updated = OwnerRoster(
+                **roster.model_dump(exclude={"devices", "version", "issued_at"}),
+                devices=tuple(item for item in roster.devices if item.node_id != node_id),
+                version=roster.version + 1,
+                issued_at=self.clock(),
+            )
+            self.store.accept(
+                seal(SignaturePurpose.OWNER_ROSTER, updated, key),
+                f"本机 {self.node_id} 移除电脑 {node_id}",
+            )
+            return roster.devices
+
+    def restrict(self, node_id: NodeId, permissions: DevicePermissions) -> None:
+        if self.roster().device(node_id) is None or node_id == self.node_id:
+            raise IdentityError("请指定名单上的其他电脑")
+        self.store.restrict_device(node_id, permissions)
+
+    def message(self) -> TrustSyncMessage:
+        return TrustSyncMessage(
+            roster=self.store.load(SignaturePurpose.OWNER_ROSTER),
+            trust_list=self.store.load(SignaturePurpose.TRUST_LIST),
+        )
+
+    def receive(self, message: TrustSyncMessage, source: str) -> TrustSyncMessage:
+        for envelope in (message.roster, message.trust_list):
+            if envelope is not None:
+                with suppress(VersionRejectedError):
+                    self.store.accept(envelope, f"从 {source} 同步名单")
+        return self.message()
+
+    async def sync(self, device: DeviceEntry) -> None:
+        """双方只接受机主签名的新名单，不需要可重放凭据。"""
+        bind = GatewayBindConfig(host=device.host, port=device.port)
+        local = self.roster().device(self.node_id)
+        transport = self.transport or httpx.AsyncHTTPTransport(
+            local_address=local.host if local is not None else None
+        )
+        try:
+            async with httpx.AsyncClient(
+                base_url=httpx.URL(scheme="http", host=bind.host, port=bind.port),
+                transport=transport,
+                timeout=5,
+                trust_env=False,
+            ) as client:
+                response = await client.post(
+                    "/v1/trust:sync",
+                    content=self.message().model_dump_json(),
+                    headers={"Content-Type": "application/json"},
+                )
+            if not response.is_success or len(response.content) > 512_000:
+                raise ValueError
+            self.receive(
+                TrustSyncMessage.model_validate_json(response.content), str(device.node_id)
+            )
+        except (httpx.HTTPError, ValueError):
+            raise IdentityError("名单同步失败") from None
+
+    async def push(self, devices: Iterable[DeviceEntry] | None = None) -> tuple[NodeId, ...]:
+        failed: list[NodeId] = []
+        for device in self.roster().devices if devices is None else devices:
+            if device.node_id != self.node_id:
+                try:
+                    await self.sync(device)
+                except IdentityError:
+                    failed.append(device.node_id)
+                    logger.warning("名单同步失败：节点 %s", device.node_id)
+        return tuple(failed)
+
+    def credentials(self, device: DeviceEntry) -> GatewayCredentials:
+        from tunnelminion.trust.passes import issue_pass
+
+        local = self.roster().device(self.node_id)
+        return GatewayCredentials(
+            lambda scope: issue_pass(self, device.node_id, scope),
+            lambda: self.sync(device),
+            local.host if local is not None else None,
+        )

@@ -36,6 +36,11 @@ from tunnelminion.gateway.contracts import (
     RemoteToolResult,
     RequesterVerificationCallback,
 )
+from tunnelminion.gateway.credentials import (
+    GatewayCredential,
+    GatewayCredentials,
+    GatewayRequestAuth,
+)
 from tunnelminion.operation.contracts import OperationPlan
 from tunnelminion.telemetry import inject_headers, set_status, span
 from tunnelminion.tools.audit import AuditRecord, AuditSink
@@ -114,6 +119,7 @@ _GATEWAY_ERROR_MAP = {
     GatewayErrorCode.TOOL_VERSION_UNSUPPORTED: ErrorCode.VERSION_INCOMPATIBLE,
     GatewayErrorCode.TOOL_NOT_FOUND: ErrorCode.TOOL_NOT_FOUND,
     GatewayErrorCode.UNAUTHENTICATED: ErrorCode.UNAUTHENTICATED,
+    GatewayErrorCode.TRUST_SYNC_REQUIRED: ErrorCode.UNAUTHENTICATED,
     GatewayErrorCode.FORBIDDEN: ErrorCode.FORBIDDEN,
     GatewayErrorCode.RATE_LIMITED: ErrorCode.RATE_LIMITED,
     GatewayErrorCode.OPERATION_NOT_ALLOWED: ErrorCode.FORBIDDEN,
@@ -144,7 +150,7 @@ class FixedGatewayClient:
     def __init__(
         self,
         endpoint: str,
-        token: str,
+        token: GatewayCredential,
         local_node_id: NodeId,
         remote_node_id: NodeId,
         audit_sink: AuditSink,
@@ -154,7 +160,7 @@ class FixedGatewayClient:
     ) -> None:
         if not endpoint.startswith("http://"):
             raise ValueError("MVP 网关 endpoint 必须是 WireGuard 私网 HTTP 地址")
-        if len(token) < 32:
+        if isinstance(token, str) and len(token) < 32:
             raise ValueError("节点认证 token 过短")
         if max_response_bytes < 512:
             raise ValueError("客户端响应预算过小")
@@ -579,8 +585,25 @@ class FixedGatewayClient:
 
             async with httpx.AsyncClient(
                 base_url=self._endpoint,
-                headers={"Authorization": f"Bearer {self._token}", **inject_headers()},
-                transport=self._transport,
+                headers={
+                    **(
+                        {"Authorization": f"Bearer {self._token}"}
+                        if isinstance(self._token, str)
+                        else {}
+                    ),
+                    **inject_headers(),
+                },
+                auth=(
+                    GatewayRequestAuth(self._token)
+                    if isinstance(self._token, GatewayCredentials)
+                    else None
+                ),
+                transport=self._transport
+                or (
+                    httpx.AsyncHTTPTransport(local_address=self._token.source_host)
+                    if isinstance(self._token, GatewayCredentials)
+                    else None
+                ),
                 trust_env=False,
                 event_hooks={"response": [record_response]},
             ) as client:

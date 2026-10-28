@@ -197,7 +197,7 @@ def test_operation_peer_resolution_stays_server_side_and_filters_credentials(
     assert resolved.requester_host == "10.77.0.1"
     assert resolved.requester_callback_port == 19_001
     assert resolved.token == secrets.values[gateway_token_name(allowed.node_id)]
-    assert resolved.token not in repr(resolved)
+    assert isinstance(resolved.token, str) and resolved.token not in repr(resolved)
 
     with pytest.raises(KeyError, match="gateway_operation_peer_not_found"):
         service.resolve_operation_peer(denied.node_id, "share_local_http_service")
@@ -228,7 +228,7 @@ def test_read_only_peer_resolution_intersects_allowed_tools_and_hides_credential
     assert resolved.endpoint == f"http://{allowed.host}:{allowed.port}"
     assert resolved.allowed_tools == ("list_network_listeners", "get_node_summary")
     assert resolved.token == secrets.values[gateway_token_name(allowed.node_id)]
-    assert resolved.token not in repr(resolved)
+    assert isinstance(resolved.token, str) and resolved.token not in repr(resolved)
 
     with pytest.raises(KeyError, match="gateway_tool_peer_not_found"):
         service.resolve_tool_peer(NodeId.new(), ("get_node_summary",))

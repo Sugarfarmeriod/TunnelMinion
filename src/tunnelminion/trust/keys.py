@@ -5,9 +5,16 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass, field
 
+import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from tunnelminion.domain.trust import encode_public_key, key_fingerprint
+from tunnelminion.domain.trust import (
+    REQUEST_PASS_ALGORITHM,
+    REQUEST_PASS_TYPE,
+    RequestPassClaims,
+    encode_public_key,
+    key_fingerprint,
+)
 from tunnelminion.model.secrets import SecretStore, SecretStoreError
 
 OWNER_KEY_NAME = "trust-owner-key"
@@ -32,6 +39,15 @@ class PrivateKey:
 
     def sign(self, data: bytes) -> bytes:
         return self._key.sign(data)
+
+    def request_pass(self, claims: RequestPassClaims) -> str:
+        """直接用内存私钥签通行证，不导出种子。"""
+        return jwt.encode(
+            claims.model_dump(mode="json"),
+            self._key,
+            algorithm=REQUEST_PASS_ALGORITHM,
+            headers={"typ": REQUEST_PASS_TYPE},
+        )
 
     def seed_text(self) -> str:
         """仅供秘密存储使用的原始 32 字节种子。"""

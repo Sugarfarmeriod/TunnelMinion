@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -10,7 +11,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from tunnelminion.app import default_data_dir, load_or_create_node_id
+from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.domain.trust import InvalidJoinCodeError, JoinCode, JoinCodeKind
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewaySecretStoreKind,
@@ -25,7 +28,14 @@ from tunnelminion.model.secrets import (
     RestrictedFileSecretStore,
     SecretStoreError,
 )
-from tunnelminion.trust.contracts import AlreadyInitializedError, IdentityError, IdentityStatus
+from tunnelminion.trust.contracts import (
+    AlreadyInitializedError,
+    DevicePermissions,
+    IdentityError,
+    IdentityStatus,
+)
+from tunnelminion.trust.devices import OwnDevicesService
+from tunnelminion.trust.join import join_owner
 from tunnelminion.trust.keys import InitializationKeys
 from tunnelminion.trust.service import OwnerIdentityService, ensure_no_identity_keys
 from tunnelminion.trust.signatures import VerificationError
@@ -39,6 +49,8 @@ def _print_status(status: IdentityStatus, as_json: bool) -> None:
     else:
         print(f"机主指纹：{status.owner_fingerprint}")
         print(f"本机持有机主密钥：{'是' if status.has_owner_key else '否'}")
+        if status.removed:
+            print("本机已被移出我的电脑，已停止使用通行证")
         print(f"我的电脑名单版本：{status.roster_version}")
         print(f"我信任的人名单版本：{status.trust_list_version}")
         for device in status.devices:
@@ -46,7 +58,7 @@ def _print_status(status: IdentityStatus, as_json: bool) -> None:
 
 
 def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = None) -> int:
-    """`tunnelminion owner init|status`。"""
+    """管理机主身份、我的电脑及其本机权限。"""
     parser = argparse.ArgumentParser(description="管理本机机主身份")
     parser.add_argument("owner")
     commands = parser.add_subparsers(dest="action", required=True)
@@ -59,10 +71,40 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     status = commands.add_parser("status", help="查看本机身份和名单")
     status.add_argument("--data-dir", type=Path)
     status.add_argument("--json", action="store_true")
+    invite = commands.add_parser("invite", help="生成加入我的电脑的一次性加入码")
+    invite.add_argument("--data-dir", type=Path)
+    join = commands.add_parser("join", help="加入我的电脑")
+    join.add_argument("code")
+    join.add_argument("--data-dir", type=Path)
+    join.add_argument("--secret-store", choices=("keyring", "restricted-file"))
+    join.add_argument("--bind-host")
+    remove = commands.add_parser("remove", help="移除我的一台电脑")
+    remove.add_argument("node_id", type=NodeId)
+    remove.add_argument("--data-dir", type=Path)
+    permissions = commands.add_parser("device-permissions", help="收紧本机对我的电脑的权限")
+    permissions.add_argument("node_id", type=NodeId)
+    permissions.add_argument("--data-dir", type=Path)
+    permissions.add_argument("--no-proxy-repair-approval", action="store_true")
+    permissions.add_argument("--no-delegation", action="store_true")
+    permissions.add_argument("--no-model-borrowing", action="store_true")
+    permissions.add_argument("--daily-quota", type=int)
     args = parser.parse_args(values)
     root = args.data_dir or default_data_dir()
     database = root / "runtime.sqlite3"
     try:
+        if args.action == "join":
+            asyncio.run(
+                join_owner(
+                    JoinCode.decode(args.code, JoinCodeKind.OWNER),
+                    root,
+                    host_override=args.bind_host,
+                    secret_store_kind=GatewaySecretStoreKind(args.secret_store)
+                    if args.secret_store
+                    else None,
+                )
+            )
+            print("已加入我的电脑，可以启动本机网关")
+            return 0
         if args.action == "status":
             view = (
                 OwnerIdentityService(
@@ -72,6 +114,39 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
                 else IdentityStatus()
             )
             _print_status(view, args.json)
+            return 0
+        if args.action in ("invite", "remove", "device-permissions"):
+            if not SQLiteTrustStore.is_initialized(database):
+                raise IdentityError("本机身份尚未初始化")
+            service = OwnDevicesService(
+                NodeId((root / "node-id").read_text(encoding="utf-8").strip()),
+                SQLiteStores.open(database).trust,
+                gateway_secret_store(root),
+            )
+            if args.action == "invite":
+                print(service.invite().encode())
+            elif args.action == "remove":
+                targets = service.remove(args.node_id)
+                failed = asyncio.run(service.push(targets))
+                print("已从我的电脑移除指定节点")
+                for node_id in failed:
+                    print(f"这次没推到 {node_id}，下次接触时会同步")
+            else:
+                current = service.store.device_permissions(args.node_id)
+                service.restrict(
+                    args.node_id,
+                    DevicePermissions(
+                        allow_proxy_repair_approval=current.allow_proxy_repair_approval
+                        and not args.no_proxy_repair_approval,
+                        allow_delegation=current.allow_delegation and not args.no_delegation,
+                        allow_model_borrowing=current.allow_model_borrowing
+                        and not args.no_model_borrowing,
+                        daily_quota=args.daily_quota
+                        if args.daily_quota is not None
+                        else current.daily_quota,
+                    ),
+                )
+                print("已收紧这台电脑在本机的权限")
             return 0
         if SQLiteTrustStore.is_initialized(database):
             raise AlreadyInitializedError("本机身份已经初始化，不能重复初始化")
@@ -124,7 +199,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     except (EOFError, KeyboardInterrupt):
         print("已取消，未保存身份或密钥")
         return 2
-    except (IdentityError, SecretStoreError, VerificationError) as exc:
+    except (IdentityError, SecretStoreError, VerificationError, InvalidJoinCodeError) as exc:
         print(str(exc))
         return 2
     except ValidationError:

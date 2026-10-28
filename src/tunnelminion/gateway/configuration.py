@@ -6,7 +6,7 @@ import secrets
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,6 +14,7 @@ from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.invites import DisplayName, platform_display_name
 from tunnelminion.domain.model_borrowing import DEFAULT_DAILY_TOKEN_QUOTA
 from tunnelminion.domain.tools import Platform
+from tunnelminion.gateway.credentials import GatewayCredential
 from tunnelminion.gateway.security import (
     GatewayBindConfig,
     GatewayLimits,
@@ -25,6 +26,9 @@ from tunnelminion.model.secrets import (
     RestrictedFileSecretStore,
     SecretStore,
 )
+
+if TYPE_CHECKING:
+    from tunnelminion.trust.devices import OwnDevicesService
 
 GATEWAY_TOKEN_PREFIX = "tmn_"
 DEFAULT_GATEWAY_TOOLS = (
@@ -161,7 +165,7 @@ class GatewayOperationPeer:
     target_host: str
     requester_host: str
     requester_callback_port: int
-    token: str = field(repr=False)
+    token: GatewayCredential = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -172,7 +176,7 @@ class GatewayToolPeer:
     platform: Platform
     endpoint: str
     allowed_tools: tuple[str, ...]
-    token: str = field(repr=False)
+    token: GatewayCredential = field(repr=False)
 
 
 class GatewayConfigurationRepository(Protocol):
@@ -190,6 +194,10 @@ class FileGatewayConfigurationRepository:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+
+    @property
+    def root(self) -> Path:
+        return self._path.parent
 
     def load(self) -> GatewayConfiguration | None:
         if not self._path.exists():
@@ -223,9 +231,60 @@ class GatewayConfigurationService:
         self,
         repository: GatewayConfigurationRepository,
         secret_store: SecretStore,
+        *,
+        owner_devices: OwnDevicesService | None = None,
     ) -> None:
         self._repository = repository
         self._secrets = secret_store
+        self._owner_devices = owner_devices
+
+    @property
+    def owner_devices(self) -> OwnDevicesService | None:
+        """文件配置按同一数据目录读取身份，内存组装可显式注入。"""
+        if self._owner_devices is None and isinstance(
+            self._repository, FileGatewayConfigurationRepository
+        ):
+            from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
+            from tunnelminion.trust.devices import OwnDevicesService
+
+            root = self._repository.root
+            database = root / "runtime.sqlite3"
+            if SQLiteTrustStore.is_initialized(database):
+                self._owner_devices = OwnDevicesService(
+                    NodeId((root / "node-id").read_text(encoding="utf-8").strip()),
+                    SQLiteStores.open(database).trust,
+                    self._secrets,
+                )
+        return self._owner_devices
+
+    def _effective_config(self, config: GatewayConfiguration) -> GatewayConfiguration:
+        """我的电脑覆盖同节点旧配对的显示资料，旧配对配置和令牌仍保留。"""
+        owner = self.owner_devices
+        if owner is None or not owner.active():
+            return config
+        peers = {str(peer.node_id): peer for peer in config.peers}
+        for device in owner.roster().devices:
+            if device.node_id != owner.node_id:
+                previous = peers.get(str(device.node_id))
+                peers[str(device.node_id)] = GatewayPeerConfig(
+                    node_id=device.node_id,
+                    platform=device.platform,
+                    display_name=device.display_name,
+                    host=device.host,
+                    port=device.port,
+                    allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
+                    allowed_operations=previous.allowed_operations if previous else frozenset(),
+                    **owner.store.device_permissions(device.node_id).model_dump(),
+                )
+        return config.model_copy(update={"peers": tuple(peers.values())})
+
+    def _credential(self, node_id: NodeId) -> GatewayCredential | None:
+        owner = self.owner_devices
+        if owner is not None and owner.active():
+            device = owner.roster().device(node_id)
+            if device is not None and node_id != owner.node_id:
+                return owner.credentials(device)
+        return self._secrets.get(gateway_token_name(node_id))
 
     def configure_local(
         self,
@@ -296,6 +355,7 @@ class GatewayConfigurationService:
         config = self._repository.load()
         if config is None:
             return GatewayConfigurationView(configured=False)
+        config = self._effective_config(config)
         peers = tuple(
             GatewayPeerView(
                 node_id=item.node_id,
@@ -309,9 +369,7 @@ class GatewayConfigurationService:
                 allow_model_borrowing=item.allow_model_borrowing,
                 allow_proxy_repair_approval=item.allow_proxy_repair_approval,
                 daily_quota=item.daily_quota,
-                credential_configured=(
-                    self._secrets.get(gateway_token_name(item.node_id)) is not None
-                ),
+                credential_configured=(self._credential(item.node_id) is not None),
             )
             for item in config.peers
         )
@@ -364,7 +422,7 @@ class GatewayConfigurationService:
         requested_tools: tuple[str, ...],
     ) -> GatewayToolPeer:
         """按目标和本机允许列表解析只读 Gateway 对端。"""
-        config = self._require_config()
+        config = self._effective_config(self._require_config())
         peer = next((item for item in config.peers if item.node_id == node_id), None)
         if peer is None:
             raise KeyError("gateway_tool_peer_not_found")
@@ -373,7 +431,7 @@ class GatewayConfigurationService:
         allowed = tuple(name for name in requested_tools if name in peer.allowed_tools)
         if not allowed:
             raise KeyError("gateway_tool_not_allowed")
-        token = self._secrets.get(gateway_token_name(node_id))
+        token = self._credential(node_id)
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayToolPeer(
@@ -384,24 +442,24 @@ class GatewayConfigurationService:
             token=token,
         )
 
-    def resolve_service_peer(self, node_id: NodeId) -> tuple[str, str]:
+    def resolve_service_peer(self, node_id: NodeId) -> tuple[str, GatewayCredential]:
         """服务清单只依赖固定地址和凭据，兼容未记录平台的旧对端。"""
-        config = self._require_config()
+        config = self._effective_config(self._require_config())
         peer = next((item for item in config.peers if item.node_id == node_id), None)
         if peer is None:
             raise KeyError("gateway_peer_not_found")
-        token = self._secrets.get(gateway_token_name(node_id))
+        token = self._credential(node_id)
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return peer.endpoint(), token
 
     def resolve_delegation_peer(self, node_id: NodeId) -> GatewayToolPeer:
         """解析可以发起委派的对端；对端是否接受由它自己决定。"""
-        config = self._require_config()
+        config = self._effective_config(self._require_config())
         peer = next((item for item in config.peers if item.node_id == node_id), None)
         if peer is None or peer.platform is None:
             raise KeyError("gateway_delegation_peer_not_found")
-        token = self._secrets.get(gateway_token_name(node_id))
+        token = self._credential(node_id)
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayToolPeer(
@@ -414,11 +472,11 @@ class GatewayConfigurationService:
 
     def resolve_model_peer(self, node_id: NodeId) -> GatewayToolPeer:
         """解析借用模型的提供方；对端是否允许借用由它自己决定。"""
-        config = self._require_config()
+        config = self._effective_config(self._require_config())
         peer = next((item for item in config.peers if item.node_id == node_id), None)
         if peer is None or peer.platform is None:
             raise KeyError("gateway_model_peer_not_found")
-        token = self._secrets.get(gateway_token_name(node_id))
+        token = self._credential(node_id)
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayToolPeer(
@@ -435,7 +493,7 @@ class GatewayConfigurationService:
         operation_name: str,
     ) -> GatewayOperationPeer:
         """从服务端配置解析 endpoint、绑定地址和密钥环凭据。"""
-        config = self._require_config()
+        config = self._effective_config(self._require_config())
         peer = next(
             (
                 item
@@ -448,7 +506,7 @@ class GatewayConfigurationService:
             raise KeyError("gateway_operation_peer_not_found")
         if peer.platform is None:
             raise KeyError("gateway_operation_peer_platform_missing")
-        token = self._secrets.get(gateway_token_name(node_id))
+        token = self._credential(node_id)
         if token is None:
             raise RuntimeError(f"peer {node_id} 缺少网关凭据")
         return GatewayOperationPeer(
@@ -482,7 +540,14 @@ class GatewayConfigurationService:
                     daily_quota=peer.daily_quota,
                 )
             )
-        return GatewaySecurityPolicy(policies, config.limits)
+        from tunnelminion.trust.passes import RequestPassVerifier
+
+        owner = self.owner_devices
+        return GatewaySecurityPolicy(
+            policies,
+            config.limits,
+            request_pass_verifier=RequestPassVerifier(owner) if owner is not None else None,
+        )
 
     def delete(self) -> None:
         """删除 TunnelMinion 自己的 peer 凭据和配置，不接触 WireGuard。"""

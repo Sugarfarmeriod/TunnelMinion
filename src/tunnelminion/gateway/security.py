@@ -7,7 +7,7 @@ import hmac
 import ipaddress
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from time import monotonic
@@ -29,6 +29,7 @@ from tunnelminion.network.path_controller import (
 
 if TYPE_CHECKING:
     from tunnelminion.agent.coordinator import CoordinatorCache
+    from tunnelminion.trust.passes import RequestPassVerifier
 
 
 class GatewayBindConfig(BaseModel):
@@ -64,10 +65,11 @@ class GatewayLimits(BaseModel):
 
 
 class GatewayAuthenticationKind(StrEnum):
-    """网关明确区分静态凭据与 Coordinator 管理身份。"""
+    """网关明确区分静态凭据、Coordinator 身份与我的电脑。"""
 
     STATIC = "static"
     COORDINATOR = "coordinator"
+    OWNER_DEVICE = "owner_device"
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,7 @@ class GatewaySecurityPolicy:
         managed_path_endpoint: (
             Callable[[NodeId, datetime], GatewayPathEndpoint | None] | None
         ) = None,
+        request_pass_verifier: RequestPassVerifier | None = None,
     ) -> None:
         values = tuple(peers)
         managed = tuple(managed_peers)
@@ -165,6 +168,7 @@ class GatewaySecurityPolicy:
         self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
         self._managed_path_endpoint = managed_path_endpoint
         self._requests: defaultdict[str, deque[float]] = defaultdict(deque)
+        self._request_pass_verifier = request_pass_verifier
 
     def upsert_static_peer(self, peer: GatewayPeerPolicy) -> None:
         """替换单个静态 peer，保留其他 peer 和已有速率窗口。"""
@@ -175,8 +179,9 @@ class GatewaySecurityPolicy:
         authorization: str | None,
         *,
         audience: str = "tool-gateway",
+        source_host: str | None = None,
     ) -> GatewayPeerPolicy | None:
-        """先兼容静态 token，再以本地缓存离线验证 managed assertion。"""
+        """兼容静态令牌、电脑通行证和本地缓存中的托管断言。"""
         if authorization is None or not authorization.startswith("Bearer "):
             return None
         credential = authorization.removeprefix("Bearer ")
@@ -187,6 +192,20 @@ class GatewaySecurityPolicy:
                 matched = peer
         if matched is not None:
             return matched
+        if self._request_pass_verifier is not None and credential.count(".") == 2:
+            owner = self._request_pass_verifier.authenticate(credential, audience, source_host)
+            if owner is not None:
+                return replace(
+                    owner,
+                    allowed_operations=next(
+                        (
+                            peer.allowed_operations
+                            for peer in self._peers
+                            if peer.node_id == owner.node_id
+                        ),
+                        frozenset[str](),
+                    ),
+                )
         return self._authenticate_managed(credential, audience)
 
     def _authenticate_managed(

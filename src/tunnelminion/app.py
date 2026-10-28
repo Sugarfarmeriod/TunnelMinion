@@ -380,6 +380,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
             invite_service=invite_service,
             repair_service=node.repair_service,
             peer_display_name=gateway_service.peer_display_name,
+            owner_devices=gateway_service.owner_devices,
             service_reader=GatewayServiceReader(
                 node.node_id,
                 lambda: load_node_name(node.root, Platform.WINDOWS),
