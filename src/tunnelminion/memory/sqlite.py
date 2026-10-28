@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -23,6 +23,7 @@ from tunnelminion.domain.identifiers import (
 from tunnelminion.domain.invites import InvitePermissions
 from tunnelminion.domain.model_borrowing import ModelUsageRecord
 from tunnelminion.domain.service_marks import ServiceMark
+from tunnelminion.domain.trust import SignaturePurpose, SignedEnvelope
 from tunnelminion.memory.contracts import (
     CheckpointRecord,
     LongTermMemory,
@@ -50,6 +51,18 @@ from tunnelminion.repair.contracts import (
     RepairClaimResult,
     RepairRecord,
     RepairStore,
+)
+from tunnelminion.trust.contracts import (
+    AlreadyInitializedError,
+    IdentityError,
+    TrustAudit,
+    VersionRejectedError,
+)
+from tunnelminion.trust.signatures import (
+    VerificationError,
+    verify_device_certificate,
+    verify_owner_roster,
+    verify_trust_list,
 )
 
 
@@ -97,6 +110,19 @@ class _SQLiteDatabase:
                     expires_at TEXT NOT NULL,
                     accepted_at TEXT,
                     accepted_node_id TEXT
+                );
+                CREATE TABLE IF NOT EXISTS trust_identity (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                    owner_fingerprint TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS trust_documents (
+                    kind TEXT PRIMARY KEY,
+                    version INTEGER NOT NULL,
+                    envelope_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS trust_audit (
+                    sequence INTEGER PRIMARY KEY,
+                    payload TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
                     artifact_id TEXT PRIMARY KEY,
@@ -892,6 +918,170 @@ class SQLiteInviteStore:
         return InvitePermissions.model_validate_json(row[0]) if row is not None else None
 
 
+class SQLiteTrustStore:
+    """本机信任锚、签名原文和审计；名单比较与写入共用短事务。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    @staticmethod
+    def is_initialized(path: Path) -> bool:
+        """确认恢复码前只读检查，旧数据库也不创建新表。"""
+        if not path.exists():
+            return False
+        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trust_identity'"
+                ).fetchone()
+                is not None
+                and connection.execute("SELECT 1 FROM trust_identity").fetchone() is not None
+            )
+        finally:
+            connection.close()
+
+    def owner_fingerprint(self) -> str | None:
+        """本机记住的机主指纹；未初始化时为空。"""
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT owner_fingerprint FROM trust_identity WHERE singleton=1"
+            ).fetchone()
+        return row[0] if row is not None else None
+
+    def load(self, kind: SignaturePurpose) -> SignedEnvelope | None:
+        """读取已接受的某类签名原文。"""
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT envelope_json FROM trust_documents WHERE kind=?", (kind.value,)
+            ).fetchone()
+        return SignedEnvelope.model_validate_json(row[0]) if row is not None else None
+
+    def initialize(
+        self,
+        owner_fingerprint: str,
+        roster: SignedEnvelope,
+        trust_list: SignedEnvelope,
+        certificate: SignedEnvelope,
+        persist_keys: Callable[[], None],
+    ) -> None:
+        """验签后一次写入信任锚、两份名单、证书和审计；`persist_keys` 在同一事务内执行。"""
+        owner_roster = verify_owner_roster(roster, owner_fingerprint)
+        people = verify_trust_list(trust_list, owner_roster.owner_public_key, owner_fingerprint)
+        device = verify_device_certificate(
+            certificate, owner_roster.owner_public_key, owner_fingerprint
+        )
+        entry = owner_roster.device(device.node_id)
+        if entry is None or entry.device_public_key != device.device_public_key:
+            raise VerificationError("身份签名验证失败")
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM trust_identity").fetchone() is not None:
+                raise AlreadyInitializedError("本机身份已经初始化，不能重复初始化")
+            connection.execute("INSERT INTO trust_identity VALUES (1, ?)", (owner_fingerprint,))
+            self._write(connection, roster, owner_roster.version)
+            self._write(connection, trust_list, people.version)
+            self._write(connection, certificate, owner_roster.version)
+            self._audit(
+                connection,
+                roster,
+                owner_roster.version,
+                tuple(str(item.node_id) for item in owner_roster.devices),
+                "本机初始化",
+            )
+            self._audit(
+                connection,
+                trust_list,
+                people.version,
+                tuple(item.owner_fingerprint for item in people.people),
+                "本机初始化",
+            )
+            # 先取得初始化写锁；秘密写入失败时，身份记录和审计一起回滚。
+            persist_keys()
+
+    def accept(self, envelope: SignedEnvelope, reason: str) -> None:
+        """验签通过且版本严格更大时才写入，并记一条审计。"""
+        owner = self.owner_fingerprint()
+        if owner is None:
+            raise IdentityError("本机身份尚未初始化")
+        if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
+            roster = verify_owner_roster(envelope, owner)
+            version = roster.version
+            subjects = tuple(str(item.node_id) for item in roster.devices)
+        elif envelope.purpose is SignaturePurpose.TRUST_LIST:
+            current = self.load(SignaturePurpose.OWNER_ROSTER)
+            if current is None:
+                raise IdentityError("本机身份记录不完整")
+            roster = verify_owner_roster(current, owner)
+            people = verify_trust_list(envelope, roster.owner_public_key, owner)
+            version = people.version
+            subjects = tuple(item.owner_fingerprint for item in people.people)
+        else:
+            raise VerificationError("身份签名验证失败")
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT version, envelope_json FROM trust_documents WHERE kind=?",
+                (envelope.purpose.value,),
+            ).fetchone()
+            if row is not None and version <= row[0]:
+                raise VersionRejectedError("名单版本必须大于已接受的版本")
+            if row is not None:
+                previous = SignedEnvelope.model_validate_json(row[1])
+                if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
+                    old_subjects = tuple(
+                        str(item.node_id) for item in verify_owner_roster(previous, owner).devices
+                    )
+                else:
+                    old_subjects = tuple(
+                        item.owner_fingerprint
+                        for item in verify_trust_list(
+                            previous, roster.owner_public_key, owner
+                        ).people
+                    )
+                subjects = tuple(sorted(set(subjects) | set(old_subjects)))
+            self._write(connection, envelope, version)
+            self._audit(connection, envelope, version, subjects, reason)
+
+    def _write(
+        self, connection: sqlite3.Connection, envelope: SignedEnvelope, version: int
+    ) -> None:
+        connection.execute(
+            """INSERT INTO trust_documents (kind, version, envelope_json) VALUES (?, ?, ?)
+            ON CONFLICT(kind) DO UPDATE SET
+                version=excluded.version, envelope_json=excluded.envelope_json""",
+            (envelope.purpose.value, version, envelope.model_dump_json()),
+        )
+
+    def _audit(
+        self,
+        connection: sqlite3.Connection,
+        envelope: SignedEnvelope,
+        version: int,
+        subjects: tuple[str, ...],
+        reason: str,
+    ) -> None:
+        record = TrustAudit(
+            kind=envelope.purpose,
+            version=version,
+            signer_fingerprint=envelope.signer_fingerprint,
+            subjects=subjects,
+            reason=reason,
+            occurred_at=datetime.now(UTC),
+        )
+        connection.execute(
+            "INSERT INTO trust_audit (payload) VALUES (?)", (record.model_dump_json(),)
+        )
+
+    def audits(self) -> tuple[TrustAudit, ...]:
+        """按发生顺序列出审计记录。"""
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM trust_audit ORDER BY sequence"
+            ).fetchall()
+        return tuple(TrustAudit.model_validate_json(row[0]) for row in rows)
+
+
 @dataclass(frozen=True)
 class SQLiteStores:
     """共享一个数据库文件但保持各领域独立访问对象。"""
@@ -908,6 +1098,7 @@ class SQLiteStores:
     delegations: SQLiteDelegationStore
     model_usage: SQLiteModelUsageStore
     invites: SQLiteInviteStore
+    trust: SQLiteTrustStore
 
     @classmethod
     def open(cls, path: Path) -> SQLiteStores:
@@ -926,4 +1117,5 @@ class SQLiteStores:
             delegations=SQLiteDelegationStore(database),
             model_usage=SQLiteModelUsageStore(database),
             invites=SQLiteInviteStore(database),
+            trust=SQLiteTrustStore(database),
         )

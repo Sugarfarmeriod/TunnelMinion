@@ -1019,6 +1019,10 @@ def _join(values: list[str]) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """启动本地面板，或按配置启动只绑定 WireGuard 地址的 macOS 网关。"""
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "owner":
+        from tunnelminion.trust.cli import owner_command
+
+        return owner_command(values)
     if values and values[0] == "mcp":
         parser = argparse.ArgumentParser(
             description="以 MCP（stdio）方式开放本机只读诊断工具，供 Claude Code 等外部 Agent 调用"
