@@ -19,6 +19,7 @@ from tunnelminion.model.secrets import SecretStore, SecretStoreError
 
 OWNER_KEY_NAME = "trust-owner-key"
 DEVICE_KEY_NAME = "trust-device-key"
+IDENTITY_KEY_NAMES = (OWNER_KEY_NAME, DEVICE_KEY_NAME)
 _DIGITS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _CHECK_DIGITS = _DIGITS + "*~$=U"
 
@@ -32,6 +33,12 @@ class PrivateKey:
     @classmethod
     def generate(cls) -> PrivateKey:
         return cls(Ed25519PrivateKey.generate())
+
+    @classmethod
+    def from_seed_text(cls, text: str) -> PrivateKey:
+        """`seed_text` 的逆操作；格式不对时抛 ValueError。"""
+        seed = base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
+        return cls(Ed25519PrivateKey.from_private_bytes(seed))
 
     @property
     def public_key(self) -> str:
@@ -65,10 +72,7 @@ def load_private_key(store: SecretStore, name: str) -> PrivateKey | None:
     """损坏的秘密和后端错误都不进入异常链。"""
     try:
         text = store.get(name)
-        if text is None:
-            return None
-        seed = base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
-        return PrivateKey(Ed25519PrivateKey.from_private_bytes(seed))
+        return PrivateKey.from_seed_text(text) if text is not None else None
     except Exception:
         raise SecretStoreError("无法读取本机身份密钥") from None
 

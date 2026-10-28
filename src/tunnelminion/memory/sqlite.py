@@ -198,6 +198,10 @@ class _SQLiteDatabase:
                     accepted_at TEXT,
                     accepted_node_id TEXT
                 );
+                CREATE TABLE IF NOT EXISTS friend_node_owners (
+                    node_id TEXT PRIMARY KEY,
+                    owner_fingerprint TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS friend_device_history (
                     node_id TEXT NOT NULL,
                     host TEXT NOT NULL,
@@ -1197,10 +1201,10 @@ class SQLiteTrustStore:
                         connection.execute(
                             "DELETE FROM friend_rosters WHERE owner_fingerprint=?", (fingerprint,)
                         )
-                        connection.execute(
-                            "DELETE FROM friend_permissions WHERE owner_fingerprint=?",
-                            (fingerprint,),
-                        )
+                        for table in ("friend_permissions", "friend_node_owners"):
+                            connection.execute(
+                                f"DELETE FROM {table} WHERE owner_fingerprint=?", (fingerprint,)
+                            )
             if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
                 self._check_local_certificate(connection, roster)
 
@@ -1463,13 +1467,20 @@ class SQLiteTrustStore:
                 connection.execute(
                     "DELETE FROM friend_rosters WHERE owner_fingerprint=?", (previous_owner,)
                 )
-                connection.execute(
-                    "UPDATE friend_permissions SET owner_fingerprint=? WHERE owner_fingerprint=?",
-                    (updated.owner_fingerprint, previous_owner),
-                )
+                for table in ("friend_permissions", "friend_node_owners"):
+                    connection.execute(
+                        f"UPDATE {table} SET owner_fingerprint=? WHERE owner_fingerprint=?",
+                        (updated.owner_fingerprint, previous_owner),
+                    )
                 self._write_friend_roster(connection, roster, updated, reason)
             if persist_keys is not None:
                 persist_keys()
+
+    def exclusive(self, action: Callable[[], None]) -> None:
+        """持有身份写锁执行 `action`，期间其他连接不能提交身份变更。"""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            action()
 
     def reset(self, clear_keys: Callable[[], None]) -> None:
         """仅清理身份资料及其限制和邀请码，保留审计、旧式配对和其他运行数据。"""
@@ -1501,6 +1512,7 @@ class SQLiteTrustStore:
             "device_permissions",
             "friend_rosters",
             "friend_permissions",
+            "friend_node_owners",
             "friend_invites",
             "friend_device_history",
             "own_device_history",
@@ -1650,6 +1662,43 @@ class SQLiteTrustStore:
                     (str(node_id), host or ""),
                 ).fetchone()
                 is not None
+            )
+
+    def friend_node_owners(self) -> dict[str, str]:
+        """本机手动判定的撞号节点归属：节点编号 → 朋友机主指纹。"""
+        with self._database.connect() as connection:
+            return dict(
+                connection.execute("SELECT node_id, owner_fingerprint FROM friend_node_owners")
+            )
+
+    def assign_friend_node(
+        self, node_id: NodeId, owner_fingerprint: str, others: tuple[str, ...], reason: str
+    ) -> None:
+        """把撞号的节点编号判给一个朋友，并在审计里记下和谁冲突、怎么处理的。"""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT version, envelope_json FROM friend_rosters WHERE owner_fingerprint=?",
+                (owner_fingerprint,),
+            ).fetchone()
+            if row is None:
+                raise IdentityError("这个朋友的名单里没有这台电脑")
+            version: int = row[0]
+            envelope = SignedEnvelope.model_validate_json(row[1])
+            if verify_owner_roster(envelope, owner_fingerprint).device(node_id) is None:
+                raise IdentityError("这个朋友的名单里没有这台电脑")
+            connection.execute(
+                """INSERT INTO friend_node_owners VALUES (?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET owner_fingerprint=excluded.owner_fingerprint""",
+                (str(node_id), owner_fingerprint),
+            )
+            self._audit(
+                connection,
+                envelope,
+                version,
+                (str(node_id), owner_fingerprint, *others),
+                reason,
+                action="resolve-conflict",
             )
 
     def friend_permissions(self, owner_fingerprint: str) -> FriendPermissions:

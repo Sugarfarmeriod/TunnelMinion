@@ -17,11 +17,13 @@ from tests.trust.test_recovery_cli import files, use_secrets
 from tunnelminion.domain.trust import JoinCodeKind
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.trust.backup import IdentityState
 from tunnelminion.trust.cli import owner_command
 from tunnelminion.trust.contracts import IdentityError
 from tunnelminion.trust.join import join_owner
 from tunnelminion.trust.keys import (
     DEVICE_KEY_NAME,
+    IDENTITY_KEY_NAMES,
     OWNER_KEY_NAME,
     InitializationKeys,
     PrivateKey,
@@ -101,7 +103,7 @@ def test_replace_rolls_back_database_and_keys_when_saving_new_key_fails(
 
     def flaky(name: str, value: str) -> None:
         calls.append(name)
-        if name == DEVICE_KEY_NAME and len(calls) == 2:
+        if name == DEVICE_KEY_NAME and calls.count(DEVICE_KEY_NAME) == 1:
             raise SecretStoreError("钥匙串不可用")
         original(name, value)
 
@@ -161,7 +163,13 @@ def test_key_swap_rollback_restores_only_keys_that_existed(tmp_path: Path) -> No
     b = computer(tmp_path / "b", 2, apps, a)
     before = dict(b.secrets.values)
     assert OWNER_KEY_NAME not in before
-    swap = IdentityKeySwap(b.secrets, {DEVICE_KEY_NAME: PrivateKey.generate()}, replace=True)
+    swap = IdentityKeySwap(
+        b.service.store,
+        b.secrets,
+        {DEVICE_KEY_NAME: PrivateKey.generate()},
+        IdentityState(),
+        replaced=IDENTITY_KEY_NAMES,
+    )
     swap.persist()
     assert b.secrets.values[DEVICE_KEY_NAME] != before[DEVICE_KEY_NAME]
     swap.rollback()
