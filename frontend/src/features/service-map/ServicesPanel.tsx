@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 
-import type { Peer, ServiceEntry } from "./api";
+import type { Peer, PeerPatrol, ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
 import type { Repair } from "../repairs/api";
+import { chineseDate, type PatrolService } from "../patrol/api";
 import { relativeTime } from "./topology";
 
 const kindNames = { docker: "Docker", python: "Python", program: "程序" };
@@ -30,7 +31,19 @@ interface ServicesPanelProps {
   peer?: Peer;
   remoteHost?: string | null;
   reportedAt?: string | null;
+  patrol?: Record<string, PatrolService>;
+  remotePatrol?: Record<string, PeerPatrol>;
+  patrolBusy?: boolean;
+  patrolError?: boolean;
+  onAutoRepair?: (key: string, enabled: boolean) => void;
+  onAcknowledge?: (key: string) => void;
+  onOpenThread?: (threadId: string) => void;
 }
+
+const kindRepair = {
+  restart_containers: "只限重启容器",
+  relaunch_python: "只限按上次的方式重新拉起",
+};
 
 export function ServicesPanel({
   panelRef,
@@ -52,6 +65,13 @@ export function ServicesPanel({
   peer,
   remoteHost,
   reportedAt = null,
+  patrol = {},
+  remotePatrol = {},
+  patrolBusy = false,
+  patrolError = false,
+  onAutoRepair,
+  onAcknowledge,
+  onOpenThread,
 }: ServicesPanelProps) {
   const name = peer?.display_name ?? "这台电脑";
   const message = peer?.auth_rejected
@@ -81,11 +101,13 @@ export function ServicesPanel({
   ).length;
   const search = query.trim().toLowerCase();
   const stateOrder = (service: ServiceEntry) =>
-    service.state === "stopped"
-      ? 1
-      : service.endpoints.some((endpoint) => endpoint.has_web_page === false)
-        ? 0
-        : 2;
+    (peer ? remotePatrol[service.key] : patrol[service.key])?.status === "down"
+      ? -1
+      : service.state === "stopped"
+        ? 1
+        : service.endpoints.some((endpoint) => endpoint.has_web_page === false)
+          ? 0
+          : 2;
   const filtered = services
     .filter(
       (service) =>
@@ -318,6 +340,11 @@ export function ServicesPanel({
           标记没有保存，请再试一次。
         </p>
       ) : null}
+      {patrolError ? (
+        <p className="map-error" role="alert">
+          巡检设置没有保存，请再试一次。
+        </p>
+      ) : null}
       <div
         className="map-scroll"
         ref={scrollRef}
@@ -343,12 +370,19 @@ export function ServicesPanel({
           <ul className="map-services" aria-label={`${name}上的服务`}>
             {shown.map((service, index) => {
               const url = serviceUrl(service, remoteHost);
+              const watch = peer ? undefined : patrol[service.key];
+              const reported = peer ? remotePatrol[service.key] : undefined;
+              const down = watch?.status === "down" || reported !== undefined;
+              const reason = watch?.reason_text ?? reported?.reason_text;
+              const confirmedAt =
+                watch?.confirmed_at ?? reported?.confirmed_at ?? null;
+              const auto = watch?.auto_repair;
               const groupStart =
                 index === 0 || shown[index - 1]!.tier !== service.tier;
               return (
                 <li
                   key={service.key}
-                  className={`map-service tier-${service.tier}`}
+                  className={`map-service tier-${service.tier}${down ? " is-down" : ""}`}
                 >
                   {groupStart ? (
                     <h4 className="map-group">{tierNames[service.tier]}</h4>
@@ -359,15 +393,17 @@ export function ServicesPanel({
                         {service.name}
                       </span>
                       <span
-                        className={`map-service-state state-${service.state ?? "running"}`}
+                        className={`map-service-state state-${down ? "down" : (service.state ?? "running")}`}
                       >
-                        {service.state === "stopped"
-                          ? "已停止"
-                          : service.endpoints.some(
-                                (endpoint) => endpoint.has_web_page === false,
-                              )
-                            ? "打不开"
-                            : "正常"}
+                        {down
+                          ? `挂了 · ${reason ?? "不正常"}`
+                          : service.state === "stopped"
+                            ? "已停止"
+                            : service.endpoints.some(
+                                  (endpoint) => endpoint.has_web_page === false,
+                                )
+                              ? "打不开"
+                              : "正常"}
                       </span>
                       <span
                         className="map-service-meta"
@@ -383,6 +419,13 @@ export function ServicesPanel({
                           .map((endpoint) => endpoint.port)
                           .join(" / ") || "无端口"}
                       </span>
+                      {down ? (
+                        <span className="map-service-meta map-patrol-note">
+                          {peer ? `${name}的巡检 ` : "巡检 "}
+                          {relativeTime(confirmedAt)}确认
+                          {reported?.auto_repair ? ` · ${name}会自己修` : ""}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="map-service-actions">
                       {service.tier !== "hidden" ? (
@@ -394,6 +437,27 @@ export function ServicesPanel({
                           onClick={() => onAsk(service)}
                         >
                           问问
+                        </button>
+                      ) : null}
+                      {down && watch?.thread_id ? (
+                        <button
+                          type="button"
+                          className="map-button"
+                          aria-label={`看 ${service.name} 的巡检记录`}
+                          onClick={() => onOpenThread?.(watch.thread_id!)}
+                        >
+                          看巡检记录
+                        </button>
+                      ) : null}
+                      {down && !peer ? (
+                        <button
+                          type="button"
+                          className="map-button"
+                          disabled={patrolBusy}
+                          aria-label={`这次是我有意停的 ${service.name}`}
+                          onClick={() => onAcknowledge?.(service.key)}
+                        >
+                          这次是我有意停的
                         </button>
                       ) : null}
                       {service.tier === "show" ? (
@@ -455,6 +519,28 @@ export function ServicesPanel({
                       )}
                     </div>
                   </div>
+                  {service.tier === "show" && auto?.available ? (
+                    <div className="map-auto-repair">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={auto.enabled && !auto.paused}
+                          disabled={patrolBusy}
+                          onChange={(event) =>
+                            onAutoRepair?.(service.key, event.target.checked)
+                          }
+                        />
+                        挂了可以自动修
+                      </label>
+                      <span className="map-auto-repair-hint">
+                        {auto.enabled && auto.paused
+                          ? "自动修已暂停：上次没修好。看过以后重新勾上才会再试"
+                          : auto.enabled && auto.enabled_on
+                            ? `从 ${chineseDate(auto.enabled_on)} 起允许，修完会自己确认`
+                            : `${auto.kind ? kindRepair[auto.kind] : ""}，修完会自己确认`}
+                      </span>
+                    </div>
+                  ) : null}
                 </li>
               );
             })}

@@ -302,14 +302,15 @@ class InMemoryConversationService:
             for state in self._runs.values()
         )
 
-    def create_thread(self) -> ThreadView:
-        """创建稳定线程身份。"""
+    def create_thread(self, *, context: ThreadContext | None = None) -> ThreadView:
+        """创建稳定线程身份；后台巡检创建时直接带上服务上下文。"""
         now = datetime.now(UTC)
         thread = _ThreadState(
             thread_id=ThreadId.new(),
             created_at=now,
             updated_at=now,
         )
+        thread.context = context
         self._threads[str(thread.thread_id)] = thread
         return self._thread_view(thread)
 
@@ -341,49 +342,77 @@ class InMemoryConversationService:
         with self._repair_result_lock:
             thread = self._threads.get(str(record.plan.origin.thread_id))
             repair_id = str(record.plan.operation_id)
-            if thread is None or repair_id in thread.repair_result_ids or self._read_only_preview:
+            if thread is None or repair_id in thread.repair_result_ids:
                 return
-            now = datetime.now(UTC)
-            state = next(
-                (
-                    item
-                    for item in reversed(tuple(self._runs.values()))
-                    if item.thread_id == thread.thread_id
-                ),
-                None,
-            )
-            if state is not None and state.status is RunStatus.RUNNING:
-                return
-            if state is None:
-                state = _RunState(
-                    run_id=RunId.new(),
-                    thread_id=thread.thread_id,
-                    created_at=now,
-                    cancellation=AgentCancellationToken(),
-                    status=RunStatus.COMPLETED,
-                    finished_at=now,
-                )
-                self._runs[str(state.run_id)] = state
-            previous_updated = thread.updated_at
-            self._add_message(
-                thread.thread_id,
-                "assistant",
+            self._append_note(
+                thread,
                 repair_result_text(record),
-                state.run_id,
-                answer_checked=True,
                 answer_basis="checked"
                 if record.verification is not None
                 or record.status.value in {"rejected", "authorization_expired"}
                 else "none",
+                repair_id=repair_id,
             )
+
+    def append_notice(self, thread_id: ThreadId, text: str) -> bool:
+        """巡检写进对话的一句说明；对话正在回答时不插话，返回 False。"""
+        with self._repair_result_lock:
+            thread = self._threads.get(str(thread_id))
+            if thread is None:
+                return False
+            return self._append_note(thread, text, answer_basis="checked")
+
+    def _append_note(
+        self,
+        thread: _ThreadState,
+        text: str,
+        *,
+        answer_basis: Literal["checked", "inferred", "none"],
+        repair_id: str | None = None,
+    ) -> bool:
+        if self._read_only_preview:
+            return False
+        now = datetime.now(UTC)
+        state = next(
+            (
+                item
+                for item in reversed(tuple(self._runs.values()))
+                if item.thread_id == thread.thread_id
+            ),
+            None,
+        )
+        if state is not None and state.status is RunStatus.RUNNING:
+            return False
+        if state is None:
+            state = _RunState(
+                run_id=RunId.new(),
+                thread_id=thread.thread_id,
+                created_at=now,
+                cancellation=AgentCancellationToken(),
+                status=RunStatus.COMPLETED,
+                finished_at=now,
+            )
+            self._runs[str(state.run_id)] = state
+        previous_updated = thread.updated_at
+        self._add_message(
+            thread.thread_id,
+            "assistant",
+            text,
+            state.run_id,
+            answer_checked=True,
+            answer_basis=answer_basis,
+        )
+        if repair_id is not None:
             thread.repair_result_ids.append(repair_id)
-            try:
-                self._persist(state)
-            except Exception:
-                thread.messages.pop()
+        try:
+            self._persist(state)
+        except Exception:
+            thread.messages.pop()
+            if repair_id is not None:
                 thread.repair_result_ids.pop()
-                thread.updated_at = previous_updated
-                raise
+            thread.updated_at = previous_updated
+            raise
+        return True
 
     def delete_thread(self, thread_id: ThreadId) -> None:
         """删除线程、短期消息和所属 run，并取消仍在执行的 run。"""
@@ -1018,9 +1047,8 @@ class InMemoryConversationService:
             created_at=state.created_at,
             updated_at=state.updated_at,
             message_count=len(state.messages),
-            title=next(
-                (item.content.strip()[:40] for item in state.messages if item.role == "user"), None
-            ),
+            # 普通对话的第一句是用户的问题；巡检对话的第一句是巡检的提醒。
+            title=next((item.content.strip()[:40] for item in state.messages), None),
             context=state.context,
         )
 

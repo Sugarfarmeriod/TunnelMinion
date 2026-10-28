@@ -14,6 +14,7 @@ import {
   peersQueryKey,
   peerServicesQueryKey,
   peerServiceEntries,
+  peerPatrol,
   localServicesQueryKey,
   updateServiceMark,
   type ServiceEntry,
@@ -29,6 +30,7 @@ import { mapLayout, relativeTime } from "./topology";
 import {
   isRepairExecuting,
   isRepairTerminal,
+  repairsQueryKey,
   type RepairDetail,
   type RemoteRepair,
 } from "../repairs/api";
@@ -39,6 +41,12 @@ import { RepairBang } from "../repairs/RepairBang";
 import type { RunEventState } from "../chat/eventReducer";
 import { DelegationActivity, delegationStatus } from "./DelegationActivity";
 import { WelcomeGate } from "../people/WelcomeGate";
+import {
+  acknowledgeDown,
+  patrolQueryKey,
+  setAutoRepair,
+  usePatrol,
+} from "../patrol/api";
 import "./service-map.css";
 
 export function ServiceMapPage() {
@@ -58,6 +66,26 @@ export function ServiceMapPage() {
     onMutate: () => client.cancelQueries({ queryKey: localServicesQueryKey }),
     onSuccess: (data) => client.setQueryData(localServicesQueryKey, data),
   });
+  const patrol = usePatrol();
+  const patrolChange = useMutation({
+    mutationFn: (
+      change: { key: string; enabled: boolean } | { key: string; ack: true },
+    ) =>
+      "ack" in change ? acknowledgeDown(change.key) : setAutoRepair(change),
+    onSuccess: (data) => client.setQueryData(patrolQueryKey, data),
+  });
+  const downKeys = patrol.isSuccess
+    ? patrol.down.map((service) => service.key).join(" ")
+    : null;
+  const seenDownKeys = useRef<string | null>(null);
+  useEffect(() => {
+    // 挂了或恢复（包括自动修好）时，服务清单和修复列表跟着刷新；第一次读到不算变化。
+    const previous = seenDownKeys.current;
+    seenDownKeys.current = downKeys;
+    if (previous === null || downKeys === null || previous === downKeys) return;
+    void client.invalidateQueries({ queryKey: localServicesQueryKey });
+    void client.invalidateQueries({ queryKey: repairsQueryKey });
+  }, [client, downKeys]);
   const peers = useQuery({
     queryKey: peersQueryKey,
     queryFn: loadPeers,
@@ -158,6 +186,9 @@ export function ServiceMapPage() {
       question:
         service &&
         (service.state === "stopped" ||
+          (selectedPeer
+            ? peerPatrol(peerServices.data)[service.key] !== undefined
+            : patrol.byKey[service.key]?.status === "down") ||
           service.endpoints.some((endpoint) => endpoint.has_web_page === false))
           ? `${service.name}怎么打不开？`
           : undefined,
@@ -431,6 +462,7 @@ export function ServiceMapPage() {
                 }
                 repairing={repairing}
                 pendingCount={repairs.pending.length}
+                downCount={patrol.down.length}
               />
             </div>
             {remotePeers.map((peer, index) => {
@@ -560,6 +592,17 @@ export function ServiceMapPage() {
                       }))
                   : repairs.pending
               }
+              patrol={selectedPeer ? undefined : patrol.byKey}
+              remotePatrol={
+                selectedPeer ? peerPatrol(peerServices.data) : undefined
+              }
+              patrolBusy={patrolChange.isPending || isReadOnlyPreview()}
+              patrolError={!selectedPeer && patrolChange.isError}
+              onAutoRepair={(key, enabled) =>
+                patrolChange.mutate({ key, enabled })
+              }
+              onAcknowledge={(key) => patrolChange.mutate({ key, ack: true })}
+              onOpenThread={(threadId) => openChat({ threadId })}
               onRepair={(id) => {
                 if (selectedPeer) {
                   const repair = selectedPeer.pending_repairs.find(

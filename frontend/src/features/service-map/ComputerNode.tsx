@@ -62,6 +62,7 @@ interface ComputerNodeProps {
   onClick: () => void;
   repairing?: boolean;
   pendingCount?: number;
+  downCount?: number;
   status?: string;
 }
 
@@ -75,6 +76,7 @@ export function ComputerNode({
   onClick,
   repairing = false,
   pendingCount = 0,
+  downCount = 0,
   status,
 }: ComputerNodeProps) {
   const kind = platform === "macos" ? "mini" : "desktop";
@@ -135,6 +137,8 @@ export function ComputerNode({
           : (status ??
             (pendingCount ? (
               `! 有 ${pendingCount} 件事要你批准`
+            ) : downCount ? (
+              `! ${downCount} 个服务挂了`
             ) : (
               <>
                 {online ? "在线" : "离线"}

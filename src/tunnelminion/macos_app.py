@@ -83,6 +83,13 @@ from tunnelminion.operation.http_sharing import HTTPSharingAdapter, HTTPSharingC
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.operation.requester_service import RequesterOperationService
 from tunnelminion.operation.workflow import OperationWorkflow, RequesterVerifier
+from tunnelminion.patrol.local import (
+    build_local_patrol,
+    patrol_covers,
+    patrol_store,
+    peer_patrol_reports,
+)
+from tunnelminion.patrol.service import patrol_lifespan
 from tunnelminion.platforms.macos.adapters import (
     DockerServicesAdapter,
     MacOSNodeSummaryAdapter,
@@ -120,6 +127,7 @@ from tunnelminion.web.incidents import create_incident_router, incidents_overvie
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
 from tunnelminion.web.overview import create_overview_router
+from tunnelminion.web.patrol import create_patrol_router
 from tunnelminion.web.peers import PeerServicePoller, create_peers_router, peer_services_lifespan
 from tunnelminion.web.repairs import create_repair_router
 from tunnelminion.web.request_guard import install_local_request_guard
@@ -517,6 +525,21 @@ def build_macos_local_application(
         before_snapshot=before_snapshot,
         watched_service_id=peer_observer.service.service_id if peer_observer is not None else None,
         read_only_preview=read_only_preview,
+        skip_investigation=None if read_only_preview else patrol_covers(node.node_id),
+    )
+    patrol = build_local_patrol(
+        root=node.root,
+        node_id=node.node_id,
+        services=lambda: build_local_service_map(
+            node.node_id,
+            service_cache.read(),
+            stores.service_marks.all(),
+            excluded_pid=os.getpid(),
+            launch_records=stores.launch_records.list_all(),
+        ),
+        conversations=conversations,
+        repairs=node.repair_service,
+        launch_records=stores.launch_records,
     )
     peer_poller = PeerServicePoller(
         GatewayConfigurationService(
@@ -531,6 +554,7 @@ def build_macos_local_application(
     )
     if not read_only_preview:
         local_lifespan = peer_services_lifespan(local_lifespan, peer_poller)
+        local_lifespan = patrol_lifespan(local_lifespan, patrol)
     app = FastAPI(
         title="TunnelMinion",
         docs_url="/api/docs",
@@ -602,6 +626,8 @@ def build_macos_local_application(
     app.include_router(create_operation_router(operation_control))
     repair_service = node.repair_service
     app.include_router(create_repair_router(repair_service))
+    if not read_only_preview:
+        app.include_router(create_patrol_router(patrol))
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return MacOSLocalApplication(
         app,
@@ -719,6 +745,7 @@ def build_macos_gateway_application(
         openapi_url=None,
         lifespan=tracing_lifespan(node.root, node.node_id, Platform.MACOS, lifespan),
     )
+    gateway_patrol = patrol_store(node.root)
     app.include_router(
         create_gateway_router(
             node.node_id,
@@ -747,6 +774,7 @@ def build_macos_gateway_application(
                 ),
                 stores.service_marks,
                 pending_repair_ids=node.repair_service.pending_repair_ids,
+                patrol=lambda: peer_patrol_reports(gateway_patrol),
             ),
         )
     )

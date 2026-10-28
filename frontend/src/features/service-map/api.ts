@@ -78,6 +78,17 @@ export const peerSchema = z
   })
   .strict();
 
+/** 对方巡检确认挂了的服务附带的摘要；旧版本的对方不带。 */
+export const peerPatrolSchema = z
+  .object({
+    status: z.string(),
+    reason: z.string().nullable(),
+    reason_text: z.string().nullable(),
+    confirmed_at: z.string().datetime({ offset: true }).nullable(),
+    auto_repair: z.boolean(),
+  })
+  .strict();
+
 export const peersSchema = z.object({ peers: z.array(peerSchema) }).strict();
 export const peerServicesSchema = z
   .object({
@@ -93,6 +104,7 @@ export const peerServicesSchema = z
       serviceEntrySchema.omit({ tier: true, endpoints: true }).extend({
         state: z.enum(["running", "stopped"]).default("running"),
         ports: z.array(serviceEndpointSchema.omit({ address: true })),
+        patrol: peerPatrolSchema.nullable().default(null),
       }),
     ),
   })
@@ -100,6 +112,7 @@ export const peerServicesSchema = z
 
 export type Peer = z.infer<typeof peerSchema>;
 export type PeerServices = z.infer<typeof peerServicesSchema>;
+export type PeerPatrol = z.infer<typeof peerPatrolSchema>;
 export const peersQueryKey = ["map-peers"] as const;
 export const peerServicesQueryKey = (id: string) =>
   ["peer-services", id] as const;
@@ -116,9 +129,17 @@ export function loadPeerServices(id: string, signal?: AbortSignal) {
   );
 }
 
+/** 对方报来、确认挂了的服务，按服务身份索引。 */
+export function peerPatrol(view?: PeerServices): Record<string, PeerPatrol> {
+  const values: Record<string, PeerPatrol> = {};
+  for (const service of view?.services ?? [])
+    if (service.patrol?.status === "down") values[service.key] = service.patrol;
+  return values;
+}
+
 export function peerServiceEntries(view?: PeerServices): ServiceEntry[] {
   return (
-    view?.services.map(({ ports, ...service }) => ({
+    view?.services.map(({ ports, patrol: _patrol, ...service }) => ({
       ...service,
       tier: "show",
       endpoints: ports.map((port) => ({ ...port, address: view.host ?? "" })),

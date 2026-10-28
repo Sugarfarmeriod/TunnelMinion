@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from tunnelminion.agent.service_marks import ServiceMark, ServiceMarkStore
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId, OperationId
-from tunnelminion.gateway.contracts import GatewayServices, PeerServiceEntry, ServicePort
+from tunnelminion.gateway.contracts import (
+    GatewayServices,
+    PeerServiceEntry,
+    PeerServicePatrol,
+    ServicePort,
+)
 from tunnelminion.web.service_map import build_local_service_map
 
 
@@ -25,12 +30,14 @@ class GatewayServiceReader:
         marks: ServiceMarkStore,
         *,
         pending_repair_ids: Callable[[], tuple[OperationId, ...]] | None = None,
+        patrol: Callable[[], Mapping[str, PeerServicePatrol]] | None = None,
     ) -> None:
         self._node_id = node_id
         self._display_name = display_name
         self._observer = observer
         self._marks = marks
         self._pending_repair_ids = pending_repair_ids or (lambda: ())
+        self._patrol: Callable[[], Mapping[str, PeerServicePatrol]] = patrol or dict
         self._lock = asyncio.Lock()
 
     async def __call__(self) -> GatewayServices:
@@ -45,6 +52,7 @@ class GatewayServiceReader:
             local = build_local_service_map(
                 self._node_id, snapshot, self._marks.all(), excluded_pid=os.getpid()
             )
+        patrol = self._patrol()
         return GatewayServices(
             node_id=self._node_id,
             display_name=self._display_name(),
@@ -75,6 +83,7 @@ class GatewayServiceReader:
                             key=lambda port: (port.port, port.protocol, str(port.has_web_page)),
                         )
                     ),
+                    patrol=patrol.get(entry.key),
                 )
                 for entry in local.services
                 if entry.tier == "show" or entry.mark is ServiceMark.MINE

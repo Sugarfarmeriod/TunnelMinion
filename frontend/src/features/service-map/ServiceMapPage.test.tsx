@@ -35,6 +35,13 @@ import {
 const server = setupServer(
   http.get("/api/peers", () => HttpResponse.json({ peers: [] })),
   http.get("/api/repairs", () => HttpResponse.json({ repairs: [] })),
+  http.get("/api/patrol", () =>
+    HttpResponse.json({
+      checked_at: null,
+      investigations_left_today: 12,
+      services: [],
+    }),
+  ),
 );
 let client: QueryClient;
 
