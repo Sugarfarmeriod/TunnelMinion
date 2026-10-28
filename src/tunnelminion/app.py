@@ -40,6 +40,7 @@ from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
     GatewayOperationPeer,
     gateway_secret_store,
+    load_or_create_node_id,
 )
 from tunnelminion.gateway.names import load_node_name
 from tunnelminion.gateway.security import GatewayBindConfig
@@ -158,18 +159,6 @@ class WindowsApplication:
 def default_data_dir() -> Path:
     """返回当前系统账户的 TunnelMinion 数据目录。"""
     return default_runtime_data_dir()
-
-
-def load_or_create_node_id(path: Path) -> NodeId:
-    """读取稳定 Node ID，首次启动时以原子替换方式创建。"""
-    if path.exists():
-        return NodeId(path.read_text(encoding="utf-8").strip())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    node_id = NodeId.new()
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(str(node_id), encoding="utf-8")
-    temporary.replace(path)
-    return node_id
 
 
 def build_requester_operation_service(

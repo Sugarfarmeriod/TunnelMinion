@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from collections.abc import Callable, Iterable
@@ -403,23 +404,30 @@ class OwnDevicesService:
             raise IdentityError("名单同步失败") from None
 
     async def push(self, devices: Iterable[DeviceEntry] | None = None) -> tuple[NodeId, ...]:
-        failed: list[NodeId] = []
-        targets = (
-            (
-                *self.roster().devices,
-                *(device for _, roster in self.friends() for device in roster.devices),
+        """同时通知所有电脑，不在线的各自等到超时，总共只等一次超时；返回没推到的电脑。"""
+        targets = [
+            device
+            for device in (
+                (
+                    *self.roster().devices,
+                    *(device for _, roster in self.friends() for device in roster.devices),
+                )
+                if devices is None
+                else devices
             )
-            if devices is None
-            else devices
-        )
-        for device in targets:
-            if device.node_id != self.node_id:
-                try:
-                    await self.sync(device)
-                except IdentityError:
-                    failed.append(device.node_id)
-                    logger.warning("名单同步失败：节点 %s", device.node_id)
-        return tuple(failed)
+            if device.node_id != self.node_id
+        ]
+
+        async def reached(device: DeviceEntry) -> bool:
+            try:
+                await self.sync(device)
+            except IdentityError:
+                logger.warning("名单同步失败：节点 %s", device.node_id)
+                return False
+            return True
+
+        results = await asyncio.gather(*(reached(device) for device in targets))
+        return tuple(device.node_id for device, ok in zip(targets, results, strict=True) if not ok)
 
     def credentials(self, device: DeviceEntry) -> GatewayCredentials:
         from tunnelminion.trust.passes import issue_pass

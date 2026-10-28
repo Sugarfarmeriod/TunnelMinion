@@ -22,7 +22,7 @@ from tunnelminion.gateway.security import (
     GatewaySecurityPolicy,
 )
 from tunnelminion.model.secrets import (
-    KeyringSecretStore,
+    DataDirKeyringSecretStore,
     RestrictedFileSecretStore,
     SecretStore,
 )
@@ -70,7 +70,35 @@ def gateway_secret_store(root: Path) -> SecretStore:
     )
     if kind is GatewaySecretStoreKind.RESTRICTED_FILE:
         return RestrictedFileSecretStore(root / "gateway-secrets")
-    return KeyringSecretStore()
+    return gateway_keyring_store(root)
+
+
+# 身份密钥和身份密钥备份的条目名前缀；这些条目只按数据库里的指纹核对后迁移，见 `trust/backup.py`。
+IDENTITY_SECRET_PREFIX = "trust-"
+
+
+def gateway_keyring_store(root: Path) -> DataDirKeyringSecretStore:
+    """这个数据目录自己的钥匙串条目，按数据目录里的节点编号区分。"""
+    path = root / "node-id"
+
+    def scope() -> str | None:
+        return path.read_text(encoding="utf-8").strip() if path.exists() else None
+
+    return DataDirKeyringSecretStore(
+        scope, lambda: str(load_or_create_node_id(path)), isolated_prefix=IDENTITY_SECRET_PREFIX
+    )
+
+
+def load_or_create_node_id(path: Path) -> NodeId:
+    """读取稳定 Node ID，首次使用时以原子替换方式创建。"""
+    if path.exists():
+        return NodeId(path.read_text(encoding="utf-8").strip())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    node_id = NodeId.new()
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(str(node_id), encoding="utf-8")
+    temporary.replace(path)
+    return node_id
 
 
 class GatewayPeerConfig(BaseModel):

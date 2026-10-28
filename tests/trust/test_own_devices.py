@@ -521,3 +521,35 @@ def test_join_response_checks_owner_local_key_and_cleans_failed_keys(
     local.install_join(code, accepted, key)
     with pytest.raises(AlreadyInitializedError):
         local.install_join(code, accepted, key)
+
+
+def test_push_contacts_every_computer_at_once_so_offline_ones_do_not_add_up(
+    tmp_path: Path,
+) -> None:
+    """每台不在线的电脑都要等到连接超时；挨个等的话 N 台就要等 N 倍时间。"""
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    b = computer(tmp_path / "b", 2, apps, a)
+    c = computer(tmp_path / "c", 3, apps, a)
+
+    class Hanging(httpx.AsyncBaseTransport):
+        """不在线的电脑：请求一直挂着，直到所有推送都已经发出才一起超时。"""
+
+        def __init__(self, expected: int) -> None:
+            self.waiting = 0
+            self.expected = expected
+            self.all_started = asyncio.Event()
+
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            self.waiting += 1
+            if self.waiting == self.expected:
+                self.all_started.set()
+            await self.all_started.wait()
+            raise httpx.ConnectTimeout("对方不在线", request=request)
+
+    async def scenario() -> tuple[NodeId, ...]:
+        a.service.transport = Hanging(2)
+        return await asyncio.wait_for(a.service.push(), 2)
+
+    unreached = asyncio.run(scenario())
+    assert sorted(map(str, unreached)) == sorted(map(str, (b.service.node_id, c.service.node_id)))

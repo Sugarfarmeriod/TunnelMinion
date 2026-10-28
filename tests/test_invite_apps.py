@@ -36,7 +36,7 @@ from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.macos_app import build_macos_gateway_application
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.model.configuration import ModelConfigurationService
-from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretStore
+from tunnelminion.model.secrets import DataDirKeyringSecretStore, RestrictedFileSecretStore
 
 
 @pytest.mark.parametrize("platform", ["win32", "darwin"])
@@ -108,7 +108,7 @@ def test_invite_cli_default_secret_store_is_keyring(
         InviteCode.decode(capsys.readouterr().out.splitlines()[1]).permissions
         == InvitePermissions()
     )
-    assert isinstance(gateway_secret_store(tmp_path), KeyringSecretStore)
+    assert isinstance(gateway_secret_store(tmp_path), DataDirKeyringSecretStore)
 
 
 @pytest.mark.parametrize("bind_port", [[], ["--bind-port", "9000"]])

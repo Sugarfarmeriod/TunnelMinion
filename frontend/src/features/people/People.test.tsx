@@ -505,6 +505,57 @@ describe("PeoplePage", () => {
     );
   });
 
+  it("改名单时先说明正在通知其他电脑，等对方超时期间不只是按钮变灰", async () => {
+    const answered: Array<() => void> = [];
+    server.use(
+      http.get("/api/identity", () => HttpResponse.json(owner())),
+      http.delete(
+        "/api/identity/devices/:id",
+        () =>
+          new Promise<Response>((resolve) =>
+            answered.push(() =>
+              resolve(HttpResponse.json({ unreached: ["Mac mini"] })),
+            ),
+          ),
+      ),
+      http.patch(
+        "/api/identity/friends/:id",
+        () =>
+          new Promise<Response>((resolve) =>
+            answered.push(() => resolve(HttpResponse.json({ unreached: [] }))),
+          ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWith(<PeoplePage />);
+    await user.click(
+      (await screen.findAllByRole("button", { name: "移除" }))[0]!,
+    );
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "移除" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "正在保存并通知其他电脑",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "正在通知其他电脑……" }),
+    ).toBeDisabled();
+    await waitFor(() => expect(answered).toHaveLength(1));
+    answered[0]!();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "这次没推到 Mac mini，下次接触时会同步",
+    );
+
+    await user.click(screen.getByRole("button", { name: "改名" }));
+    await user.type(screen.getByLabelText("新名字"), "2");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "正在保存并通知其他电脑",
+    );
+    await waitFor(() => expect(answered).toHaveLength(2));
+    answered[1]!();
+    expect(await screen.findByRole("status")).toHaveTextContent("已改名。");
+  });
+
   it("没有机主密钥时邀请按钮不可用，并说明去哪台电脑操作；被移出时提示", async () => {
     server.use(
       http.get("/api/identity", () =>

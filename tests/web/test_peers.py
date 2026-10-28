@@ -17,6 +17,7 @@ from tests.gateway.test_services import LOCAL, REMOTE, TOKEN, services
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
+from tunnelminion.domain.trust import PassScope
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfigurationService,
@@ -24,6 +25,7 @@ from tunnelminion.gateway.configuration import (
     GatewayPeerInput,
 )
 from tunnelminion.gateway.contracts import PeerServiceEntry, ServicePort
+from tunnelminion.gateway.credentials import GatewayCredentials
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.web.peers import (
@@ -77,7 +79,16 @@ def snapshot() -> httpx.Response:
 
 
 @pytest.mark.parametrize(
-    "mode", ["unreachable", "rejected", "forbidden", "error", "timeout", "bad_response"]
+    "mode",
+    [
+        "unreachable",
+        "rejected",
+        "forbidden",
+        "error",
+        "timeout",
+        "connect_timeout",
+        "bad_response",
+    ],
 )
 def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode: str) -> None:
     calls = 0
@@ -92,7 +103,10 @@ def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode:
         if mode == "unreachable":
             raise httpx.ConnectError("fake", request=request)
         if mode == "timeout":
+            # 连上了、只是对方迟迟没答完：对方在线，只是这次没拿到清单。
             raise httpx.ReadTimeout("fake", request=request)
+        if mode == "connect_timeout":
+            raise httpx.ConnectTimeout("fake", request=request)
         if mode == "bad_response":
             return httpx.Response(200, text="invalid")
         if mode == "rejected":
@@ -128,9 +142,9 @@ def test_poller_retains_last_list_and_reports_each_outcome(tmp_path: Path, mode:
         second = poller.read(REMOTE)
         expected = (
             "unreachable"
-            if mode in {"unreachable", "timeout"}
+            if mode in {"unreachable", "connect_timeout"}
             else "error"
-            if mode == "bad_response"
+            if mode in {"bad_response", "timeout"}
             else mode
         )
         assert second.outcome == expected and second.snapshot == first.snapshot
@@ -306,9 +320,41 @@ def test_poller_bounds_transport_and_handles_local_configuration_errors(
 
         monkeypatch.setattr(poller.configuration, "resolve_service_peer", missing)
         await poller.refresh()
-        assert poller.read(REMOTE).outcome == "error" and poller.read(REMOTE).reachable is False
+        # 请求根本没发出去，说明不了对方在不在线。
+        assert poller.read(REMOTE).outcome == "error" and poller.read(REMOTE).reachable is None
 
     asyncio.run(scenario())
+
+
+def test_poller_does_not_mark_a_peer_offline_when_this_computer_cannot_sign_a_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return snapshot()
+
+    async def synchronize() -> None:
+        return None
+
+    def cannot_sign(_scope: PassScope) -> str:
+        raise RuntimeError("本机签不出通行证")
+
+    poller = PeerServicePoller(
+        configuration(tmp_path, peer()),
+        LOCAL,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    def resolve(_node_id: NodeId) -> tuple[str, GatewayCredentials]:
+        return "http://192.0.2.2:8787", GatewayCredentials(cannot_sign, synchronize)
+
+    monkeypatch.setattr(poller.configuration, "resolve_service_peer", resolve)
+    asyncio.run(poller.refresh())
+    assert sent == []
+    assert poller.read(REMOTE).outcome == "error" and poller.read(REMOTE).reachable is None
 
 
 def test_local_peers_routes_order_names_merge_directory_and_serve_cache(tmp_path: Path) -> None:

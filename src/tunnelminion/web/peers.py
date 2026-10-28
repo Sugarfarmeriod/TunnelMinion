@@ -28,6 +28,7 @@ from tunnelminion.gateway.contracts import (
     PeerRepairView,
     PeerServiceEntry,
 )
+from tunnelminion.gateway.credentials import GatewayCredentialError
 from tunnelminion.repair.contracts import REPAIR_TERMINAL_STATUSES
 from tunnelminion.tools.audit import AuditSink
 from tunnelminion.web.service_map import LocalServiceMap
@@ -159,10 +160,12 @@ class PeerServicePoller:
                 previous = self.read(peer.node_id)
                 snapshot = previous.snapshot
                 outcome: PollOutcome = "ok"
-                reachable = True
+                # 只有请求真的到过对方才能下结论；本机这边出错（没有凭据、签不出通行证）时不知道。
+                reachable: bool | None = True
                 try:
                     client = self.gateway_client(peer.node_id)
-                    async with asyncio.timeout(10):
+                    # 连接和读取各自由客户端的 10 秒超时判断；这里只兜底，免得一轮刷新卡住。
+                    async with asyncio.timeout(30):
                         snapshot = await client.get_services()
                     if "pending_repair_ids" in snapshot.model_fields_set:
                         self._pending_repairs[str(peer.node_id)] = tuple(
@@ -182,7 +185,12 @@ class PeerServicePoller:
                             if repair.service_name not in running
                         )
                 except RemoteGatewayError as exc:
-                    if exc.code in {ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT}:
+                    if isinstance(exc.__cause__, GatewayCredentialError):
+                        outcome, reachable = "error", None
+                    elif isinstance(exc.__cause__, httpx.ReadTimeout):
+                        # 已经连上，只是对方这次答得太慢（例如它自己的服务观察很慢）。
+                        outcome = "error"
+                    elif exc.code in {ErrorCode.NODE_UNREACHABLE, ErrorCode.REMOTE_TIMEOUT}:
                         outcome, reachable = "unreachable", False
                     elif exc.code is ErrorCode.UNAUTHENTICATED:
                         outcome, reachable = "rejected", False
@@ -193,7 +201,7 @@ class PeerServicePoller:
                 except TimeoutError:
                     outcome, reachable = "unreachable", False
                 except (KeyError, ValueError, RuntimeError):
-                    outcome, reachable = "error", False
+                    outcome, reachable = "error", None
                 now = datetime.now(UTC)
                 self._cache[str(peer.node_id)] = PeerCache(
                     snapshot=snapshot,
