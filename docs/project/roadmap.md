@@ -70,6 +70,7 @@ flowchart LR
 按问题缩小给模型的工具范围：本机的 Qwen 小模型在可用工具很多时，容易不去调用 Docker 工具。
 
 ### 以后再说
+
 - macOS 用户级后台服务（LaunchAgent）的修复。
 
 ## 暂停与非目标
