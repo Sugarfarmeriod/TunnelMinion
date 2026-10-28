@@ -41,6 +41,7 @@ async def join_owner(
     root: Path,
     *,
     host_override: str | None = None,
+    port_override: int | None = None,
     secret_store_kind: GatewaySecretStoreKind | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     reset: bool = False,
@@ -77,14 +78,23 @@ async def join_owner(
         raise IdentityError("不能加入自己生成的加入码")
     repository = FileGatewayConfigurationRepository(root / "gateway.json")
     existing = repository.load()
-    try:
-        bind = GatewayBindConfig(
-            host=host_override
-            or (existing.bind.host if existing else detect_local_host(code.host, code.port)),
-            port=existing.bind.port if existing else 8787,
-        )
-    except OSError:
-        raise IdentityError("无法识别本机组网地址，请指定 --bind-host") from None
+    if existing is not None:
+        # 网关按已有配置监听，名单里登记的地址必须和它一致。
+        if (host_override not in (None, existing.bind.host)) or (
+            port_override not in (None, existing.bind.port)
+        ):
+            raise IdentityError(
+                "本机已有网关配置，组网地址和端口以它为准，请去掉 --bind-host/--bind-port"
+            )
+        bind = existing.bind
+    else:
+        try:
+            bind = GatewayBindConfig(
+                host=host_override or detect_local_host(code.host, code.port),
+                port=port_override or 8787,
+            )
+        except OSError:
+            raise IdentityError("无法识别本机组网地址，请指定 --bind-host") from None
     platform = (
         Platform.WINDOWS
         if sys.platform == "win32"

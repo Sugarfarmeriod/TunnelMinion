@@ -17,6 +17,7 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.domain.trust import InvalidJoinCodeError, JoinCode, JoinCodeKind
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
+    GatewayConfigurationService,
     GatewaySecretStoreKind,
     configure_gateway_secret_store,
     gateway_secret_store,
@@ -90,6 +91,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     join.add_argument("--data-dir", type=Path)
     join.add_argument("--secret-store", choices=("keyring", "restricted-file"))
     join.add_argument("--bind-host")
+    join.add_argument("--bind-port", type=int)
     join.add_argument("--reset", action="store_true")
     recover = commands.add_parser("recover", help="用交互输入的恢复码更换机主密钥")
     recover.add_argument("--data-dir", type=Path)
@@ -144,6 +146,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
                     JoinCode.decode(args.code, JoinCodeKind.OWNER),
                     root,
                     host_override=args.bind_host,
+                    port_override=args.bind_port,
                     secret_store_kind=GatewaySecretStoreKind(args.secret_store)
                     if args.secret_store
                     else None,
@@ -247,6 +250,11 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
         # 身份写入成功后才记下秘密后端的选择，失败时原来的选择不变。
         if args.secret_store is not None:
             configure_gateway_secret_store(root, GatewaySecretStoreKind(args.secret_store))
+        # 本机还没有网关配置时，按这次的组网地址写一份，之后可以直接启动网关。
+        if configuration is None:
+            GatewayConfigurationService(
+                FileGatewayConfigurationRepository(root / "gateway.json"), secrets
+            ).configure_local(bind)
         _print_status(view, False)
         return 0
     except (EOFError, KeyboardInterrupt):
