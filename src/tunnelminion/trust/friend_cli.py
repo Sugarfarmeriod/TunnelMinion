@@ -42,14 +42,25 @@ def friend_command(values: list[str]) -> int:
     parser = argparse.ArgumentParser(description="按人管理朋友配对")
     parser.add_argument("friend")
     commands = parser.add_subparsers(dest="action", required=True)
-    for name in ("invite", "join", "remove", "list", "permissions", "restrict", "rename"):
+    for name in (
+        "invite",
+        "join",
+        "remove",
+        "list",
+        "permissions",
+        "restrict",
+        "rename",
+        "resolve-conflict",
+    ):
         command = commands.add_parser(name)
         command.add_argument("--data-dir", type=Path)
+        if name == "resolve-conflict":
+            command.add_argument("node_id", type=NodeId)
         if name == "join":
             command.add_argument("code")
         if name in ("join", "invite"):
             command.add_argument("--display-name")
-        if name in ("remove", "permissions", "restrict", "rename"):
+        if name in ("remove", "permissions", "restrict", "rename", "resolve-conflict"):
             command.add_argument("person")
         if name == "rename":
             command.add_argument("new_name")
@@ -149,7 +160,10 @@ def friend_command(values: list[str]) -> int:
                 for friend, friend_devices, conflicts in people:
                     print(f"{friend.display_name}（{friend.owner_fingerprint}）")
                     for node_id in conflicts:
-                        print(f"  {node_id}：和其他朋友的电脑编号冲突，暂不认")
+                        print(
+                            f"  {node_id}：和其他朋友的电脑编号冲突，暂不认"
+                            "（可用 friend resolve-conflict 指定归属）"
+                        )
                     for device in friend_devices:
                         print(
                             f"  {device.display_name}："
@@ -157,6 +171,14 @@ def friend_command(values: list[str]) -> int:
                             f"可借模型={'是' if device.allow_model_borrowing else '否'}，"
                             f"每日额度={device.daily_quota}"
                         )
+            return 0
+        if args.action == "resolve-conflict":
+            others = service.resolve_conflict(args.node_id, args.person)
+            print(
+                f"已把 {args.node_id} 判给 {service.resolve(args.person).display_name}；"
+                + "、".join(item.display_name for item in others)
+                + " 名单里的同号电脑在本机不再认"
+            )
             return 0
         if args.action == "remove":
             service.remove(args.person)

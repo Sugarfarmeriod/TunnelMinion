@@ -6,6 +6,7 @@ import hashlib
 
 import httpx
 
+from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import (
     JOIN_CODE_LIFETIME,
     FriendPermissions,
@@ -26,6 +27,10 @@ from tunnelminion.trust.signatures import (
     seal,
     verify_owner_roster,
 )
+
+
+def _label(friend: TrustedPerson) -> str:
+    return f"{friend.display_name}（{friend.owner_fingerprint}）"
 
 
 class FriendsService:
@@ -202,6 +207,35 @@ class FriendsService:
         if len(matches) != 1:
             raise IdentityError("朋友不存在或显示名重复，请使用完整朋友指纹")
         return matches[0]
+
+    def resolve_conflict(self, node_id: NodeId, value: str) -> tuple[TrustedPerson, ...]:
+        """撞号时由本机指定这个节点编号归哪个朋友，返回不再认这台电脑的其他朋友。
+
+        只在本机生效，不改任何人的签名名单；被判给的朋友以后不再声称这个编号时，判定自然失效。
+        """
+        with self.devices.changes:
+            winner = self.resolve(value)
+            claimants = [
+                friend
+                for friend, roster in self.devices.claimed_friends()
+                if roster.device(node_id) is not None
+            ]
+            if all(item.owner_fingerprint != winner.owner_fingerprint for item in claimants):
+                raise IdentityError("这个朋友的名单里没有这台电脑")
+            others = tuple(
+                item for item in claimants if item.owner_fingerprint != winner.owner_fingerprint
+            )
+            if not others:
+                raise IdentityError("这个节点编号没有和其他朋友冲突")
+            self.devices.store.assign_friend_node(
+                node_id,
+                winner.owner_fingerprint,
+                tuple(item.owner_fingerprint for item in others),
+                f"本机手动处理编号冲突：{node_id} 归 {_label(winner)}，不再认 "
+                + "、".join(_label(item) for item in others)
+                + " 名单里的同号电脑",
+            )
+            return others
 
     def remove(self, value: str) -> None:
         with self.devices.changes:

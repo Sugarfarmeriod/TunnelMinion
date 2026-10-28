@@ -100,6 +100,40 @@ class OwnDevicesService:
         return verify_trust_list(envelope, roster.owner_public_key, roster.owner_fingerprint)
 
     def friends(self) -> tuple[tuple[TrustedPerson, OwnerRoster], ...]:
+        """朋友的电脑名单；本机已把撞号编号判给别的朋友时，去掉这份名单里的同号电脑。"""
+        claimed = self.claimed_friends()
+        owners = self.store.friend_node_owners()
+        if not owners:
+            return claimed
+        holders = {friend.owner_fingerprint: roster for friend, roster in claimed}
+
+        def kept(fingerprint: str, device: DeviceEntry) -> bool:
+            owner = owners.get(str(device.node_id))
+            return (
+                owner is None
+                or owner == fingerprint
+                or owner not in holders
+                or holders[owner].device(device.node_id) is None
+            )
+
+        return tuple(
+            (
+                friend,
+                roster.model_copy(
+                    update={
+                        "devices": tuple(
+                            device
+                            for device in roster.devices
+                            if kept(friend.owner_fingerprint, device)
+                        )
+                    }
+                ),
+            )
+            for friend, roster in claimed
+        )
+
+    def claimed_friends(self) -> tuple[tuple[TrustedPerson, OwnerRoster], ...]:
+        """朋友各自签名的电脑名单原样，包括本机已判给别的朋友的撞号电脑。"""
         people = {item.owner_fingerprint: item for item in self.trusted_people()}
         return tuple(
             (
