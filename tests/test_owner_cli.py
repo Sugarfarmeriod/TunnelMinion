@@ -94,6 +94,8 @@ def test_init_and_status_never_repeat_recovery_code_or_private_keys(
     assert status.devices[0].node_id == load_or_create_node_id(root / "node-id")
     assert status.has_owner_key and status.roster_version == status.trust_list_version == 1
     assert (root / "gateway-secret-store").exists() == (backend is not None)
+    gateway = FileGatewayConfigurationRepository(root / "gateway.json").load()
+    assert gateway is not None and gateway.bind.host == "10.0.0.1" and gateway.peers == ()
     assert isinstance(store, RestrictedFileSecretStore) == (backend == "restricted-file")
     assert cli.main(["owner", "status", "--data-dir", str(root)]) == 0
     readable = capsys.readouterr().out
@@ -228,7 +230,8 @@ def test_custom_name_and_port_and_default_input_are_supported(
         SQLiteStores.open(tmp_path / "runtime.sqlite3").trust, gateway_secret_store(tmp_path)
     ).status()
     assert status.devices[0].display_name == "书房电脑" and status.devices[0].port == 9000
-    assert not (tmp_path / "gateway.json").exists()
+    gateway = FileGatewayConfigurationRepository(tmp_path / "gateway.json").load()
+    assert gateway is not None and gateway.bind.port == 9000
 
 
 def test_configured_file_backend_works_when_keyring_is_unavailable(
