@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -24,7 +25,13 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.api import create_gateway_router
 from tunnelminion.gateway.audit import InMemoryGatewaySecurityAuditSink
 from tunnelminion.gateway.client import FixedGatewayClient, RemoteGatewayError
-from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayErrorResponse, GatewayServices
+from tunnelminion.gateway.contracts import (
+    GatewayErrorCode,
+    GatewayErrorResponse,
+    GatewayServices,
+    PeerServicePatrol,
+    parse_peer_response,
+)
 from tunnelminion.gateway.security import GatewayLimits, GatewayPeerPolicy, GatewaySecurityPolicy
 from tunnelminion.gateway.services import GatewayServiceReader
 from tunnelminion.operation.contracts import OperationStatus
@@ -462,3 +469,36 @@ def test_fixed_client_service_response_validation(mode: str) -> None:
                 "large": ErrorCode.RESULT_TOO_LARGE,
             }[mode]
         )
+
+
+def test_services_carry_patrol_summary_only_for_reported_keys() -> None:
+    service_reader, _, marks = reader()
+    report = PeerServicePatrol(
+        status="down",
+        reason="script_exited",
+        reason_text="脚本已退出",
+        confirmed_at=datetime.now(UTC),
+        auto_repair=True,
+    )
+    service_reader = GatewayServiceReader(
+        REMOTE,
+        lambda: "测试电脑",
+        service_reader._observer,  # pyright: ignore[reportPrivateUsage]
+        marks,
+        patrol=lambda: {"python:app.py@8081": report},
+    )
+    value = asyncio.run(service_reader())
+    entries = {entry.key: entry for entry in value.services}
+    assert entries["python:app.py@8081"].patrol == report
+    assert entries["program:mine-service@8084"].patrol is None
+    # 旧版本读不到 patrol 字段；新版本读到对方更新后多出来的字段也不报错。
+    raw = json.loads(value.model_dump_json())
+    raw["services"][0]["patrol"] = {**report.model_dump(mode="json"), "future": 1}
+    parsed = parse_peer_response(GatewayServices, json.dumps(raw))
+    assert parsed.services[0].patrol is not None
+    for item in raw["services"]:
+        item.pop("patrol", None)
+    assert all(
+        item.patrol is None
+        for item in parse_peer_response(GatewayServices, json.dumps(raw)).services
+    )

@@ -14,6 +14,7 @@ import {
   peersQueryKey,
   peerServicesQueryKey,
   peerServiceEntries,
+  peerPatrol,
   localServicesQueryKey,
   updateServiceMark,
   type ServiceEntry,
@@ -185,7 +186,9 @@ export function ServiceMapPage() {
       question:
         service &&
         (service.state === "stopped" ||
-          (!selectedPeer && patrol.byKey[service.key]?.status === "down") ||
+          (selectedPeer
+            ? peerPatrol(peerServices.data)[service.key] !== undefined
+            : patrol.byKey[service.key]?.status === "down") ||
           service.endpoints.some((endpoint) => endpoint.has_web_page === false))
           ? `${service.name}怎么打不开？`
           : undefined,
@@ -590,6 +593,9 @@ export function ServiceMapPage() {
                   : repairs.pending
               }
               patrol={selectedPeer ? undefined : patrol.byKey}
+              remotePatrol={
+                selectedPeer ? peerPatrol(peerServices.data) : undefined
+              }
               patrolBusy={patrolChange.isPending || isReadOnlyPreview()}
               patrolError={!selectedPeer && patrolChange.isError}
               onAutoRepair={(key, enabled) =>

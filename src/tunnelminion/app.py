@@ -66,7 +66,12 @@ from tunnelminion.operation.definitions import register_safe_http_sharing_operat
 from tunnelminion.operation.http_sharing import UvicornProxyRuntime
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.operation.requester_service import RequesterOperationService
-from tunnelminion.patrol.local import build_local_patrol, patrol_covers
+from tunnelminion.patrol.local import (
+    build_local_patrol,
+    patrol_covers,
+    patrol_store,
+    peer_patrol_reports,
+)
 from tunnelminion.patrol.service import patrol_lifespan
 from tunnelminion.platforms.windows.adapters import (
     DockerServicesAdapter,
@@ -371,6 +376,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         openapi_url=None,
         lifespan=tracing_lifespan(node.root, node.node_id, Platform.WINDOWS),
     )
+    gateway_patrol = patrol_store(node.root)
     app.include_router(
         create_gateway_router(
             node.node_id,
@@ -398,6 +404,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
                 ),
                 node.stores.service_marks,
                 pending_repair_ids=node.repair_service.pending_repair_ids,
+                patrol=lambda: peer_patrol_reports(gateway_patrol),
             ),
         )
     )

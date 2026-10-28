@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 
-import type { Peer, ServiceEntry } from "./api";
+import type { Peer, PeerPatrol, ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
 import type { Repair } from "../repairs/api";
@@ -32,6 +32,7 @@ interface ServicesPanelProps {
   remoteHost?: string | null;
   reportedAt?: string | null;
   patrol?: Record<string, PatrolService>;
+  remotePatrol?: Record<string, PeerPatrol>;
   patrolBusy?: boolean;
   patrolError?: boolean;
   onAutoRepair?: (key: string, enabled: boolean) => void;
@@ -65,6 +66,7 @@ export function ServicesPanel({
   remoteHost,
   reportedAt = null,
   patrol = {},
+  remotePatrol = {},
   patrolBusy = false,
   patrolError = false,
   onAutoRepair,
@@ -99,7 +101,7 @@ export function ServicesPanel({
   ).length;
   const search = query.trim().toLowerCase();
   const stateOrder = (service: ServiceEntry) =>
-    patrol[service.key]?.status === "down"
+    (peer ? remotePatrol[service.key] : patrol[service.key])?.status === "down"
       ? -1
       : service.state === "stopped"
         ? 1
@@ -369,7 +371,11 @@ export function ServicesPanel({
             {shown.map((service, index) => {
               const url = serviceUrl(service, remoteHost);
               const watch = peer ? undefined : patrol[service.key];
-              const down = watch?.status === "down";
+              const reported = peer ? remotePatrol[service.key] : undefined;
+              const down = watch?.status === "down" || reported !== undefined;
+              const reason = watch?.reason_text ?? reported?.reason_text;
+              const confirmedAt =
+                watch?.confirmed_at ?? reported?.confirmed_at ?? null;
               const auto = watch?.auto_repair;
               const groupStart =
                 index === 0 || shown[index - 1]!.tier !== service.tier;
@@ -390,7 +396,7 @@ export function ServicesPanel({
                         className={`map-service-state state-${down ? "down" : (service.state ?? "running")}`}
                       >
                         {down
-                          ? `挂了 · ${watch.reason_text ?? "不正常"}`
+                          ? `挂了 · ${reason ?? "不正常"}`
                           : service.state === "stopped"
                             ? "已停止"
                             : service.endpoints.some(
@@ -415,7 +421,9 @@ export function ServicesPanel({
                       </span>
                       {down ? (
                         <span className="map-service-meta map-patrol-note">
-                          巡检 {relativeTime(watch.confirmed_at)}确认
+                          {peer ? `${name}的巡检 ` : "巡检 "}
+                          {relativeTime(confirmedAt)}确认
+                          {reported?.auto_repair ? ` · ${name}会自己修` : ""}
                         </span>
                       ) : null}
                     </div>
@@ -431,7 +439,7 @@ export function ServicesPanel({
                           问问
                         </button>
                       ) : null}
-                      {down && watch.thread_id ? (
+                      {down && watch?.thread_id ? (
                         <button
                           type="button"
                           className="map-button"
@@ -441,7 +449,7 @@ export function ServicesPanel({
                           看巡检记录
                         </button>
                       ) : null}
-                      {down ? (
+                      {down && !peer ? (
                         <button
                           type="button"
                           className="map-button"

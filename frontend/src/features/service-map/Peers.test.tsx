@@ -245,6 +245,56 @@ it.each(["stopped", "unopenable"])("远端 %s 服务直接发问", async (state)
   });
 });
 
+it("对方巡检报来挂了：标红原因和确认时间，写明对方会自己修，没有本机才有的按钮", async () => {
+  const view = makePeerServices();
+  view.services[0] = {
+    ...view.services[0]!,
+    state: "stopped",
+    patrol: {
+      status: "down",
+      reason: "script_exited",
+      reason_text: "脚本已退出",
+      confirmed_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+      auto_repair: true,
+    },
+  };
+  renderMap([makePeer()], view);
+  const dialog = await openPeer();
+  expect(await within(dialog).findByText("挂了 · 脚本已退出")).toBeVisible();
+  expect(
+    within(dialog).getByText(
+      "测试电脑 1的巡检 2 分钟前确认 · 测试电脑 1会自己修",
+    ),
+  ).toBeVisible();
+  expect(
+    within(dialog).queryByRole("button", { name: /有意停的|巡检记录/ }),
+  ).toBeNull();
+  expect(within(dialog).queryByRole("checkbox")).toBeNull();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "问问 远端相册" }),
+  );
+  await waitFor(() => expect(questions).toHaveLength(1));
+  expect(questions[0]!.question).toBe("远端相册怎么打不开？");
+});
+
+it("对方报来的状态不是 down 时不标红", async () => {
+  const view = makePeerServices();
+  view.services[0] = {
+    ...view.services[0]!,
+    patrol: {
+      status: "recovering",
+      reason: null,
+      reason_text: null,
+      confirmed_at: null,
+      auto_repair: false,
+    },
+  };
+  renderMap([makePeer()], view);
+  const dialog = await openPeer();
+  expect(await within(dialog).findByText("正常")).toBeVisible();
+  expect(within(dialog).queryByText(/挂了 ·/)).toBeNull();
+});
+
 it("远端问题草稿在关闭抽屉并选择本机后仍保留服务名称", async () => {
   renderMap();
   const dialog = await openPeer();

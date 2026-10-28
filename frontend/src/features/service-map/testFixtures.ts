@@ -112,6 +112,7 @@ export function makePeerServices(
         mark: null,
         web_title: null,
         ports: [{ protocol: "tcp", port: 8080, has_web_page: true }],
+        patrol: null,
       },
     ],
     ...overrides,

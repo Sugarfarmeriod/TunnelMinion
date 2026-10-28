@@ -38,6 +38,23 @@ class ServicePort(BaseModel):
     has_web_page: bool | None = None
 
 
+class PeerServicePatrol(BaseModel):
+    """对端巡检确认挂了的服务附带的摘要；没挂的服务不带。
+
+    状态和原因用字符串，读取方按已知取值显示，对方新增取值时旧版本也能读。对话编号、修复编号、
+    暂停原因和调查次数不出对方电脑。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: str = Field(min_length=1, max_length=32)
+    reason: str | None = Field(default=None, max_length=32)
+    reason_text: str | None = Field(default=None, max_length=80)
+    confirmed_at: datetime | None = None
+    # 对方主人是否为这个服务打开了"挂了可以自动修"。
+    auto_repair: bool = False
+
+
 class PeerServiceEntry(BaseModel):
     """对端允许展示的一项服务。"""
 
@@ -50,6 +67,7 @@ class PeerServiceEntry(BaseModel):
     mark: ServiceMark | None = None
     web_title: str | None = None
     ports: tuple[ServicePort, ...]
+    patrol: PeerServicePatrol | None = None
 
 
 class GatewayServices(BaseModel):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from datetime import date
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from tests.patrol.fakes import PHOTOS, PROGRAM, PatrolHarness, entry
 from tests.repair.factories import NODE, NOW
 
-from tunnelminion.domain.identifiers import NodeId, SnapshotId
+from tunnelminion.domain.identifiers import NodeId, SnapshotId, ThreadId
 from tunnelminion.gateway import api as gateway_api
 from tunnelminion.incident.contracts import (
     IncidentEventType,
@@ -21,7 +22,13 @@ from tunnelminion.incident.contracts import (
     SnapshotObjectKind,
     SnapshotSource,
 )
-from tunnelminion.patrol.local import build_local_patrol, patrol_covers
+from tunnelminion.patrol.contracts import PatrolReason, PatrolRecord, PatrolStatus
+from tunnelminion.patrol.local import (
+    build_local_patrol,
+    patrol_covers,
+    patrol_store,
+    peer_patrol_reports,
+)
 from tunnelminion.patrol.storage import SQLitePatrolStore
 from tunnelminion.web.patrol import create_patrol_router
 from tunnelminion.web.request_guard import install_local_request_guard
@@ -160,3 +167,40 @@ def test_build_local_patrol_uses_data_dir(tmp_path: Path) -> None:
     reopened = SQLitePatrolStore(tmp_path / "data" / "patrol.sqlite3")
     assert reopened.get("docker:compose:photos") is not None
     assert SQLitePatrolStore(tmp_path / "none.sqlite3").get("x") is None
+
+
+def test_peer_reports_only_down_services_without_private_fields(tmp_path: Path) -> None:
+    store = patrol_store(tmp_path)
+    assert peer_patrol_reports(store) == {}
+    store.put(PatrolRecord(key=PHOTOS, name="相册", seen_running=True))
+    store.put(
+        PatrolRecord(
+            key="python:app.py@8765",
+            name="app.py",
+            seen_running=True,
+            status=PatrolStatus.DOWN,
+            reason=PatrolReason.SCRIPT_EXITED,
+            confirmed_at=NOW,
+            thread_id=ThreadId.new(),
+            auto_repair_enabled=True,
+            auto_repair_enabled_on=date(2026, 10, 29),
+        )
+    )
+    store.put(
+        PatrolRecord(
+            key="docker:paused",
+            name="暂停的",
+            seen_running=True,
+            status=PatrolStatus.DOWN,
+            auto_repair_enabled=True,
+            auto_repair_paused=True,
+        )
+    )
+    reports = peer_patrol_reports(store)
+    assert set(reports) == {"python:app.py@8765", "docker:paused"}
+    script = reports["python:app.py@8765"]
+    assert script.status == "down" and script.reason_text == "脚本已退出"
+    assert script.auto_repair and script.confirmed_at == NOW
+    assert not reports["docker:paused"].auto_repair
+    assert reports["docker:paused"].reason is None
+    assert "thread" not in script.model_dump_json()

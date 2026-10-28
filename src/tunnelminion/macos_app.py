@@ -83,7 +83,12 @@ from tunnelminion.operation.http_sharing import HTTPSharingAdapter, HTTPSharingC
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.operation.requester_service import RequesterOperationService
 from tunnelminion.operation.workflow import OperationWorkflow, RequesterVerifier
-from tunnelminion.patrol.local import build_local_patrol, patrol_covers
+from tunnelminion.patrol.local import (
+    build_local_patrol,
+    patrol_covers,
+    patrol_store,
+    peer_patrol_reports,
+)
 from tunnelminion.patrol.service import patrol_lifespan
 from tunnelminion.platforms.macos.adapters import (
     DockerServicesAdapter,
@@ -740,6 +745,7 @@ def build_macos_gateway_application(
         openapi_url=None,
         lifespan=tracing_lifespan(node.root, node.node_id, Platform.MACOS, lifespan),
     )
+    gateway_patrol = patrol_store(node.root)
     app.include_router(
         create_gateway_router(
             node.node_id,
@@ -768,6 +774,7 @@ def build_macos_gateway_application(
                 ),
                 stores.service_marks,
                 pending_repair_ids=node.repair_service.pending_repair_ids,
+                patrol=lambda: peer_patrol_reports(gateway_patrol),
             ),
         )
     )
