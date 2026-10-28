@@ -1471,6 +1471,12 @@ class SQLiteTrustStore:
             if persist_keys is not None:
                 persist_keys()
 
+    def exclusive(self, action: Callable[[], None]) -> None:
+        """持有身份写锁执行 `action`，期间其他连接不能提交身份变更。"""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            action()
+
     def reset(self, clear_keys: Callable[[], None]) -> None:
         """仅清理身份资料及其限制和邀请码，保留审计、旧式配对和其他运行数据。"""
         with self._database.connect() as connection:

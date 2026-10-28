@@ -31,6 +31,7 @@ from tunnelminion.gateway.configuration import generate_gateway_token
 from tunnelminion.gateway.credentials import GatewayCredentials
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.model.secrets import SecretStore
+from tunnelminion.trust.backup import IdentityState, settle_key_backup
 from tunnelminion.trust.contracts import (
     DevicePermissions,
     IdentityError,
@@ -42,6 +43,7 @@ from tunnelminion.trust.contracts import (
 )
 from tunnelminion.trust.keys import (
     DEVICE_KEY_NAME,
+    IDENTITY_KEY_NAMES,
     OWNER_KEY_NAME,
     PrivateKey,
     delete_private_key,
@@ -121,8 +123,13 @@ class OwnDevicesService:
             None,
         )
 
+    def identity_key(self, name: str) -> PrivateKey | None:
+        """先处理上次换密钥中断留下的备份，再读取本机身份密钥。"""
+        settle_key_backup(self.store, self.secrets)
+        return load_private_key(self.secrets, name)
+
     def owner_key(self) -> PrivateKey:
-        key = load_private_key(self.secrets, OWNER_KEY_NAME)
+        key = self.identity_key(OWNER_KEY_NAME)
         if key is None or key_fingerprint(key.public_key) != self.roster().owner_fingerprint:
             raise IdentityError("只能在持有机主密钥的电脑上操作")
         return key
@@ -234,9 +241,13 @@ class OwnDevicesService:
         ):
             raise VerificationError("加入响应中的本机身份不符")
         swap = IdentityKeySwap(
+            self.store,
             self.secrets,
             {DEVICE_KEY_NAME: key},
-            replace=replace,
+            IdentityState(
+                owner_fingerprint=code.owner_fingerprint, device_public_key=key.public_key
+            ),
+            replaced=IDENTITY_KEY_NAMES if replace else (),
             previous_secrets=previous_secrets,
         )
         try:
@@ -252,6 +263,7 @@ class OwnDevicesService:
         except Exception:
             swap.rollback()
             raise
+        swap.commit()
 
     def remove(self, node_id: NodeId) -> tuple[DeviceEntry, ...]:
         """返回变更前的推送对象，包含被移除的电脑。"""

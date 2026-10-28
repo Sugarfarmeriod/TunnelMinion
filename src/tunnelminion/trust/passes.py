@@ -27,7 +27,7 @@ from tunnelminion.gateway.security import (
 )
 from tunnelminion.trust.contracts import IdentityError
 from tunnelminion.trust.devices import OwnDevicesService
-from tunnelminion.trust.keys import DEVICE_KEY_NAME, load_private_key
+from tunnelminion.trust.keys import DEVICE_KEY_NAME
 
 
 class TrustSyncRequired(IdentityError):
@@ -37,7 +37,7 @@ class TrustSyncRequired(IdentityError):
 def issue_pass(service: OwnDevicesService, target: NodeId, scope: PassScope) -> str:
     roster = service.roster()
     local = roster.device(service.node_id)
-    key = load_private_key(service.secrets, DEVICE_KEY_NAME)
+    key = service.identity_key(DEVICE_KEY_NAME)
     if (
         not service.active()
         or local is None
