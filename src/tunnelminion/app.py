@@ -101,6 +101,7 @@ from tunnelminion.web.application_views import (
 )
 from tunnelminion.web.conversation import create_conversation_router
 from tunnelminion.web.diagnostics import DiagnosticsExportService, create_diagnostics_router
+from tunnelminion.web.identity import create_identity_router
 from tunnelminion.web.incidents import create_incident_router, incidents_overview
 from tunnelminion.web.memory import create_memory_router
 from tunnelminion.web.operations import OperationControlService, create_operation_router
@@ -639,6 +640,7 @@ def build_windows_application(
         )
     )
     app.include_router(create_memory_router(memories))
+    app.include_router(create_identity_router(root, node_id, Platform.WINDOWS))
     app.include_router(
         create_peers_router(
             node_id,

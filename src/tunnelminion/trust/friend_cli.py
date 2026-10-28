@@ -11,31 +11,22 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from tunnelminion.app import default_data_dir
-from tunnelminion.domain.identifiers import NodeId
-from tunnelminion.domain.trust import FriendPermissions, JoinCode, JoinCodeKind
+from tunnelminion.domain.trust import JoinCode, JoinCodeKind
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
     GatewayConfigurationService,
-    GatewayPeerView,
     gateway_secret_store,
 )
-from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
+from tunnelminion.memory.sqlite import SQLiteTrustStore
 from tunnelminion.model.secrets import SecretStoreError
-from tunnelminion.trust.contracts import IdentityError
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.friends import FriendsService
-from tunnelminion.trust.passes import RequestPassVerifier
+from tunnelminion.trust.local import friend_peers, update_friend_permissions
+from tunnelminion.trust.local import load_devices as load_local_devices
 
 
 def load_devices(root: Path) -> OwnDevicesService:
-    database = root / "runtime.sqlite3"
-    if not SQLiteTrustStore.is_initialized(database):
-        raise IdentityError("本机身份尚未初始化")
-    return OwnDevicesService(
-        NodeId((root / "node-id").read_text(encoding="utf-8").strip()),
-        SQLiteStores.open(database).trust,
-        gateway_secret_store(root),
-    )
+    return load_local_devices(root, gateway_secret_store(root))
 
 
 def friend_command(values: list[str]) -> int:
@@ -82,75 +73,32 @@ def friend_command(values: list[str]) -> int:
                 devices.secrets,
                 owner_devices=devices,
             )
-            peers = {str(peer.node_id): peer for peer in configuration.view().peers}
-            rosters = {
-                friend.owner_fingerprint: roster.devices for friend, roster in devices.friends()
-            }
-            verifier = RequestPassVerifier(devices)
-            conflicting: set[str] = set()
-            for entries in rosters.values():
-                for entry in entries:
-                    if str(entry.node_id) not in peers:
-                        policy = verifier.friend_peer(entry.node_id)
-                        if policy is None:
-                            # 多个朋友的名单里出现同一个节点 ID，两边都不认。
-                            conflicting.add(str(entry.node_id))
-                            continue
-                        peers[str(entry.node_id)] = GatewayPeerView(
-                            node_id=entry.node_id,
-                            relationship="friend",
-                            platform=entry.platform,
-                            display_name=entry.display_name,
-                            host=entry.host,
-                            port=entry.port,
-                            allowed_tools=policy.allowed_tools,
-                            allowed_operations=policy.allowed_operations,
-                            allow_delegation=policy.allow_delegation,
-                            allow_model_borrowing=policy.allow_model_borrowing,
-                            daily_quota=policy.daily_quota,
-                            credential_configured=devices.active(),
-                        )
-            people = [
-                (
-                    friend,
-                    tuple(
-                        peers[str(device.node_id)]
-                        for device in rosters.get(friend.owner_fingerprint, ())
-                        if str(device.node_id) in peers
-                    ),
-                    tuple(
-                        str(device.node_id)
-                        for device in rosters.get(friend.owner_fingerprint, ())
-                        if str(device.node_id) in conflicting
-                    ),
-                )
-                for friend in devices.trusted_people()
-            ]
+            people = friend_peers(devices, configuration)
             if args.json:
                 print(
                     json.dumps(
                         [
                             {
-                                "owner_fingerprint": friend.owner_fingerprint,
+                                "owner_fingerprint": friend.friend_fingerprint,
                                 "display_name": friend.display_name,
                                 "permissions": friend.permissions.model_dump(),
                                 "devices": [
-                                    device.model_dump(mode="json") for device in friend_devices
+                                    device.model_dump(mode="json") for device in friend.devices
                                 ],
-                                "conflicting_devices": list(conflicts),
+                                "conflicting_devices": list(friend.conflicting),
                             }
-                            for friend, friend_devices, conflicts in people
+                            for friend in people
                         ],
                         ensure_ascii=False,
                         indent=2,
                     )
                 )
             else:
-                for friend, friend_devices, conflicts in people:
-                    print(f"{friend.display_name}（{friend.owner_fingerprint}）")
-                    for node_id in conflicts:
+                for friend in people:
+                    print(f"{friend.display_name}（{friend.friend_fingerprint}）")
+                    for node_id in friend.conflicting:
                         print(f"  {node_id}：和其他朋友的电脑编号冲突，暂不认")
-                    for device in friend_devices:
+                    for device in friend.devices:
                         print(
                             f"  {device.display_name}："
                             f"可提问={'是' if device.allow_delegation else '否'}，"
@@ -165,28 +113,17 @@ def friend_command(values: list[str]) -> int:
             service.rename(args.person, args.new_name)
             print("已修改朋友的显示名")
         else:
-            friend = service.resolve(args.person)
-            current = friend.permissions
-            if args.action == "restrict":
-                local = devices.store.friend_permissions(friend.owner_fingerprint)
-                current = FriendPermissions(
-                    allow_delegation=current.allow_delegation and local.allow_delegation,
-                    allow_model_borrowing=current.allow_model_borrowing
-                    and local.allow_model_borrowing,
-                    daily_quota=min(current.daily_quota, local.daily_quota),
-                )
-            permissions = FriendPermissions(
-                allow_delegation=current.allow_delegation and not args.no_delegation,
-                allow_model_borrowing=current.allow_model_borrowing
-                if args.borrowing is None
-                else args.borrowing,
-                daily_quota=current.daily_quota if args.daily_quota is None else args.daily_quota,
+            update_friend_permissions(
+                service,
+                args.person,
+                close_delegation=args.no_delegation,
+                allow_model_borrowing=args.borrowing,
+                daily_quota=args.daily_quota,
+                restrict=args.action == "restrict",
             )
             if args.action == "restrict":
-                service.restrict(args.person, permissions)
                 print("已收紧朋友在本机的权限")
                 return 0
-            service.permissions(args.person, permissions)
             print("已更新朋友的默认权限")
         failed = asyncio.run(devices.push())
         for node_id in failed:

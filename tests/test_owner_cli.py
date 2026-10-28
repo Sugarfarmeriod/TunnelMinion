@@ -69,7 +69,7 @@ def test_init_and_status_never_repeat_recovery_code_or_private_keys(
     platform: str,
 ) -> None:
     root = tmp_path / "identity"
-    monkeypatch.setattr("tunnelminion.trust.cli.sys.platform", platform)
+    monkeypatch.setattr("tunnelminion.trust.local.sys.platform", platform)
     shown: list[str] = []
 
     def confirm(prompt: str) -> str:
