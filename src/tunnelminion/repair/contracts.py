@@ -61,6 +61,8 @@ class RepairOriginKind(StrEnum):
     CONVERSATION = "conversation"
     DELEGATION = "delegation"
     LOCAL_CLI = "local_cli"
+    # 巡检确认服务挂了以后提出。
+    PATROL = "patrol"
 
 
 class RepairOrigin(BaseModel):

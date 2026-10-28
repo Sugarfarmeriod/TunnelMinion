@@ -17,6 +17,7 @@ from tunnelminion.incident.contracts import (
     Incident,
     IncidentEventType,
     NormalizedSnapshot,
+    SnapshotDiffEvent,
     SnapshotObjectKind,
     SnapshotSource,
 )
@@ -65,6 +66,7 @@ class IncidentObservationService:
         watched_service_id: ServiceId | None = None,
         read_only_preview: bool = False,
         clock: Callable[[], datetime] | None = None,
+        skip_investigation: Callable[[SnapshotDiffEvent], bool] | None = None,
     ) -> None:
         if not 1 <= interval_seconds <= 3600:
             raise ValueError("观察周期必须位于 1 到 3600 秒")
@@ -77,6 +79,8 @@ class IncidentObservationService:
         self._watched_service_id = watched_service_id
         self.read_only_preview = read_only_preview
         self._clock = clock or (lambda: datetime.now(UTC))
+        # 交给别处（巡检）调查的事件照常记录，但不在这里重复调查。
+        self._skip_investigation = skip_investigation
         self._baseline: NormalizedSnapshot | None = None
         self._baseline_stabilized = False
         self._baseline_automatic_services: set[str] = set()
@@ -142,7 +146,11 @@ class IncidentObservationService:
                 if event.event_type is IncidentEventType.SERVICE_REMOVED
                 else automatic_services
             )
-            if event.object_kind is SnapshotObjectKind.SERVICE and event.object_id in eligible:
+            if (
+                event.object_kind is SnapshotObjectKind.SERVICE
+                and event.object_id in eligible
+                and (self._skip_investigation is None or not self._skip_investigation(event))
+            ):
                 self._schedule_investigation(incident)
         if not self._detector.has_pending:
             self._baseline = snapshot

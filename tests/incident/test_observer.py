@@ -313,3 +313,31 @@ def test_investigation_failure_is_logged_without_stopping_refresh(
     [record] = caplog.records
     assert record.exc_info is not None
     assert "fixture-private" not in caplog.text
+
+
+def test_events_covered_elsewhere_are_recorded_without_investigation(tmp_path: Path) -> None:
+    overview = MutableOverview()
+    runner = Runner()
+    store = SQLiteIncidentStore(tmp_path / "covered.sqlite3")
+    observer = IncidentObservationService(
+        overview,
+        store,
+        investigator=runner,
+        detector=SnapshotDiffDetector(confirmations_required=1),
+        skip_investigation=lambda event: event.event_type == "service_removed",
+    )
+
+    async def scenario() -> None:
+        await observer.observe_once()
+        await observer.observe_once()
+        overview.services = ()
+        [removed] = (await observer.observe_once()).incidents
+        await asyncio.sleep(0)
+        assert removed.event.event_type == "service_removed"
+        assert runner.calls == [] and len(store.list_recent()) == 1
+        overview.services = ((SERVICE, 8080),)
+        await observer.observe_once()
+        await asyncio.sleep(0)
+        assert len(runner.calls) == 1
+
+    asyncio.run(scenario())

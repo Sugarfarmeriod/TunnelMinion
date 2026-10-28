@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from tunnelminion.domain.identifiers import AuthorizationId, NodeId, OperationId
@@ -37,6 +37,15 @@ class ProxyRepairApprover:
 
     node_id: NodeId
     display_name: str
+
+
+@dataclass(frozen=True)
+class OwnerPreapproval:
+    """主人在本机为某个服务打开的"挂了可以自动修"，由巡检代主人批准一次。"""
+
+    enabled_on: date
+    # 巡检确认的原因，例如"容器已退出"。
+    reason: str
 
 
 class NoPreauthorizations:
@@ -176,6 +185,32 @@ class RepairService:
                 else f"{operator} 批准了修复。"
             ),
             actor=operator,
+            at=now,
+        )
+        self._store.put(record)
+        return record
+
+    def approve_preauthorized(
+        self, operation_id: OperationId, *, preapproval: OwnerPreapproval
+    ) -> RepairRecord:
+        """按主人预先允许代为批准；执行前核对、执行和验证与人工批准完全一样。"""
+        now = self._clock()
+        self.expire_due(now)
+        self._waiting(operation_id)
+        day = preapproval.enabled_on
+        record = self._authorization.approve_once(
+            operation_id,
+            operator="patrol",
+            decided_at=now,
+            expires_at=now + timedelta(seconds=REPAIR_AUTHORIZATION_SECONDS),
+            local_control=True,
+            basis=f"按主人 {day.isoformat()} 的预先允许自动执行",
+        )
+        record = record.with_event(
+            RepairAuditAction.APPROVED,
+            f"按主人 {day.year}年{day.month}月{day.day}日 打开的“挂了可以自动修”自动执行"
+            f"（巡检确认：{preapproval.reason}）。",
+            actor="patrol",
             at=now,
         )
         self._store.put(record)
