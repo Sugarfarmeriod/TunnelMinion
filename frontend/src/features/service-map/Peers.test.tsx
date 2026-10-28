@@ -58,6 +58,34 @@ let questions: {
 let peersRead = vi.fn<() => Response>();
 let servicesRead = vi.fn<() => Response>();
 
+// 本机也有同名服务身份的巡检记录：别的电脑的服务框不能借用它显示开关或"挂了"。
+const patrolWithLocalScript = {
+  checked_at: null,
+  investigations_left_today: 12,
+  services: [
+    {
+      key: "python:app.py",
+      name: "本机脚本",
+      status: "down",
+      reason: "script_exited",
+      reason_text: "脚本已退出",
+      down_since: null,
+      confirmed_at: null,
+      thread_id: null,
+      repair_id: null,
+      auto_repair: {
+        available: true,
+        kind: "relaunch_python",
+        enabled: false,
+        enabled_on: null,
+        paused: false,
+        last_attempt_at: null,
+        last_result: null,
+      },
+    },
+  ],
+};
+
 function renderMap(
   peers = [makePeer()],
   view = makePeerServices(peers[0]),
@@ -74,6 +102,7 @@ function renderMap(
     ),
     http.get("/api/ui/overview", () => HttpResponse.json(makeMapOverview())),
     http.get("/api/repairs", () => HttpResponse.json({ repairs })),
+    http.get("/api/patrol", () => HttpResponse.json(patrolWithLocalScript)),
     http.get("/api/threads", () => HttpResponse.json([])),
     http.post("/api/threads", () => HttpResponse.json(thread)),
     http.get("/api/ui/threads/:id", () =>
@@ -175,9 +204,11 @@ it("远端清单使用对端地址、报来时间，不显示标记按钮；同 
   expect(within(dialog).getByText(/清单由 测试电脑 1 报来 ·/)).toBeVisible();
   expect(
     within(dialog).queryByRole("button", {
-      name: /不再显示|是我的服务|隐藏|恢复/,
+      name: /不再显示|是我的服务|隐藏|恢复|有意停的|巡检记录/,
     }),
   ).toBeNull();
+  expect(within(dialog).queryByText("挂了可以自动修")).toBeNull();
+  expect(within(dialog).queryByText(/挂了 ·/)).toBeNull();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "问问 远端相册" }),
   );

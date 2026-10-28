@@ -35,7 +35,7 @@ export const repairSchema = z.object({
     })
     .nullable(),
   origin: z.object({
-    kind: z.enum(["conversation", "delegation", "local_cli"]),
+    kind: z.enum(["conversation", "delegation", "local_cli", "patrol"]),
     thread_id: z.string().nullable(),
     run_id: z.string().nullable(),
     delegation_id: z.string().nullable(),

@@ -334,6 +334,51 @@
 .map-service-state.state-stopped {
   color: var(--map-gold);
 }
+.map-service-state.state-down {
+  color: var(--map-red);
+  font-weight: bold;
+}
+.map-service.is-down {
+  border-left: 4px solid var(--map-red);
+  padding-left: 6px;
+}
+/* 挂了的服务多两个按钮：名字和原因占一行，按钮换到下一行，窄屏也看得见。 */
+.map-service.is-down .map-service-row {
+  flex-wrap: wrap;
+}
+.map-service.is-down .map-service-info {
+  flex-basis: 100%;
+}
+.map-service.is-down .map-service-actions {
+  flex-wrap: wrap;
+}
+.map-patrol-note {
+  display: block;
+  color: var(--map-red);
+}
+.map-auto-repair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 13px;
+  margin: 2px 0 6px;
+}
+.map-auto-repair label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.map-auto-repair input {
+  accent-color: var(--map-lime);
+  width: 16px;
+  height: 16px;
+}
+.map-auto-repair-hint {
+  color: var(--map-fog);
+  overflow-wrap: anywhere;
+}
 @media (prefers-reduced-motion: reduce) {
   .map-packet {
     animation: none;
