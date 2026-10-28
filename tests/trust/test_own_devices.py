@@ -384,9 +384,9 @@ def test_request_pass_trusts_only_local_roster(tmp_path: Path, fault: str) -> No
     b = computer(tmp_path / "b", 2, apps, a)
     changes: dict[str, JsonValue] = {}
     if fault == "expired":
-        changes.update(iat=int(NOW.timestamp()) - 66, exp=int(NOW.timestamp()) - 6)
+        changes.update(iat=int(NOW.timestamp()) - 200, exp=int(NOW.timestamp()) - 140)
     elif fault == "future":
-        changes.update(iat=int(NOW.timestamp()) + 6, exp=int(NOW.timestamp()) + 66)
+        changes.update(iat=int(NOW.timestamp()) + 140, exp=int(NOW.timestamp()) + 200)
     elif fault == "audience":
         changes["aud"] = str(NodeId.new())
     elif fault == "scope":

@@ -41,8 +41,9 @@ ED25519_PUBLIC_KEY_BYTES = 32
 ED25519_SIGNATURE_BYTES = 64
 # 通行证的最长有效期。
 REQUEST_PASS_MAX_LIFETIME = timedelta(seconds=60)
-# 验证通行证签发时间时容许的时钟误差。
-REQUEST_PASS_CLOCK_LEEWAY = timedelta(seconds=5)
+# 验证通行证签发和过期时间时容许的时钟误差。家用电脑之间相差十几秒到一两分钟很常见；
+# 一次性编号缓存保留到过期时间加这段误差，所以放宽误差不会延长可重放的时间。
+REQUEST_PASS_CLOCK_LEEWAY = timedelta(seconds=120)
 # 通行证 JWT 头里的 typ，用来和其他 JWT 区分。
 REQUEST_PASS_TYPE = "tm-pass+jwt"
 # 通行证使用的签名算法。
