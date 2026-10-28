@@ -63,6 +63,12 @@ _REFUSALS = {
 }
 
 
+# 分类结果只有十来个 token，但思考型模型的思考内容也计入 max_tokens：
+# deepseek-flash 实测一次分类用掉 54-64 个输出 token，256 为思考留出余量。
+# 计费按实际用量，放宽上限不增加正常调用的消耗。
+REQUEST_GATE_MAX_OUTPUT_TOKENS = 256
+
+
 class RequestGate:
     """用同一 Provider 的短结构化调用节省无关请求的主模型额度。"""
 
@@ -73,7 +79,7 @@ class RequestGate:
         provider_name: str,
         model_name: str,
         timeout_seconds: float = 10.0,
-        max_output_tokens: int = 64,
+        max_output_tokens: int = REQUEST_GATE_MAX_OUTPUT_TOKENS,
     ) -> None:
         self._provider = provider
         self._runtime = ContextModelRuntime(
