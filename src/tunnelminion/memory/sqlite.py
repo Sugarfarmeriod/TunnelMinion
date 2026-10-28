@@ -54,6 +54,7 @@ from tunnelminion.repair.contracts import (
 )
 from tunnelminion.trust.contracts import (
     AlreadyInitializedError,
+    DevicePermissions,
     IdentityError,
     TrustAudit,
     VersionRejectedError,
@@ -122,6 +123,16 @@ class _SQLiteDatabase:
                 );
                 CREATE TABLE IF NOT EXISTS trust_audit (
                     sequence INTEGER PRIMARY KEY,
+                    payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS owner_invites (
+                    token_digest BLOB PRIMARY KEY,
+                    expires_at TEXT NOT NULL,
+                    accepted_at TEXT,
+                    accepted_node_id TEXT
+                );
+                CREATE TABLE IF NOT EXISTS device_permissions (
+                    node_id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
@@ -1042,6 +1053,72 @@ class SQLiteTrustStore:
                 subjects = tuple(sorted(set(subjects) | set(old_subjects)))
             self._write(connection, envelope, version)
             self._audit(connection, envelope, version, subjects, reason)
+            if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
+                certificate = connection.execute(
+                    "SELECT envelope_json FROM trust_documents WHERE kind=?",
+                    (SignaturePurpose.DEVICE_CERTIFICATE.value,),
+                ).fetchone()
+                if certificate is not None:
+                    local = verify_device_certificate(
+                        SignedEnvelope.model_validate_json(certificate[0]),
+                        roster.owner_public_key,
+                        owner,
+                    )
+                    if roster.device(local.node_id) is None:
+                        connection.execute(
+                            "DELETE FROM trust_documents WHERE kind=?",
+                            (SignaturePurpose.DEVICE_CERTIFICATE.value,),
+                        )
+
+    def create_invite(self, digest: bytes, expires_at: datetime) -> None:
+        """加入码只存摘要，与旧式配对邀请码分表。"""
+        with self._database.connect() as connection:
+            connection.execute(
+                "INSERT INTO owner_invites (token_digest, expires_at) VALUES (?, ?)",
+                (digest, expires_at.astimezone(UTC).isoformat()),
+            )
+
+    def consume_invite(self, digest: bytes, node_id: NodeId, now: datetime) -> bool:
+        """单条更新原子消费，过期或重复请求都不返回记录。"""
+        timestamp = now.astimezone(UTC).isoformat()
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """UPDATE owner_invites SET accepted_at=?, accepted_node_id=?
+                WHERE token_digest=? AND accepted_at IS NULL AND expires_at > ?
+                RETURNING token_digest""",
+                (timestamp, str(node_id), digest, timestamp),
+            ).fetchone()
+        return row is not None
+
+    def device_permissions(self, node_id: NodeId) -> DevicePermissions:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM device_permissions WHERE node_id=?", (str(node_id),)
+            ).fetchone()
+        return DevicePermissions.model_validate_json(row[0]) if row else DevicePermissions()
+
+    def restrict_device(self, node_id: NodeId, permissions: DevicePermissions) -> None:
+        """在写锁里比较当前限制，不能重新打开开关或增加额度。"""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM device_permissions WHERE node_id=?", (str(node_id),)
+            ).fetchone()
+            current = DevicePermissions.model_validate_json(row[0]) if row else DevicePermissions()
+            if permissions.daily_quota > current.daily_quota or any(
+                permissions.model_dump()[name] and not current.model_dump()[name]
+                for name in (
+                    "allow_delegation",
+                    "allow_model_borrowing",
+                    "allow_proxy_repair_approval",
+                )
+            ):
+                raise IdentityError("我的电脑权限只能关闭或调小")
+            connection.execute(
+                """INSERT INTO device_permissions VALUES (?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET payload=excluded.payload""",
+                (str(node_id), permissions.model_dump_json()),
+            )
 
     def _write(
         self, connection: sqlite3.Connection, envelope: SignedEnvelope, version: int

@@ -128,4 +128,5 @@ class OwnerIdentityService:
             roster_version=roster.version,
             trust_list_version=trust_list.version,
             devices=roster.devices,
+            removed=self._store.load(SignaturePurpose.DEVICE_CERTIFICATE) is None,
         )

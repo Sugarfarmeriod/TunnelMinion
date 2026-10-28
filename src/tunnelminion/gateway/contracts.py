@@ -99,6 +99,7 @@ class GatewayErrorCode(StrEnum):
     TOOL_NOT_FOUND = "tool_not_found"
     TOOL_VERSION_UNSUPPORTED = "tool_version_unsupported"
     UNAUTHENTICATED = "unauthenticated"
+    TRUST_SYNC_REQUIRED = "trust_sync_required"
     FORBIDDEN = "forbidden"
     RATE_LIMITED = "rate_limited"
     OPERATION_NOT_ALLOWED = "operation_not_allowed"

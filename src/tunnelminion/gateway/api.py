@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Any
@@ -55,6 +57,9 @@ from tunnelminion.tools.contracts import (
 )
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.trust.contracts import OwnerJoinRequest, OwnerJoinResponse, TrustSyncMessage
+from tunnelminion.trust.devices import OwnDevicesService
+from tunnelminion.trust.passes import TrustSyncRequired
 
 if TYPE_CHECKING:
     from tunnelminion.agent.delegation import DelegationService
@@ -168,10 +173,86 @@ def create_gateway_router(
     service_reader: Callable[[], Awaitable[GatewayServices]] | None = None,
     repair_service: RepairService | None = None,
     peer_display_name: Callable[[NodeId], str] | None = None,
+    owner_devices: OwnDevicesService | None = None,
 ) -> APIRouter:
     """创建带节点认证、允许列表和外层资源预算的只读网关。"""
-    router = APIRouter(route_class=_TracedGatewayRoute)
+
+    @asynccontextmanager
+    async def lifespan(_app: Any):
+        # 启动时在后台同步名单，离线电脑的超时不拖慢网关启动。
+        task = asyncio.create_task(owner_devices.push()) if owner_devices is not None else None
+        yield
+        if task is not None and not task.done():
+            task.cancel()
+
+    router = APIRouter(route_class=_TracedGatewayRoute, lifespan=lifespan)
     invite_attempts: deque[float] = deque()
+    owner_attempts: deque[float] = deque()
+    sync_attempts: deque[float] = deque()
+
+    def limited(attempts: deque[float], limit: int) -> bool:
+        now = monotonic()
+        while attempts and now - attempts[0] >= 60:
+            attempts.popleft()
+        if len(attempts) >= limit:
+            return True
+        attempts.append(now)
+        return False
+
+    async def owner_join(
+        http_request: Request,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> OwnerJoinResponse | JSONResponse:
+        if limited(owner_attempts, 10):
+            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "owner_join")
+        try:
+            if (
+                owner_devices is None
+                or authorization is None
+                or not authorization.startswith("Bearer ")
+            ):
+                raise ValueError
+            body = await http_request.body()
+            if len(body) > 512_000:
+                raise ValueError
+            result = owner_devices.accept_join(
+                authorization.removeprefix("Bearer "),
+                OwnerJoinRequest.model_validate_json(body),
+                http_request.client.host if http_request.client else "",
+            )
+        except Exception:
+            return reject(
+                401, GatewayErrorCode.INVITE_INVALID, "邀请码无效、已过期或已被使用", "owner_join"
+            )
+        background.add_task(owner_devices.push)
+        return result
+
+    async def trust_sync(http_request: Request) -> TrustSyncMessage | JSONResponse:
+        if limited(sync_attempts, 60):
+            return reject(429, GatewayErrorCode.RATE_LIMITED, "节点请求速率超过限制", "trust_sync")
+        try:
+            source = http_request.client.host if http_request.client else ""
+            address = ipaddress.ip_address(source)
+            if (
+                owner_devices is None
+                or not address.is_private
+                or address.is_unspecified
+                or address.is_multicast
+            ):
+                raise ValueError
+            body = await http_request.body()
+            if len(body) > 512_000:
+                raise ValueError
+            message = TrustSyncMessage.model_validate_json(body)
+            if (message.roster is not None and message.roster.purpose.value != "tm-roster") or (
+                message.trust_list is not None
+                and message.trust_list.purpose.value != "tm-trust-list"
+            ):
+                raise ValueError
+            return owner_devices.receive(message, source)
+        except ValueError:
+            return reject(401, GatewayErrorCode.UNAUTHENTICATED, "名单同步验证失败", "trust_sync")
 
     def reject(
         status_code: int,
@@ -187,9 +268,18 @@ def create_gateway_router(
         )
         return _error(status_code, code, message, retryable=retryable)
 
-    def authenticate(authorization: str | None, action: str) -> GatewayPeerPolicy | JSONResponse:
+    def authenticate(
+        http_request: Request, authorization: str | None, action: str
+    ) -> GatewayPeerPolicy | JSONResponse:
         audience = "operation-gateway" if action.startswith("operation_") else "tool-gateway"
-        peer = security_policy.authenticate(authorization, audience=audience)
+        try:
+            peer = security_policy.authenticate(
+                authorization,
+                audience=audience,
+                source_host=http_request.client.host if http_request.client else None,
+            )
+        except TrustSyncRequired:
+            return reject(401, GatewayErrorCode.TRUST_SYNC_REQUIRED, "需要同步名单", action)
         if peer is None:
             return reject(
                 status.HTTP_401_UNAUTHORIZED,
@@ -244,11 +334,12 @@ def create_gateway_router(
             )
 
     async def capabilities(
+        http_request: Request,
         protocol_major: int = Query(default=1, ge=0),
         protocol_minor: int = Query(default=0, ge=0),
         authorization: Annotated[str | None, Header()] = None,
     ) -> GatewayCapabilities | JSONResponse:
-        peer = authenticate(authorization, "capabilities")
+        peer = authenticate(http_request, authorization, "capabilities")
         if isinstance(peer, JSONResponse):
             return peer
         requested = ProtocolVersion(major=protocol_major, minor=protocol_minor)
@@ -281,7 +372,7 @@ def create_gateway_router(
         http_request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> RemoteToolResult | JSONResponse:
-        peer = authenticate(authorization, "tool_call")
+        peer = authenticate(http_request, authorization, "tool_call")
         if isinstance(peer, JSONResponse):
             return peer
         if request.caller_node_id != peer.node_id:
@@ -389,10 +480,11 @@ def create_gateway_router(
         return response
 
     async def submit_operation(
+        http_request: Request,
         request: RemoteOperationSubmission,
         authorization: Annotated[str | None, Header()] = None,
     ) -> RemoteOperationResult | JSONResponse:
-        peer = authenticate(authorization, "operation_submit")
+        peer = authenticate(http_request, authorization, "operation_submit")
         if isinstance(peer, JSONResponse):
             return peer
         if operation_service is None:
@@ -432,10 +524,11 @@ def create_gateway_router(
         return operation_response(record)
 
     async def execute_operation(
+        http_request: Request,
         request: RemoteOperationExecution,
         authorization: Annotated[str | None, Header()] = None,
     ) -> RemoteOperationResult | JSONResponse:
-        peer = authenticate(authorization, "operation_execute")
+        peer = authenticate(http_request, authorization, "operation_execute")
         if isinstance(peer, JSONResponse):
             return peer
         if operation_service is None:
@@ -515,6 +608,7 @@ def create_gateway_router(
         return operation_response(record)
 
     async def operation_status(
+        http_request: Request,
         operation_id: str,
         authorization: Annotated[str | None, Header()] = None,
     ) -> RemoteOperationResult | JSONResponse:
@@ -522,7 +616,7 @@ def create_gateway_router(
 
         from tunnelminion.domain.identifiers import OperationId
 
-        peer = authenticate(authorization, "operation_status")
+        peer = authenticate(http_request, authorization, "operation_status")
         if isinstance(peer, JSONResponse):
             return peer
         if operation_service is None:
@@ -566,13 +660,14 @@ def create_gateway_router(
         return operation_response(record)
 
     async def model_complete(
+        http_request: Request,
         call: BorrowedModelCall,
         authorization: Annotated[str | None, Header()] = None,
     ) -> BorrowedModelResult | JSONResponse:
         from tunnelminion.agent.model_lending import ModelLendingError
 
         action = "model_complete"
-        peer = authenticate(authorization, action)
+        peer = authenticate(http_request, authorization, action)
         if isinstance(peer, JSONResponse):
             return peer
         if model_lending_service is None:
@@ -613,9 +708,9 @@ def create_gateway_router(
             )
 
     def delegation_peer(
-        authorization: str | None, action: str
+        http_request: Request, authorization: str | None, action: str
     ) -> tuple[GatewayPeerPolicy, DelegationService] | JSONResponse:
-        peer = authenticate(authorization, action)
+        peer = authenticate(http_request, authorization, action)
         if isinstance(peer, JSONResponse):
             return peer
         if delegation_service is None:
@@ -637,10 +732,11 @@ def create_gateway_router(
         return peer, delegation_service
 
     async def services(
+        http_request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GatewayServices | JSONResponse:
         action = "services"
-        peer = authenticate(authorization, action)
+        peer = authenticate(http_request, authorization, action)
         if isinstance(peer, JSONResponse):
             return peer
         if not peer.allow_delegation:
@@ -691,10 +787,11 @@ def create_gateway_router(
         )
 
     async def submit_delegation(
+        http_request: Request,
         request: DelegationRequest,
         authorization: Annotated[str | None, Header()] = None,
     ) -> DelegationRecord | JSONResponse:
-        allowed = delegation_peer(authorization, "delegation_submit")
+        allowed = delegation_peer(http_request, authorization, "delegation_submit")
         if isinstance(allowed, JSONResponse):
             return allowed
         peer, service = allowed
@@ -719,10 +816,11 @@ def create_gateway_router(
         return JSONResponse(record.model_dump(mode="json"), status_code=status.HTTP_202_ACCEPTED)
 
     async def delegation_status(
+        http_request: Request,
         value: str,
         authorization: Annotated[str | None, Header()] = None,
     ) -> DelegationRecord | JSONResponse:
-        allowed = delegation_peer(authorization, "delegation_status")
+        allowed = delegation_peer(http_request, authorization, "delegation_status")
         if isinstance(allowed, JSONResponse):
             return allowed
         peer, service = allowed
@@ -731,10 +829,11 @@ def create_gateway_router(
         return record if record is not None else not_found("delegation_status", peer)
 
     async def cancel_delegation(
+        http_request: Request,
         value: str,
         authorization: Annotated[str | None, Header()] = None,
     ) -> DelegationRecord | JSONResponse:
-        allowed = delegation_peer(authorization, "delegation_cancel")
+        allowed = delegation_peer(http_request, authorization, "delegation_cancel")
         if isinstance(allowed, JSONResponse):
             return allowed
         peer, service = allowed
@@ -743,9 +842,9 @@ def create_gateway_router(
         return record if record is not None else not_found("delegation_cancel", peer)
 
     def repair_access(
-        repair_id: str, authorization: str | None, action: str
+        http_request: Request, repair_id: str, authorization: str | None, action: str
     ) -> tuple[GatewayPeerPolicy, RepairService, RepairRecord] | JSONResponse:
-        peer = authenticate(authorization, action)
+        peer = authenticate(http_request, authorization, action)
         if isinstance(peer, JSONResponse):
             return peer
         if repair_service is None:
@@ -784,22 +883,23 @@ def create_gateway_router(
         return result
 
     async def repair_status(
-        repair_id: str, authorization: Annotated[str | None, Header()] = None
+        http_request: Request, repair_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> PeerRepairView | JSONResponse:
         action = "repair_status"
-        allowed = repair_access(repair_id, authorization, action)
+        allowed = repair_access(http_request, repair_id, authorization, action)
         if isinstance(allowed, JSONResponse):
             return allowed
         peer, _service, record = allowed
         return repair_response(record, action, peer)
 
     def decide_repair(
+        http_request: Request,
         repair_id: str,
         authorization: str | None,
         action: str,
         background: BackgroundTasks,
     ) -> PeerRepairView | JSONResponse:
-        allowed = repair_access(repair_id, authorization, action)
+        allowed = repair_access(http_request, repair_id, authorization, action)
         if isinstance(allowed, JSONResponse):
             return allowed
         peer, service, record = allowed
@@ -830,18 +930,20 @@ def create_gateway_router(
         return repair_response(record, action, peer)
 
     async def repair_approve(
+        http_request: Request,
         repair_id: str,
         background: BackgroundTasks,
         authorization: Annotated[str | None, Header()] = None,
     ) -> PeerRepairView | JSONResponse:
-        return decide_repair(repair_id, authorization, "repair_approve", background)
+        return decide_repair(http_request, repair_id, authorization, "repair_approve", background)
 
     async def repair_reject(
+        http_request: Request,
         repair_id: str,
         background: BackgroundTasks,
         authorization: Annotated[str | None, Header()] = None,
     ) -> PeerRepairView | JSONResponse:
-        return decide_repair(repair_id, authorization, "repair_reject", background)
+        return decide_repair(http_request, repair_id, authorization, "repair_reject", background)
 
     router.add_api_route(
         "/v1/repairs/{repair_id}", repair_status, methods=["GET"], response_model=None
@@ -857,6 +959,8 @@ def create_gateway_router(
         "/v1/repairs/{repair_id}:reject", repair_reject, methods=["POST"], response_model=None
     )
     router.add_api_route("/v1/services", services, methods=["GET"], response_model=None)
+    router.add_api_route("/v1/owner:join", owner_join, methods=["POST"], response_model=None)
+    router.add_api_route("/v1/trust:sync", trust_sync, methods=["POST"], response_model=None)
     router.add_api_route("/v1/invites:accept", accept_invite, methods=["POST"], response_model=None)
     router.add_api_route(
         "/v1/model:complete", model_complete, methods=["POST"], response_model=None
