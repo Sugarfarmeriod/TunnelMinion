@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from tunnelminion.app import default_data_dir
+from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import JoinCode, JoinCodeKind
 from tunnelminion.gateway.configuration import (
     FileGatewayConfigurationRepository,
