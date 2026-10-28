@@ -16,6 +16,7 @@ from tunnelminion.gateway.contracts import (
     RemoteVerificationRequest,
     RemoteVerificationResult,
     RequesterVerificationCallback,
+    parse_peer_response,
 )
 from tunnelminion.operation.contracts import (
     LeaseRecord,
@@ -259,7 +260,7 @@ class CallbackRequesterVerifier(RequesterVerifier):
                     },
                 )
             response.raise_for_status()
-            result = RemoteVerificationResult.model_validate_json(response.content)
+            result = parse_peer_response(RemoteVerificationResult, response.content)
             verification = result.verification
             if (
                 not GATEWAY_PROTOCOL.is_compatible_with(result.protocol)

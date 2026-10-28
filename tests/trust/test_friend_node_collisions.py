@@ -240,3 +240,107 @@ def test_old_friend_history_table_is_rebuilt_from_saved_rosters(tmp_path: Path) 
     assert store.was_friend_device(f.service.node_id, f.host)
     # 再打开一次不会重复迁移。
     assert SQLiteStores.open(database).trust.was_friend_device(f.service.node_id, f.host)
+
+
+def collided(tmp_path: Path) -> tuple[Computer, Computer, Computer, PrivateKey]:
+    """F 的名单里多了一台占用 G 电脑编号的电脑。"""
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f = computer(tmp_path / "f", 3, apps)
+    g = computer(tmp_path / "g", 4, apps)
+    pair(a, f)
+    pair(a, g)
+    key = PrivateKey.generate()
+    a.service.store.accept(impostor(f, g.service.node_id, key), "朋友名单更新")
+    return a, f, g, key
+
+
+def test_resolve_conflict_assigns_node_to_one_friend_and_audits_it(tmp_path: Path) -> None:
+    a, f, g, key = collided(tmp_path)
+    friends = FriendsService(a.service)
+    g_owner = g.service.roster().owner_fingerprint
+    f_owner = f.service.roster().owner_fingerprint
+    others = friends.resolve_conflict(g.service.node_id, g_owner)
+    assert [item.owner_fingerprint for item in others] == [f_owner]
+    # G 本人的电脑重新被认，F 冒用这个编号签的通行证仍然不认。
+    policy = a.policy.authenticate(f"Bearer {token(g, a)}", source_host=g.host)
+    assert (
+        policy is not None and policy.authentication_kind is GatewayAuthenticationKind.FRIEND_DEVICE
+    )
+    forged = forged_pass(key, g.service.node_id, a.service.node_id, f.service.roster().version + 1)
+    assert a.policy.authenticate(f"Bearer {forged}", source_host=f.host) is None
+    assert any(peer.node_id == g.service.node_id for peer in a.config.view().peers)
+    audit = SQLiteStores.open(a.root / "runtime.sqlite3").trust.audits()[-1]
+    assert audit.action == "resolve-conflict"
+    assert audit.subjects == (str(g.service.node_id), g_owner, f_owner)
+    assert g_owner in audit.reason and f_owner in audit.reason
+    # 改主意也可以，判给另一方后 G 本人的电脑就不再被认。
+    friends.resolve_conflict(g.service.node_id, f_owner)
+    assert a.policy.authenticate(f"Bearer {token(g, a)}", source_host=g.host) is None
+
+
+def test_resolve_conflict_rejects_nodes_without_conflict(tmp_path: Path) -> None:
+    a, f, g, _ = collided(tmp_path)
+    friends = FriendsService(a.service)
+    with pytest.raises(IdentityError, match="没有和其他朋友冲突"):
+        friends.resolve_conflict(f.service.node_id, f.service.roster().owner_fingerprint)
+    with pytest.raises(IdentityError, match="名单里没有这台电脑"):
+        friends.resolve_conflict(f.service.node_id, g.service.roster().owner_fingerprint)
+    with pytest.raises(IdentityError, match="名单里没有这台电脑"):
+        a.service.store.assign_friend_node(
+            NodeId.new(), g.service.roster().owner_fingerprint, (), "测试"
+        )
+    with pytest.raises(IdentityError, match="名单里没有这台电脑"):
+        a.service.store.assign_friend_node(g.service.node_id, "sha256:" + "0" * 64, (), "测试")
+
+
+def test_resolution_lapses_when_the_chosen_friend_drops_the_node(tmp_path: Path) -> None:
+    a, f, g, _ = collided(tmp_path)
+    g_owner = g.service.roster().owner_fingerprint
+    FriendsService(a.service).resolve_conflict(g.service.node_id, g_owner)
+    # G 的电脑换了编号：F 的同号电脑不再和谁冲突，按普通朋友电脑处理。
+    roster = g.service.roster()
+    a.service.store.accept(
+        seal(
+            SignaturePurpose.OWNER_ROSTER,
+            roster.model_copy(
+                update={
+                    "version": roster.version + 1,
+                    "devices": tuple(
+                        item.model_copy(update={"node_id": NodeId.new()}) for item in roster.devices
+                    ),
+                }
+            ),
+            g.service.owner_key(),
+        ),
+        "朋友名单更新",
+    )
+    holders = {friend.owner_fingerprint: other for friend, other in a.service.friends()}
+    assert holders[f.service.roster().owner_fingerprint].device(g.service.node_id) is not None
+    # 移除 G 以后，判定记录一起清掉。
+    FriendsService(a.service).remove(g_owner)
+    assert a.service.store.friend_node_owners() == {}
+
+
+def test_resolve_conflict_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    a, _, g, _ = collided(tmp_path)
+
+    def local_devices(_root: Path) -> OwnDevicesService:
+        return a.service
+
+    monkeypatch.setattr("tunnelminion.trust.friend_cli.load_devices", local_devices)
+    monkeypatch.setattr("tunnelminion.trust.friend_cli.default_data_dir", lambda: a.root)
+    assert friend_command(["friend", "list"]) == 0
+    assert "编号冲突，暂不认" in capsys.readouterr().out
+    g_owner = g.service.roster().owner_fingerprint
+    assert friend_command(["friend", "resolve-conflict", str(g.service.node_id), g_owner]) == 0
+    assert f"已把 {g.service.node_id} 判给" in capsys.readouterr().out
+    assert friend_command(["friend", "list", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert all(not item["conflicting_devices"] for item in listed)
+    assert friend_command(["friend", "resolve-conflict", str(NodeId.new()), g_owner]) == 2
+    assert "名单里没有这台电脑" in capsys.readouterr().out

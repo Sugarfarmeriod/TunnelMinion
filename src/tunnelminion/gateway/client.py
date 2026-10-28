@@ -35,6 +35,7 @@ from tunnelminion.gateway.contracts import (
     RemoteToolCall,
     RemoteToolResult,
     RequesterVerificationCallback,
+    parse_peer_response,
 )
 from tunnelminion.gateway.credentials import (
     GatewayCredential,
@@ -89,11 +90,11 @@ async def accept_invite(
         raise InviteHandshakeError("bad_response")
     try:
         if response.status_code == 200:
-            accepted = InviteAccepted.model_validate_json(response.content)
+            accepted = parse_peer_response(InviteAccepted, response.content)
             if accepted.inviter_node_id != code.node_id:
                 raise InviteHandshakeError("bad_response")
             return accepted
-        error = GatewayErrorResponse.model_validate_json(response.content).error.code
+        error = parse_peer_response(GatewayErrorResponse, response.content).error.code
     except ValidationError as exc:
         raise InviteHandshakeError("bad_response") from exc
     if response.status_code == 401 and error is GatewayErrorCode.INVITE_INVALID:
@@ -207,7 +208,7 @@ class FixedGatewayClient:
                 )
             raise error
         try:
-            result = PeerRepairView.model_validate_json(response.content)
+            result = parse_peer_response(PeerRepairView, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端修复响应格式无效") from exc
         if result.repair_id != identifier or result.node_id != self._remote_node_id:
@@ -233,7 +234,7 @@ class FixedGatewayClient:
         if not response.is_success:
             raise self._protocol_error(response)
         try:
-            capabilities = GatewayCapabilities.model_validate_json(response.content)
+            capabilities = parse_peer_response(GatewayCapabilities, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端能力响应格式无效") from exc
         if capabilities.node_id != self._remote_node_id:
@@ -350,7 +351,7 @@ class FixedGatewayClient:
         if not response.is_success:
             raise self._protocol_error(response)
         try:
-            result = GatewayServices.model_validate_json(response.content)
+            result = parse_peer_response(GatewayServices, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端服务清单格式无效") from exc
         if result.node_id != self._remote_node_id:
@@ -396,7 +397,7 @@ class FixedGatewayClient:
         if not response.is_success:
             raise self._protocol_error(response)
         try:
-            result = BorrowedModelResult.model_validate_json(response.content)
+            result = parse_peer_response(BorrowedModelResult, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "对方电脑的模型调用失败") from exc
         if result.provider_node_id != self._remote_node_id:
@@ -428,7 +429,7 @@ class FixedGatewayClient:
         if not response.is_success:
             raise self._protocol_error(response)
         try:
-            record = DelegationRecord.model_validate_json(response.content)
+            record = parse_peer_response(DelegationRecord, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端委派响应格式无效") from exc
         if (
@@ -469,7 +470,7 @@ class FixedGatewayClient:
         if not response.is_success:
             raise self._protocol_error(response)
         try:
-            result = RemoteOperationResult.model_validate_json(response.content)
+            result = parse_peer_response(RemoteOperationResult, response.content)
         except ValidationError as exc:
             raise RemoteGatewayError(ErrorCode.INTERNAL, "远端操作响应格式无效") from exc
         if result.execution_node_id != self._remote_node_id:
@@ -548,7 +549,7 @@ class FixedGatewayClient:
                 str(error),
             )
         try:
-            result = RemoteToolResult.model_validate_json(response.content)
+            result = parse_peer_response(RemoteToolResult, response.content)
         except ValidationError:
             return self._local_failure(
                 context,
@@ -619,7 +620,7 @@ class FixedGatewayClient:
     @staticmethod
     def _protocol_error(response: httpx.Response) -> RemoteGatewayError:
         try:
-            value = GatewayErrorResponse.model_validate_json(response.content)
+            value = parse_peer_response(GatewayErrorResponse, response.content)
         except ValidationError:
             return RemoteGatewayError(ErrorCode.INTERNAL, "远端网关错误格式无效")
         return RemoteGatewayError(

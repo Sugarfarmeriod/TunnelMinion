@@ -10,6 +10,7 @@ from tunnelminion.domain.trust import (
     SignaturePurpose,
     key_fingerprint,
 )
+from tunnelminion.trust.backup import IdentityState, settle_key_backup
 from tunnelminion.trust.contracts import IdentityError, OwnerRotationStep
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.keys import (
@@ -17,11 +18,10 @@ from tunnelminion.trust.keys import (
     OWNER_KEY_NAME,
     PrivateKey,
     RecoveryCodeError,
-    delete_private_key,
     load_private_key,
     parse_recovery_code,
-    save_private_key,
 )
+from tunnelminion.trust.service import IdentityKeySwap
 from tunnelminion.trust.signatures import seal
 
 
@@ -55,6 +55,7 @@ def recover_owner(
     remove: tuple[NodeId, ...] = (),
 ) -> tuple[DeviceEntry, ...]:
     """确认新恢复码后才调用；换信任锚与保存新机主密钥共用写事务。"""
+    settle_key_backup(service.store, service.secrets)
     with service.changes:
         roster = service.roster()
         if key_fingerprint(old_recovery.public_key) != roster.recovery_fingerprint:
@@ -106,29 +107,26 @@ def recover_owner(
             *updated.devices,
             *(item for _, friend_roster in service.friends() for item in friend_roster.devices),
         )
-        previous_key = load_private_key(service.secrets, OWNER_KEY_NAME)
-        written = False
-
-        def persist() -> None:
-            nonlocal written
-            written = True
-            if previous_key is not None:
-                delete_private_key(service.secrets, OWNER_KEY_NAME)
-            save_private_key(service.secrets, OWNER_KEY_NAME, new_owner)
-
+        swap = IdentityKeySwap(
+            service.store,
+            service.secrets,
+            {OWNER_KEY_NAME: new_owner},
+            IdentityState(
+                owner_fingerprint=updated.owner_fingerprint,
+                device_public_key=device_key.public_key,
+            ),
+            replaced=(OWNER_KEY_NAME,),
+        )
         try:
             service.store.rotate(
                 (step,),
                 step.roster,
                 seal(SignaturePurpose.TRUST_LIST, people, new_owner),
                 f"本机 {service.node_id} 使用恢复码更换机主密钥",
-                persist,
+                swap.persist,
             )
         except Exception:
-            if written:
-                if previous_key is None:
-                    delete_private_key(service.secrets, OWNER_KEY_NAME)
-                else:
-                    save_private_key(service.secrets, OWNER_KEY_NAME, previous_key)
+            swap.rollback()
             raise
+        swap.commit()
         return targets
