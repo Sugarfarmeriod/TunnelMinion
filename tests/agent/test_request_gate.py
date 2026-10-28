@@ -184,7 +184,7 @@ def test_gate_uses_versioned_prompt_schema_and_small_output_limit(length: int) -
     result = run(gate(provider).evaluate("问" * length, thread_id=thread_id, run_id=run_id))
     assert result.outcome is RequestGateOutcome.ALLOWED
     request = provider.requests[0]
-    assert request.max_output_tokens == 64
+    assert request.max_output_tokens == 256
     assert request.tools == () and request.require_tool_call is False
     assert [(message.role, message.content) for message in request.messages] == [
         ("system", REQUEST_GATE_PROMPT.template),
