@@ -40,6 +40,11 @@ from tunnelminion.tools.contracts import ToolAdapterError
             FailureCategory.PROMPT_OR_MODEL,
         ),
         (
+            ProviderErrorCode.OUTPUT_TRUNCATED,
+            FailureReason.MODEL_OUTPUT_TRUNCATED,
+            FailureCategory.PROMPT_OR_MODEL,
+        ),
+        (
             ProviderErrorCode.CAPABILITY_INCOMPATIBLE,
             FailureReason.MODEL_CAPABILITY_INCOMPATIBLE,
             FailureCategory.PROMPT_OR_MODEL,

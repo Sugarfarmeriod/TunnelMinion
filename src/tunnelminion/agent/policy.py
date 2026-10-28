@@ -6,9 +6,25 @@ import re
 
 from pydantic import BaseModel, ConfigDict
 
+SECRET_ACCESS_REFUSAL = (
+    "这个我不能提供：密码、API Key、令牌、私钥这些都属于秘密，"
+    "TunnelMinion 不会读取，也不会显示出来。"
+    "你可以问我：某个服务为什么打不开、某个端口被哪个程序占着、两台电脑之间连不连得通。"
+)
+WRITE_OPERATION_REFUSAL = (
+    "这件事我不能直接去做：删除文件、关防火墙、改系统设置、执行任意命令都不在我能做的范围里。"
+    "我能做的是先把问题查清楚；如果是容器停了或脚本退出了，我会提出修法，"
+    "由你在地图上点感叹号批准后再执行。你可以说：“帮我看看某某服务为什么打不开，能修就修”。"
+)
+OFF_TOPIC_REFUSAL = (
+    "这个问题超出了我的范围：我只负责查看这几台电脑上的服务和网络状况，"
+    "不写文章、不写代码，也不回答一般知识问题。你可以问我：这台电脑上跑着哪些服务、"
+    "某个网页为什么打不开、另一台电脑连得上吗。"
+)
+
 
 class RequestPolicyDecision(BaseModel):
-    """由确定性规则生成、无需调用模型或工具的最终决定。"""
+    """请求把关后无需调用主模型或工具的最终决定。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -53,10 +69,7 @@ def evaluate_request_policy(question: str) -> RequestPolicyDecision | None:
     if _SECRET_NAME.search(question) and _SECRET_READ.search(question):
         return RequestPolicyDecision(
             code="secret_access_refused",
-            answer=(
-                "API Key、token、密码、密钥和私钥属于秘密；TunnelMinion 的接口和导出"
-                "不会返回完整凭据，因此不会提供该内容。"
-            ),
+            answer=SECRET_ACCESS_REFUSAL,
         )
     # 诊断问题交给只读 Agent 理解，写工具权限仍由注册表和 Runtime 拒绝。
     if (
@@ -66,10 +79,7 @@ def evaluate_request_policy(question: str) -> RequestPolicyDecision | None:
     ):
         return RequestPolicyDecision(
             code="write_operation_refused",
-            answer=(
-                "当前只读 MVP 未注册开放端口、重启服务或其他写操作工具；请求已被策略拒绝，"
-                "没有执行任何写操作，也没有重启服务。"
-            ),
+            answer=WRITE_OPERATION_REFUSAL,
         )
     return None
 

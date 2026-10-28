@@ -199,7 +199,7 @@ def evaluate(iterations: int = 100) -> RuntimeAssuranceReport:
         categories == {"context", "prompt_or_model", "harness_or_tool", "governance"},
         context_stopped and provider.calls == 0,
         not leaked,
-        policy is not None and "策略拒绝" in policy.answer,
+        policy is not None and "这件事我不能直接去做" in policy.answer,
     )
     return RuntimeAssuranceReport(
         change="integrate-agent-context-and-prompt-runtime",

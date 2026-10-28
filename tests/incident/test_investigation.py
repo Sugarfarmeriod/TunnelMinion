@@ -1988,6 +1988,23 @@ def test_investigator_outer_failures_and_wall_clock_limit(tmp_path: Path) -> Non
     assert any(item.kind == "tool" for item in invalid_result.trace)
 
 
+def test_truncated_investigation_is_failed_without_retry_or_partial_conclusion(
+    tmp_path: Path,
+) -> None:
+    runtime, store = _runtime_with_model(
+        tmp_path,
+        "truncated",
+        RaisingRuntime(ProviderError(ProviderErrorCode.OUTPUT_TRUNCATED, "未采用的正文")),
+        clock=lambda: NOW,
+    )
+    result = asyncio.run(runtime.run(_incident(store)))
+    assert result.status is IncidentStatus.FAILED
+    assert result.report is not None and result.report.conclusion is None
+    assert result.report.stop_reason is InvestigationStopReason.FAILED
+    assert result.report.unknowns == ("模型这次回答太长被截断了，可以把问题问得更具体一些再试",)
+    assert "未采用的正文" not in result.model_dump_json()
+
+
 @pytest.mark.parametrize(
     ("event_type", "tool_name", "output"),
     [

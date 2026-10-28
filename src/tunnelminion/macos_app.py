@@ -31,6 +31,7 @@ from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.model_lending import ModelLendingService
 from tunnelminion.agent.remote import AgentRemoteToolPreparer, ConfiguredRemoteToolPreparer
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
+from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.app import (
@@ -160,7 +161,7 @@ class MacOSLocalApplication:
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前 macOS 模型配置创建一次本地 Agent。"""
-        return _create_macos_read_only_agent(self.node)
+        return _create_macos_read_only_agent(self.node, gate_user_requests=True)
 
 
 @dataclass(frozen=True)
@@ -245,14 +246,25 @@ def _gateway_lifespan(
 
 
 def _create_macos_read_only_agent(
-    node: MacOSNode, *, remote_tools: AgentRemoteToolPreparer | None = None
+    node: MacOSNode,
+    *,
+    remote_tools: AgentRemoteToolPreparer | None = None,
+    gate_user_requests: bool = False,
 ) -> LangChainReadOnlyAgent:
     """把 macOS 节点依赖组合成受只读策略约束的 Agent。"""
-    model = TunnelMinionChatModel(
-        provider=node.model_service.create_provider(), artifact_manager=node.artifact_manager
-    )
+    provider = node.model_service.create_provider()
+    model = TunnelMinionChatModel(provider=provider, artifact_manager=node.artifact_manager)
     return LangChainReadOnlyAgent(
-        model, node.tool_registry, node.tool_runtime, Platform.MACOS, remote_tools=remote_tools
+        model,
+        node.tool_registry,
+        node.tool_runtime,
+        Platform.MACOS,
+        remote_tools=remote_tools,
+        request_gate=RequestGate(
+            provider, provider_name="configured-provider", model_name="configured-model"
+        )
+        if gate_user_requests
+        else None,
     )
 
 
@@ -371,7 +383,9 @@ def build_macos_local_application(
     stores = node.stores
 
     def create_agent() -> LangChainReadOnlyAgent:
-        return _create_macos_read_only_agent(node, remote_tools=remote_preparer)
+        return _create_macos_read_only_agent(
+            node, remote_tools=remote_preparer, gate_user_requests=True
+        )
 
     conversations = InMemoryConversationService(
         node.node_id,

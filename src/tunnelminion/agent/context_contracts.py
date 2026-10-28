@@ -24,6 +24,7 @@ class ContextTaskType(StrEnum):
     INCIDENT_INVESTIGATION = "incident-investigation"
     OPERATION_PLAN = "operation-plan"
     PROVIDER_VALIDATION = "provider-validation"
+    REQUEST_GATE = "request-gate"
     EVALUATION = "evaluation"
 
 
@@ -164,6 +165,7 @@ class FailureReason(StrEnum):
     MODEL_TIMEOUT = "model_timeout"
     MODEL_NETWORK_UNREACHABLE = "model_network_unreachable"
     MODEL_INVALID_RESPONSE = "model_invalid_response"
+    MODEL_OUTPUT_TRUNCATED = "model_output_truncated"
     MODEL_CAPABILITY_INCOMPATIBLE = "model_capability_incompatible"
     MODEL_CANCELLED = "model_cancelled"
     MODEL_QUOTA_EXCEEDED = "model_quota_exceeded"
@@ -308,6 +310,7 @@ class ContextRequest(BaseModel):
     budgets: ContextBudgets = Field(default_factory=ContextBudgets)
     require_tool_call: bool = False
     response_schema: dict[str, JsonValue] | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
     history: HistoryContext | None = None
     facts: tuple[ContextFact, ...] = ()
 

@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, HumanMe
 from pydantic import ValidationError
 
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
+from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.runtime import (
     AgentCancellationToken,
     AgentRunLimits,
@@ -200,6 +201,8 @@ def context() -> ToolCallContext:
 
 def build_agent(
     provider: ScriptedProvider | None = None,
+    *,
+    request_gate: RequestGate | None = None,
 ) -> tuple[LangChainReadOnlyAgent, ScriptedProvider, FakeToolAdapter]:
     """组装只包含一个可暴露工具的 Agent。"""
     provider = provider or ScriptedProvider()
@@ -210,7 +213,9 @@ def build_agent(
     runtime = ToolRuntime(registry, Platform.WINDOWS, InMemoryAuditSink())
     model = TunnelMinionChatModel(provider=provider)
     return (
-        LangChainReadOnlyAgent(model, registry, runtime, Platform.WINDOWS),
+        LangChainReadOnlyAgent(
+            model, registry, runtime, Platform.WINDOWS, request_gate=request_gate
+        ),
         provider,
         adapter,
     )
@@ -285,7 +290,7 @@ def test_agent_policy_refuses_write_request_before_model_or_tool() -> None:
     assert result.evidence_answer.confirmed_facts == ()
     assert result.evidence_answer.inferences == ()
     assert result.evidence_answer.unknowns == ()
-    assert "策略拒绝" in result.answer
+    assert "这件事我不能直接去做" in result.answer
     assert provider.requests == []
     assert adapter.calls == []
 

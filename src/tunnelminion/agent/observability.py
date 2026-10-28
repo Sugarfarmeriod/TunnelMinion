@@ -19,6 +19,7 @@ _PROVIDER_REASONS = {
     ProviderErrorCode.TIMEOUT: FailureReason.MODEL_TIMEOUT,
     ProviderErrorCode.NETWORK_UNREACHABLE: FailureReason.MODEL_NETWORK_UNREACHABLE,
     ProviderErrorCode.INVALID_RESPONSE: FailureReason.MODEL_INVALID_RESPONSE,
+    ProviderErrorCode.OUTPUT_TRUNCATED: FailureReason.MODEL_OUTPUT_TRUNCATED,
     ProviderErrorCode.CAPABILITY_INCOMPATIBLE: FailureReason.MODEL_CAPABILITY_INCOMPATIBLE,
     ProviderErrorCode.CANCELLED: FailureReason.MODEL_CANCELLED,
     ProviderErrorCode.INVALID_CONTEXT: FailureReason.CONTEXT_INVALID,

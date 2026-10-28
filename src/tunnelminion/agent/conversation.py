@@ -55,7 +55,7 @@ from tunnelminion.memory.contracts import (
     MemoryNamespace,
 )
 from tunnelminion.memory.service import MemoryContextQuery, MemoryContextRetriever
-from tunnelminion.model.contracts import ModelMessage
+from tunnelminion.model.contracts import ModelMessage, ProviderError, ProviderErrorCode
 from tunnelminion.repair.contracts import RepairRecord
 from tunnelminion.repair.results import repair_result_text
 from tunnelminion.tools.contracts import ToolCallContext
@@ -816,6 +816,8 @@ class InMemoryConversationService:
             state.failure = failure
             state.error_code = failure.reason.value
             state.error_message = "Agent run 执行失败"
+            if isinstance(exc, ProviderError) and exc.code is ProviderErrorCode.OUTPUT_TRUNCATED:
+                state.error_message = "模型这次回答太长被截断了，可以把问题问得更具体一些再试"
             if isinstance(exc, RemotePreparationError):
                 state.error_code = exc.code.value
                 state.error_message = (

@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.model.contracts import (
@@ -26,6 +33,8 @@ MAX_MODEL_CALL_SECONDS = 180.0
 DEFAULT_DAILY_TOKEN_QUOTA = 200_000
 # 同一个对端同时进行的借用调用上限。
 MAX_CONCURRENT_CALLS_PER_PEER = 2
+# 提供方对借用请求的硬上限，防止借用方用超长输出刷额度。
+MAX_BORROWED_OUTPUT_TOKENS = 4096
 
 
 class BorrowedMessage(BaseModel):
@@ -78,6 +87,15 @@ class BorrowedModelCall(BaseModel):
     tools: tuple[ToolDefinition, ...] = Field(default=(), max_length=64)
     require_tool_call: bool = False
     response_schema: dict[str, JsonValue] | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
+
+    @model_serializer(mode="wrap")
+    def serialize_call(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        """未指定上限时省略字段，兼容拒绝未知字段的提供方。"""
+        value: dict[str, object] = handler(self)
+        if self.max_output_tokens is None:
+            value.pop("max_output_tokens", None)
+        return value
 
     @classmethod
     def from_request(cls, caller: NodeId, request: ModelRequest) -> BorrowedModelCall:
@@ -88,6 +106,7 @@ class BorrowedModelCall(BaseModel):
             tools=request.tools,
             require_tool_call=request.require_tool_call,
             response_schema=request.response_schema,
+            max_output_tokens=request.max_output_tokens,
         )
 
     def to_request(self) -> ModelRequest:
@@ -97,6 +116,7 @@ class BorrowedModelCall(BaseModel):
             tools=self.tools,
             require_tool_call=self.require_tool_call,
             response_schema=self.response_schema,
+            max_output_tokens=self.max_output_tokens,
         )
 
 

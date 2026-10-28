@@ -21,6 +21,7 @@ from langchain.agents.middleware import (  # pyright: ignore[reportUnknownVariab
 )
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tunnelminion.agent.context_contracts import (
@@ -32,6 +33,7 @@ from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChat
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
 from tunnelminion.agent.remote import AgentRemoteToolPreparer, RemoteToolExecutor
+from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.service_observation import compute_observed_service_id
 from tunnelminion.agent.task_progress import TaskProgress
 from tunnelminion.coordinator.contracts import ServiceProtocol
@@ -254,12 +256,14 @@ class LangChainReadOnlyAgent:
         platform: Platform,
         *,
         remote_tools: AgentRemoteToolPreparer | None = None,
+        request_gate: RequestGate | None = None,
     ) -> None:
         self._model = model
         self._registry = registry
         self._runtime = runtime
         self._platform = platform
         self._remote_tools = remote_tools
+        self._request_gate = request_gate
 
     @property
     def supports_remote(self) -> bool:
@@ -320,7 +324,21 @@ class LangChainReadOnlyAgent:
     ) -> CheckedAgentTurnResult:
         budget = limits or AgentRunLimits()
         started = perf_counter()
+        metrics = ModelRunMetrics()
         policy = evaluate_request_policy(question)
+        if policy is None and self._request_gate is not None:
+            gate = await self._request_gate.evaluate(
+                question, thread_id=context.thread_id, run_id=context.run_id
+            )
+            trace.get_current_span().set_attribute("agent.request_gate", gate.outcome.value)
+            policy = gate.decision
+            metrics.input_tokens = gate.usage.input_tokens or 0
+            metrics.output_tokens = gate.usage.output_tokens or 0
+            metrics.total_tokens = (
+                gate.usage.total_tokens
+                if gate.usage.total_tokens is not None
+                else metrics.input_tokens + metrics.output_tokens
+            )
         if policy is not None:
             return CheckedAgentTurnResult(
                 answer=policy.answer,
@@ -330,7 +348,7 @@ class LangChainReadOnlyAgent:
                 selected_tools=tool_names,
                 stop_reason=AgentStopReason.COMPLETED,
                 elapsed_ms=round((perf_counter() - started) * 1000, 2),
-                usage=AgentUsage(input_tokens=0, output_tokens=0, total_tokens=0),
+                usage=self._usage(metrics),
                 limits=budget,
                 evidence_answer=EvidenceAnswer(
                     summary=policy.answer,
@@ -343,7 +361,6 @@ class LangChainReadOnlyAgent:
             )
         model_token = CancellationToken()
         tool_token = ToolCancellationToken()
-        metrics = ModelRunMetrics()
         model = self._model.model_copy(
             update={
                 "run_metrics": metrics,
