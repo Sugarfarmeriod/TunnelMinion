@@ -41,7 +41,11 @@ type Confirm = {
   description: string;
   label: string;
   action: () => Promise<PushResult | Identity>;
+  // 改的是名单：保存后要把新名单推给其他电脑，对方不在线时要等几秒。
+  notifies?: boolean;
 };
+
+const NOTIFYING = "正在保存并通知其他电脑；有电脑不在线时要等几秒……";
 
 function Dialog({
   title,
@@ -144,7 +148,7 @@ export function PeoplePage() {
     name: string;
   } | null>(null);
   const [notice, setNotice] = useState<{
-    kind: "ok" | "error";
+    kind: "ok" | "error" | "progress";
     text: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -160,9 +164,10 @@ export function PeoplePage() {
   async function run(
     action: () => Promise<PushResult | Identity | void>,
     done: string,
+    notifies = false,
   ) {
     setBusy(true);
-    setNotice(null);
+    setNotice(notifies ? { kind: "progress", text: NOTIFYING } : null);
     try {
       const result = await action();
       const unreached =
@@ -277,6 +282,7 @@ export function PeoplePage() {
                     "移除后，其他电脑一同步就不再信任它。被偷或丢失的电脑请改用命令行换机主密钥。",
                   label: "移除",
                   action: () => removeDevice(device.node_id),
+                  notifies: true,
                 })
               }
             >
@@ -306,8 +312,14 @@ export function PeoplePage() {
 
       {notice === null ? null : (
         <p
-          className={notice.kind === "ok" ? "people-ok" : "people-error"}
-          role={notice.kind === "ok" ? "status" : "alert"}
+          className={
+            notice.kind === "ok"
+              ? "people-ok"
+              : notice.kind === "progress"
+                ? "people-progress"
+                : "people-error"
+          }
+          role={notice.kind === "error" ? "alert" : "status"}
         >
           {notice.text}
         </p>
@@ -443,6 +455,7 @@ export function PeoplePage() {
                               allowed
                                 ? "已允许借我的模型。"
                                 : "已关闭借我的模型。",
+                              true,
                             );
                           }}
                         />
@@ -472,6 +485,7 @@ export function PeoplePage() {
                             label: "移除",
                             action: () =>
                               removeFriend(friend.owner_fingerprint),
+                            notifies: true,
                           })
                         }
                       >
@@ -576,6 +590,7 @@ export function PeoplePage() {
               void run(
                 () => renameFriend(value.fingerprint, value.name.trim()),
                 "已改名。",
+                true,
               );
             }}
           >
@@ -603,9 +618,15 @@ export function PeoplePage() {
             type="button"
             className="people-danger"
             disabled={busy}
-            onClick={() => void run(confirm.action, "已完成。")}
+            onClick={() =>
+              void run(confirm.action, "已完成。", confirm.notifies === true)
+            }
           >
-            {busy ? "请稍候……" : confirm.label}
+            {busy
+              ? confirm.notifies === true
+                ? "正在通知其他电脑……"
+                : "请稍候……"
+              : confirm.label}
           </button>
         </Dialog>
       )}

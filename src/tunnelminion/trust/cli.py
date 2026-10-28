@@ -16,11 +16,11 @@ from tunnelminion.domain.trust import InvalidJoinCodeError, JoinCode, JoinCodeKi
 from tunnelminion.gateway.configuration import (
     GatewaySecretStoreKind,
     configure_gateway_secret_store,
+    gateway_keyring_store,
     gateway_secret_store,
 )
 from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
 from tunnelminion.model.secrets import (
-    KeyringSecretStore,
     RestrictedFileSecretStore,
     SecretStoreError,
 )
@@ -193,7 +193,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
         secrets = (
             RestrictedFileSecretStore(root / "gateway-secrets")
             if args.secret_store == "restricted-file"
-            else KeyringSecretStore()
+            else gateway_keyring_store(root)
             if args.secret_store == "keyring"
             else gateway_secret_store(root)
         )

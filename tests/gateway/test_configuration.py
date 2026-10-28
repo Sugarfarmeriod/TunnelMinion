@@ -22,7 +22,7 @@ from tunnelminion.gateway.configuration import (
     generate_gateway_token,
 )
 from tunnelminion.gateway.security import GatewayBindConfig, GatewayLimits
-from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretStore
+from tunnelminion.model.secrets import DataDirKeyringSecretStore, RestrictedFileSecretStore
 from tunnelminion.operation.requester import RequesterOperationInput
 
 
@@ -164,7 +164,7 @@ def test_configuration_rejects_wireguard_keys_and_missing_credentials(tmp_path: 
 
 def test_gateway_secret_store_selection_is_explicit_and_persistent(tmp_path: Path) -> None:
     """默认保持 Keyring，显式无头选择才启用账户受限文件。"""
-    assert isinstance(gateway_secret_store(tmp_path), KeyringSecretStore)
+    assert isinstance(gateway_secret_store(tmp_path), DataDirKeyringSecretStore)
     selected = configure_gateway_secret_store(tmp_path, GatewaySecretStoreKind.RESTRICTED_FILE)
     assert isinstance(selected, RestrictedFileSecretStore)
     assert isinstance(gateway_secret_store(tmp_path), RestrictedFileSecretStore)

@@ -18,12 +18,13 @@ from tunnelminion.gateway.configuration import (
     GatewayConfigurationService,
     GatewaySecretStoreKind,
     configure_gateway_secret_store,
+    gateway_keyring_store,
     gateway_secret_store,
 )
 from tunnelminion.gateway.names import load_node_name
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
-from tunnelminion.model.secrets import KeyringSecretStore, RestrictedFileSecretStore
+from tunnelminion.model.secrets import RestrictedFileSecretStore
 from tunnelminion.trust.contracts import (
     AlreadyInitializedError,
     IdentityError,
@@ -58,7 +59,7 @@ async def join_owner(
     secrets = (
         RestrictedFileSecretStore(root / "gateway-secrets")
         if secret_store_kind is GatewaySecretStoreKind.RESTRICTED_FILE
-        else KeyringSecretStore()
+        else gateway_keyring_store(root)
         if secret_store_kind is GatewaySecretStoreKind.KEYRING
         else gateway_secret_store(root)
     )
@@ -152,16 +153,18 @@ async def join_owner(
         if isinstance(exc, IdentityError):
             raise
         raise IdentityError("加入响应格式无效") from None
+    # 钥匙串条目按节点编号区分，所以先写下节点编号再保存密钥。
+    if not path.exists():
+        root.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(str(node_id), encoding="utf-8")
+        temporary.replace(path)
     service = OwnDevicesService(node_id, SQLiteStores.open(database).trust, secrets)
     service.install_join(
         code, accepted, key, replace=reset, previous_secrets=previous_secrets if reset else None
     )
     if secret_store_kind is not None:
         configure_gateway_secret_store(root, secret_store_kind)
-    if not path.exists():
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(str(node_id), encoding="utf-8")
-        temporary.replace(path)
     if existing is None:
         GatewayConfigurationService(repository, secrets).configure_local(bind)
     load_node_name(root, platform)

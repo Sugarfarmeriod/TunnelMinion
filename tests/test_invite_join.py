@@ -76,7 +76,11 @@ def handshakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[InviteAc
     monkeypatch.setattr(joining, "default_data_dir", lambda: tmp_path)
     monkeypatch.setattr(joining.sys, "platform", "win32")
     monkeypatch.setattr(joining, "KeyringSecretStore", lambda: secrets)
-    monkeypatch.setattr("tunnelminion.gateway.configuration.KeyringSecretStore", lambda: secrets)
+
+    def secret_backend(_root: Path) -> MemorySecrets:
+        return secrets
+
+    monkeypatch.setattr("tunnelminion.gateway.configuration.gateway_keyring_store", secret_backend)
 
     def detect(host: str, port: int) -> str:
         assert (host, port) == (CODE.host, CODE.port)
