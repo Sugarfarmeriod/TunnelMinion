@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.model_borrowing import (
+    MAX_BORROWED_OUTPUT_TOKENS,
     MAX_CONCURRENT_CALLS_PER_PEER,
     MAX_MODEL_CALL_SECONDS,
     BorrowedModelCall,
@@ -19,7 +20,13 @@ from tunnelminion.domain.model_borrowing import (
 )
 from tunnelminion.gateway.contracts import GatewayErrorCode
 from tunnelminion.gateway.security import GatewayPeerPolicy
-from tunnelminion.model.contracts import CancellationToken, ModelProvider, ProviderError
+from tunnelminion.model.contracts import (
+    CancellationToken,
+    ModelProvider,
+    ModelUsage,
+    ProviderError,
+    ProviderErrorCode,
+)
 from tunnelminion.telemetry import model_attributes, record_usage, span
 
 
@@ -108,6 +115,14 @@ class ModelLendingService:
                 )
             try:
                 request = call.to_request()
+                request = request.model_copy(
+                    update={
+                        "max_output_tokens": min(
+                            call.max_output_tokens or MAX_BORROWED_OUTPUT_TOKENS,
+                            MAX_BORROWED_OUTPUT_TOKENS,
+                        )
+                    }
+                )
             except ValidationError:
                 raise ModelLendingError(
                     422, GatewayErrorCode.MODEL_CALL_FAILED, "模型消息格式不正确"
@@ -134,6 +149,11 @@ class ModelLendingService:
                         504, GatewayErrorCode.MODEL_CALL_FAILED, "模型调用超时", retryable=True
                     ) from None
                 except ProviderError as exc:
+                    # 被截断的输出同样消耗了提供方额度，按实际用量记账，缺失时按本次上限记。
+                    if exc.code is ProviderErrorCode.OUTPUT_TRUNCATED:
+                        tokens = _usage_tokens(exc.usage) or (
+                            request.max_output_tokens or MAX_BORROWED_OUTPUT_TOKENS
+                        )
                     raise ModelLendingError(
                         502,
                         GatewayErrorCode.MODEL_CALL_FAILED,
@@ -144,13 +164,17 @@ class ModelLendingService:
                     cancellation.cancel()
                     raise
                 record_usage(current, response.usage)
-                usage = response.usage
-                tokens = (
-                    usage.total_tokens
-                    if usage.total_tokens is not None
-                    else (usage.input_tokens or 0) + (usage.output_tokens or 0)
-                )
+                tokens = _usage_tokens(response.usage)
                 return BorrowedModelResult.from_response(self._node_id, response)
             finally:
                 self._running[key] -= 1
                 self._store.add(peer.node_id, day, 1, tokens)
+
+
+def _usage_tokens(usage: ModelUsage | None) -> int:
+    """优先用 total_tokens，缺失时用输入与输出之和。"""
+    if usage is None:
+        return 0
+    if usage.total_tokens is not None:
+        return usage.total_tokens
+    return (usage.input_tokens or 0) + (usage.output_tokens or 0)

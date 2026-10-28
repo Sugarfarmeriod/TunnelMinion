@@ -70,6 +70,7 @@ def test_thinking_setting_only_adds_template_kwargs_when_disabled(
     expected: dict[str, object] = {
         "model": "qwen-test",
         "messages": [{"role": "user", "content": "你好"}],
+        "max_tokens": 2048,
     }
     if disable_thinking:
         expected["chat_template_kwargs"] = {"enable_thinking": False}

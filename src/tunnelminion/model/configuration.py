@@ -49,6 +49,7 @@ class ModelConfigurationInput(BaseModel):
     model: str
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=600.0)
     disable_thinking: bool = False
+    max_output_tokens: int = Field(default=2048, ge=16, le=32768)
     api_key: str | None = Field(default=None, max_length=4096)
 
     def provider_config(self) -> OpenAICompatibleConfig:
@@ -58,6 +59,7 @@ class ModelConfigurationInput(BaseModel):
             model=self.model,
             timeout_seconds=self.timeout_seconds,
             disable_thinking=self.disable_thinking,
+            max_output_tokens=self.max_output_tokens,
         )
 
 
@@ -70,6 +72,7 @@ class ModelConfigurationProfileView(BaseModel):
     model: str
     timeout_seconds: float
     disable_thinking: bool = False
+    max_output_tokens: int = Field(default=2048, ge=16, le=32768)
     api_key_configured: bool = False
 
 
@@ -90,6 +93,7 @@ class ModelConfigurationView(BaseModel):
     model: str | None = None
     timeout_seconds: float | None = None
     disable_thinking: bool = False
+    max_output_tokens: int | None = Field(default=None, ge=16, le=32768)
     api_key_configured: bool = False
     borrowed_from: NodeId | None = None
     profiles: tuple[ModelConfigurationProfileView, ...] = ()
@@ -244,6 +248,7 @@ class ModelConfigurationService:
             model=config.model if config is not None else None,
             timeout_seconds=config.timeout_seconds if config is not None else None,
             disable_thinking=config is not None and config.disable_thinking,
+            max_output_tokens=config.max_output_tokens if config is not None else None,
             api_key_configured=config is not None and self._optional_api_key(config) is not None,
             borrowed_from=borrowed.peer_node_id if borrowed is not None else None,
             profiles=profiles,
@@ -345,6 +350,7 @@ class ModelConfigurationService:
             model=config.model,
             timeout_seconds=config.timeout_seconds,
             disable_thinking=config.disable_thinking,
+            max_output_tokens=config.max_output_tokens,
             api_key_configured=self._optional_api_key(config) is not None,
         )
 

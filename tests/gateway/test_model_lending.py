@@ -14,11 +14,13 @@ from tests.model.test_configuration import MemorySecrets
 
 from tunnelminion.agent.model_lending import (
     InMemoryModelUsageStore,
+    ModelLendingError,
     ModelLendingService,
     ModelUsageStore,
 )
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.model_borrowing import (
+    MAX_BORROWED_OUTPUT_TOKENS,
     BorrowedMessage,
     BorrowedModelCall,
     BorrowedModelResult,
@@ -196,6 +198,7 @@ def test_borrowing_uses_provider_thinking_setting_and_rejects_overrides(
     expected: dict[str, object] = {
         "model": "qwen-local",
         "messages": [{"role": "user", "content": "请计算这一轮"}],
+        "max_tokens": 2048,
     }
     if disable_thinking:
         expected["chat_template_kwargs"] = {"enable_thinking": False}
@@ -300,7 +303,9 @@ def test_success_preserves_the_wire_contract_and_records_usage(
         assert result.to_response() == provider.response
 
     asyncio.run(scenario())
-    assert provider.requests == [original]
+    assert provider.requests == [
+        original.model_copy(update={"max_output_tokens": MAX_BORROWED_OUTPUT_TOKENS})
+    ]
     assert store.get(PEER, date.today()) == ModelUsageRecord(
         peer_node_id=PEER, day=date.today(), calls=1, tokens=tokens
     )
@@ -589,3 +594,31 @@ def test_sqlite_and_audit_never_store_messages_tools_or_model_output(
         assert marker.encode() not in file.read_bytes()
     assert marker not in caplog.text
     assert marker not in "".join(record.model_dump_json() for record in audit.records)
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        (ModelUsage(total_tokens=4200), 4200),
+        (ModelUsage(input_tokens=100, output_tokens=4096), 4196),
+        (None, MAX_BORROWED_OUTPUT_TOKENS),
+    ],
+)
+def test_truncated_output_is_still_charged_to_the_borrower(
+    usage: ModelUsage | None, expected: int
+) -> None:
+    provider = StubProvider(
+        error=ProviderError(ProviderErrorCode.OUTPUT_TRUNCATED, "截断", usage=usage)
+    )
+    store = InMemoryModelUsageStore()
+    service = ModelLendingService(PROVIDER, lambda: provider, store, clock=lambda: TODAY)
+
+    async def scenario() -> None:
+        with pytest.raises(ModelLendingError) as raised:
+            await service.complete(peer(), call())
+        assert str(raised.value) == "output_truncated"
+
+    asyncio.run(scenario())
+    assert store.get(PEER, TODAY) == ModelUsageRecord(
+        peer_node_id=PEER, day=TODAY, calls=1, tokens=expected
+    )

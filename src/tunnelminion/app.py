@@ -27,6 +27,7 @@ from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.model_lending import ModelLendingService
 from tunnelminion.agent.remote import ConfiguredRemoteToolPreparer, RemoteCapabilityLoader
 from tunnelminion.agent.remote_service_presentation import RemoteServicePresentationObserver
+from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.domain.identifiers import NodeId
@@ -132,14 +133,16 @@ class WindowsApplication:
 
     def create_read_only_agent(self) -> LangChainReadOnlyAgent:
         """使用当前模型配置创建一次可注入动态工具集的本地 Agent。"""
-        model = TunnelMinionChatModel(
-            provider=self.model_service.create_provider(), artifact_manager=self.artifact_manager
-        )
+        provider = self.model_service.create_provider()
+        model = TunnelMinionChatModel(provider=provider, artifact_manager=self.artifact_manager)
         return LangChainReadOnlyAgent(
             model,
             self.tool_registry,
             self.tool_runtime,
             Platform.WINDOWS,
+            request_gate=RequestGate(
+                provider, provider_name="configured-provider", model_name="configured-model"
+            ),
         )
 
 
@@ -438,11 +441,17 @@ def build_windows_application(
     runtime = node.tool_runtime
 
     def create_agent() -> LangChainReadOnlyAgent:
-        model = TunnelMinionChatModel(
-            provider=model_service.create_provider(), artifact_manager=artifact_manager
-        )
+        provider = model_service.create_provider()
+        model = TunnelMinionChatModel(provider=provider, artifact_manager=artifact_manager)
         return LangChainReadOnlyAgent(
-            model, registry, runtime, Platform.WINDOWS, remote_tools=remote_preparer
+            model,
+            registry,
+            runtime,
+            Platform.WINDOWS,
+            remote_tools=remote_preparer,
+            request_gate=RequestGate(
+                provider, provider_name="configured-provider", model_name="configured-model"
+            ),
         )
 
     conversations = InMemoryConversationService(
