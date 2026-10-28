@@ -764,3 +764,20 @@ def test_friend_cannot_override_my_computers_identity_by_reusing_a_node_id(tmp_p
         ).relationship
         == "mine"
     )
+
+
+def test_default_friend_name_is_owner_fingerprint_not_computer_name(tmp_path: Path) -> None:
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f = computer(tmp_path / "f", 3, apps)
+    inviter = FriendsService(a.service)
+    joining = FriendsService(f.service)
+    code = inviter.invite()
+    response = inviter.accept_pair(code.token, joining.pairing(), f.host)
+    joining.install_pair(code, response)
+    mine = f.service.trust_list().people[0].display_name
+    prefix = a.service.roster().owner_fingerprint.removeprefix("sha256:")[:8]
+    assert mine == f"机主 {prefix}"
+    computer_name = a.service.roster().devices[0].display_name
+    assert computer_name not in mine
+    assert a.service.trust_list().people[0].display_name.startswith("机主 ")

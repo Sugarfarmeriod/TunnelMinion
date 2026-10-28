@@ -253,6 +253,7 @@ it("电脑入口只预填远端电脑，发送时只有节点身份", async () =
 });
 
 it.each([
+  [{ reachable: false, auth_rejected: true }, /对方不认这台电脑/, false],
   [{ reachable: false }, /离线，上次在线/, false],
   [{ reachable: null }, /尚未确认能否连上/, false],
   [{ services_visible: false }, /这台电脑不分享服务清单/, true],

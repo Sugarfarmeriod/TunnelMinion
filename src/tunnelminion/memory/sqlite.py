@@ -1166,6 +1166,12 @@ class SQLiteTrustStore:
                             previous, roster.owner_public_key, owner
                         ).people
                     )
+                added = sorted(set(subjects) - set(old_subjects))
+                removed = sorted(set(old_subjects) - set(subjects))
+                if added:
+                    reason += f"；新增 {'、'.join(added)}"
+                if removed:
+                    reason += f"；移除 {'、'.join(removed)}"
                 subjects = tuple(sorted(set(subjects) | set(old_subjects)))
             self._write(connection, envelope, version)
             self._audit(connection, envelope, version, subjects, reason)

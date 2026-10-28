@@ -70,6 +70,7 @@ export const peerSchema = z
     is_local: z.boolean(),
     source: z.enum(["local", "gateway", "coordinator"]),
     reachable: z.boolean().nullable(),
+    auth_rejected: z.boolean().default(false),
     last_seen_at: z.string().datetime({ offset: true }).nullable(),
     services_visible: z.boolean(),
     service_count: z.number().int().nonnegative(),
@@ -85,7 +86,9 @@ export const peerServicesSchema = z
     host: z.string().nullable(),
     observed_at: z.string().datetime({ offset: true }).nullable(),
     fetched_at: z.string().datetime({ offset: true }).nullable(),
-    outcome: z.enum(["ok", "unreachable", "forbidden", "error"]).nullable(),
+    outcome: z
+      .enum(["ok", "unreachable", "rejected", "forbidden", "error"])
+      .nullable(),
     services: z.array(
       serviceEntrySchema.omit({ tier: true, endpoints: true }).extend({
         state: z.enum(["running", "stopped"]).default("running"),
