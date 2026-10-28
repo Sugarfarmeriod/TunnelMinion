@@ -353,6 +353,21 @@ def test_replay_cache_clock_leeway_and_missing_local_credentials(tmp_path: Path)
             issue_pass(b.service, target, PassScope.TOOL_GATEWAY)
 
 
+def test_pass_tolerates_ordinary_clock_skew_between_computers(tmp_path: Path) -> None:
+    """实测中 Mac 的时钟比 Windows 快约 11 秒，通行证必须照常通过。"""
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    b = computer(tmp_path / "b", 2, apps, a)
+    verifier = RequestPassVerifier(a.service)
+    now = int(NOW.timestamp())
+    ahead = signed_claims(b, a, {"iat": now + 11, "exp": now + 71})
+    assert verifier.authenticate(ahead, "tool-gateway", b.host) is not None
+    far_ahead = signed_claims(b, a, {"iat": now + 180, "exp": now + 240})
+    assert verifier.authenticate(far_ahead, "tool-gateway", b.host) is None
+    expired = signed_claims(b, a, {"iat": now - 200, "exp": now - 121})
+    assert verifier.authenticate(expired, "tool-gateway", b.host) is None
+
+
 @pytest.mark.parametrize("fault", ["status", "large", "malformed", "unreachable"])
 def test_sync_failure_is_safe_and_does_not_block_startup(
     tmp_path: Path, fault: str, caplog: pytest.LogCaptureFixture
