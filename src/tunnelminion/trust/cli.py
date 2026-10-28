@@ -91,6 +91,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
     join.add_argument("--data-dir", type=Path)
     join.add_argument("--secret-store", choices=("keyring", "restricted-file"))
     join.add_argument("--bind-host")
+    join.add_argument("--bind-port", type=int)
     join.add_argument("--reset", action="store_true")
     recover = commands.add_parser("recover", help="用交互输入的恢复码更换机主密钥")
     recover.add_argument("--data-dir", type=Path)
@@ -145,6 +146,7 @@ def owner_command(values: list[str], *, input_fn: Callable[[str], str] | None = 
                     JoinCode.decode(args.code, JoinCodeKind.OWNER),
                     root,
                     host_override=args.bind_host,
+                    port_override=args.bind_port,
                     secret_store_kind=GatewaySecretStoreKind(args.secret_store)
                     if args.secret_store
                     else None,

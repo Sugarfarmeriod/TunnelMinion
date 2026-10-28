@@ -78,11 +78,19 @@ def test_join_owner_saves_only_device_key_after_verified_handshake(
     # 加入方用真实时间签应答，邀请方也按真实时间检查应答是否新鲜。
     a.service.clock = lambda: datetime.now(UTC)
     code = a.service.invite()
-    asyncio.run(join_owner(code, root, secret_store_kind=store_kind))
+    if existing:
+        # 已有网关配置时，指定不同的端口会被拒绝，什么都不写。
+        with pytest.raises(IdentityError, match="已有网关配置"):
+            asyncio.run(join_owner(code, root, port_override=8788))
+        assert not SQLiteTrustStore.is_initialized(root / "runtime.sqlite3")
+    port = 8787 if existing else 8788
+    asyncio.run(join_owner(code, root, port_override=port, secret_store_kind=store_kind))
     assert SQLiteTrustStore.is_initialized(root / "runtime.sqlite3")
     assert set(secrets.values) == {DEVICE_KEY_NAME}
     config = FileGatewayConfigurationRepository(root / "gateway.json").load()
     assert config is not None and config.bind.host == "10.20.0.2"
+    # 指定了端口就用指定的，同一台电脑上可以再开一个数据目录。
+    assert config.bind.port == port
     assert (
         SQLiteStores.open(root / "runtime.sqlite3").trust.load(SignaturePurpose.DEVICE_CERTIFICATE)
         is not None
@@ -227,11 +235,12 @@ def test_owner_join_cli_passes_options_and_hides_bad_codes(
         root: Path,
         *,
         host_override: str | None,
+        port_override: int | None,
         secret_store_kind: GatewaySecretStoreKind | None,
         reset: bool,
     ) -> None:
         assert received == code and root == tmp_path and reset is False
-        assert host_override == "10.20.0.2"
+        assert host_override == "10.20.0.2" and port_override == 8788
         assert secret_store_kind is GatewaySecretStoreKind.RESTRICTED_FILE
 
     monkeypatch.setattr("tunnelminion.trust.cli.join_owner", joined)
@@ -245,6 +254,8 @@ def test_owner_join_cli_passes_options_and_hides_bad_codes(
                 str(tmp_path),
                 "--bind-host",
                 "10.20.0.2",
+                "--bind-port",
+                "8788",
                 "--secret-store",
                 "restricted-file",
             ]
@@ -257,11 +268,12 @@ def test_owner_join_cli_passes_options_and_hides_bad_codes(
         root: Path,
         *,
         host_override: str | None,
+        port_override: int | None,
         secret_store_kind: GatewaySecretStoreKind | None,
         reset: bool,
     ) -> None:
         assert received == code and root == tmp_path and reset is False
-        assert host_override is None and secret_store_kind is None
+        assert host_override is None and port_override is None and secret_store_kind is None
 
     monkeypatch.setattr("tunnelminion.trust.cli.join_owner", default_joined)
     assert owner_command(["owner", "join", code.encode(), "--data-dir", str(tmp_path)]) == 0
