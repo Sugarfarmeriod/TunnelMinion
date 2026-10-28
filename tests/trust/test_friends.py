@@ -697,7 +697,7 @@ def test_permission_limits_cannot_be_reopened_and_names_must_be_unique(
     )
     monkeypatch.setattr(a.service, "active", lambda: False)
     legacy = GatewayPeerPolicy.from_token(
-        f.service.node_id, "tmn_" + "x" * 40, ("get_node_summary",)
+        f.service.node_id, "tmn_" + "x" * 40, ("get_node_summary",), source_host=f.host
     )
     assert RequestPassVerifier(a.service).static_peer(legacy, f.host) is None
     with pytest.raises(IdentityError, match="本机已被移出"):
@@ -746,14 +746,16 @@ def test_friend_cannot_override_my_computers_identity_by_reusing_a_node_id(tmp_p
             "device_public_key": PrivateKey.generate().public_key,
         }
     )
-    a.service.store.accept(
-        seal(
-            SignaturePurpose.OWNER_ROSTER,
-            roster.model_copy(update={"version": 2, "devices": (*roster.devices, impostor)}),
-            f.service.owner_key(),
-        ),
-        "朋友名单更新",
-    )
+    # 朋友名单里写进我的电脑的节点 ID，整份名单都不收。
+    with pytest.raises(VerificationError, match="冲突"):
+        a.service.store.accept(
+            seal(
+                SignaturePurpose.OWNER_ROSTER,
+                roster.model_copy(update={"version": 2, "devices": (*roster.devices, impostor)}),
+                f.service.owner_key(),
+            ),
+            "朋友名单更新",
+        )
     peer = a.policy.authenticate(f"Bearer {token(b, a)}", source_host=b.host)
     assert peer is not None and peer.authentication_kind is GatewayAuthenticationKind.OWNER_DEVICE
     assert (

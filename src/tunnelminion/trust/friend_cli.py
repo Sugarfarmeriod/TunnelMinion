@@ -42,15 +42,17 @@ def friend_command(values: list[str]) -> int:
     parser = argparse.ArgumentParser(description="按人管理朋友配对")
     parser.add_argument("friend")
     commands = parser.add_subparsers(dest="action", required=True)
-    for name in ("invite", "join", "remove", "list", "permissions", "restrict"):
+    for name in ("invite", "join", "remove", "list", "permissions", "restrict", "rename"):
         command = commands.add_parser(name)
         command.add_argument("--data-dir", type=Path)
         if name == "join":
             command.add_argument("code")
         if name in ("join", "invite"):
             command.add_argument("--display-name")
-        if name in ("remove", "permissions", "restrict"):
+        if name in ("remove", "permissions", "restrict", "rename"):
             command.add_argument("person")
+        if name == "rename":
+            command.add_argument("new_name")
         if name == "list":
             command.add_argument("--json", action="store_true")
         if name in ("permissions", "restrict"):
@@ -146,6 +148,9 @@ def friend_command(values: list[str]) -> int:
         if args.action == "remove":
             service.remove(args.person)
             print("已移除朋友")
+        elif args.action == "rename":
+            service.rename(args.person, args.new_name)
+            print("已修改朋友的显示名")
         else:
             friend = service.resolve(args.person)
             current = friend.permissions

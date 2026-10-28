@@ -139,3 +139,13 @@ def verify_device_certificate(
         owner_fingerprint,
         DeviceCertificate,
     )
+
+
+def roster_conflicts(roster: OwnerRoster, existing: tuple[OwnerRoster, ...]) -> bool:
+    """名单里的节点 ID 或电脑公钥已被其他身份占用时返回真。"""
+    nodes = {str(device.node_id) for item in existing for device in item.devices}
+    keys = {device.device_public_key for item in existing for device in item.devices}
+    return any(
+        str(device.node_id) in nodes or device.device_public_key in keys
+        for device in roster.devices
+    )

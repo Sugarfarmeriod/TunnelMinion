@@ -69,24 +69,28 @@ class RequestPassVerifier:
         self._lock = Lock()
 
     def friend_peer(self, issuer: NodeId) -> GatewayPeerPolicy | None:
-        for friend, roster in self.service.friends():
-            device = roster.device(issuer)
-            if device is not None:
-                local = self.service.store.friend_permissions(friend.owner_fingerprint)
-                return identity_permissions(
-                    GatewayPeerPolicy(
-                        node_id=issuer,
-                        token_digest=b"",
-                        allowed_tools=frozenset(),
-                        source_host=device.host,
-                        authentication_kind=GatewayAuthenticationKind.FRIEND_DEVICE,
-                        allow_delegation=friend.permissions.allow_delegation
-                        and local.allow_delegation,
-                        allow_model_borrowing=friend.permissions.allow_model_borrowing
-                        and local.allow_model_borrowing,
-                        daily_quota=min(friend.permissions.daily_quota, local.daily_quota),
-                    )
+        """一个节点 ID 只能属于一个朋友；出现在多份朋友名单里时谁都不认。"""
+        matches = [
+            (friend, device)
+            for friend, roster in self.service.friends()
+            if (device := roster.device(issuer)) is not None
+        ]
+        if len(matches) == 1:
+            friend, device = matches[0]
+            local = self.service.store.friend_permissions(friend.owner_fingerprint)
+            return identity_permissions(
+                GatewayPeerPolicy(
+                    node_id=issuer,
+                    token_digest=b"",
+                    allowed_tools=frozenset(),
+                    source_host=device.host,
+                    authentication_kind=GatewayAuthenticationKind.FRIEND_DEVICE,
+                    allow_delegation=friend.permissions.allow_delegation and local.allow_delegation,
+                    allow_model_borrowing=friend.permissions.allow_model_borrowing
+                    and local.allow_model_borrowing,
+                    daily_quota=min(friend.permissions.daily_quota, local.daily_quota),
                 )
+            )
         return None
 
     def static_peer(
@@ -104,13 +108,14 @@ class RequestPassVerifier:
                 daily_quota=min(peer.daily_quota, limits.daily_quota),
             )
         friend = self.friend_peer(peer.node_id)
-        if friend is not None:
+        # 朋友名单里的地址和旧式配对登记的地址不同，说明是别人占用了这个节点 ID，按旧式配对处理。
+        if friend is not None and friend.source_host == peer.source_host:
             if not self.service.active() or source_host != friend.source_host:
                 return None
             return identity_permissions(friend, peer)
-        if self.service.store.was_friend_device(peer.node_id) or self.service.store.was_own_device(
-            peer.node_id
-        ):
+        if self.service.store.was_friend_device(
+            peer.node_id, peer.source_host
+        ) or self.service.store.was_own_device(peer.node_id):
             return None
         return peer
 

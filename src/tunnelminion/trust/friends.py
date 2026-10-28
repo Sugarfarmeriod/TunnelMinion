@@ -20,7 +20,12 @@ from tunnelminion.gateway.configuration import generate_gateway_token
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.trust.contracts import FriendPairing, IdentityError
 from tunnelminion.trust.devices import INVALID_INVITE, OwnDevicesService
-from tunnelminion.trust.signatures import VerificationError, seal, verify_owner_roster
+from tunnelminion.trust.signatures import (
+    VerificationError,
+    roster_conflicts,
+    seal,
+    verify_owner_roster,
+)
 
 
 class FriendsService:
@@ -73,6 +78,16 @@ class FriendsService:
             raise VerificationError("朋友身份与电脑名单不符")
         for device in roster.devices:
             GatewayBindConfig(host=device.host, port=device.port)
+        existing = (
+            self.devices.roster(),
+            *(
+                other
+                for friend, other in self.devices.friends()
+                if friend.owner_fingerprint != roster.owner_fingerprint
+            ),
+        )
+        if roster_conflicts(roster, existing):
+            raise VerificationError("朋友名单里的电脑与已有电脑冲突")
         return roster
 
     def _save_pairing(self, pairing: FriendPairing) -> None:
@@ -229,6 +244,30 @@ class FriendsService:
             )
             self.devices.store.accept(
                 seal(SignaturePurpose.TRUST_LIST, updated, key), "修改朋友权限"
+            )
+
+    def rename(self, value: str, display_name: str) -> None:
+        """在本机给朋友改一个显示名，不沿用对方自己报上来的名字。"""
+        with self.devices.changes:
+            key = self.devices.owner_key()
+            friend = self.resolve(value)
+            trust = self.devices.trust_list()
+            updated = trust.model_copy(
+                update={
+                    "version": trust.version + 1,
+                    "issued_at": self.devices.clock(),
+                    "people": tuple(
+                        TrustedPerson.model_validate(
+                            {**item.model_dump(), "display_name": display_name}
+                        )
+                        if item == friend
+                        else item
+                        for item in trust.people
+                    ),
+                }
+            )
+            self.devices.store.accept(
+                seal(SignaturePurpose.TRUST_LIST, updated, key), "修改朋友显示名"
             )
 
     def restrict(self, value: str, permissions: FriendPermissions) -> None:

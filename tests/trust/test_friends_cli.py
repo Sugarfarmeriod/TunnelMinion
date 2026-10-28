@@ -231,3 +231,22 @@ def test_migration_default_input_and_secret_failure_are_reported(
     assert friend_command(["friend", "list", "--data-dir", str(a.root)]) == 2
     provision(a, b)
     assert peers_command(["peers", "migrate", "--data-dir", str(a.root)]) == 2
+
+
+def test_friend_cli_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    a = computer(tmp_path / "a", 1, {})
+    f = computer(tmp_path / "f", 3, {})
+    pair(a, f)
+
+    def local_devices(_root: Path) -> OwnDevicesService:
+        return a.service
+
+    monkeypatch.setattr("tunnelminion.trust.friend_cli.load_devices", local_devices)
+    monkeypatch.setattr("tunnelminion.trust.friend_cli.default_data_dir", lambda: a.root)
+    assert friend_command(["friend", "rename", "小林", "大学同学"]) == 0
+    assert "已修改朋友的显示名" in capsys.readouterr().out
+    assert a.service.trust_list().people[0].display_name == "大学同学"

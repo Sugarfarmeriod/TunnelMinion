@@ -69,6 +69,7 @@ from tunnelminion.trust.contracts import (
 )
 from tunnelminion.trust.signatures import (
     VerificationError,
+    roster_conflicts,
     verify_device_certificate,
     verify_owner_roster,
     verify_owner_rotation,
@@ -167,6 +168,11 @@ class _SQLiteDatabase:
                     accepted_node_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS friend_device_history (
+                    node_id TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    PRIMARY KEY (node_id, host)
+                );
+                CREATE TABLE IF NOT EXISTS own_device_history (
                     node_id TEXT PRIMARY KEY
                 );
                 CREATE TABLE IF NOT EXISTS tool_artifacts (
@@ -963,6 +969,10 @@ class SQLiteInviteStore:
         return InvitePermissions.model_validate_json(row[0]) if row is not None else None
 
 
+# 本机没有单独收紧某个朋友时的上限：不在本地额外限制，以"我信任的人"名单里的权限为准。
+_UNRESTRICTED_FRIEND = FriendPermissions(allow_model_borrowing=True, daily_quota=100_000_000)
+
+
 class SQLiteTrustStore:
     """本机信任锚、签名原文和审计；名单比较与写入共用短事务。"""
 
@@ -1378,6 +1388,16 @@ class SQLiteTrustStore:
                 connection.execute("DELETE FROM owner_invites")
                 connection.execute("DELETE FROM friend_invites")
             else:
+                others = tuple(
+                    verify_owner_roster(SignedEnvelope.model_validate_json(raw), fingerprint)
+                    for fingerprint, raw in connection.execute(
+                        "SELECT owner_fingerprint, envelope_json FROM friend_rosters"
+                        " WHERE owner_fingerprint<>?",
+                        (previous_owner,),
+                    )
+                )
+                if roster_conflicts(updated, (own, *others)):
+                    raise VerificationError("朋友名单里的电脑与已有电脑冲突")
                 connection.execute(
                     "DELETE FROM friend_rosters WHERE owner_fingerprint=?", (previous_owner,)
                 )
@@ -1416,6 +1436,7 @@ class SQLiteTrustStore:
                 "friend_permissions",
                 "friend_invites",
                 "friend_device_history",
+                "own_device_history",
             ):
                 connection.execute(f"DELETE FROM {table}")
             clear_keys()
@@ -1503,6 +1524,16 @@ class SQLiteTrustStore:
         ).fetchone()
         if row is not None and roster.version <= row[0]:
             raise VersionRejectedError("名单版本必须大于已接受的版本")
+        others = tuple(
+            verify_owner_roster(SignedEnvelope.model_validate_json(raw), fingerprint)
+            for fingerprint, raw in connection.execute(
+                "SELECT owner_fingerprint, envelope_json FROM friend_rosters"
+                " WHERE owner_fingerprint<>?",
+                (friend.owner_fingerprint,),
+            )
+        )
+        if roster_conflicts(roster, (own, *others)):
+            raise VerificationError("朋友名单里的电脑与已有电脑冲突")
         self._write_friend_roster(connection, envelope, roster, reason)
 
     def _write_friend_roster(
@@ -1519,8 +1550,8 @@ class SQLiteTrustStore:
             (roster.owner_fingerprint, roster.version, envelope.model_dump_json()),
         )
         connection.executemany(
-            "INSERT OR IGNORE INTO friend_device_history VALUES (?)",
-            ((str(device.node_id),) for device in roster.devices),
+            "INSERT OR IGNORE INTO friend_device_history VALUES (?, ?)",
+            ((str(device.node_id), device.host) for device in roster.devices),
         )
         self._audit(
             connection,
@@ -1531,20 +1562,22 @@ class SQLiteTrustStore:
         )
 
     def was_own_device(self, node_id: NodeId) -> bool:
-        """曾经在"我的电脑"名单上的节点；移出后不能再用残留旧令牌进来。"""
-        for item in reversed(self.audits()):
-            if item.action == "reset":
-                break
-            if item.kind is SignaturePurpose.OWNER_ROSTER and str(node_id) in item.subjects:
-                return True
-        return False
-
-    def was_friend_device(self, node_id: NodeId) -> bool:
-        """已移除的朋友电脑不能借残留旧令牌绕过撤销。"""
+        """曾经在本机机主签发的"我的电脑"名单上的节点；移出后不能再用残留旧令牌进来。"""
         with self._database.connect() as connection:
             return (
                 connection.execute(
-                    "SELECT 1 FROM friend_device_history WHERE node_id=?", (str(node_id),)
+                    "SELECT 1 FROM own_device_history WHERE node_id=?", (str(node_id),)
+                ).fetchone()
+                is not None
+            )
+
+    def was_friend_device(self, node_id: NodeId, host: str | None) -> bool:
+        """同一地址上曾经是朋友电脑的节点；移除后不能借残留旧令牌绕过撤销。"""
+        with self._database.connect() as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM friend_device_history WHERE node_id=? AND host=?",
+                    (str(node_id), host or ""),
                 ).fetchone()
                 is not None
             )
@@ -1555,16 +1588,16 @@ class SQLiteTrustStore:
                 "SELECT payload FROM friend_permissions WHERE owner_fingerprint=?",
                 (owner_fingerprint,),
             ).fetchone()
-        return (
-            FriendPermissions.model_validate_json(row[0])
-            if row
-            else FriendPermissions(allow_model_borrowing=True, daily_quota=100_000_000)
-        )
+        return FriendPermissions.model_validate_json(row[0]) if row else _UNRESTRICTED_FRIEND
 
     def restrict_friend(self, owner_fingerprint: str, permissions: FriendPermissions) -> None:
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            current = self.friend_permissions(owner_fingerprint)
+            row = connection.execute(
+                "SELECT payload FROM friend_permissions WHERE owner_fingerprint=?",
+                (owner_fingerprint,),
+            ).fetchone()
+            current = FriendPermissions.model_validate_json(row[0]) if row else _UNRESTRICTED_FRIEND
             if permissions.daily_quota > current.daily_quota or any(
                 permissions.model_dump()[name] and not current.model_dump()[name]
                 for name in ("allow_delegation", "allow_model_borrowing")
@@ -1615,6 +1648,16 @@ class SQLiteTrustStore:
                 version=excluded.version, envelope_json=excluded.envelope_json""",
             (envelope.purpose.value, version, envelope.model_dump_json()),
         )
+        if envelope.purpose is SignaturePurpose.OWNER_ROSTER:
+            devices = envelope.payload.get("devices")
+            connection.executemany(
+                "INSERT OR IGNORE INTO own_device_history VALUES (?)",
+                (
+                    (str(item["node_id"]),)
+                    for item in (devices if isinstance(devices, list) else [])
+                    if isinstance(item, dict)
+                ),
+            )
 
     def _audit(
         self,
