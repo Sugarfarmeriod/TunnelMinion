@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from types import UnionType
+from typing import Annotated, Literal, TypeVar, Union, cast, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
 from tunnelminion.domain.errors import ToolError
 from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId, ToolRunId
-from tunnelminion.domain.invites import DisplayName
+from tunnelminion.domain.invites import DisplayName, InvitePermissions
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.domain.tools import Platform, ToolDefinition
 from tunnelminion.domain.versioning import ProtocolVersion
@@ -249,3 +251,56 @@ class RemoteOperationResult(BaseModel):
     protocol: ProtocolVersion
     execution_node_id: NodeId
     summary: OperationSummary
+
+
+ResponseT = TypeVar("ResponseT", bound=BaseModel)
+# 权限类模型即使出现在响应里也不忽略未知字段：看不懂的权限宁可整份拒收，也不悄悄丢掉。
+_STRICT_RESPONSE_MODELS: frozenset[type[BaseModel]] = frozenset({InvitePermissions})
+
+
+def parse_peer_response(model: type[ResponseT], content: bytes | str) -> ResponseT:
+    """解析其他电脑发来的响应：忽略不认识的字段，认识的字段照常按模型严格校验。
+
+    对方升级后在响应里多带字段时，旧版本仍能读取；请求体、本机存储和签名名单不经过这里，
+    仍按各自模型的规则校验。
+    """
+    try:
+        value: object = json.loads(content)
+    except ValueError:
+        return model.model_validate_json(content)
+    return model.model_validate_json(json.dumps(_known_fields(model, value)))
+
+
+def _known_fields(annotation: object, value: object) -> object:
+    """按类型注解递归去掉对象里模型没有声明的键，其余原样交给模型校验。"""
+    origin = get_origin(annotation)
+    arguments: tuple[object, ...] = get_args(annotation)
+    if origin is Annotated:
+        return _known_fields(arguments[0], value)
+    if origin in (Union, UnionType):
+        members = [item for item in arguments if item is not type(None)]
+        return _known_fields(members[0], value) if len(members) == 1 else value
+    if origin in (tuple, frozenset) and isinstance(value, list):
+        items = cast(list[object], value)
+        if origin is tuple and arguments[-1] is not Ellipsis:
+            return items
+        return [_known_fields(arguments[0], item) for item in items]
+    if origin is dict and isinstance(value, dict):
+        return {
+            key: _known_fields(arguments[1], item)
+            for key, item in cast(dict[str, object], value).items()
+        }
+    if (
+        isinstance(annotation, type)
+        and issubclass(annotation, BaseModel)
+        and annotation not in _STRICT_RESPONSE_MODELS
+        and not issubclass(annotation, RootModel)
+        and isinstance(value, dict)
+    ):
+        fields = annotation.model_fields
+        return {
+            key: _known_fields(fields[key].annotation, item)
+            for key, item in cast(dict[str, object], value).items()
+            if key in fields
+        }
+    return value

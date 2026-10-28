@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 import httpx
 
 from tunnelminion.domain.trust import PassScope
-from tunnelminion.gateway.contracts import GatewayErrorCode, GatewayErrorResponse
+from tunnelminion.gateway.contracts import (
+    GatewayErrorCode,
+    GatewayErrorResponse,
+    parse_peer_response,
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +51,7 @@ class GatewayRequestAuth(httpx.Auth):
         if len(response.content) > 512_000:
             return
         try:
-            error = GatewayErrorResponse.model_validate_json(response.content)
+            error = parse_peer_response(GatewayErrorResponse, response.content)
         except ValueError:
             return
         if error.error.code is not GatewayErrorCode.TRUST_SYNC_REQUIRED:
