@@ -127,6 +127,10 @@
   color: var(--color-accent-strong);
 }
 
+.people-progress {
+  color: var(--color-muted);
+}
+
 .people-facts {
   display: grid;
   gap: var(--space-2);
