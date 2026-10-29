@@ -220,10 +220,8 @@ def _port_in_use(port: int, owner: PortOwner) -> RepairRefusal:
     )
 
 
-async def check_launch_agent(
-    label: str, ports: tuple[int, ...], runtime: LaunchAgentRuntime, host: HostInspector
-) -> LaunchAgentJob:
-    """只修当前用户自己装的、已加载但已经退出的后台服务。"""
+def check_launch_agent_label(label: str, runtime: LaunchAgentRuntime) -> None:
+    """只看平台和标签就能拒绝的情况，先于启动记录检查，让拒绝理由说到点子上。"""
     reason = runtime.unsupported_reason()
     if reason is not None:
         raise RepairRefusal(RepairError(code=RepairErrorCode.NOT_ELIGIBLE, message=reason))
@@ -241,6 +239,13 @@ async def check_launch_agent(
                 message="这是 TunnelMinion 自己，Agent 不会动它。",
             )
         )
+
+
+async def check_launch_agent(
+    label: str, ports: tuple[int, ...], runtime: LaunchAgentRuntime, host: HostInspector
+) -> LaunchAgentJob:
+    """只修当前用户自己装的、已加载但已经退出的后台服务。"""
+    check_launch_agent_label(label, runtime)
     job = await runtime.inspect(label)
     if job is LaunchAgentProblem.MISSING:
         raise RepairRefusal(
