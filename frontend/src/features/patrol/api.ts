@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requestJson } from "../../api/client";
 import { isReadOnlyPreview } from "../../shared/previewMode";
+import { manualStepSchema } from "../repairs/api";
 
 const dateTime = z.string().datetime({ offset: true });
 
@@ -16,8 +17,11 @@ export const patrolServiceSchema = z
         "container_exited",
         "script_exited",
         "agent_exited",
+        "program_exited",
+        "service_stopped",
         "port_closed",
         "web_failed",
+        "stuck",
       ])
       .nullable(),
     reason_text: z.string().nullable(),
@@ -25,6 +29,9 @@ export const patrolServiceSchema = z
     confirmed_at: dateTime.nullable(),
     thread_id: z.string().nullable(),
     repair_id: z.string().nullable(),
+    // 巡检想提修法却被拒绝的原因，以及本机生成、只显示不执行的现成步骤。
+    repair_refusal: z.string().nullable(),
+    manual_steps: z.array(manualStepSchema).max(5),
     auto_repair: z
       .object({
         available: z.boolean(),
@@ -33,6 +40,9 @@ export const patrolServiceSchema = z
             "restart_containers",
             "relaunch_python",
             "restart_launch_agent",
+            "relaunch_program",
+            "restart_stuck_program",
+            "restart_windows_service",
           ])
           .nullable(),
         enabled: z.boolean(),
@@ -40,8 +50,16 @@ export const patrolServiceSchema = z
         paused: z.boolean(),
         last_attempt_at: dateTime.nullable(),
         last_result: z.enum(["succeeded", "failed"]).nullable(),
+        // 卡住时有没有现成修法，以及"卡住了也自动修"是否单独打开。
+        stuck_available: z.boolean(),
+        stuck_enabled: z.boolean(),
       })
       .strict(),
+    // 主人标过的 Windows 服务：是否允许 Agent 启停它。
+    windows_service: z
+      .object({ name: z.string().min(1), granted: z.boolean() })
+      .strict()
+      .nullable(),
   })
   .strict();
 
@@ -61,12 +79,15 @@ export function loadPatrol({ signal }: { signal?: AbortSignal }) {
   return requestJson("/api/patrol", patrolSchema, { signal });
 }
 
+/** stuck 不给时后端保持"卡住了也自动修"原样；关掉 enabled 时后端一并关掉 stuck。 */
 export function setAutoRepair({
   key,
   enabled,
+  stuck,
 }: {
   key: string;
   enabled: boolean;
+  stuck?: boolean;
 }) {
   return requestJson(
     `/api/patrol/services/${encodeURIComponent(key)}/auto-repair`,
@@ -74,7 +95,28 @@ export function setAutoRepair({
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify(
+        stuck === undefined ? { enabled } : { enabled, stuck },
+      ),
+    },
+  );
+}
+
+/** 允许或撤回 Agent 启停这个 Windows 服务；会在本机弹一次管理员确认，可能要等几十秒。 */
+export function setWindowsServiceGrant({
+  key,
+  granted,
+}: {
+  key: string;
+  granted: boolean;
+}) {
+  return requestJson(
+    `/api/patrol/services/${encodeURIComponent(key)}/windows-service`,
+    patrolSchema,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ granted }),
     },
   );
 }

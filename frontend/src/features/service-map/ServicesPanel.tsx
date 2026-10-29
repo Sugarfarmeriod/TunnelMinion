@@ -5,6 +5,8 @@ import type { Peer, PeerPatrol, ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
 import type { Repair } from "../repairs/api";
+import { ManualSteps } from "../repairs/ManualSteps";
+import { isReadOnlyPreview } from "../../shared/previewMode";
 import { chineseDate, type PatrolService } from "../patrol/api";
 import { relativeTime } from "./topology";
 
@@ -39,7 +41,11 @@ interface ServicesPanelProps {
   remotePatrol?: Record<string, PeerPatrol>;
   patrolBusy?: boolean;
   patrolError?: boolean;
-  onAutoRepair?: (key: string, enabled: boolean) => void;
+  onAutoRepair?: (key: string, enabled: boolean, stuck?: boolean) => void;
+  // 允许或撤回 Agent 启停某个 Windows 服务；进行中的服务和失败说明按服务身份区分。
+  onWindowsService?: (key: string, granted: boolean) => void;
+  windowsServicePending?: string | null;
+  windowsServiceError?: { key: string; message: string } | null;
   onAcknowledge?: (key: string) => void;
   onOpenThread?: (threadId: string) => void;
 }
@@ -48,6 +54,9 @@ const kindRepair = {
   restart_containers: "只限重启容器",
   relaunch_python: "只限按上次的方式重新拉起",
   restart_launch_agent: "只限重新启动这个后台服务",
+  relaunch_program: "只限按上次的方式重新运行程序",
+  restart_stuck_program: "只限结束卡住的程序再按上次的方式运行",
+  restart_windows_service: "只限重启这个 Windows 服务",
 };
 
 export function ServicesPanel({
@@ -75,9 +84,13 @@ export function ServicesPanel({
   patrolBusy = false,
   patrolError = false,
   onAutoRepair,
+  onWindowsService,
+  windowsServicePending = null,
+  windowsServiceError = null,
   onAcknowledge,
   onOpenThread,
 }: ServicesPanelProps) {
+  const preview = isReadOnlyPreview();
   const name = peer?.display_name ?? "这台电脑";
   const message = peer?.auth_rejected
     ? "对方不认这台电脑，请检查两边是否还在同一份名单里。"
@@ -545,7 +558,60 @@ export function ServicesPanel({
                             ? `从 ${chineseDate(auto.enabled_on)} 起允许，修完会自己确认`
                             : `${auto.kind ? kindRepair[auto.kind] : ""}，修完会自己确认`}
                       </span>
+                      {auto.stuck_available && auto.enabled && !preview ? (
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={auto.stuck_enabled}
+                            disabled={patrolBusy}
+                            onChange={(event) =>
+                              onAutoRepair?.(
+                                service.key,
+                                true,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          卡住了也自动修
+                        </label>
+                      ) : null}
                     </div>
+                  ) : null}
+                  {watch?.windows_service && !preview ? (
+                    <div className="map-auto-repair">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={watch.windows_service.granted}
+                          disabled={windowsServicePending !== null}
+                          onChange={(event) =>
+                            onWindowsService?.(
+                              service.key,
+                              event.target.checked,
+                            )
+                          }
+                        />
+                        允许 Agent 重启这个 Windows 服务
+                      </label>
+                      <span className="map-auto-repair-hint" aria-live="polite">
+                        {windowsServicePending === service.key
+                          ? "等你在弹出的确认框里点“是”…"
+                          : "打开时会弹一次 Windows 管理员确认，只给这一个服务加启停权限；关掉时撤回"}
+                      </span>
+                      {windowsServiceError?.key === service.key ? (
+                        <span className="map-error" role="alert">
+                          {windowsServiceError.message}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {watch?.repair_refusal ? (
+                    <p className="map-service-meta map-repair-refusal">
+                      {watch.repair_refusal}
+                    </p>
+                  ) : null}
+                  {watch?.manual_steps.length ? (
+                    <ManualSteps steps={watch.manual_steps} />
                   ) : null}
                 </li>
               );

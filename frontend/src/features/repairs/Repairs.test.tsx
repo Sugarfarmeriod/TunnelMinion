@@ -32,6 +32,7 @@ import {
 } from "../service-map/testFixtures";
 import { makeRun, makeThread } from "../chat/testFixtures";
 import type { RepairDetail } from "./api";
+import { RepairDialog } from "./RepairDialog";
 import { finishedRepair, makeRemoteRepair, makeRepair } from "./testFixtures";
 
 const server = setupServer(
@@ -518,5 +519,131 @@ describe("地图上的本机修复", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
     await screen.findByRole("dialog", { name: "对话" });
     expect(posts).toEqual([]);
+  });
+});
+
+describe("修不了时的现成步骤和新的修法", () => {
+  function setClipboard(value: unknown) {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value,
+    });
+  }
+  function renderDialog() {
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <RepairDialog
+          repairId={repair.repair_id}
+          onClose={() => {}}
+          onStatus={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    return screen.findByRole("dialog", { name: "要修好“打印服务”吗？" });
+  }
+
+  it("Windows 服务没修好时显示可以照着做的步骤，命令能复制，高级里是 sc.exe 命令", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    setClipboard({ writeText });
+    repair = makeRepair({
+      service_name: "打印服务",
+      service_key: "program:printer",
+      kind: "restart_windows_service",
+      status: "rolled_back",
+      approval_expires_at: null,
+      advanced: {
+        commands: ["sc.exe stop Printer", "sc.exe start Printer"],
+        binary_path: "C:/Printer/printer.exe",
+        ports: [9100],
+      },
+      error: {
+        code: "needs_admin",
+        message: "还没有允许 Agent 启停这个 Windows 服务。",
+        next_step: null,
+        manual_steps: [
+          { text: "以管理员身份打开 PowerShell，运行", command: null },
+          { text: "重启这个服务", command: "Restart-Service -Name Printer" },
+        ],
+      },
+    });
+    const dialog = await renderDialog();
+    const steps = within(dialog).getByRole("region", { name: "可以照着做" });
+    expect(
+      within(steps).getByText("以管理员身份打开 PowerShell，运行"),
+    ).toBeVisible();
+    expect(
+      within(steps).getByText("Restart-Service -Name Printer"),
+    ).toBeVisible();
+    // 只有带命令的步骤才有复制按钮。
+    const copy = within(steps).getByRole("button", { name: "复制" });
+    fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith("Restart-Service -Name Printer");
+    expect(
+      await within(steps).findByRole("button", { name: "已复制" }),
+    ).toBeVisible();
+    fireEvent.click(within(dialog).getByText("高级：将执行的命令"));
+    expect(
+      within(dialog).getByText(
+        (_, element) =>
+          element?.tagName === "PRE" &&
+          element.textContent ===
+            "sc.exe stop Printer\nsc.exe start Printer\n服务程序：C:/Printer/printer.exe",
+      ),
+    ).toBeVisible();
+  });
+
+  it("剪贴板不可用时提示手动选中", async () => {
+    setClipboard(undefined);
+    repair = makeRepair({
+      service_name: "打印服务",
+      status: "rolled_back",
+      approval_expires_at: null,
+      error: {
+        code: "not_authorized",
+        message: "没有权限。",
+        next_step: null,
+        manual_steps: [{ text: "运行", command: "sc.exe start Printer" }],
+      },
+    });
+    const dialog = await renderDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "复制" }));
+    expect(
+      await within(dialog).findByText("复制失败，请手动选中"),
+    ).toBeVisible();
+  });
+
+  it("卡住的程序：高级里先写要结束的进程，结果写明结束了哪个进程", async () => {
+    repair = makeRepair({
+      service_name: "打印服务",
+      kind: "restart_stuck_program",
+      status: "succeeded",
+      approval_expires_at: null,
+      verification_passed: true,
+      advanced: {
+        command: "C:/Tools/printer.exe --port 9100",
+        ports: [9100],
+        end_process_id: 4321,
+      },
+      execution: { ended_process_id: 4321, ended_forcibly: true },
+    });
+    const dialog = await renderDialog();
+    expect(
+      within(dialog).getByText("已结束卡住的进程 4321（强制结束）"),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("region", { name: "可以照着做" }),
+    ).toBeNull();
+    fireEvent.click(within(dialog).getByText("高级：将执行的命令"));
+    expect(
+      within(dialog).getByText(
+        (_, element) =>
+          element?.tagName === "PRE" &&
+          element.textContent ===
+            "先结束卡住的进程 4321\nC:/Tools/printer.exe --port 9100",
+      ),
+    ).toBeVisible();
   });
 });

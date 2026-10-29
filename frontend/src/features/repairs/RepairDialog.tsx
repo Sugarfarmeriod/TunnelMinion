@@ -14,6 +14,7 @@ import {
   type RepairDetail,
 } from "./api";
 import "./repairs.css";
+import { ManualSteps } from "./ManualSteps";
 import {
   RepairFacts,
   RepairProgress,
@@ -161,19 +162,7 @@ export function RepairDialog({
               <RepairFacts repair={repair} />
               <details>
                 <summary>高级：将执行的命令</summary>
-                <pre>
-                  {"commands" in repair.advanced
-                    ? repair.advanced.commands.join("\n")
-                    : "command" in repair.advanced
-                      ? `${repair.advanced.command}\n配置文件：${repair.advanced.plist_path}`
-                      : JSON.stringify([
-                          repair.advanced.interpreter,
-                          ...repair.advanced.arguments,
-                        ])}
-                  {"working_directory" in repair.advanced
-                    ? `\n工作目录：${repair.advanced.working_directory}`
-                    : ""}
-                </pre>
+                <pre>{advancedText(repair.advanced)}</pre>
               </details>
               {preview ? <p>只读预览：可以查看修复，不能批准或拒绝。</p> : null}
               {decision.isError ? (
@@ -195,10 +184,19 @@ export function RepairDialog({
                     <p key={index}>{check.detail}</p>
                   ))}
                   {repair.cleanup ? <p>{repair.cleanup.detail}</p> : null}
+                  {repair.execution?.ended_process_id ? (
+                    <p>
+                      已结束卡住的进程 {repair.execution.ended_process_id}
+                      {repair.execution.ended_forcibly ? "（强制结束）" : ""}
+                    </p>
+                  ) : null}
                   {repair.error?.next_step ? (
                     <p>{repair.error.next_step}</p>
                   ) : null}
                 </div>
+              ) : null}
+              {repair.error?.manual_steps.length ? (
+                <ManualSteps steps={repair.error.manual_steps} />
               ) : null}
               {waiting ? (
                 <p className="repair-expiry" role="status">
@@ -246,4 +244,18 @@ export function RepairDialog({
       </div>
     </div>
   );
+}
+
+/** 按高级视图的特有字段区分修法：Windows 服务、后台服务、普通程序、容器、Python 脚本。 */
+function advancedText(advanced: RepairDetail["advanced"]) {
+  if ("binary_path" in advanced)
+    return `${advanced.commands.join("\n")}\n服务程序：${advanced.binary_path}`;
+  if ("plist_path" in advanced)
+    return `${advanced.command}\n配置文件：${advanced.plist_path}`;
+  if ("end_process_id" in advanced)
+    return advanced.end_process_id === null
+      ? advanced.command
+      : `先结束卡住的进程 ${advanced.end_process_id}\n${advanced.command}`;
+  if ("commands" in advanced) return advanced.commands.join("\n");
+  return `${JSON.stringify([advanced.interpreter, ...advanced.arguments])}\n工作目录：${advanced.working_directory}`;
 }

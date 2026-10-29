@@ -73,6 +73,9 @@ const patrolWithLocalScript = {
       confirmed_at: null,
       thread_id: null,
       repair_id: null,
+      repair_refusal: null,
+      manual_steps: [],
+      windows_service: null,
       auto_repair: {
         available: true,
         kind: "relaunch_python",
@@ -81,6 +84,8 @@ const patrolWithLocalScript = {
         paused: false,
         last_attempt_at: null,
         last_result: null,
+        stuck_available: false,
+        stuck_enabled: false,
       },
     },
   ],

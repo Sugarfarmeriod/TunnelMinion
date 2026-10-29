@@ -19,6 +19,9 @@ function photos(overrides: Partial<PatrolService> = {}): PatrolService {
     confirmed_at: new Date().toISOString(),
     thread_id: null,
     repair_id: null,
+    repair_refusal: null,
+    manual_steps: [],
+    windows_service: null,
     auto_repair: {
       available: true,
       kind: "restart_containers",
@@ -27,6 +30,8 @@ function photos(overrides: Partial<PatrolService> = {}): PatrolService {
       paused: false,
       last_attempt_at: null,
       last_result: null,
+      stuck_available: false,
+      stuck_enabled: false,
     },
     ...overrides,
   };
