@@ -17,6 +17,7 @@ from tunnelminion.repair.contracts import (
     REPAIR_AUTHORIZATION_SECONDS,
     ContainerRepairTarget,
     ContainerSnapshot,
+    LaunchAgentRepairTarget,
     RepairAuditEvent,
     RepairCleanup,
     RepairError,
@@ -103,12 +104,20 @@ class PythonAdvancedView(BaseModel):
     ports: tuple[int, ...]
 
 
+class LaunchAgentAdvancedView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command: str
+    plist_path: str
+    ports: tuple[int, ...]
+
+
 class RepairDetail(RepairListItem):
     impact_summary: str
     verification_summary: str
     failure_summary: str
     authorization: RepairAuthorizationView | None
-    advanced: ContainerAdvancedView | PythonAdvancedView
+    advanced: ContainerAdvancedView | PythonAdvancedView | LaunchAgentAdvancedView
     execution: RepairExecution | None
     verification: RepairVerification | None
     cleanup: RepairCleanup | None
@@ -118,7 +127,7 @@ class RepairDetail(RepairListItem):
 
 def _detail(record: RepairRecord) -> RepairDetail:
     target = record.plan.target
-    advanced: ContainerAdvancedView | PythonAdvancedView
+    advanced: ContainerAdvancedView | PythonAdvancedView | LaunchAgentAdvancedView
     if isinstance(target, ContainerRepairTarget):
         commands: list[str] = []
         for running in (False, True):
@@ -127,6 +136,12 @@ def _detail(record: RepairRecord) -> RepairDetail:
                 action = "restart" if running else "start"
                 commands.append(" ".join(("docker", action, *ids)))
         advanced = ContainerAdvancedView(commands=tuple(commands), containers=target.containers)
+    elif isinstance(target, LaunchAgentRepairTarget):
+        advanced = LaunchAgentAdvancedView(
+            command=f"launchctl kickstart gui/{target.uid}/{target.label}",
+            plist_path=target.plist_path,
+            ports=target.ports,
+        )
     else:
         advanced = PythonAdvancedView(
             interpreter=target.launch.interpreter,

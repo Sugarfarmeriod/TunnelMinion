@@ -12,7 +12,13 @@ export const patrolServiceSchema = z
     name: z.string().min(1),
     status: z.enum(["ok", "suspect", "down", "acknowledged"]),
     reason: z
-      .enum(["container_exited", "script_exited", "port_closed", "web_failed"])
+      .enum([
+        "container_exited",
+        "script_exited",
+        "agent_exited",
+        "port_closed",
+        "web_failed",
+      ])
       .nullable(),
     reason_text: z.string().nullable(),
     down_since: dateTime.nullable(),
@@ -22,7 +28,13 @@ export const patrolServiceSchema = z
     auto_repair: z
       .object({
         available: z.boolean(),
-        kind: z.enum(["restart_containers", "relaunch_python"]).nullable(),
+        kind: z
+          .enum([
+            "restart_containers",
+            "relaunch_python",
+            "restart_launch_agent",
+          ])
+          .nullable(),
         enabled: z.boolean(),
         enabled_on: z.string().date().nullable(),
         paused: z.boolean(),

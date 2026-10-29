@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import OperationId, ThreadId
 from tunnelminion.domain.service_marks import MARK_KEY_PATTERN
-from tunnelminion.repair.contracts import RepairKind
+from tunnelminion.repair.contracts import REPAIR_KEY_PREFIXES, RepairKind
 
 # 连续这么多轮异常才确认挂了；连续这么多轮正常才算恢复。
 PATROL_CONFIRM_ROUNDS = 3
@@ -49,6 +49,7 @@ class PatrolReason(StrEnum):
 
     CONTAINER_EXITED = "container_exited"
     SCRIPT_EXITED = "script_exited"
+    AGENT_EXITED = "agent_exited"
     PORT_CLOSED = "port_closed"
     WEB_FAILED = "web_failed"
 
@@ -56,6 +57,7 @@ class PatrolReason(StrEnum):
 REASON_TEXT: dict[PatrolReason, str] = {
     PatrolReason.CONTAINER_EXITED: "容器已退出",
     PatrolReason.SCRIPT_EXITED: "脚本已退出",
+    PatrolReason.AGENT_EXITED: "后台服务已退出",
     PatrolReason.PORT_CLOSED: "端口不再监听",
     PatrolReason.WEB_FAILED: "网页打不开",
 }
@@ -147,9 +149,7 @@ class AutoRepairInput(BaseModel):
 
 
 def repair_kind_for(key: str) -> RepairKind | None:
-    """每个服务只有一种现成修法：容器重启，脚本按启动记录重新拉起。"""
-    if key.startswith("docker:"):
-        return RepairKind.RESTART_CONTAINERS
-    if key.startswith("python:"):
-        return RepairKind.RELAUNCH_PYTHON
-    return None
+    """每个服务只有一种现成修法：容器重启，脚本按启动记录重新拉起，后台服务重新启动。"""
+    return next(
+        (kind for kind, prefix in REPAIR_KEY_PREFIXES.items() if key.startswith(prefix)), None
+    )

@@ -164,10 +164,12 @@ export function RepairDialog({
                 <pre>
                   {"commands" in repair.advanced
                     ? repair.advanced.commands.join("\n")
-                    : JSON.stringify([
-                        repair.advanced.interpreter,
-                        ...repair.advanced.arguments,
-                      ])}
+                    : "command" in repair.advanced
+                      ? `${repair.advanced.command}\n配置文件：${repair.advanced.plist_path}`
+                      : JSON.stringify([
+                          repair.advanced.interpreter,
+                          ...repair.advanced.arguments,
+                        ])}
                   {"working_directory" in repair.advanced
                     ? `\n工作目录：${repair.advanced.working_directory}`
                     : ""}

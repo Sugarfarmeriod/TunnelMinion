@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from tests.patrol.fakes import PHOTOS, PROGRAM, SCRIPT, PatrolHarness, entry
+from tests.patrol.fakes import AGENT, PHOTOS, PROGRAM, SCRIPT, PatrolHarness, entry
+from tests.repair.factories import launch_agent_record
 from tests.repair.fakes import local_launch
 
 from tunnelminion.domain.identifiers import OperationId, ThreadId
@@ -142,6 +143,7 @@ def test_no_observation_yet_skips_the_round(tmp_path: Path) -> None:
         ((8080,), entry(state="stopped"), None, PatrolReason.CONTAINER_EXITED),
         ((8765,), entry(SCRIPT, state="stopped"), None, PatrolReason.SCRIPT_EXITED),
         ((9000,), entry(PROGRAM, state="stopped"), None, PatrolReason.PORT_CLOSED),
+        ((8765,), entry(AGENT, state="stopped"), None, PatrolReason.AGENT_EXITED),
         ((8080,), entry(ports=(9090,)), None, PatrolReason.PORT_CLOSED),
         ((8080,), entry(), False, PatrolReason.WEB_FAILED),
         ((8080,), entry(), True, None),
@@ -513,6 +515,27 @@ def test_script_with_launch_record_can_be_auto_relaunched(tmp_path: Path) -> Non
     assert h.view_of(SCRIPT).auto_repair.kind is RepairKind.RELAUNCH_PYTHON
 
 
+def test_launch_agent_with_record_can_be_auto_restarted(tmp_path: Path) -> None:
+    h = PatrolHarness(tmp_path)
+    h.entries = (entry(AGENT, ports=(8765,)),)
+
+    async def scenario() -> None:
+        await h.rounds(1)
+        assert not h.view_of(AGENT).auto_repair.available
+        h.repairs.launch_records.put(launch_agent_record())
+        h.patrol.set_auto_repair(AGENT, enabled=True)
+        h.entries = (entry(AGENT, state="stopped", ports=(8765,)),)
+        await h.rounds(3)
+
+    asyncio.run(scenario())
+    assert h.conversations.texts()[0].startswith("巡检发现 笔记 挂了：后台服务已退出。")
+    [repair] = h.repairs.store.list_all()
+    assert repair.plan.kind is RepairKind.RESTART_LAUNCH_AGENT
+    assert repair.status is OperationStatus.SUCCEEDED
+    assert h.repairs.launch_agents.kickstarts == ["local.photos.web"]
+    assert h.view_of(AGENT).auto_repair.kind is RepairKind.RESTART_LAUNCH_AGENT
+
+
 def test_acknowledge_silences_until_running_again(tmp_path: Path) -> None:
     h = PatrolHarness(tmp_path)
 
@@ -614,6 +637,7 @@ def test_repair_kind_for_each_key_type() -> None:
     assert repair_kind_for(PHOTOS) is RepairKind.RESTART_CONTAINERS
     assert repair_kind_for(SCRIPT) is RepairKind.RELAUNCH_PYTHON
     assert repair_kind_for(PROGRAM) is None
+    assert repair_kind_for(AGENT) is RepairKind.RESTART_LAUNCH_AGENT
 
 
 def test_second_confirm_while_handling_does_not_start_another_and_close_cancels(

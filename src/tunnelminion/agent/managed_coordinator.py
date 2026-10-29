@@ -27,7 +27,12 @@ from tunnelminion.agent.service_observation import (
 )
 from tunnelminion.coordinator.client_credentials import AgentRefreshCredentialStore
 from tunnelminion.coordinator.contracts import CapabilitySummary, ServiceSummary
-from tunnelminion.repair.contracts import ContainerRuntime, HostInspector, LaunchRecordStore
+from tunnelminion.repair.contracts import (
+    ContainerRuntime,
+    HostInspector,
+    LaunchAgentRuntime,
+    LaunchRecordStore,
+)
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -178,6 +183,7 @@ def build_managed_coordinator_loops(
     containers: ContainerRuntime | None = None,
     launch_records: LaunchRecordStore | None = None,
     host: HostInspector | None = None,
+    launch_agents: LaunchAgentRuntime | None = None,
 ) -> ManagedCoordinatorLoops:
     """注入既有凭据、checkpoint、能力渲染、服务观察和目录缓存。"""
     service_cache = ServiceSnapshotCache()
@@ -191,6 +197,7 @@ def build_managed_coordinator_loops(
         containers=containers,
         launch_records=launch_records,
         host=host,
+        launch_agents=launch_agents,
     )
     synchronizer = AgentCoordinatorSynchronizer(
         config.coordinator_client_config(),

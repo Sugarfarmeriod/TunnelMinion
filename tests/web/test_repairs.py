@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from tests.repair.factories import NOW, container, plan
+from tests.repair.factories import NOW, container, launch_agent_target, plan
 from tests.repair.fakes import RepairHarness, local_launch
 
 from tunnelminion.domain.identifiers import OperationId
@@ -99,6 +99,18 @@ def test_python_detail_exposes_launch_only_locally(tmp_path: Path) -> None:
     }
     listing = client.get("/api/repairs").text
     assert "interpreter" not in listing and "working_directory" not in listing
+
+
+def test_launch_agent_detail_shows_fixed_command_locally(tmp_path: Path) -> None:
+    h = RepairHarness(tmp_path)
+    record = pending(h, RepairRecord.planned(plan(launch_agent_target()), actor="local-cli"))
+    detail = client_for(h).get(f"/api/repairs/{record.plan.operation_id}")
+    assert detail.json()["advanced"] == {
+        "command": "launchctl kickstart gui/501/local.photos.web",
+        "plist_path": "/Users/me/Library/LaunchAgents/local.photos.web.plist",
+        "ports": [8765],
+    }
+    assert detail.json()["kind"] == "restart_launch_agent"
 
 
 def test_approve_returns_202_and_schedules_execution_once(tmp_path: Path) -> None:

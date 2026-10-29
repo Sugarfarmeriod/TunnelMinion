@@ -9,6 +9,10 @@ import { chineseDate, type PatrolService } from "../patrol/api";
 import { relativeTime } from "./topology";
 
 const kindNames = { docker: "Docker", python: "Python", program: "程序" };
+
+function kindName(service: ServiceEntry) {
+  return service.launch_agent ? "后台服务" : kindNames[service.kind];
+}
 const tierNames = { show: "直接显示", review: "可能是服务", hidden: "已隐藏" };
 
 interface ServicesPanelProps {
@@ -43,6 +47,7 @@ interface ServicesPanelProps {
 const kindRepair = {
   restart_containers: "只限重启容器",
   relaunch_python: "只限按上次的方式重新拉起",
+  restart_launch_agent: "只限重新启动这个后台服务",
 };
 
 export function ServicesPanel({
@@ -116,7 +121,7 @@ export function ServicesPanel({
           [
             service.name,
             service.kind,
-            kindNames[service.kind],
+            kindName(service),
             ...service.endpoints.map((endpoint) => endpoint.port),
           ]
             .join(" ")
@@ -414,7 +419,7 @@ export function ServicesPanel({
                           )
                           .join("、")}
                       >
-                        {kindNames[service.kind]} ·{" "}
+                        {kindName(service)} ·{" "}
                         {service.endpoints
                           .map((endpoint) => endpoint.port)
                           .join(" / ") || "无端口"}

@@ -13,6 +13,10 @@ from tunnelminion.repair.contracts import (
     ContainerRepairTarget,
     ContainerRuntime,
     HostInspector,
+    LaunchAgentRecord,
+    LaunchAgentRepairTarget,
+    LaunchAgentRuntime,
+    LaunchRecord,
     LaunchRecordStore,
     PythonRepairTarget,
     RepairError,
@@ -28,9 +32,11 @@ from tunnelminion.repair.eligibility import (
     check_containers,
     check_hidden,
     check_identity,
+    check_launch_agent,
     check_python,
     read_containers,
 )
+from tunnelminion.repair.launch_agents import UnsupportedLaunchAgents
 
 
 class RepairPlanner:
@@ -42,6 +48,8 @@ class RepairPlanner:
         containers: ContainerRuntime,
         host: HostInspector,
         clock: Callable[[], datetime],
+        *,
+        launch_agents: LaunchAgentRuntime | None = None,
     ) -> None:
         self._node_id = node_id
         self._marks = marks
@@ -49,6 +57,7 @@ class RepairPlanner:
         self._containers = containers
         self._host = host
         self._clock = clock
+        self._launch_agents = launch_agents or UnsupportedLaunchAgents()
 
     async def propose(
         self, service_key: str, kind: RepairKind, reason: str, origin: RepairOrigin
@@ -59,7 +68,7 @@ class RepairPlanner:
         check_identity(service_key, kind)
         mark = self._marks().get(service_key)
         check_hidden(mark)
-        target: ContainerRepairTarget | PythonRepairTarget
+        target: ContainerRepairTarget | PythonRepairTarget | LaunchAgentRepairTarget
         if kind is RepairKind.RESTART_CONTAINERS:
             compose = service_key.startswith("docker:compose:")
             name = service_key.removeprefix("docker:compose:" if compose else "docker:")
@@ -87,9 +96,42 @@ class RepairPlanner:
                 else "重启后我会确认容器在运行。"
             )
             failure = "没修好我会停下来，告诉你卡在哪，不会反复重启。"
+        elif kind is RepairKind.RESTART_LAUNCH_AGENT:
+            label = service_key.removeprefix("launchd:")
+            record = self._launch_records.get(service_key)
+            if not isinstance(record, LaunchAgentRecord):
+                raise RepairRefusal(
+                    RepairError(
+                        code=RepairErrorCode.NO_LAUNCH_RECORD,
+                        message="我还没见过这个后台服务正常运行，不知道修好以后该检查哪些端口。",
+                        next_step="等它下次正常运行时我会记住。",
+                    )
+                )
+            if mark is not ServiceMark.MINE and not record.rule_shown:
+                raise RepairRefusal(NOT_MINE_ERROR)
+            job = await check_launch_agent(label, record.ports, self._launch_agents, self._host)
+            target = LaunchAgentRepairTarget(
+                label=label,
+                uid=job.uid,
+                plist_path=job.plist_path,
+                plist_sha256=job.plist_sha256,
+                listen_ports=record.ports,
+            )
+            ports = "、".join(str(port) for port in target.ports)
+            service_name = f"后台服务 {label}"
+            action = f"重新启动后台服务 {label}（端口 {ports}）"
+            impact = (
+                "由 macOS 按它自己的配置重新启动，和在终端里运行 launchctl kickstart 一样；"
+                "不改配置文件。"
+            )
+            verification = f"启动后我会确认它在运行、端口 {ports} 在听，有网页的再打开一次首页。"
+            failure = (
+                "没修好我会停下来，告诉你卡在哪；后台服务归 macOS 管，"
+                "我不会再动它，也不会反复重启。"
+            )
         else:
             launch = self._launch_records.get(service_key)
-            if launch is None:
+            if not isinstance(launch, LaunchRecord):
                 raise RepairRefusal(
                     RepairError(
                         code=RepairErrorCode.NO_LAUNCH_RECORD,

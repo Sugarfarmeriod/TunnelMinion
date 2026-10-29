@@ -6,11 +6,17 @@ from datetime import timedelta
 
 import pytest
 from tests.agent.test_service_observation import Clock, FakeAdapter, collection
-from tests.repair.factories import NODE, container, launch_record
-from tests.repair.fakes import FakeContainers, FakeHost, MemoryLaunchRecordStore
+from tests.repair.factories import NODE, container, launch_agent_record, launch_record
+from tests.repair.fakes import (
+    FakeContainers,
+    FakeHost,
+    FakeLaunchAgents,
+    MemoryLaunchRecordStore,
+)
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
+from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.models import DockerService, NetworkListener
 from tunnelminion.repair.contracts import ContainerSnapshot, LaunchRecord, PortOwner
 from tunnelminion.web.service_map import build_local_service_map
@@ -234,3 +240,66 @@ def test_launch_running_check_is_background_only_and_uses_matching_identity(
     assert build_local_service_map(NODE, snapshot, {}, launch_records=records.list_all()).services[
         0
     ].state == ("running" if with_records and with_host else "stopped")
+
+
+@pytest.mark.parametrize("case", ["tagged", "error", "none"])
+def test_launch_agent_ports_get_label_identity_and_stopped_entries(case: str) -> None:
+    agents = FakeLaunchAgents()
+    agents.labels = {300: "local.photos.web"} if case != "none" else {}
+    agents.error_on_labels = case == "error"
+    records = MemoryLaunchRecordStore()
+    records.put(launch_agent_record())
+    records.put(launch_agent_record("local.gone", ports=(9100,)))
+    observer = DeterministicServiceObserver(
+        NODE,
+        ServiceObservationConfig(),
+        FakeAdapter(
+            collection(
+                NetworkListener(
+                    protocol="tcp",
+                    address="127.0.0.1",
+                    port=8765,
+                    pid=300,
+                    process_name="python3",
+                    python_entrypoint="http.server",
+                    origin=ProcessOrigin.USER_INSTALL,
+                ),
+                NetworkListener(
+                    protocol="tcp",
+                    address="127.0.0.1",
+                    port=9000,
+                    pid=301,
+                    process_name="node",
+                    origin=ProcessOrigin.USER_INSTALL,
+                ),
+            )
+        ),
+        FakeAdapter(collection()),
+        FakeAdapter(collection()),
+        launch_records=records,
+        host=FakeHost(),
+        launch_agents=agents,
+    )
+    snapshot = asyncio.run(observer.observe())
+    labels = [item.launch_agent_label for item in snapshot.inventory]
+    services = {
+        entry.key: entry
+        for entry in build_local_service_map(
+            NODE, snapshot, {}, launch_records=records.list_all()
+        ).services
+    }
+    gone = services["launchd:local.gone"]
+    assert gone.state == "stopped" and gone.launch_agent and gone.kind == "program"
+    assert gone.name == "local.gone"
+    if case != "tagged":
+        assert labels == [None, None]
+        assert services["launchd:local.photos.web"].state == "stopped"
+        assert "python:http.server@8765" in services
+        return
+    assert labels == ["local.photos.web", None]
+    assert snapshot.running_launch_keys == frozenset({"launchd:local.photos.web"})
+    photos = services["launchd:local.photos.web"]
+    assert photos.state == "running" and photos.launch_agent and photos.kind == "program"
+    assert photos.name == "local.photos.web" and photos.tier == "show"
+    assert not services["program:node@9000"].launch_agent
+    assert "local.photos.web · 8765" in snapshot.display_names.values()

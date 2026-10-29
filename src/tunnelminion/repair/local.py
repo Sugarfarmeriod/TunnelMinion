@@ -10,8 +10,10 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.platforms.windows.system import SubprocessCommandRunner, SystemReader
 from tunnelminion.repair.agent_tools import register_repair_agent_tools
+from tunnelminion.repair.contracts import LaunchAgentRuntime
 from tunnelminion.repair.definitions import register_repair_operations
 from tunnelminion.repair.docker import DockerContainerRuntime
+from tunnelminion.repair.launch_agents import MacLaunchAgentRuntime
 from tunnelminion.repair.processes import (
     BackgroundProcessLauncher,
     PsutilHostInspector,
@@ -29,9 +31,13 @@ def build_node_repair_service(
     registry: ToolRegistry,
     docker_path: str,
     system_reader: SystemReader,
+    platform: Platform = Platform.WINDOWS,
 ) -> RepairService:
     """`registry` 里必须已经登记修法，否则策略会拒绝所有修复。"""
     containers = DockerContainerRuntime(SubprocessCommandRunner(), docker_path)
+    launch_agents: LaunchAgentRuntime | None = (
+        MacLaunchAgentRuntime(SubprocessCommandRunner()) if platform is Platform.MACOS else None
+    )
     host = PsutilHostInspector(system_reader)
     service = build_repair_service(
         node_id=node_id,
@@ -44,6 +50,7 @@ def build_node_repair_service(
         launcher=BackgroundProcessLauncher(),
         host=host,
         verifier=SocketLocalVerifier(),
+        launch_agents=launch_agents,
     )
     register_repair_agent_tools(
         registry,
@@ -86,4 +93,5 @@ def build_local_repair_service(
         registry=registry,
         docker_path=docker_path(),
         system_reader=system_reader,
+        platform=platform,
     )

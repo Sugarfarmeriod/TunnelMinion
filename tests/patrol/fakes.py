@@ -28,6 +28,7 @@ from tunnelminion.web.service_map import LocalServiceMap, ServiceEndpoint, Servi
 PHOTOS = "docker:compose:photos"
 SCRIPT = "python:app.py@8765"
 PROGRAM = "program:notes@9000"
+AGENT = "launchd:local.photos.web"
 
 
 def entry(
@@ -49,6 +50,7 @@ def entry(
         key=key,
         name={"docker": "相册", "python": "app.py", "program": "笔记"}[kind],
         kind=kind,
+        launch_agent=key.startswith("launchd:"),
         tier=tier,
         state=state,
         endpoints=tuple(

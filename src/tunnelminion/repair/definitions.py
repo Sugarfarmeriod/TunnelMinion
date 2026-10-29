@@ -33,6 +33,10 @@ def register_repair_operations(registry: ToolRegistry) -> tuple[ToolDefinition, 
         RepairKind.RELAUNCH_PYTHON: (
             "按启动记录在后台重新拉起已退出的 Python 脚本，只能经本机批准后由修复流程执行。"
         ),
+        RepairKind.RESTART_LAUNCH_AGENT: (
+            "用 launchctl kickstart 重新启动当前用户已经退出的 macOS 后台服务，"
+            "只能经本机批准后由修复流程执行。"
+        ),
     }
     definitions: list[ToolDefinition] = []
     for kind, name in REPAIR_TOOL_NAMES.items():

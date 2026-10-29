@@ -1,4 +1,4 @@
-"""只为已确认服务采集本机 Python 启动方式。"""
+"""只为已确认服务采集本机 Python 启动方式和 macOS 后台服务的标签与端口。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from tunnelminion.agent.service_observation import service_tier
 from tunnelminion.agent.service_tiers import ServiceTier
 from tunnelminion.agent.services import RemoteServiceSummary
 from tunnelminion.platforms.python_entrypoint import is_python_process, parse_python_entrypoint
-from tunnelminion.repair.contracts import LaunchRecord, LaunchRecordStore
+from tunnelminion.repair.contracts import LaunchAgentRecord, LaunchRecord, LaunchRecordStore
 
 
 class ProcessLaunchFacts(BaseModel):
@@ -120,13 +120,62 @@ class LaunchRecorder:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._own_pid = os.getpid() if own_pid is None else own_pid
 
+    def _record_launch_agents(
+        self,
+        inventory: Sequence[RemoteServiceSummary],
+        keys: Sequence[str],
+        marks: Mapping[str, ServiceMark],
+    ) -> int:
+        """后台服务只记标签和端口；plist 和命令在生成计划时现读。"""
+        ports: dict[str, set[int]] = {}
+        shown: dict[str, bool] = {}
+        for item, key in zip(inventory, keys, strict=True):
+            label = item.launch_agent_label
+            if (
+                label is None
+                or not key.startswith("launchd:")
+                or item.protocol != "tcp"
+                or item.process_pid == self._own_pid
+            ):
+                continue
+            ports.setdefault(label, set()).add(item.port)
+            shown[label] = shown.get(label, False) or service_tier(item, None) is ServiceTier.SHOW
+        written = 0
+        for label, values in ports.items():
+            try:
+                key = f"launchd:{label}"
+                mark = marks.get(key)
+                if not (
+                    mark is ServiceMark.MINE or (shown[label] and mark is not ServiceMark.HIDDEN)
+                ):
+                    continue
+                record = LaunchAgentRecord(
+                    service_key=key,
+                    label=label,
+                    ports=tuple(sorted(values))[:32],
+                    rule_shown=shown[label],
+                    recorded_at=self._clock(),
+                )
+                existing = self._store.get(key)
+                if existing is not None and existing.model_dump(
+                    exclude={"recorded_at"}
+                ) == record.model_dump(exclude={"recorded_at"}):
+                    continue
+                self._store.put(record)
+                written += 1
+            except Exception:
+                continue
+        return written
+
     def record(
         self, inventory: Sequence[RemoteServiceSummary], marks: Mapping[str, ServiceMark]
     ) -> int:
         written = 0
         facts_by_pid: dict[int, ProcessLaunchFacts | None] = {}
         seen: set[tuple[int, str]] = set()
-        for item, key in zip(inventory, service_mark_keys(inventory), strict=True):
+        keys = service_mark_keys(inventory)
+        written += self._record_launch_agents(inventory, keys, marks)
+        for item, key in zip(inventory, keys, strict=True):
             pid = item.process_pid
             if (
                 not is_python_process(item.process_name)

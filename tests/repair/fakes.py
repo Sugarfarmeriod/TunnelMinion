@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 
-from tests.repair.factories import NODE, NOW, container, launch_record, plan
+from tests.repair.factories import NODE, NOW, container, launch_agent_job, launch_record, plan
 
 from tunnelminion.domain.identifiers import OperationId
 from tunnelminion.domain.service_marks import ServiceMark
@@ -16,9 +16,13 @@ from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
 from tunnelminion.repair.contracts import (
     REPAIR_ACTIVE_STATUSES,
     REPAIR_TERMINAL_STATUSES,
+    AnyLaunchRecord,
     ContainerRuntime,
     ContainerSnapshot,
     HostInspector,
+    LaunchAgentJob,
+    LaunchAgentProblem,
+    LaunchAgentRuntime,
     LaunchRecord,
     LaunchRecordStore,
     LocalVerifier,
@@ -103,16 +107,56 @@ class MemoryRepairStore(RepairStore):
 
 class MemoryLaunchRecordStore(LaunchRecordStore):
     def __init__(self) -> None:
-        self.records: dict[str, LaunchRecord] = {}
+        self.records: dict[str, AnyLaunchRecord] = {}
 
-    def put(self, record: LaunchRecord) -> None:
+    def put(self, record: AnyLaunchRecord) -> None:
         self.records[record.service_key] = record
 
-    def get(self, service_key: str) -> LaunchRecord | None:
+    def get(self, service_key: str) -> AnyLaunchRecord | None:
         return self.records.get(service_key)
 
-    def list_all(self) -> tuple[LaunchRecord, ...]:
+    def list_all(self) -> tuple[AnyLaunchRecord, ...]:
         return tuple(self.records.values())
+
+
+class FakeLaunchAgents(LaunchAgentRuntime):
+    """不碰 launchctl 的后台服务替身；kickstart 成功后服务进入运行状态。"""
+
+    def __init__(self) -> None:
+        self.reason: str | None = None
+        self.job: LaunchAgentJob | LaunchAgentProblem = launch_agent_job()
+        self.responses: list[LaunchAgentJob | LaunchAgentProblem] = []
+        self.labels: dict[int, str] = {}
+        self.kickstarts: list[str] = []
+        self.exit_code: int | None = 0
+        self.stay_stopped = False
+        self.log = "address already in use"
+        self.error_on_labels = False
+
+    def unsupported_reason(self) -> str | None:
+        return self.reason
+
+    async def labels_for_pids(self, pids: frozenset[int]) -> dict[int, str]:
+        if self.error_on_labels:
+            raise RuntimeError("fake")
+        return {pid: label for pid, label in self.labels.items() if pid in pids}
+
+    async def inspect(self, label: str) -> LaunchAgentJob | LaunchAgentProblem:
+        return self.responses.pop(0) if self.responses else self.job
+
+    async def kickstart(self, label: str) -> RepairCommand:
+        self.kickstarts.append(label)
+        if self.exit_code == 0 and not self.stay_stopped and isinstance(self.job, LaunchAgentJob):
+            self.job = self.job.model_copy(update={"pid": 777})
+        return RepairCommand(
+            argv=("/bin/launchctl", "kickstart", f"gui/501/{label}"),
+            exit_code=self.exit_code,
+            started_at=NOW,
+            finished_at=NOW,
+        )
+
+    def log_tail(self, job: LaunchAgentJob, *, lines: int) -> str:
+        return self.log
 
 
 class FakeContainers(ContainerRuntime):
@@ -267,8 +311,15 @@ class RepairHarness:
         self.marks: dict[str, ServiceMark] = {}
         self.registry = ToolRegistry()
         register_repair_operations(self.registry)
+        self.launch_agents = FakeLaunchAgents()
         self.planner = RepairPlanner(
-            NODE, lambda: self.marks, self.launch_records, self.containers, self.host, self.clock
+            NODE,
+            lambda: self.marks,
+            self.launch_records,
+            self.containers,
+            self.host,
+            self.clock,
+            launch_agents=self.launch_agents,
         )
         self.workflow = RepairWorkflow(
             self.store,
@@ -282,6 +333,7 @@ class RepairHarness:
             self.clock.sleep,
             container_verify_seconds=2,
             python_verify_seconds=2,
+            launch_agents=self.launch_agents,
         )
         self.authorization = AuthorizationService(
             self.store,
@@ -296,6 +348,7 @@ class RepairHarness:
             self.clock,
             self.containers,
             self.host,
+            self.launch_agents,
         )
 
     def authorized(self, record: RepairRecord | None = None) -> RepairRecord:

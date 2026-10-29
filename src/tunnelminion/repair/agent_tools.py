@@ -19,6 +19,7 @@ from tunnelminion.repair.contracts import (
     REPAIR_AUTHORIZATION_SECONDS,
     ContainerRuntime,
     HostInspector,
+    LaunchRecord,
     LaunchRecordStore,
     RepairKind,
     RepairOrigin,
@@ -126,9 +127,8 @@ class ListLaunchRecordsAdapter:
     ) -> JsonValue:
         records: list[JsonValue] = []
         marks = self._marks()
-        for launch in sorted(
-            self._records.list_all(), key=lambda item: item.recorded_at, reverse=True
-        )[:20]:
+        launches = [item for item in self._records.list_all() if isinstance(item, LaunchRecord)]
+        for launch in sorted(launches, key=lambda item: item.recorded_at, reverse=True)[:20]:
             entry = launch.service_key.removeprefix("python:").rsplit("@", 1)[0]
             running = any(
                 (owner := self._host.port_owner(port, launch)) is not None and owner.matches_launch
@@ -242,11 +242,13 @@ def register_repair_agent_tools(
         (
             "propose_repair",
             "提出一个修法，交给这台电脑的主人批准。它只生成一条待批准的修复，不会执行任何东西；"
-            "主人批准后由本机固定流程执行并自己验证。只有两种修法：restart_containers"
+            "主人批准后由本机固定流程执行并自己验证。只有三种修法：restart_containers"
             "（重启 Docker 容器或 compose 组，service_key 用 docker:<容器名> 或 "
             "docker:compose:<项目名>）；"
             "relaunch_python（按启动记录重新拉起已经退出的 Python 脚本，service_key 用 "
-            "list_launch_records 给出的身份）。reason 用一句大白话写清依据，不要写命令，"
+            "list_launch_records 给出的身份）；restart_launch_agent（只在 macOS 上：重新启动"
+            "当前用户已经退出的后台服务，service_key 用服务清单里的 launchd:<标签>）。"
+            "reason 用一句大白话写清依据，不要写命令，"
             "写了也不会执行。修不了时会返回原因和下一步，照实告诉用户。",
             {
                 "service_key": {"type": "string", "pattern": MARK_KEY_PATTERN},

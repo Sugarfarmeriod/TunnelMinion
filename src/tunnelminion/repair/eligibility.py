@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from tunnelminion.domain.service_marks import ServiceMark, is_mark_key
 from tunnelminion.platforms.python_entrypoint import parse_python_entrypoint
 from tunnelminion.repair.contracts import (
+    REPAIR_KEY_PREFIXES,
     ContainerRuntime,
     ContainerSnapshot,
     HostInspector,
+    LaunchAgentJob,
+    LaunchAgentProblem,
+    LaunchAgentRuntime,
     LaunchRecord,
+    PortOwner,
     RepairError,
     RepairErrorCode,
     RepairKind,
@@ -34,15 +40,35 @@ class RepairRefusal(Exception):
         self.error = error
 
 
+# 苹果和常见系统组件、Docker 运行环境、组网工具的后台服务标签前缀；即使标成"是我的服务"也不修。
+PROTECTED_LAUNCH_AGENT_PREFIXES = (
+    "com.apple.",
+    "com.openssh.",
+    "org.cups.",
+    "org.openbsd.",
+    "org.ntp.",
+    "org.postfix.",
+    "com.docker.",
+    "com.orbstack.",
+    "dev.orbstack.",
+    "com.wireguard.",
+    "com.tailscale.",
+    "io.tailscale.",
+    "com.zerotier.",
+)
+
+
 def check_identity(service_key: str, kind: RepairKind) -> None:
-    if not is_mark_key(service_key) or not service_key.startswith(("docker:", "python:")):
+    if not is_mark_key(service_key) or not service_key.startswith(
+        tuple(REPAIR_KEY_PREFIXES.values())
+    ):
         raise RepairRefusal(
             RepairError(
                 code=RepairErrorCode.NOT_ELIGIBLE,
-                message="第一版只能修 Docker 容器和 Python 脚本。",
+                message="只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
             )
         )
-    if service_key.startswith("docker:") != (kind is RepairKind.RESTART_CONTAINERS):
+    if not service_key.startswith(REPAIR_KEY_PREFIXES[kind]):
         raise RepairRefusal(
             RepairError(code=RepairErrorCode.NOT_ELIGIBLE, message="这种修法不适用于这个服务。")
         )
@@ -174,17 +200,105 @@ def check_python(launch: LaunchRecord, host: HostInspector) -> None:
                     message="脚本已经自己起来了，不需要修。",
                 )
             )
-        name = owner.process_name or "别的程序"
-        if (
-            any(char in name for char in "/\\")
-            or not name.isprintable()
-            or any(char.isspace() for char in name)
-        ):
-            name = "别的程序"
+        raise _port_in_use(port, owner)
+
+
+def _port_in_use(port: int, owner: PortOwner) -> RepairRefusal:
+    name = owner.process_name or "别的程序"
+    if (
+        any(char in name for char in "/\\")
+        or not name.isprintable()
+        or any(char.isspace() for char in name)
+    ):
+        name = "别的程序"
+    return RepairRefusal(
+        RepairError(
+            code=RepairErrorCode.PORT_IN_USE,
+            message=f"原来的端口 {port} 现在被 {name[:200]} 占了。",
+            next_step="先关掉占用这个端口的程序，Agent 不会去停它。",
+        )
+    )
+
+
+async def check_launch_agent(
+    label: str, ports: tuple[int, ...], runtime: LaunchAgentRuntime, host: HostInspector
+) -> LaunchAgentJob:
+    """只修当前用户自己装的、已加载但已经退出的后台服务。"""
+    reason = runtime.unsupported_reason()
+    if reason is not None:
+        raise RepairRefusal(RepairError(code=RepairErrorCode.NOT_ELIGIBLE, message=reason))
+    if label.casefold().startswith(PROTECTED_LAUNCH_AGENT_PREFIXES):
         raise RepairRefusal(
             RepairError(
-                code=RepairErrorCode.PORT_IN_USE,
-                message=f"原来的端口 {port} 现在被 {name[:200]} 占了。",
-                next_step="先关掉占用这个端口的程序，Agent 不会去停它。",
+                code=RepairErrorCode.PROTECTED_TARGET,
+                message="这是系统、组网或 Docker 自带的后台服务，Agent 不会动它。",
             )
         )
+    if "tunnelminion" in label.casefold():
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.PROTECTED_TARGET,
+                message="这是 TunnelMinion 自己，Agent 不会动它。",
+            )
+        )
+    job = await runtime.inspect(label)
+    if job is LaunchAgentProblem.MISSING:
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.NOT_ELIGIBLE,
+                message="在你用户目录的 ~/Library/LaunchAgents 里找不到这个后台服务的配置。",
+                next_step="Agent 只修你自己装在这个目录里的后台服务。",
+            )
+        )
+    if job is LaunchAgentProblem.UNSAFE:
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.PROTECTED_TARGET,
+                message=(
+                    "这个后台服务的配置文件不是你自己的普通文件，或者别人也能改，Agent 不会动它。"
+                ),
+            )
+        )
+    if job is LaunchAgentProblem.INVALID:
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.NOT_ELIGIBLE,
+                message="读不懂这个后台服务的配置文件（找不到要运行的程序）。",
+            )
+        )
+    if job.program is not None and ".app/contents/" in job.program.casefold():
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.PROTECTED_TARGET,
+                message="这是某个应用自带的后台服务，Agent 不会动它。",
+            )
+        )
+    if not job.loaded:
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.NOT_LOADED,
+                message="这个后台服务已经被卸载了（例如用 brew services stop 停掉的）。",
+                next_step="Agent 不会替你重新加载；需要的话请自己重新启用它。",
+            )
+        )
+    if job.loaded_path is None or os.path.normpath(job.loaded_path) != os.path.normpath(
+        job.plist_path
+    ):
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.NOT_ELIGIBLE,
+                message="macOS 加载的不是你用户目录里的这份配置，Agent 不会动它。",
+            )
+        )
+    if job.pid is not None:
+        raise RepairRefusal(
+            RepairError(
+                code=RepairErrorCode.ALREADY_RUNNING,
+                message="它还在运行。现在只重新启动已经退出的后台服务。",
+            )
+        )
+    for port in ports:
+        owner = host.port_owner(port)
+        if owner is not None:
+            raise _port_in_use(port, owner)
+    return job
