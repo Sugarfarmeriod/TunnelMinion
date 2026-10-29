@@ -26,7 +26,7 @@ import {
 } from "../chat/ConversationDrawer";
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
-import { mapLayout, relativeTime } from "./topology";
+import { mapLayout, networkLabels, relativeTime } from "./topology";
 import {
   isRepairExecuting,
   isRepairTerminal,
@@ -420,10 +420,11 @@ export function ServiceMapPage() {
                   <path
                     key={peer.node_id}
                     role="img"
-                    aria-label={`这台电脑到${peer.display_name}：${peer.reachable === true ? "能连上" : "连不上"}`}
+                    aria-label={`这台电脑到${peer.display_name}：${peer.reachable === true ? "能连上" : "连不上"}${peer.network ? `，走${networkLabels[peer.network]}` : ""}`}
                     data-from={nodeId}
                     data-to={peer.node_id}
-                    className={`map-link${peer.reachable === true ? "" : " is-unreachable"}`}
+                    data-network={peer.network ?? undefined}
+                    className={`map-link${peer.reachable === true ? "" : " is-unreachable"}${peer.network ? ` is-${peer.network}` : ""}`}
                     d={
                       layout.list
                         ? `M${layout.local.x},${layout.local.y} H10 V${point.y} H${point.x}`
@@ -433,6 +434,28 @@ export function ServiceMapPage() {
                 );
               })}
             </svg>
+            {remotePeers.map((peer, index) => {
+              if (!peer.network) return null;
+              const point = layout.peers[index]!;
+              // 列表布局里横向支线太短放不下字，标签竖着贴在通往这台电脑的那段主干上。
+              const position = layout.list
+                ? { left: "10%", top: point.y - 64 }
+                : {
+                    left: `${(layout.local.x + point.x) / 2}%`,
+                    top: (layout.local.y + point.y) / 2,
+                  };
+              return (
+                <span
+                  key={peer.node_id}
+                  aria-hidden="true"
+                  data-to={peer.node_id}
+                  className={`map-link-network is-${peer.network}${layout.list ? " is-vertical" : ""}`}
+                  style={position}
+                >
+                  {networkLabels[peer.network]}
+                </span>
+              );
+            })}
             <div
               className="map-node-position"
               style={{ left: `${layout.local.x}%`, top: layout.local.y }}

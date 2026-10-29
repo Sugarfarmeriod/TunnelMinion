@@ -72,6 +72,7 @@ export const peerSchema = z
     source: z.enum(["local", "gateway", "coordinator"]),
     reachable: z.boolean().nullable(),
     auth_rejected: z.boolean().default(false),
+    network: z.enum(["wireguard", "n2n", "other"]).nullable().default(null),
     last_seen_at: z.string().datetime({ offset: true }).nullable(),
     services_visible: z.boolean(),
     service_count: z.number().int().nonnegative(),

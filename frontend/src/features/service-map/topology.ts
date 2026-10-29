@@ -27,3 +27,10 @@ export function relativeTime(value: string | null) {
   if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时前`;
   return `${Math.floor(minutes / 1440)} 天前`;
 }
+
+// 连线上标出本机去对端走的组网；后端认不出具体类型时是“其他网卡”。
+export const networkLabels = {
+  wireguard: "WireGuard",
+  n2n: "n2n",
+  other: "其他网卡",
+} as const;

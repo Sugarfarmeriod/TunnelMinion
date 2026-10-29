@@ -240,9 +240,39 @@
   stroke-width: 3px;
   vector-effect: non-scaling-stroke;
 }
+.map-link.is-wireguard {
+  stroke: var(--map-cyan);
+}
+.map-link.is-n2n {
+  stroke: var(--map-gold);
+}
 .map-link.is-unreachable {
   stroke: var(--map-steel);
   stroke-dasharray: 8 8;
+}
+.map-link-network {
+  background: var(--map-ink);
+  border: 2px solid var(--map-fog);
+  color: var(--map-fog);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+.map-link-network.is-wireguard {
+  border-color: var(--map-cyan);
+  color: var(--map-cyan);
+}
+.map-link-network.is-n2n {
+  border-color: var(--map-gold);
+  color: var(--map-gold);
+}
+.map-link-network.is-vertical {
+  padding: 4px 2px;
+  writing-mode: vertical-rl;
 }
 .map-packet {
   position: absolute;
