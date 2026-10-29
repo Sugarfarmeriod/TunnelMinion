@@ -42,6 +42,8 @@ from tunnelminion.repair.contracts import (
     LaunchAgentRecord,
     LaunchAgentRuntime,
     LaunchRecordStore,
+    WindowsServiceRecord,
+    WindowsServiceRuntime,
 )
 from tunnelminion.tools.contracts import ToolCancellationToken, ToolExecutionStatus
 
@@ -326,9 +328,11 @@ class DeterministicServiceObserver:
         launch_records: LaunchRecordStore | None = None,
         host: HostInspector | None = None,
         launch_agents: LaunchAgentRuntime | None = None,
+        windows_services: WindowsServiceRuntime | None = None,
     ) -> None:
         self._node_id = node_id
         self._launch_agents = launch_agents
+        self._windows_services = windows_services
         self._marks = marks
         self._launch_recorder = launch_recorder
         self._containers = containers
@@ -392,6 +396,7 @@ class DeterministicServiceObserver:
                     self._node_id, listener, process, docker
                 )
                 inventory = await self._tag_launch_agents(inventory)
+                inventory = await self._tag_windows_services(inventory)
                 services = self._summaries(inventory.services)
                 self._validate_budget(services)
                 marks: Mapping[str, ServiceMark] = self._marks() if self._marks is not None else {}
@@ -486,7 +491,9 @@ class DeterministicServiceObserver:
                     )
                     for port in self._container_ports[container.container_id]
                 )
-        labels = frozenset(item.launch_agent_label for item in inventory)
+        labels = frozenset(
+            item.launch_agent_label or item.windows_service_name for item in inventory
+        )
         running = await asyncio.to_thread(self._running_launch_keys, labels)
         return snapshot.model_copy(
             update={"inventory": tuple(inventory), "running_launch_keys": running}
@@ -518,7 +525,36 @@ class DeterministicServiceObserver:
             }
         )
 
+    async def _tag_windows_services(
+        self, inventory: RemoteServiceInventory
+    ) -> RemoteServiceInventory:
+        """在 Windows 上给属于某个 Windows 服务的监听端口记上服务名；认不出时保持原样。"""
+        if self._windows_services is None:
+            return inventory
+        pids = frozenset(
+            item.process_pid
+            for item in inventory.services
+            if item.process_pid is not None and item.container_running is None
+        )
+        try:
+            names = await asyncio.to_thread(self._windows_services.services_for_pids, pids)
+        except Exception:
+            return inventory
+        if not names:
+            return inventory
+        return inventory.model_copy(
+            update={
+                "services": tuple(
+                    item.model_copy(update={"windows_service_name": names[item.process_pid]})
+                    if item.process_pid in names and item.container_running is None
+                    else item
+                    for item in inventory.services
+                )
+            }
+        )
+
     def _running_launch_keys(self, labels: frozenset[str | None]) -> frozenset[str]:
+        """有启动记录的服务里现在正在运行的；`labels` 是这一轮认出的后台服务标签和服务名。"""
         records, host = self._launch_records, self._host
         if records is None or host is None:
             return frozenset()
@@ -526,6 +562,9 @@ class DeterministicServiceObserver:
         for launch in records.list_all():
             if isinstance(launch, LaunchAgentRecord):
                 if launch.label in labels:
+                    running.add(launch.service_key)
+            elif isinstance(launch, WindowsServiceRecord):
+                if launch.service_name in labels:
                     running.add(launch.service_key)
             elif any(
                 (owner := host.port_owner(port, launch)) is not None and owner.matches_launch

@@ -717,7 +717,7 @@ class SQLiteRepairStore:
             return RepairClaimResult.CLAIMED
 
 
-# Python 脚本的启动记录和 macOS 后台服务记录放在同一张表里，按字段区分。
+# 脚本和程序的启动记录、macOS 后台服务和 Windows 服务的记录放在同一张表里，按字段区分。
 _ANY_LAUNCH_RECORD: TypeAdapter[AnyLaunchRecord] = TypeAdapter(AnyLaunchRecord)
 
 

@@ -12,6 +12,7 @@ from tunnelminion.agent.prompts import (
     READONLY_AGENT_PROMPT_V3,
     READONLY_AGENT_PROMPT_V4,
     READONLY_AGENT_PROMPT_V5,
+    READONLY_AGENT_PROMPT_V6,
     REAL_MODEL_EVALUATION_PROMPT,
     PromptRegistry,
 )
@@ -20,7 +21,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 13
+    assert len(definitions) == 14
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.content_hash == (
@@ -30,9 +31,12 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
 
     assert INCIDENT_INVESTIGATION_PROMPT.version == "v3"
     assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "3.0.0"
-    assert READONLY_AGENT_PROMPT.version == "v6"
-    assert READONLY_AGENT_PROMPT.semantic_version == "6.0.0"
-    assert READONLY_AGENT_PROMPT.template.startswith(READONLY_AGENT_PROMPT_V5.template)
+    assert READONLY_AGENT_PROMPT.version == "v7"
+    assert READONLY_AGENT_PROMPT.semantic_version == "7.0.0"
+    assert READONLY_AGENT_PROMPT.template.startswith(READONLY_AGENT_PROMPT_V6.template)
+    assert READONLY_AGENT_PROMPT_V6.template.startswith(READONLY_AGENT_PROMPT_V5.template)
+    assert "restart_stuck_program" in READONLY_AGENT_PROMPT.template
+    assert "manual_steps" in READONLY_AGENT_PROMPT.template
     assert "request_more_tools" in READONLY_AGENT_PROMPT.template
     assert "不要回答“没有这个工具”" in READONLY_AGENT_PROMPT.template
     assert (

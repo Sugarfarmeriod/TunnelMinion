@@ -56,7 +56,8 @@ from tunnelminion.memory.contracts import (
 )
 from tunnelminion.memory.service import MemoryContextQuery, MemoryContextRetriever
 from tunnelminion.model.contracts import ModelMessage, ProviderError, ProviderErrorCode
-from tunnelminion.repair.contracts import RepairRecord
+from tunnelminion.repair.contracts import ManualStep, RepairRecord
+from tunnelminion.repair.manual_steps import take_run_steps
 from tunnelminion.repair.results import repair_result_text
 from tunnelminion.tools.contracts import ToolCallContext
 
@@ -121,6 +122,8 @@ class ThreadMessage(BaseModel):
     run_id: RunId
     answer_checked: bool = False
     answer_basis: Literal["checked", "inferred", "none"] = "checked"
+    # 修不了时本机按固定模板生成的现成步骤，界面单独显示并带复制按钮；不由模型编写。
+    manual_steps: tuple[ManualStep, ...] = ()
 
 
 class ThreadDetail(BaseModel):
@@ -354,13 +357,17 @@ class InMemoryConversationService:
                 repair_id=repair_id,
             )
 
-    def append_notice(self, thread_id: ThreadId, text: str) -> bool:
+    def append_notice(
+        self, thread_id: ThreadId, text: str, *, manual_steps: tuple[ManualStep, ...] = ()
+    ) -> bool:
         """巡检写进对话的一句说明；对话正在回答时不插话，返回 False。"""
         with self._repair_result_lock:
             thread = self._threads.get(str(thread_id))
             if thread is None:
                 return False
-            return self._append_note(thread, text, answer_basis="checked")
+            return self._append_note(
+                thread, text, answer_basis="checked", manual_steps=manual_steps
+            )
 
     def _append_note(
         self,
@@ -369,6 +376,7 @@ class InMemoryConversationService:
         *,
         answer_basis: Literal["checked", "inferred", "none"],
         repair_id: str | None = None,
+        manual_steps: tuple[ManualStep, ...] = (),
     ) -> bool:
         if self._read_only_preview:
             return False
@@ -401,6 +409,7 @@ class InMemoryConversationService:
             state.run_id,
             answer_checked=True,
             answer_basis=answer_basis,
+            manual_steps=manual_steps,
         )
         if repair_id is not None:
             thread.repair_result_ids.append(repair_id)
@@ -826,6 +835,7 @@ class InMemoryConversationService:
                 state.run_id,
                 answer_checked=result.answer_checked,
                 answer_basis=result.answer_basis,
+                manual_steps=take_run_steps(str(state.run_id)),
             )
             self._append(
                 state,
@@ -1023,6 +1033,7 @@ class InMemoryConversationService:
         *,
         answer_checked: bool = False,
         answer_basis: Literal["checked", "inferred", "none"] = "checked",
+        manual_steps: tuple[ManualStep, ...] = (),
     ) -> None:
         thread = self._threads.get(str(thread_id))
         if thread is None:
@@ -1036,6 +1047,7 @@ class InMemoryConversationService:
                 run_id=run_id,
                 answer_checked=answer_checked,
                 answer_basis=answer_basis,
+                manual_steps=manual_steps,
             )
         )
         thread.updated_at = now

@@ -15,10 +15,18 @@ from tests.repair.fakes import (
 )
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
+from tunnelminion.agent.service_marks import ServiceMark
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
 from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.windows.models import DockerService, NetworkListener
-from tunnelminion.repair.contracts import ContainerSnapshot, LaunchRecord, PortOwner
+from tunnelminion.repair.contracts import (
+    ContainerSnapshot,
+    PortOwner,
+    ProcessLaunchRecord,
+    ProgramLaunchRecord,
+    RepairCommand,
+    WindowsServiceRecord,
+)
 from tunnelminion.web.service_map import build_local_service_map
 
 
@@ -153,7 +161,9 @@ def test_repair_checks_are_best_effort_and_keep_cached_ports(source: str, failur
             )
 
     class Host(FakeHost):
-        def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
+        def port_owner(
+            self, port: int, launch: ProcessLaunchRecord | None = None
+        ) -> PortOwner | None:
             if failing and source == "host":
                 if failure == "exception":
                     raise RuntimeError("fake unavailable")
@@ -213,7 +223,9 @@ def test_launch_running_check_is_background_only_and_uses_matching_identity(
     caller = threading.get_ident()
 
     class Host(FakeHost):
-        def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
+        def port_owner(
+            self, port: int, launch: ProcessLaunchRecord | None = None
+        ) -> PortOwner | None:
             assert threading.get_ident() != caller
             return super().port_owner(port, launch)
 
@@ -303,3 +315,113 @@ def test_launch_agent_ports_get_label_identity_and_stopped_entries(case: str) ->
     assert photos.name == "local.photos.web" and photos.tier == "show"
     assert not services["program:node@9000"].launch_agent
     assert "local.photos.web · 8765" in snapshot.display_names.values()
+
+
+class FakeWindowsTagger:
+    """只认进程号到服务名的 Windows 服务替身。"""
+
+    def __init__(self, names: dict[int, str], *, error: bool = False) -> None:
+        self.names = names
+        self.error = error
+
+    def unsupported_reason(self) -> str | None:
+        return None
+
+    def services_for_pids(self, pids: frozenset[int]) -> dict[int, str]:
+        if self.error:
+            raise OSError("scm")
+        return {pid: name for pid, name in self.names.items() if pid in pids}
+
+    def inspect(self, name: str) -> None:
+        return None
+
+    async def set_granted(self, name: str, *, granted: bool) -> bool:
+        return False
+
+    async def start(self, name: str) -> RepairCommand:
+        raise ValueError(name)
+
+    async def stop(self, name: str) -> RepairCommand:
+        raise ValueError(name)
+
+
+@pytest.mark.parametrize("case", ["tagged", "error", "none"])
+def test_windows_service_ports_are_tagged_and_records_show_when_stopped(case: str) -> None:
+    records = MemoryLaunchRecordStore()
+    records.put(
+        WindowsServiceRecord(
+            service_key="program:sunshine@47984",
+            service_name="SunshineService",
+            ports=(47984,),
+            rule_shown=False,
+            recorded_at=launch_record().recorded_at,
+        )
+    )
+    records.put(
+        WindowsServiceRecord(
+            service_key="program:gone@9100",
+            service_name="GoneService",
+            ports=(9100,),
+            rule_shown=False,
+            recorded_at=launch_record().recorded_at,
+        )
+    )
+    records.put(
+        ProgramLaunchRecord(
+            service_key="program:gost@805",
+            executable="/opt/gost",
+            executable_size=1,
+            executable_mtime_ns=1,
+            working_directory="/home/me",
+            username="me",
+            ports=(805,),
+            rule_shown=True,
+            process_id=9,
+            process_started_at=launch_record().process_started_at,
+            recorded_at=launch_record().recorded_at,
+        )
+    )
+    observer = DeterministicServiceObserver(
+        NODE,
+        ServiceObservationConfig(),
+        FakeAdapter(
+            collection(
+                NetworkListener(
+                    protocol="tcp",
+                    address="0.0.0.0",
+                    port=47984,
+                    pid=400,
+                    process_name="sunshine.exe",
+                    origin=ProcessOrigin.APP_SERVICE,
+                )
+            )
+        ),
+        FakeAdapter(collection()),
+        FakeAdapter(collection()),
+        launch_records=records,
+        host=FakeHost(),
+        windows_services=FakeWindowsTagger(
+            {400: "SunshineService"} if case != "none" else {}, error=case == "error"
+        ),
+    )
+    snapshot = asyncio.run(observer.observe())
+    services = {
+        entry.key: entry
+        for entry in build_local_service_map(
+            NODE,
+            snapshot,
+            {"program:sunshine@47984": ServiceMark.MINE},
+            launch_records=records.list_all(),
+        ).services
+    }
+    gone, gost = services["program:gone@9100"], services["program:gost@805"]
+    assert gone.state == "stopped" and gone.windows_service and gone.kind == "program"
+    assert gost.state == "stopped" and not gost.windows_service and gost.name == "gost"
+    sunshine = services["program:sunshine@47984"]
+    if case != "tagged":
+        assert [item.windows_service_name for item in snapshot.inventory] == [None]
+        assert not sunshine.windows_service
+        return
+    assert [item.windows_service_name for item in snapshot.inventory] == ["SunshineService"]
+    assert snapshot.running_launch_keys == frozenset({"program:sunshine@47984"})
+    assert sunshine.windows_service and sunshine.state == "running"

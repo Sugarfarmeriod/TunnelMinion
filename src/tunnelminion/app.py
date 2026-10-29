@@ -541,6 +541,7 @@ def build_windows_application(
             containers=node.repair_service.containers,
             launch_records=stores.launch_records,
             host=node.repair_service.host,
+            windows_services=node.repair_service.windows_services,
             launch_recorder=(
                 None if read_only_preview else LaunchRecorder(stores.launch_records).record
             ),
@@ -605,6 +606,7 @@ def build_windows_application(
         conversations=conversations,
         repairs=node.repair_service,
         launch_records=stores.launch_records,
+        windows_services=node.repair_service.windows_services,
     )
     peer_poller = PeerServicePoller(
         GatewayConfigurationService(

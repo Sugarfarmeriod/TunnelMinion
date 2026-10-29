@@ -1,8 +1,8 @@
 """动手修服务的计划、启动记录、执行与验证记录，以及执行层的固定接口。
 
-修复复用操作状态机和授权服务。计划只由本机代码根据服务身份、Docker 实时状态、启动记录
-和 launchd 状态生成；提出修法的一方只能给出服务身份、修法种类和理由，理由只用于展示，
-永远不进入任何命令。
+修复复用操作状态机和授权服务。计划只由本机代码根据服务身份、Docker 实时状态、启动记录、
+launchd 和 Windows 服务管理器的状态生成；提出修法的一方只能给出服务身份、修法种类和理由，
+理由只用于展示，永远不进入任何命令。
 完整命令和路径只保存在本机记录里，对模型和别的电脑只给 `RepairSummary`。
 """
 
@@ -47,8 +47,14 @@ class RepairKind(StrEnum):
 
     RESTART_CONTAINERS = "restart_containers"
     RELAUNCH_PYTHON = "relaunch_python"
-    # 重新启动当前用户 `~/Library/LaunchAgents` 里已经退出的 macOS 后台服务。
+    # 重新启动当前用户 `~/Library/LaunchAgents` 里已经退出或卡住的 macOS 后台服务。
     RESTART_LAUNCH_AGENT = "restart_launch_agent"
+    # 按启动记录重新运行主人自己从终端或用户目录启动、已经退出的普通程序。
+    RELAUNCH_PROGRAM = "relaunch_program"
+    # 结束巡检确认卡住的程序或 Python 脚本，再按启动记录重新运行。
+    RESTART_STUCK_PROGRAM = "restart_stuck_program"
+    # 启动或重启主人自己装、并单独授权过的 Windows 服务。
+    RESTART_WINDOWS_SERVICE = "restart_windows_service"
 
 
 # 每种修法在工具注册表里登记为 L2，模型拿不到它们的执行入口。
@@ -56,17 +62,25 @@ REPAIR_TOOL_NAMES: dict[RepairKind, str] = {
     RepairKind.RESTART_CONTAINERS: "repair_restart_containers",
     RepairKind.RELAUNCH_PYTHON: "repair_relaunch_python",
     RepairKind.RESTART_LAUNCH_AGENT: "repair_restart_launch_agent",
+    RepairKind.RELAUNCH_PROGRAM: "repair_relaunch_program",
+    RepairKind.RESTART_STUCK_PROGRAM: "repair_restart_stuck_program",
+    RepairKind.RESTART_WINDOWS_SERVICE: "repair_restart_windows_service",
 }
 
-# 每种修法只适用于一种服务身份前缀。
-REPAIR_KEY_PREFIXES: dict[RepairKind, str] = {
-    RepairKind.RESTART_CONTAINERS: "docker:",
-    RepairKind.RELAUNCH_PYTHON: "python:",
-    RepairKind.RESTART_LAUNCH_AGENT: "launchd:",
+# 每种修法适用的服务身份前缀。
+REPAIR_KEY_PREFIXES: dict[RepairKind, tuple[str, ...]] = {
+    RepairKind.RESTART_CONTAINERS: ("docker:",),
+    RepairKind.RELAUNCH_PYTHON: ("python:",),
+    RepairKind.RESTART_LAUNCH_AGENT: ("launchd:",),
+    RepairKind.RELAUNCH_PROGRAM: ("program:",),
+    RepairKind.RESTART_STUCK_PROGRAM: ("program:", "python:"),
+    RepairKind.RESTART_WINDOWS_SERVICE: ("program:",),
 }
 
 # launchd 标签：只允许字母、数字和 `._@-`，用于服务身份和固定命令参数。
 LAUNCH_AGENT_LABEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
+# Windows 服务名：只允许字母、数字和 `._-`，用于固定命令参数。
+WINDOWS_SERVICE_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
 
 
 class RepairOriginKind(StrEnum):
@@ -188,6 +202,65 @@ class LaunchRecord(BaseModel):
         )
 
 
+class ProgramLaunchRecord(BaseModel):
+    """普通程序活着时记下的启动方式；只存在本机，不记环境变量。
+
+    `elevated` 为真表示当前账户读不全它的启动信息（例如它以管理员身份运行），这时只记得
+    账户和端口，资格检查据此拒绝并给出现成步骤。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_key: str = Field(pattern=MARK_KEY_PATTERN)
+    executable: str | None = Field(default=None, min_length=1, max_length=1_024)
+    # 记录时可执行文件的大小和修改时间；执行前据此确认还是同一个文件。
+    executable_size: int | None = Field(default=None, ge=0)
+    executable_mtime_ns: int | None = Field(default=None, ge=0)
+    # 可执行文件之后的完整启动参数。
+    arguments: tuple[Annotated[str, Field(max_length=4_096)], ...] = Field(
+        default=(), max_length=64
+    )
+    working_directory: str | None = Field(default=None, min_length=1, max_length=1_024)
+    ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(min_length=1, max_length=32)
+    username: str | None = Field(default=None, min_length=1, max_length=256)
+    elevated: bool = False
+    rule_shown: bool
+    process_id: int = Field(gt=0)
+    process_started_at: datetime
+    recorded_at: datetime
+
+    @model_validator(mode="after")
+    def validate_record(self) -> Self:
+        if not self.service_key.startswith("program:"):
+            raise ValueError("程序启动记录只属于普通程序")
+        if not self.elevated and (
+            self.executable is None
+            or self.executable_size is None
+            or self.executable_mtime_ns is None
+            or self.working_directory is None
+            or self.username is None
+        ):
+            raise ValueError("读全了的启动记录必须有可执行文件、工作目录和账户")
+        return self
+
+    @property
+    def fingerprint(self) -> str:
+        """启动方式的指纹；同一启动方式的待批准修复只保留一条。"""
+        return _digest(
+            [
+                self.executable,
+                list(self.arguments),
+                self.working_directory,
+                self.username,
+                self.elevated,
+            ]
+        )
+
+
+# 能按启动记录重新运行的两种进程：Python 脚本和普通程序。
+ProcessLaunchRecord = LaunchRecord | ProgramLaunchRecord
+
+
 class PythonRepairTarget(BaseModel):
     """按启动记录重新拉起一个已经退出的 Python 脚本。"""
 
@@ -225,8 +298,64 @@ class LaunchAgentRecord(BaseModel):
         return self
 
 
-# 启动记录存储里的一条：Python 脚本的启动方式，或 macOS 后台服务的标签和端口。
-AnyLaunchRecord = LaunchRecord | LaunchAgentRecord
+class ProgramRepairTarget(BaseModel):
+    """按启动记录重新运行一个已经退出的普通程序。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[RepairKind.RELAUNCH_PROGRAM] = RepairKind.RELAUNCH_PROGRAM
+    launch: ProgramLaunchRecord
+
+    @property
+    def fingerprint(self) -> str:
+        return self.launch.fingerprint
+
+    @property
+    def ports(self) -> tuple[int, ...]:
+        return tuple(sorted(set(self.launch.ports)))
+
+
+class StuckProgramRepairTarget(BaseModel):
+    """结束卡住的那个进程再按启动记录重新运行；只结束和记录对得上的那一个。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[RepairKind.RESTART_STUCK_PROGRAM] = RepairKind.RESTART_STUCK_PROGRAM
+    launch: LaunchRecord | ProgramLaunchRecord
+    # 生成计划时占着端口、和启动记录对得上的进程。
+    process_id: int = Field(gt=0)
+    process_started_at: datetime
+
+    @property
+    def fingerprint(self) -> str:
+        return _digest([self.launch.fingerprint, self.process_id])
+
+    @property
+    def ports(self) -> tuple[int, ...]:
+        return tuple(sorted(set(self.launch.ports)))
+
+
+class WindowsServiceRecord(BaseModel):
+    """见过 Windows 服务正常运行时记下的服务名和端口；不记命令和路径。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_key: str = Field(pattern=MARK_KEY_PATTERN)
+    service_name: str = Field(pattern=WINDOWS_SERVICE_NAME_PATTERN)
+    ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(min_length=1, max_length=32)
+    rule_shown: bool
+    recorded_at: datetime
+
+    @model_validator(mode="after")
+    def validate_key(self) -> Self:
+        if not self.service_key.startswith("program:"):
+            raise ValueError("Windows 服务记录的身份必须是 program:<程序名>@<端口>")
+        return self
+
+
+# 启动记录存储里的一条：Python 脚本或普通程序的启动方式，macOS 后台服务的标签和端口，
+# 或 Windows 服务的服务名和端口。
+AnyLaunchRecord = LaunchRecord | ProgramLaunchRecord | LaunchAgentRecord | WindowsServiceRecord
 
 
 class LaunchAgentJob(BaseModel):
@@ -273,11 +402,53 @@ class LaunchAgentRepairTarget(BaseModel):
     listen_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(
         min_length=1, max_length=32
     )
+    # 巡检确认它卡住了：用 `launchctl kickstart -k` 结束再拉起，而不是只拉起已退出的。
+    stuck: bool = False
 
     @property
     def fingerprint(self) -> str:
         """plist 位置和内容的指纹；执行前核对配置有没有变。"""
-        return _digest([self.label, self.uid, self.plist_path, self.plist_sha256])
+        values: list[object] = [self.label, self.uid, self.plist_path, self.plist_sha256]
+        return _digest([*values, "stuck"] if self.stuck else values)
+
+    @property
+    def ports(self) -> tuple[int, ...]:
+        return tuple(sorted(set(self.listen_ports)))
+
+
+class WindowsServiceInfo(BaseModel):
+    """本机现读的一个 Windows 服务，只在本机使用。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(pattern=WINDOWS_SERVICE_NAME_PATTERN)
+    display_name: str = Field(min_length=1, max_length=256)
+    # 服务配置里的可执行文件完整路径（已去掉引号和参数）。
+    binary_path: str = Field(min_length=1, max_length=1_024)
+    start_type: Literal["automatic", "manual", "disabled"]
+    running: bool
+    pid: int | None = Field(default=None, gt=0)
+    # 当前用户是否已经被主人授予启停这个服务的权限。
+    granted: bool
+
+
+class WindowsServiceRepairTarget(BaseModel):
+    """启动已停止的、或重启卡住的 Windows 服务：生成计划时看到的服务配置。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[RepairKind.RESTART_WINDOWS_SERVICE] = RepairKind.RESTART_WINDOWS_SERVICE
+    service_name: str = Field(pattern=WINDOWS_SERVICE_NAME_PATTERN)
+    binary_path: str = Field(min_length=1, max_length=1_024)
+    listen_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(
+        min_length=1, max_length=32
+    )
+    # 生成计划时它在运行（卡住了）：先停再启动；否则只启动。
+    restart: bool
+
+    @property
+    def fingerprint(self) -> str:
+        return _digest([self.service_name, self.binary_path, self.restart])
 
     @property
     def ports(self) -> tuple[int, ...]:
@@ -285,7 +456,12 @@ class LaunchAgentRepairTarget(BaseModel):
 
 
 RepairTarget = Annotated[
-    ContainerRepairTarget | PythonRepairTarget | LaunchAgentRepairTarget,
+    ContainerRepairTarget
+    | PythonRepairTarget
+    | LaunchAgentRepairTarget
+    | ProgramRepairTarget
+    | StuckProgramRepairTarget
+    | WindowsServiceRepairTarget,
     Field(discriminator="kind"),
 ]
 
@@ -345,7 +521,9 @@ class RepairPlan(BaseModel):
         if not self.service_key.startswith(REPAIR_KEY_PREFIXES[self.kind]):
             raise ValueError("服务身份与修法种类不一致")
         if (
-            isinstance(self.target, PythonRepairTarget)
+            isinstance(
+                self.target, PythonRepairTarget | ProgramRepairTarget | StuckProgramRepairTarget
+            )
             and self.target.launch.service_key != self.service_key
         ):
             raise ValueError("启动记录不属于这个服务")
@@ -396,6 +574,9 @@ class RepairExecution(BaseModel):
     finished_at: datetime | None = None
     commands: tuple[RepairCommand, ...] = ()
     spawned: SpawnedProcess | None = None
+    # 卡住的程序：结束了哪个进程，以及是不是用了强制结束。
+    ended_process_id: int | None = Field(default=None, gt=0)
+    ended_forcibly: bool | None = None
 
 
 class RepairCheckName(StrEnum):
@@ -403,6 +584,7 @@ class RepairCheckName(StrEnum):
 
     CONTAINER_RUNNING = "container_running"
     LAUNCH_AGENT_RUNNING = "launch_agent_running"
+    WINDOWS_SERVICE_RUNNING = "windows_service_running"
     PORT_LISTENING = "port_listening"
     WEB_PAGE = "web_page"
 
@@ -471,6 +653,16 @@ class RepairErrorCode(StrEnum):
     CONTAINER_MISSING = "container_missing"
     # 后台服务已经从 launchd 里卸载（例如 `brew services stop`），不会替主人重新加载。
     NOT_LOADED = "not_loaded"
+    # 它原来以管理员或 root 身份运行，普通账户读不全启动信息，也没法同样拉起。
+    NEEDS_ADMIN = "needs_admin"
+    # 可执行文件不在了，或者和记录时不是同一个文件。
+    EXECUTABLE_CHANGED = "executable_changed"
+    # 巡检还没确认它卡住了，它可能只是慢。
+    NOT_STUCK = "not_stuck"
+    # Windows 服务被主人设成了"已禁用"。
+    SERVICE_DISABLED = "service_disabled"
+    # 主人还没对这个 Windows 服务打开这种修法（没有授权启停权限）。
+    NOT_AUTHORIZED = "not_authorized"
     SERVICE_CHANGED = "service_changed"
     BUSY = "busy"
     RATE_LIMITED = "rate_limited"
@@ -478,6 +670,16 @@ class RepairErrorCode(StrEnum):
     EXECUTION_FAILED = "execution_failed"
     VERIFICATION_FAILED = "verification_failed"
     INTERRUPTED = "interrupted"
+
+
+class ManualStep(BaseModel):
+    """修不了时给主人照抄的一步：由本机代码按固定模板生成，不含密钥，只显示、不执行。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # 用大白话说这一步在哪做，例如"以管理员身份打开 PowerShell，运行"。
+    text: str = Field(min_length=1, max_length=200)
+    command: str | None = Field(default=None, min_length=1, max_length=2_000)
 
 
 class RepairError(BaseModel):
@@ -488,6 +690,7 @@ class RepairError(BaseModel):
     code: RepairErrorCode
     message: str = Field(min_length=1, max_length=500)
     next_step: str | None = Field(default=None, min_length=1, max_length=500)
+    manual_steps: tuple[ManualStep, ...] = Field(default=(), max_length=5)
 
 
 class RepairAuditAction(StrEnum):
@@ -500,6 +703,7 @@ class RepairAuditAction(StrEnum):
     PRECHECK_PASSED = "precheck_passed"
     PRECHECK_FAILED = "precheck_failed"
     COMMAND_EXECUTED = "command_executed"
+    PROCESS_ENDED = "process_ended"
     PROCESS_SPAWNED = "process_spawned"
     VERIFIED = "verified"
     CLEANED_UP = "cleaned_up"
@@ -658,8 +862,10 @@ class PortOwner(BaseModel):
 
     pid: int | None
     process_name: str | None
-    # 这个进程是不是按同一份启动记录跑起来的同一个脚本（解释器、参数、目录都一致）。
+    # 这个进程是不是按同一份启动记录跑起来的同一个程序（可执行文件、参数、目录都一致）。
     matches_launch: bool
+    # 进程的启动时间；读不到时为 None。
+    started_at: datetime | None = None
 
 
 class ContainerRuntime(Protocol):
@@ -688,12 +894,20 @@ class ContainerRuntime(Protocol):
 
 
 class ProcessLauncher(Protocol):
-    """按启动记录在后台拉起脚本，并且只停掉自己拉起的进程。"""
+    """按启动记录在后台拉起程序，并且只停掉自己拉起的或和记录对得上的进程。"""
 
-    def launch(self, record: LaunchRecord, *, log_path: Path) -> SpawnedProcess:
-        """用原解释器、原参数、原目录在后台启动；TunnelMinion 退出后脚本照常运行。
+    def launch(self, record: ProcessLaunchRecord, *, log_path: Path) -> SpawnedProcess:
+        """用原可执行文件、原参数、原目录在后台启动；TunnelMinion 退出后程序照常运行。
 
         失败时抛出 `OSError`。
+        """
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+        """先礼貌结束，等 `grace_seconds` 还在再强制结束（连同子进程）。
+
+        进程号和启动时间都对得上才动手；返回是否用了强制结束，没能结束时返回 None。
+        进程已经不在也算结束（返回 False）。
         """
         ...  # pragma: no cover - Protocol 无运行时实现
 
@@ -711,8 +925,8 @@ class HostInspector(Protocol):
 
     def current_username(self) -> str: ...
 
-    def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
-        """端口没人监听时返回 None；给了启动记录时顺带判断是不是同一个脚本。"""
+    def port_owner(self, port: int, launch: ProcessLaunchRecord | None = None) -> PortOwner | None:
+        """端口没人监听时返回 None；给了启动记录时顺带判断是不是同一个程序。"""
         ...  # pragma: no cover - Protocol 无运行时实现
 
 
@@ -733,13 +947,38 @@ class LaunchAgentRuntime(Protocol):
 
     async def inspect(self, label: str) -> LaunchAgentJob | LaunchAgentProblem: ...
 
-    async def kickstart(self, label: str) -> RepairCommand:
-        """`launchctl kickstart gui/<uid>/<标签>`，不带 `-k`：已经在跑时什么都不做。"""
+    async def kickstart(self, label: str, *, kill: bool = False) -> RepairCommand:
+        """`launchctl kickstart gui/<uid>/<标签>`；`kill` 为真时带 `-k`，先结束在跑的再拉起。"""
         ...  # pragma: no cover - Protocol 无运行时实现
 
     def log_tail(self, job: LaunchAgentJob, *, lines: int) -> str:
         """plist 配置的日志文件最后几行，只读当前用户自己的普通文件，已去掉认证材料。"""
         ...  # pragma: no cover - Protocol 无运行时实现
+
+
+class WindowsServiceRuntime(Protocol):
+    """当前电脑上的 Windows 服务：只读查询、固定的启动和停止，以及单个服务的授权。
+
+    只用 Windows 自带的服务管理；授权只给当前用户加上启停这一个服务的权限，撤回时去掉。
+    """
+
+    def unsupported_reason(self) -> str | None:
+        """这台电脑上不能用这种修法的原因（不是 Windows）；能用时返回 None。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    def services_for_pids(self, pids: frozenset[int]) -> dict[int, str]:
+        """监听进程号到 Windows 服务名；进程本身或它往上的父进程是服务进程都算。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    def inspect(self, name: str) -> WindowsServiceInfo | None: ...
+
+    async def set_granted(self, name: str, *, granted: bool) -> bool:
+        """弹一次管理员确认，给当前用户加上或去掉启停这个服务的权限；主人拒绝时返回 False。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    async def start(self, name: str) -> RepairCommand: ...
+
+    async def stop(self, name: str) -> RepairCommand: ...
 
 
 class LocalVerifier(Protocol):

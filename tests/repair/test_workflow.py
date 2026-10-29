@@ -387,7 +387,7 @@ def test_python_verification_failure_stops_only_spawned_process(
     assert len(h.launcher.calls) == 1
     assert result.verification is not None and result.verification.log_excerpt == "startup failed"
     assert h.launcher.log_calls[0][1] == 40
-    assert result.error is not None and result.error.message == "脚本拉起来了，但端口一直没起来。"
+    assert result.error is not None and result.error.message == "程序拉起来了，但端口一直没起来。"
 
 
 def test_python_exited_process_cannot_pass_due_to_another_listener(tmp_path: Path) -> None:
@@ -405,7 +405,7 @@ def test_python_spawn_oserror_needs_no_cleanup(tmp_path: Path) -> None:
     h.launcher.error = OSError("private path")
     result = asyncio.run(h.workflow.execute(record.plan.operation_id))
     assert result.status is OperationStatus.ROLLED_BACK
-    assert result.cleanup is not None and result.cleanup.detail == "脚本没有启动，不需要收场。"
+    assert result.cleanup is not None and result.cleanup.detail == "程序没有启动，不需要收场。"
     assert result.execution is not None and result.execution.spawned is None
     assert result.error is not None and "private" not in result.error.model_dump_json()
     assert not h.launcher.stopped

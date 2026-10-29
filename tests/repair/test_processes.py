@@ -10,6 +10,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ from tunnelminion.repair.contracts import (
     LaunchRecord,
     LocalVerifier,
     ProcessLauncher,
+    ProgramLaunchRecord,
     SpawnedProcess,
 )
 from tunnelminion.repair.processes import (
@@ -468,3 +470,135 @@ def test_web_probe_caps_reads_and_falls_back_to_unverified_https(
     if succeeds_on != "http":
         expected += [("https", "request"), ("https", "close")]
     assert events == expected
+
+
+def program_record(**update: object) -> ProgramLaunchRecord:
+    return ProgramLaunchRecord(
+        service_key="program:gost@8080",
+        executable="fixture/python",
+        executable_size=1,
+        executable_mtime_ns=1,
+        arguments=("app.py", "--port", "8080"),
+        working_directory="fixture/site",
+        ports=(8080,),
+        username="fixture-user",
+        rule_shown=True,
+        process_id=101,
+        process_started_at=NOW,
+        recorded_at=NOW,
+    ).model_copy(update=update)
+
+
+class ProgramProcess(FakeProcess):
+    def exe(self) -> str:
+        return "fixture/python"
+
+
+def test_launch_runs_program_executable_and_rejects_incomplete_records(tmp_path: Path) -> None:
+    popen = FakePopen()
+    launcher = BackgroundProcessLauncher(
+        platform="linux",
+        popen=popen,
+        process_factory=factory(FakeProcess(popen.child.pid)),
+        environ={},
+    )
+    launcher.launch(program_record(), log_path=tmp_path / "out.log")
+    assert popen.calls[0][0] == ["fixture/python", "app.py", "--port", "8080"]
+    assert popen.calls[0][1]["cwd"] == "fixture/site"
+    with pytest.raises(OSError):
+        launcher.launch(
+            program_record(elevated=True, working_directory=None), log_path=tmp_path / "x.log"
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "matches"),
+    [
+        ("same", True),
+        ("other_user", False),
+        ("other_exe", False),
+        ("elevated", False),
+    ],
+)
+def test_port_owner_matches_program_by_exe_args_dir_and_account(case: str, matches: bool) -> None:
+    process = ProgramProcess()
+    record = program_record()
+    if case == "other_user":
+        record = record.model_copy(update={"username": "someone"})
+    elif case == "other_exe":
+        record = record.model_copy(update={"executable": "fixture/other"})
+    elif case == "elevated":
+        record = record.model_copy(update={"elevated": True})
+    inspector = PsutilHostInspector(
+        cast(SystemReader, FakeReader(listener())), process_factory=factory(process)
+    )
+    owner = inspector.port_owner(8080, record)
+    assert owner is not None and owner.matches_launch is matches
+    assert owner.started_at == NOW
+
+
+@pytest.mark.parametrize("outcome", ["graceful", "forced", "survives"])
+def test_end_stuck_terminates_then_kills(monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
+    parent, child = FakeProcess(), FakeProcess(102)
+    parent.descendants = [cast(psutil.Process, child)]
+    waits: list[float] = []
+
+    def wait_procs(
+        processes: list[psutil.Process], timeout: float
+    ) -> tuple[list[psutil.Process], list[psutil.Process]]:
+        waits.append(timeout)
+        if outcome == "graceful" or (outcome == "forced" and timeout == 3):
+            return processes, []
+        return [], processes
+
+    monkeypatch.setattr(psutil, "wait_procs", wait_procs)
+    result = BackgroundProcessLauncher(process_factory=factory(parent)).end_stuck(
+        101, NOW, grace_seconds=10
+    )
+    assert result is {"graceful": False, "forced": True, "survives": None}[outcome]
+    assert waits == ([10] if outcome == "graceful" else [10, 3])
+
+
+def test_end_stuck_leaves_other_or_missing_processes() -> None:
+    reused = FakeProcess()
+    reused.started = NOW.timestamp() + 60
+    assert (
+        BackgroundProcessLauncher(process_factory=factory(reused)).end_stuck(
+            101, NOW, grace_seconds=1
+        )
+        is False
+    )
+    assert reused.events == []
+    gone = BackgroundProcessLauncher(process_factory=factory(psutil.NoSuchProcess(101)))
+    assert gone.end_stuck(101, NOW, grace_seconds=1) is False
+    denied = BackgroundProcessLauncher(process_factory=factory(psutil.AccessDenied(101)))
+    assert denied.end_stuck(101, NOW, grace_seconds=1) is None
+
+
+def test_talks_first_probe_on_real_loopback() -> None:
+    verifier = SocketLocalVerifier()
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+
+        def greet() -> None:
+            connection, _ = server.accept()
+            with connection:
+                connection.sendall(b"SSH-2.0-fixture\r\n")
+
+        thread = threading.Thread(target=greet)
+        thread.start()
+        assert asyncio.run(verifier.talks_first(port)) is True
+        thread.join()
+
+        def silent() -> None:
+            connection, _ = server.accept()
+            with connection:
+                time.sleep(2.5)
+
+        thread = threading.Thread(target=silent)
+        thread.start()
+        assert asyncio.run(verifier.talks_first(port)) is False
+        thread.join()
+    assert asyncio.run(verifier.talks_first(port)) is None

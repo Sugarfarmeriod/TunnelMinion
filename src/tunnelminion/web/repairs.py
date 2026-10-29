@@ -18,6 +18,7 @@ from tunnelminion.repair.contracts import (
     ContainerRepairTarget,
     ContainerSnapshot,
     LaunchAgentRepairTarget,
+    ProgramRepairTarget,
     RepairAuditEvent,
     RepairCleanup,
     RepairError,
@@ -26,7 +27,10 @@ from tunnelminion.repair.contracts import (
     RepairOrigin,
     RepairRecord,
     RepairVerification,
+    StuckProgramRepairTarget,
+    WindowsServiceRepairTarget,
 )
+from tunnelminion.repair.manual_steps import launch_command
 from tunnelminion.repair.service import RepairService
 
 
@@ -112,12 +116,40 @@ class LaunchAgentAdvancedView(BaseModel):
     ports: tuple[int, ...]
 
 
+class ProgramAdvancedView(BaseModel):
+    """普通程序和卡住的程序：重新运行的命令（像密钥的参数已换成占位）。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command: str
+    ports: tuple[int, ...]
+    # 卡住的程序：要先结束的那个进程。
+    end_process_id: int | None = None
+
+
+class WindowsServiceAdvancedView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    commands: tuple[str, ...]
+    binary_path: str
+    ports: tuple[int, ...]
+
+
+AdvancedView = (
+    ContainerAdvancedView
+    | PythonAdvancedView
+    | LaunchAgentAdvancedView
+    | ProgramAdvancedView
+    | WindowsServiceAdvancedView
+)
+
+
 class RepairDetail(RepairListItem):
     impact_summary: str
     verification_summary: str
     failure_summary: str
     authorization: RepairAuthorizationView | None
-    advanced: ContainerAdvancedView | PythonAdvancedView | LaunchAgentAdvancedView
+    advanced: AdvancedView
     execution: RepairExecution | None
     verification: RepairVerification | None
     cleanup: RepairCleanup | None
@@ -127,7 +159,7 @@ class RepairDetail(RepairListItem):
 
 def _detail(record: RepairRecord) -> RepairDetail:
     target = record.plan.target
-    advanced: ContainerAdvancedView | PythonAdvancedView | LaunchAgentAdvancedView
+    advanced: AdvancedView
     if isinstance(target, ContainerRepairTarget):
         commands: list[str] = []
         for running in (False, True):
@@ -137,10 +169,26 @@ def _detail(record: RepairRecord) -> RepairDetail:
                 commands.append(" ".join(("docker", action, *ids)))
         advanced = ContainerAdvancedView(commands=tuple(commands), containers=target.containers)
     elif isinstance(target, LaunchAgentRepairTarget):
+        kill = "-k " if target.stuck else ""
         advanced = LaunchAgentAdvancedView(
-            command=f"launchctl kickstart gui/{target.uid}/{target.label}",
+            command=f"launchctl kickstart {kill}gui/{target.uid}/{target.label}",
             plist_path=target.plist_path,
             ports=target.ports,
+        )
+    elif isinstance(target, WindowsServiceRepairTarget):
+        actions = ("stop", "start") if target.restart else ("start",)
+        advanced = WindowsServiceAdvancedView(
+            commands=tuple(f"sc.exe {action} {target.service_name}" for action in actions),
+            binary_path=target.binary_path,
+            ports=target.ports,
+        )
+    elif isinstance(target, ProgramRepairTarget | StuckProgramRepairTarget):
+        advanced = ProgramAdvancedView(
+            command=launch_command(target.launch) or "（启动信息读不全）",
+            ports=target.ports,
+            end_process_id=(
+                target.process_id if isinstance(target, StuckProgramRepairTarget) else None
+            ),
         )
     else:
         advanced = PythonAdvancedView(

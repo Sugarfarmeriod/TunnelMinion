@@ -11,7 +11,7 @@ from tunnelminion.incident.contracts import IncidentEventType, SnapshotDiffEvent
 from tunnelminion.patrol.contracts import REASON_TEXT, PatrolStatus
 from tunnelminion.patrol.service import PatrolConversations, PatrolRepairs, PatrolService
 from tunnelminion.patrol.storage import SQLitePatrolStore
-from tunnelminion.repair.contracts import LaunchRecordStore
+from tunnelminion.repair.contracts import LaunchRecordStore, WindowsServiceRuntime
 from tunnelminion.repair.processes import SocketLocalVerifier
 from tunnelminion.web.service_map import LocalServiceMap
 
@@ -24,15 +24,19 @@ def build_local_patrol(
     conversations: PatrolConversations,
     repairs: PatrolRepairs,
     launch_records: LaunchRecordStore,
+    windows_services: WindowsServiceRuntime | None = None,
 ) -> PatrolService:
+    verifier = SocketLocalVerifier()
     return PatrolService(
         node_id,
         patrol_store(root),
         services,
-        SocketLocalVerifier().web_status,
+        verifier.web_status,
         conversations,
         repairs,
-        lambda key: launch_records.get(key) is not None,
+        launch_records.get,
+        talks_first=verifier.talks_first,
+        windows_services=windows_services,
     )
 
 

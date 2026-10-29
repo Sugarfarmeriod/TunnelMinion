@@ -26,8 +26,10 @@ from tunnelminion.repair.contracts import (
     LaunchAgentJob,
     LaunchAgentRepairTarget,
     LaunchAgentRuntime,
+    LaunchRecord,
     LocalVerifier,
     ProcessLauncher,
+    ProgramRepairTarget,
     PythonRepairTarget,
     RepairAuditAction,
     RepairCheck,
@@ -41,20 +43,34 @@ from tunnelminion.repair.contracts import (
     RepairRecord,
     RepairStore,
     RepairVerification,
+    StuckProgramRepairTarget,
+    WindowsServiceRepairTarget,
+    WindowsServiceRuntime,
 )
 from tunnelminion.repair.eligibility import (
     AUTHORIZATION_EXPIRED_ERROR,
     RepairRefusal,
     check_hidden,
     check_launch_agent,
+    check_program,
     check_python,
+    check_windows_service,
+    check_windows_service_runtime,
+    find_stuck_process,
     read_containers,
 )
 from tunnelminion.repair.launch_agents import UnsupportedLaunchAgents
+from tunnelminion.repair.planning import NOT_STUCK_ERROR
+from tunnelminion.repair.windows_services import UnsupportedWindowsServices
 
 _FAILURE_NEXT_STEP = "看看日志要点；Agent 不会自动重试。"
 _UNCERTAIN_NEXT_STEP = "请检查一下这个服务现在的状态。"
 _LAUNCH_AGENT_LEFT_ALONE = "后台服务归 macOS 管，修复失败后 Agent 不会再动它。"
+_WINDOWS_SERVICE_LEFT_ALONE = "Windows 服务归系统的服务管理管，修复失败后 Agent 不会再动它。"
+_SERVICE_CHANGED = RepairError(
+    code=RepairErrorCode.SERVICE_CHANGED,
+    message="情况变了：服务和批准时看到的不一样，Agent 没有动手。",
+)
 
 
 class RepairWorkflow:
@@ -73,8 +89,16 @@ class RepairWorkflow:
         python_verify_seconds: float = 30,
         interrupted_after_seconds: float = 900,
         launch_agents: LaunchAgentRuntime | None = None,
+        windows_services: WindowsServiceRuntime | None = None,
+        is_stuck: Callable[[str], bool] = lambda _key: False,
+        stuck_grace_seconds: float = 10,
+        service_stop_seconds: float = 30,
     ) -> None:
         self._launch_agents = launch_agents or UnsupportedLaunchAgents()
+        self._windows_services = windows_services or UnsupportedWindowsServices()
+        self._is_stuck = is_stuck
+        self._stuck_grace_seconds = stuck_grace_seconds
+        self._service_stop_seconds = service_stop_seconds
         self._store = store
         self._containers = containers
         self._launcher = launcher
@@ -149,8 +173,14 @@ class RepairWorkflow:
                             )
                         )
                 elif isinstance(target, LaunchAgentRepairTarget):
+                    if target.stuck and not self._is_stuck(record.plan.service_key):
+                        raise RepairRefusal(NOT_STUCK_ERROR)
                     job = await check_launch_agent(
-                        target.label, target.ports, self._launch_agents, self._host
+                        target.label,
+                        target.ports,
+                        self._launch_agents,
+                        self._host,
+                        stuck=target.stuck,
                     )
                     if (job.uid, job.plist_path, job.plist_sha256) != (
                         target.uid,
@@ -165,6 +195,34 @@ class RepairWorkflow:
                                 ),
                             )
                         )
+                elif isinstance(target, ProgramRepairTarget):
+                    check_program(target.launch, self._host)
+                elif isinstance(target, StuckProgramRepairTarget):
+                    if not self._is_stuck(record.plan.service_key):
+                        raise RepairRefusal(NOT_STUCK_ERROR)
+                    if isinstance(target.launch, LaunchRecord):
+                        check_python(target.launch, self._host, ports_free=False)
+                    else:
+                        check_program(target.launch, self._host, ports_free=False)
+                    pid, started_at = find_stuck_process(target.launch, self._host)
+                    if (
+                        pid != target.process_id
+                        or abs((started_at - target.process_started_at).total_seconds()) > 1
+                    ):
+                        raise RepairRefusal(_SERVICE_CHANGED)
+                elif isinstance(target, WindowsServiceRepairTarget):
+                    check_windows_service_runtime(self._windows_services)
+                    info = self._windows_services.inspect(target.service_name)
+                    if (
+                        info is None
+                        or info.binary_path != target.binary_path
+                        or info.running is not target.restart
+                    ):
+                        raise RepairRefusal(_SERVICE_CHANGED)
+                    stuck = self._is_stuck(record.plan.service_key)
+                    if target.restart and not stuck:
+                        raise RepairRefusal(NOT_STUCK_ERROR)
+                    check_windows_service(info, stuck=stuck, ports=target.ports, host=self._host)
                 else:
                     check_python(target.launch, self._host)
             except RepairRefusal as exc:
@@ -278,8 +336,14 @@ class RepairWorkflow:
                             RepairCleanupResult.NOTHING_TO_UNDO,
                             "容器修复失败后不再动它。",
                         )
+            elif isinstance(target, WindowsServiceRepairTarget):
+                failed = await self._run_windows_service(record, target)
+                if isinstance(failed, RepairRecord):
+                    return failed
+                record = failed[0]
+                execution = failed[1]
             elif isinstance(target, LaunchAgentRepairTarget):
-                command = await self._launch_agents.kickstart(target.label)
+                command = await self._launch_agents.kickstart(target.label, kill=target.stuck)
                 execution = execution.model_copy(
                     update={"commands": (*execution.commands, command)}
                 )
@@ -301,6 +365,42 @@ class RepairWorkflow:
                         _LAUNCH_AGENT_LEFT_ALONE,
                     )
             else:
+                if isinstance(target, StuckProgramRepairTarget):
+                    forcibly = self._launcher.end_stuck(
+                        target.process_id,
+                        target.process_started_at,
+                        grace_seconds=self._stuck_grace_seconds,
+                    )
+                    execution = execution.model_copy(
+                        update={
+                            "ended_process_id": target.process_id,
+                            "ended_forcibly": forcibly,
+                        }
+                    )
+                    record = self._event(
+                        record.model_copy(update={"execution": execution}),
+                        RepairAuditAction.PROCESS_ENDED,
+                        f"进程 {target.process_id}："
+                        + (
+                            "没能结束"
+                            if forcibly is None
+                            else "礼貌结束后等不到退出，已强制结束"
+                            if forcibly
+                            else "已结束"
+                        ),
+                    )
+                    self._store.put(record)
+                    if forcibly is None:
+                        return self._rollback(
+                            record,
+                            RepairError(
+                                code=RepairErrorCode.EXECUTION_FAILED,
+                                message="没能结束卡住的进程，Agent 没有重新运行它。",
+                                next_step=_UNCERTAIN_NEXT_STEP,
+                            ),
+                            RepairCleanupResult.NOTHING_TO_UNDO,
+                            "卡住的进程没能结束，没有拉起新的进程。",
+                        )
                 try:
                     spawned = self._launcher.launch(
                         target.launch, log_path=self._log_dir / f"{operation_id}.log"
@@ -310,11 +410,11 @@ class RepairWorkflow:
                         record,
                         RepairError(
                             code=RepairErrorCode.EXECUTION_FAILED,
-                            message="脚本没能启动。",
+                            message="程序没能启动。",
                             next_step=_FAILURE_NEXT_STEP,
                         ),
                         RepairCleanupResult.NOTHING_TO_UNDO,
-                        "脚本没有启动，不需要收场。",
+                        "程序没有启动，不需要收场。",
                     )
                 execution = execution.model_copy(update={"spawned": spawned})
                 record = self._event(
@@ -362,9 +462,20 @@ class RepairWorkflow:
                     RepairCleanupResult.NOTHING_TO_UNDO,
                     _LAUNCH_AGENT_LEFT_ALONE,
                 )
+            if isinstance(target, WindowsServiceRepairTarget):
+                return self._rollback(
+                    record,
+                    RepairError(
+                        code=RepairErrorCode.VERIFICATION_FAILED,
+                        message="Windows 服务启动了，但服务还是没起来。",
+                        next_step=_FAILURE_NEXT_STEP,
+                    ),
+                    RepairCleanupResult.NOTHING_TO_UNDO,
+                    _WINDOWS_SERVICE_LEFT_ALONE,
+                )
             error = RepairError(
                 code=RepairErrorCode.VERIFICATION_FAILED,
-                message="脚本拉起来了，但端口一直没起来。",
+                message="程序拉起来了，但端口一直没起来。",
                 next_step=_FAILURE_NEXT_STEP,
             )
             record = self._transition(
@@ -406,11 +517,60 @@ class RepairWorkflow:
             except Exception:
                 return record.model_copy(update={"error": error})
 
+    async def _run_windows_service(
+        self, record: RepairRecord, target: WindowsServiceRepairTarget
+    ) -> RepairRecord | tuple[RepairRecord, RepairExecution]:
+        """卡住的先停、等它停下再启动；停了的直接启动。失败时返回收场后的记录。"""
+        execution = record.execution
+        assert execution is not None
+        actions = (
+            (self._windows_services.stop, self._windows_services.start)
+            if target.restart
+            else (self._windows_services.start,)
+        )
+        for index, action in enumerate(actions):
+            command = await action(target.service_name)
+            execution = execution.model_copy(update={"commands": (*execution.commands, command)})
+            record = self._event(
+                record.model_copy(update={"execution": execution}),
+                RepairAuditAction.COMMAND_EXECUTED,
+                " ".join(command.argv),
+            )
+            self._store.put(record)
+            stopped = command.exit_code == 0
+            if stopped and target.restart and index == 0:
+                stopped = await self._wait_service_stopped(target.service_name)
+            if not stopped:
+                return self._rollback(
+                    record,
+                    RepairError(
+                        code=RepairErrorCode.EXECUTION_FAILED,
+                        message="Windows 没能"
+                        + ("停下" if target.restart and index == 0 else "启动")
+                        + "这个服务。",
+                        next_step=_FAILURE_NEXT_STEP,
+                    ),
+                    RepairCleanupResult.NOTHING_TO_UNDO,
+                    _WINDOWS_SERVICE_LEFT_ALONE,
+                )
+        return record, execution
+
+    async def _wait_service_stopped(self, name: str) -> bool:
+        elapsed = 0.0
+        while True:
+            info = self._windows_services.inspect(name)
+            if info is not None and not info.running:
+                return True
+            if elapsed >= self._service_stop_seconds:
+                return False
+            await self._sleep(1)
+            elapsed += 1
+
     async def _verify(self, record: RepairRecord) -> RepairVerification:
         target = record.plan.target
         limit = (
             self._container_verify_seconds
-            if isinstance(target, ContainerRepairTarget)
+            if isinstance(target, ContainerRepairTarget | WindowsServiceRepairTarget)
             else self._python_verify_seconds
         )
         started = self._clock()
@@ -429,6 +589,16 @@ class RepairWorkflow:
                         name=RepairCheckName.LAUNCH_AGENT_RUNNING,
                         passed=running,
                         detail="后台服务在运行。" if running else "后台服务没在运行。",
+                    )
+                )
+            if isinstance(target, WindowsServiceRepairTarget):
+                info = self._windows_services.inspect(target.service_name)
+                running = info is not None and info.running
+                checks.append(
+                    RepairCheck(
+                        name=RepairCheckName.WINDOWS_SERVICE_RUNNING,
+                        passed=running,
+                        detail="Windows 服务在运行。" if running else "Windows 服务没在运行。",
                     )
                 )
             if isinstance(target, ContainerRepairTarget):
@@ -481,7 +651,9 @@ class RepairWorkflow:
                         )
                 checks.extend(web_checks.values())
             alive = True
-            if isinstance(target, PythonRepairTarget):
+            if isinstance(
+                target, PythonRepairTarget | ProgramRepairTarget | StuckProgramRepairTarget
+            ):
                 assert record.execution is not None and record.execution.spawned is not None
                 alive = self._launcher.is_alive(record.execution.spawned)
                 if not alive:
@@ -507,6 +679,8 @@ class RepairWorkflow:
                 if job is not None and job.last_exit_code is not None:
                     parts.append(f"launchd 记的上次退出码：{job.last_exit_code}")
                 excerpt = "\n".join(part for part in parts if part)
+            elif isinstance(target, WindowsServiceRepairTarget):
+                excerpt = None
             else:
                 assert record.execution is not None and record.execution.spawned is not None
                 excerpt = self._launcher.log_tail(Path(record.execution.spawned.log_path), lines=40)

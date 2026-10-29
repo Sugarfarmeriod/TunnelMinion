@@ -23,6 +23,7 @@ from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.patrol.contracts import PatrolServiceView
 from tunnelminion.patrol.service import PatrolService
 from tunnelminion.patrol.storage import SQLitePatrolStore
+from tunnelminion.repair.contracts import ManualStep
 from tunnelminion.web.service_map import LocalServiceMap, ServiceEndpoint, ServiceEntry
 
 PHOTOS = "docker:compose:photos"
@@ -38,6 +39,7 @@ def entry(
     ports: tuple[int, ...] = (8080,),
     web: bool | None = True,
     tier: Literal["show", "review", "hidden"] = "show",
+    windows_service: bool = False,
 ) -> ServiceEntry:
     kind: Literal["docker", "python", "program"] = (
         "docker"
@@ -51,6 +53,7 @@ def entry(
         name={"docker": "相册", "python": "app.py", "program": "笔记"}[kind],
         kind=kind,
         launch_agent=key.startswith("launchd:"),
+        windows_service=windows_service,
         tier=tier,
         state=state,
         endpoints=tuple(
@@ -64,6 +67,7 @@ class FakeConversations:
     def __init__(self) -> None:
         self.threads: dict[str, ThreadContext | None] = {}
         self.notes: list[tuple[ThreadId, str]] = []
+        self.steps: list[tuple[ManualStep, ...]] = []
         self.questions: list[tuple[ThreadId, StartRunInput, str | None]] = []
         self.cancelled: list[RunId] = []
         self.start_error: Exception | None = None
@@ -78,8 +82,11 @@ class FakeConversations:
             thread_id=thread_id, created_at=NOW, updated_at=NOW, message_count=0, context=context
         )
 
-    def append_notice(self, thread_id: ThreadId, text: str) -> bool:
+    def append_notice(
+        self, thread_id: ThreadId, text: str, *, manual_steps: tuple[ManualStep, ...] = ()
+    ) -> bool:
         self.notes.append((thread_id, text))
+        self.steps.append(manual_steps)
         return True
 
     async def start_run(
@@ -125,6 +132,9 @@ class PatrolHarness:
         self.observed: datetime | None = NOW
         self.web: dict[int, int | None | Exception] = {}
         self.probed: list[int] = []
+        # 端口到"连上后是否先回话"；不在这里的端口不说话。
+        self.talk: dict[int, bool | None | Exception] = {}
+        self.talk_probed: list[int] = []
         self.patrol = PatrolService(
             NODE,
             self.store,
@@ -132,7 +142,9 @@ class PatrolHarness:
             self.web_status,
             self.conversations,
             self.repairs.service,
-            lambda key: self.repairs.launch_records.get(key) is not None,
+            self.repairs.launch_records.get,
+            talks_first=self.talks_first,
+            windows_services=self.repairs.windows_services,
             clock=self.repairs.clock,
             investigation_wait_seconds=0.05,
         )
@@ -143,6 +155,13 @@ class PatrolHarness:
     async def web_status(self, port: int) -> int | None:
         self.probed.append(port)
         value = self.web.get(port, 200)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    async def talks_first(self, port: int) -> bool | None:
+        self.talk_probed.append(port)
+        value = self.talk.get(port, False)
         if isinstance(value, Exception):
             raise value
         return value

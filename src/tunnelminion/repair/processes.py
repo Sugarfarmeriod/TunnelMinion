@@ -1,4 +1,4 @@
-"""后台脚本的启动、归属核对和环回验证。"""
+"""后台程序的启动、结束卡住的进程、归属核对和环回验证。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,12 @@ from pathlib import Path
 import psutil
 
 from tunnelminion.platforms.windows.system import SystemReader
-from tunnelminion.repair.contracts import LaunchRecord, PortOwner, SpawnedProcess
+from tunnelminion.repair.contracts import (
+    LaunchRecord,
+    PortOwner,
+    ProcessLaunchRecord,
+    SpawnedProcess,
+)
 
 
 def redact_log_text(text: str) -> str:
@@ -36,8 +41,16 @@ def redact_log_text(text: str) -> str:
     return re.sub(r"(?i)\btmn_[A-Za-z0-9_-]+", "[REDACTED]", text)
 
 
+def _launch_argv(record: ProcessLaunchRecord) -> tuple[list[str], str]:
+    if isinstance(record, LaunchRecord):
+        return [record.interpreter, *record.arguments], record.working_directory
+    if record.executable is None or record.working_directory is None:
+        raise OSError("启动记录不完整")
+    return [record.executable, *record.arguments], record.working_directory
+
+
 class BackgroundProcessLauncher:
-    """在当前账户下启动脚本，仅清理本次拉起的进程树。"""
+    """在当前账户下启动程序，仅清理本次拉起的进程树或和记录对得上的卡住进程。"""
 
     def __init__(
         self,
@@ -53,7 +66,8 @@ class BackgroundProcessLauncher:
         # 保留句柄，避免运行中的 Popen 被回收并产生 ResourceWarning。
         self._children: list[subprocess.Popen[bytes]] = []
 
-    def launch(self, record: LaunchRecord, *, log_path: Path) -> SpawnedProcess:
+    def launch(self, record: ProcessLaunchRecord, *, log_path: Path) -> SpawnedProcess:
+        argv, cwd = _launch_argv(record)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         env = {
             key: value
@@ -63,8 +77,8 @@ class BackgroundProcessLauncher:
         with log_path.open("ab") as output:
             spawn = partial(
                 self._popen,
-                [record.interpreter, *record.arguments],
-                cwd=record.working_directory,
+                argv,
+                cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=output,
                 stderr=subprocess.STDOUT,
@@ -95,6 +109,28 @@ class BackgroundProcessLauncher:
         except (psutil.Error, OSError) as exc:
             raise OSError("无法核对新进程的启动时间") from exc
         return SpawnedProcess(pid=child.pid, started_at=started_at, log_path=str(log_path))
+
+    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+        try:
+            process = self._process_factory(pid)
+            if abs(process.create_time() - started_at.timestamp()) > 1:
+                return False
+            processes = [*process.children(recursive=True), process]
+            for target in processes:
+                with suppress(psutil.Error, OSError):
+                    target.terminate()
+            _, alive = psutil.wait_procs(processes, timeout=grace_seconds)
+            if not alive:
+                return False
+            for target in alive:
+                with suppress(psutil.Error, OSError):
+                    target.kill()
+            _, alive = psutil.wait_procs(alive, timeout=3)
+            return None if alive else True
+        except psutil.NoSuchProcess:
+            return False
+        except (psutil.Error, OSError):
+            return None
 
     def is_alive(self, spawned: SpawnedProcess) -> bool:
         try:
@@ -155,30 +191,69 @@ class PsutilHostInspector:
     def current_username(self) -> str:
         return self._process_factory(os.getpid()).username()
 
-    def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
+    def port_owner(self, port: int, launch: ProcessLaunchRecord | None = None) -> PortOwner | None:
         for listener in self._reader.listeners():
             if listener.protocol != "tcp" or listener.port != port:
                 continue
             matches_launch = False
-            if launch is not None and listener.pid is not None:
+            started_at: datetime | None = None
+            if listener.pid is not None:
                 try:
                     process = self._process_factory(listener.pid)
-                    matches_launch = tuple(process.cmdline()[1:]) == launch.arguments and (
-                        os.path.normcase(os.path.normpath(process.cwd()))
-                        == os.path.normcase(os.path.normpath(launch.working_directory))
-                    )
+                    started_at = datetime.fromtimestamp(process.create_time(), UTC)
+                    if launch is not None:
+                        matches_launch = _matches_launch(process, launch)
                 except (psutil.Error, OSError):
                     pass
             return PortOwner(
                 pid=listener.pid,
                 process_name=listener.process_name,
                 matches_launch=matches_launch,
+                started_at=started_at,
             )
         return None
 
 
+def _same_path(left: str, right: str) -> bool:
+    return os.path.normcase(os.path.normpath(left)) == os.path.normcase(os.path.normpath(right))
+
+
+def _matches_launch(process: psutil.Process, launch: ProcessLaunchRecord) -> bool:
+    """参数、工作目录一致；普通程序还要求可执行文件和账户一致。"""
+    if isinstance(launch, LaunchRecord):
+        return tuple(process.cmdline()[1:]) == launch.arguments and _same_path(
+            process.cwd(), launch.working_directory
+        )
+    if launch.elevated or launch.executable is None or launch.working_directory is None:
+        return False
+    return (
+        _same_path(process.exe(), launch.executable)
+        and tuple(process.cmdline()[1:]) == launch.arguments
+        and _same_path(process.cwd(), launch.working_directory)
+        and process.username() == launch.username
+    )
+
+
 class SocketLocalVerifier:
     """仅连接本机环回地址，阻塞 IO 在线程里运行。"""
+
+    async def talks_first(self, port: int) -> bool | None:
+        """连上以后不发任何东西，2 秒内对方先说话返回 True，不说话返回 False，连不上返回 None。"""
+        return await asyncio.to_thread(self._talks_first, port)
+
+    @staticmethod
+    def _talks_first(port: int) -> bool | None:
+        for host in ("127.0.0.1", "::1"):
+            try:
+                with socket.create_connection((host, port), timeout=1) as connection:
+                    connection.settimeout(2)
+                    try:
+                        return bool(connection.recv(1))
+                    except TimeoutError:
+                        return False
+            except OSError:
+                continue
+        return None
 
     async def port_listening(self, port: int) -> bool:
         return await asyncio.to_thread(self._port_listening, port)

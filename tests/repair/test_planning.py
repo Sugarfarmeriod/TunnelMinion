@@ -38,17 +38,17 @@ def test_reason_validation(tmp_path: Path, reason: str) -> None:
         (
             "program:svc",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "这种修法不适用于这个服务。",
         ),
         (
             "port:8080",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "只能修 Docker 容器、Python 脚本、普通程序、macOS 后台服务和 Windows 服务。",
         ),
         (
             "docker:a/b",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "只能修 Docker 容器、Python 脚本、普通程序、macOS 后台服务和 Windows 服务。",
         ),
         ("docker:photos", RepairKind.RELAUNCH_PYTHON, "这种修法不适用于这个服务。"),
         ("python:app.py@8765", RepairKind.RESTART_CONTAINERS, "这种修法不适用于这个服务。"),

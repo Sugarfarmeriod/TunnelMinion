@@ -220,10 +220,11 @@ def test_launch_records_are_recent_summaries_and_check_script_identity(tmp_path:
     assert records[0]["running"] is True and records[0]["mark"] == "mine"
     assert records[1]["running"] is False and records[1]["mark"] == "hidden"
     assert records[2]["running"] is False and records[2]["mark"] is None
-    assert records[1]["summary"] == ("有启动记录：入口 app20.py，上次在 8020 端口，现在没有在运行")
+    assert records[1]["summary"] == ("有启动记录：app20.py，上次在 8020 端口，现在没有在运行")
     for item in records:
         assert set(item) == {
             "service_key",
+            "kind",
             "entry",
             "ports",
             "recorded_at",
@@ -325,7 +326,7 @@ def test_refusals_and_bad_values_are_normal_tool_results(
         "propose_repair",
         {"service_key": service_key, "kind": kind, "reason": reason},
     )
-    assert set(output) == {"proposed", "code", "message", "next_step"}
+    assert set(output) - {"manual_steps"} == {"proposed", "code", "message", "next_step"}
     assert output["proposed"] is False and output["code"] == code and output["message"]
     assert not harness.store.records
 

@@ -33,7 +33,13 @@ from tunnelminion.agent.services import (
 )
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.python_entrypoint import is_python_process
-from tunnelminion.repair.contracts import AnyLaunchRecord, LaunchAgentRecord, LaunchRecordStore
+from tunnelminion.repair.contracts import (
+    AnyLaunchRecord,
+    LaunchAgentRecord,
+    LaunchRecord,
+    LaunchRecordStore,
+    WindowsServiceRecord,
+)
 
 ServiceKind = Literal["docker", "python", "program"]
 EntryTier = Literal["show", "review", "hidden"]
@@ -62,6 +68,8 @@ class ServiceEntry(BaseModel):
     state: Literal["running", "stopped"] = "running"
     # 当前用户的 macOS 后台服务（LaunchAgent）；`kind` 仍是 `program`，旧版本照常能读。
     launch_agent: bool = False
+    # 由某个 Windows 服务拉起的程序；`kind` 仍是 `program`。
+    windows_service: bool = False
     mark: ServiceMark | None = None
     web_title: str | None = None
     endpoints: tuple[ServiceEndpoint, ...]
@@ -152,6 +160,7 @@ def _entry(
         tier=tier,
         state="stopped" if all(item.container_running is False for item in items) else "running",
         launch_agent=key.startswith("launchd:"),
+        windows_service=any(item.windows_service_name for item in items),
         mark=mark,
         web_title=next((item.web_title for item in shown if item.web_title), None),
         endpoints=tuple(endpoints),
@@ -211,12 +220,11 @@ def build_local_service_map(
             ServiceEntry(
                 key=launch.service_key,
                 name=(
-                    launch.label
-                    if agent
-                    else launch.service_key.removeprefix("python:").rsplit("@", 1)[0]
+                    launch.label if agent else launch.service_key.split(":", 1)[1].rsplit("@", 1)[0]
                 )[:80],
-                kind="program" if agent else "python",
+                kind="python" if isinstance(launch, LaunchRecord) else "program",
                 launch_agent=agent,
+                windows_service=isinstance(launch, WindowsServiceRecord),
                 tier="hidden" if mark is ServiceMark.HIDDEN else "show",
                 state="running"
                 if launch.service_key in snapshot.running_launch_keys

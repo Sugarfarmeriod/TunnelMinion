@@ -28,11 +28,14 @@ from tunnelminion.repair.contracts import (
     LocalVerifier,
     PortOwner,
     ProcessLauncher,
+    ProcessLaunchRecord,
     RepairClaimResult,
     RepairCommand,
     RepairRecord,
     RepairStore,
     SpawnedProcess,
+    WindowsServiceInfo,
+    WindowsServiceRuntime,
 )
 from tunnelminion.repair.definitions import register_repair_operations
 from tunnelminion.repair.planning import RepairPlanner
@@ -128,6 +131,7 @@ class FakeLaunchAgents(LaunchAgentRuntime):
         self.responses: list[LaunchAgentJob | LaunchAgentProblem] = []
         self.labels: dict[int, str] = {}
         self.kickstarts: list[str] = []
+        self.killed: list[bool] = []
         self.exit_code: int | None = 0
         self.stay_stopped = False
         self.log = "address already in use"
@@ -144,8 +148,9 @@ class FakeLaunchAgents(LaunchAgentRuntime):
     async def inspect(self, label: str) -> LaunchAgentJob | LaunchAgentProblem:
         return self.responses.pop(0) if self.responses else self.job
 
-    async def kickstart(self, label: str) -> RepairCommand:
+    async def kickstart(self, label: str, *, kill: bool = False) -> RepairCommand:
         self.kickstarts.append(label)
+        self.killed.append(kill)
         if self.exit_code == 0 and not self.stay_stopped and isinstance(self.job, LaunchAgentJob):
             self.job = self.job.model_copy(update={"pid": 777})
         return RepairCommand(
@@ -225,9 +230,62 @@ class FakeContainers(ContainerRuntime):
         return self.log
 
 
+class FakeWindowsServices(WindowsServiceRuntime):
+    def __init__(self) -> None:
+        self.info: WindowsServiceInfo | None = WindowsServiceInfo(
+            name="SunshineService",
+            display_name="Sunshine",
+            binary_path="D:/Apps/Sunshine/sunshinesvc.exe",
+            start_type="manual",
+            running=False,
+            granted=True,
+        )
+        self.reason: str | None = None
+        self.calls: list[tuple[str, str]] = []
+        self.exit_codes: list[int] = []
+        self.stay_stopped = False
+        self.stay_running = False
+        self.grant_result = True
+
+    def unsupported_reason(self) -> str | None:
+        return self.reason
+
+    def services_for_pids(self, pids: frozenset[int]) -> dict[int, str]:
+        return {}
+
+    def inspect(self, name: str) -> WindowsServiceInfo | None:
+        return self.info
+
+    async def set_granted(self, name: str, *, granted: bool) -> bool:
+        self.calls.append(("grant" if granted else "revoke", name))
+        if self.grant_result and self.info is not None:
+            self.info = self.info.model_copy(update={"granted": granted})
+        return self.grant_result
+
+    def _command(self, action: str, name: str) -> RepairCommand:
+        self.calls.append((action, name))
+        code = self.exit_codes.pop(0) if self.exit_codes else 0
+        if code == 0 and self.info is not None:
+            if action == "start" and not self.stay_stopped:
+                self.info = self.info.model_copy(update={"running": True})
+            if action == "stop" and not self.stay_running:
+                self.info = self.info.model_copy(update={"running": False})
+        return RepairCommand(
+            argv=("sc.exe", action, name), exit_code=code, started_at=NOW, finished_at=NOW
+        )
+
+    async def start(self, name: str) -> RepairCommand:
+        return self._command("start", name)
+
+    async def stop(self, name: str) -> RepairCommand:
+        return self._command("stop", name)
+
+
 class FakeLauncher(ProcessLauncher):
     def __init__(self) -> None:
-        self.calls: list[tuple[LaunchRecord, Path]] = []
+        self.ended: list[int] = []
+        self.end_result: bool | None = False
+        self.calls: list[tuple[ProcessLaunchRecord, Path]] = []
         self.stopped: list[SpawnedProcess] = []
         self.alive = True
         self.stop_result = True
@@ -236,7 +294,11 @@ class FakeLauncher(ProcessLauncher):
         self.error: Exception | None = None
         self.error_on_stop = False
 
-    def launch(self, record: LaunchRecord, *, log_path: Path) -> SpawnedProcess:
+    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+        self.ended.append(pid)
+        return self.end_result
+
+    def launch(self, record: ProcessLaunchRecord, *, log_path: Path) -> SpawnedProcess:
         self.calls.append((record, log_path))
         if self.error is not None:
             raise self.error
@@ -260,12 +322,12 @@ class FakeHost(HostInspector):
     def __init__(self) -> None:
         self.username = "me"
         self.owners: dict[int, PortOwner] = {}
-        self.calls: list[tuple[int, LaunchRecord | None]] = []
+        self.calls: list[tuple[int, ProcessLaunchRecord | None]] = []
 
     def current_username(self) -> str:
         return self.username
 
-    def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
+    def port_owner(self, port: int, launch: ProcessLaunchRecord | None = None) -> PortOwner | None:
         self.calls.append((port, launch))
         return self.owners.get(port)
 
@@ -325,6 +387,8 @@ class RepairHarness:
         self.registry = ToolRegistry()
         register_repair_operations(self.registry)
         self.launch_agents = FakeLaunchAgents()
+        self.windows_services = FakeWindowsServices()
+        self.stuck: set[str] = set()
         self.planner = RepairPlanner(
             NODE,
             lambda: self.marks,
@@ -333,6 +397,8 @@ class RepairHarness:
             self.host,
             self.clock,
             launch_agents=self.launch_agents,
+            windows_services=self.windows_services,
+            is_stuck=self.stuck.__contains__,
         )
         self.workflow = RepairWorkflow(
             self.store,
@@ -347,6 +413,9 @@ class RepairHarness:
             container_verify_seconds=2,
             python_verify_seconds=2,
             launch_agents=self.launch_agents,
+            windows_services=self.windows_services,
+            is_stuck=self.stuck.__contains__,
+            service_stop_seconds=2,
         )
         self.authorization = AuthorizationService(
             self.store,
@@ -362,6 +431,7 @@ class RepairHarness:
             self.containers,
             self.host,
             self.launch_agents,
+            self.windows_services,
         )
 
     def authorized(self, record: RepairRecord | None = None) -> RepairRecord:

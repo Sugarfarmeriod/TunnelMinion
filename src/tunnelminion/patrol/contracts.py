@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.domain.identifiers import OperationId, ThreadId
 from tunnelminion.domain.service_marks import MARK_KEY_PATTERN
-from tunnelminion.repair.contracts import REPAIR_KEY_PREFIXES, RepairKind
+from tunnelminion.repair.contracts import ManualStep, RepairKind
 
 # 连续这么多轮异常才确认挂了；连续这么多轮正常才算恢复。
 PATROL_CONFIRM_ROUNDS = 3
@@ -50,16 +50,23 @@ class PatrolReason(StrEnum):
     CONTAINER_EXITED = "container_exited"
     SCRIPT_EXITED = "script_exited"
     AGENT_EXITED = "agent_exited"
+    PROGRAM_EXITED = "program_exited"
+    SERVICE_STOPPED = "service_stopped"
     PORT_CLOSED = "port_closed"
     WEB_FAILED = "web_failed"
+    # 进程在、端口在听，但以前能打开的网页打不开了，或者以前会先回话的端口不回话了。
+    STUCK = "stuck"
 
 
 REASON_TEXT: dict[PatrolReason, str] = {
     PatrolReason.CONTAINER_EXITED: "容器已退出",
     PatrolReason.SCRIPT_EXITED: "脚本已退出",
     PatrolReason.AGENT_EXITED: "后台服务已退出",
+    PatrolReason.PROGRAM_EXITED: "程序已退出",
+    PatrolReason.SERVICE_STOPPED: "Windows 服务已停止",
     PatrolReason.PORT_CLOSED: "端口不再监听",
     PatrolReason.WEB_FAILED: "网页打不开",
+    PatrolReason.STUCK: "卡住了：端口还在听，但不再响应",
 }
 
 
@@ -87,13 +94,24 @@ class PatrolRecord(BaseModel):
     # 见到正常时的端口，以及其中能打开网页的端口。
     ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(default=(), max_length=32)
     web_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(default=(), max_length=32)
+    # 正常时连上就先回话的端口（例如 SSH 先报版本号），和连上以后不说话、等客户端先开口的端口。
+    # 只有以前会回话的端口不回话了才算卡住；本来就不说话的端口永远不会被判成卡住。
+    talk_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(default=(), max_length=32)
+    quiet_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(
+        default=(), max_length=32
+    )
     thread_id: ThreadId | None = None
     repair_id: OperationId | None = None
+    # 这次挂了以后巡检想提出修法却被拒绝的原因，以及本机生成的现成步骤。
+    repair_refusal: str | None = Field(default=None, max_length=1_000)
+    manual_steps: tuple[ManualStep, ...] = Field(default=(), max_length=5)
     last_investigated_at: datetime | None = None
     auto_repair_enabled: bool = False
     # 主人打开开关的日期，写进自动修的批准依据。
     auto_repair_enabled_on: date | None = None
     auto_repair_paused: bool = False
+    # 卡住了也自动修：要在"挂了可以自动修"之外单独打开。
+    auto_repair_stuck_enabled: bool = False
     last_auto_repair_at: datetime | None = None
     last_auto_repair_result: AutoRepairResult | None = None
 
@@ -111,6 +129,18 @@ class AutoRepairView(BaseModel):
     paused: bool
     last_attempt_at: datetime | None = None
     last_result: AutoRepairResult | None = None
+    # 卡住时有没有现成修法，以及主人有没有单独打开"卡住了也自动修"。
+    stuck_available: bool = False
+    stuck_enabled: bool = False
+
+
+class WindowsServiceView(BaseModel):
+    """主人自己装的 Windows 服务：有没有允许 Agent 启停它。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    granted: bool
 
 
 class PatrolServiceView(BaseModel):
@@ -127,7 +157,10 @@ class PatrolServiceView(BaseModel):
     confirmed_at: datetime | None = None
     thread_id: ThreadId | None = None
     repair_id: OperationId | None = None
+    repair_refusal: str | None = None
+    manual_steps: tuple[ManualStep, ...] = ()
     auto_repair: AutoRepairView
+    windows_service: WindowsServiceView | None = None
 
 
 class PatrolView(BaseModel):
@@ -146,10 +179,33 @@ class AutoRepairInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     enabled: bool
+    # 同时设置"卡住了也自动修"；不给时保持原样，关掉"挂了可以自动修"时一并关掉。
+    stuck: bool | None = None
 
 
-def repair_kind_for(key: str) -> RepairKind | None:
-    """每个服务只有一种现成修法：容器重启，脚本按启动记录重新拉起，后台服务重新启动。"""
-    return next(
-        (kind for kind, prefix in REPAIR_KEY_PREFIXES.items() if key.startswith(prefix)), None
-    )
+class WindowsServiceGrantInput(BaseModel):
+    """允许或撤回 Agent 启停这个 Windows 服务。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    granted: bool
+
+
+def repair_kind_for(
+    key: str, reason: PatrolReason | None = None, *, windows_service: bool = False
+) -> RepairKind | None:
+    """按服务种类和挂掉的原因选固定修法；卡住的程序和脚本先结束再重新运行。"""
+    stuck = reason is PatrolReason.STUCK
+    if key.startswith("docker:"):
+        return RepairKind.RESTART_CONTAINERS
+    if key.startswith("launchd:"):
+        return RepairKind.RESTART_LAUNCH_AGENT
+    if key.startswith("program:") and windows_service:
+        return RepairKind.RESTART_WINDOWS_SERVICE
+    if key.startswith(("python:", "program:")) and stuck:
+        return RepairKind.RESTART_STUCK_PROGRAM
+    if key.startswith("python:"):
+        return RepairKind.RELAUNCH_PYTHON
+    if key.startswith("program:"):
+        return RepairKind.RELAUNCH_PROGRAM
+    return None

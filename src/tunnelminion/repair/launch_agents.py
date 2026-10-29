@@ -81,7 +81,7 @@ class UnsupportedLaunchAgents:
     async def inspect(self, label: str) -> LaunchAgentJob | LaunchAgentProblem:
         return LaunchAgentProblem.MISSING
 
-    async def kickstart(self, label: str) -> RepairCommand:
+    async def kickstart(self, label: str, *, kill: bool = False) -> RepairCommand:
         raise ValueError("unsupported")
 
     def log_tail(self, job: LaunchAgentJob, *, lines: int) -> str:
@@ -253,10 +253,14 @@ class MacLaunchAgentRuntime:
             ),
         )
 
-    async def kickstart(self, label: str) -> RepairCommand:
+    async def kickstart(self, label: str, *, kill: bool = False) -> RepairCommand:
         if _LABEL.fullmatch(label) is None or self.unsupported_reason() is not None:
             raise ValueError("后台服务标签无效")
-        argv = (self._launchctl, "kickstart", f"{self._domain}/{label}")
+        argv = (
+            (self._launchctl, "kickstart", "-k", f"{self._domain}/{label}")
+            if kill
+            else (self._launchctl, "kickstart", f"{self._domain}/{label}")
+        )
         started_at = self._clock()
         exit_code: int | None = None
         try:

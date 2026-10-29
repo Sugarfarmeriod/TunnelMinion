@@ -44,15 +44,21 @@ from tunnelminion.patrol.contracts import (
     PatrolServiceView,
     PatrolStatus,
     PatrolView,
+    WindowsServiceView,
     repair_kind_for,
 )
 from tunnelminion.patrol.storage import SQLitePatrolStore
 from tunnelminion.repair.contracts import (
+    AnyLaunchRecord,
+    ManualStep,
+    ProgramLaunchRecord,
     RepairErrorCode,
     RepairKind,
     RepairOrigin,
     RepairOriginKind,
     RepairRecord,
+    WindowsServiceRecord,
+    WindowsServiceRuntime,
 )
 from tunnelminion.repair.eligibility import RepairRefusal
 from tunnelminion.repair.service import OwnerPreapproval
@@ -79,7 +85,9 @@ class PatrolConversations(Protocol):
 
     def create_thread(self, *, context: ThreadContext | None = None) -> ThreadView: ...
 
-    def append_notice(self, thread_id: ThreadId, text: str) -> bool: ...
+    def append_notice(
+        self, thread_id: ThreadId, text: str, *, manual_steps: tuple[ManualStep, ...] = ()
+    ) -> bool: ...
 
     async def start_run(
         self,
@@ -124,6 +132,18 @@ class _Streak:
 
 
 @dataclass
+class _Checks:
+    """一个服务这一轮的探测结果。
+
+    `web`：端口到首页结果，True 能打开，False 返回服务器错误，None 不回应。
+    `talk`：端口到"连上后是否先回话"。
+    """
+
+    web: dict[int, bool | None] = field(default_factory=dict[int, bool | None])
+    talk: dict[int, bool] = field(default_factory=dict[int, bool])
+
+
+@dataclass
 class _Round:
     """一轮里要处理的确认和恢复。"""
 
@@ -140,9 +160,12 @@ def _web_ports(entry: ServiceEntry) -> tuple[int, ...]:
 
 
 def classify(
-    record: PatrolRecord, entry: ServiceEntry | None, web_ok: bool | None
+    record: PatrolRecord, entry: ServiceEntry | None, checks: _Checks | None = None
 ) -> PatrolReason | None:
-    """按固定规则判断这一轮是否异常；正常返回 None。"""
+    """按固定规则判断这一轮是否异常；正常返回 None。
+
+    卡住只拿服务自己以前的样子比：以前能打开的网页现在不回应，或以前会先回话的端口现在不回话。
+    """
     if entry is None:
         return PatrolReason.PORT_CLOSED
     if entry.state == "stopped":
@@ -150,13 +173,21 @@ def classify(
             return PatrolReason.CONTAINER_EXITED
         if entry.launch_agent:
             return PatrolReason.AGENT_EXITED
+        if entry.windows_service:
+            return PatrolReason.SERVICE_STOPPED
         if entry.kind == "python":
             return PatrolReason.SCRIPT_EXITED
-        return PatrolReason.PORT_CLOSED
+        return PatrolReason.PROGRAM_EXITED
     if record.ports and not set(record.ports) & set(_ports(entry)):
         return PatrolReason.PORT_CLOSED
-    if web_ok is False:
-        return PatrolReason.WEB_FAILED
+    checks = checks or _Checks()
+    if checks.web and True not in checks.web.values():
+        silent = any(
+            result is None and port in record.web_ports for port, result in checks.web.items()
+        )
+        return PatrolReason.STUCK if silent else PatrolReason.WEB_FAILED
+    if any(not talked and port in record.talk_ports for port, talked in checks.talk.items()):
+        return PatrolReason.STUCK
     return None
 
 
@@ -169,8 +200,10 @@ class PatrolService:
         web_status: Callable[[int], Awaitable[int | None]],
         conversations: PatrolConversations,
         repairs: PatrolRepairs,
-        has_launch_record: Callable[[str], bool],
+        launch_record: Callable[[str], AnyLaunchRecord | None],
         *,
+        talks_first: Callable[[int], Awaitable[bool | None]] | None = None,
+        windows_services: WindowsServiceRuntime | None = None,
         clock: Callable[[], datetime] | None = None,
         interval_seconds: float = PATROL_INTERVAL_SECONDS,
         investigation_wait_seconds: float = PATROL_INVESTIGATION_WAIT_SECONDS,
@@ -181,7 +214,9 @@ class PatrolService:
         self._web_status = web_status
         self._conversations = conversations
         self._repairs = repairs
-        self._has_launch_record = has_launch_record
+        self._launch_record = launch_record
+        self._talks_first = talks_first
+        self._windows_services = windows_services
         self._clock = clock or (lambda: datetime.now(UTC))
         self._interval_seconds = interval_seconds
         self._investigation_wait_seconds = investigation_wait_seconds
@@ -192,20 +227,32 @@ class PatrolService:
 
     # ---- 每轮判定 ----
 
-    async def _probe(self, port: int) -> bool:
+    async def _probe(self, port: int) -> bool | None:
+        """首页能打开返回 True，服务器错误返回 False，不回应（超时或不说 HTTP）返回 None。"""
         try:
             status = await asyncio.wait_for(
                 self._web_status(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
             )
         except (TimeoutError, OSError):
-            return False
-        return status is not None and status < 500
+            return None
+        return None if status is None else status < 500
 
-    async def _web_checks(
+    async def _talk(self, port: int) -> bool:
+        assert self._talks_first is not None
+        try:
+            talked = await asyncio.wait_for(
+                self._talks_first(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
+            )
+        except (TimeoutError, OSError):
+            return False
+        return talked is True
+
+    async def _checks(
         self, shown: dict[str, ServiceEntry], records: dict[str, PatrolRecord]
-    ) -> dict[str, bool]:
-        """每轮最多探 16 个入口；一个服务任意一个网页入口能打开就算正常。"""
-        plan: list[tuple[str, int]] = []
+    ) -> dict[str, _Checks]:
+        """每轮最多探 16 个入口，网页优先；不是网页的端口只在以前会回话或还没探过时探。"""
+        web_plan: list[tuple[str, int]] = []
+        talk_plan: list[tuple[str, int]] = []
         for key, entry in shown.items():
             if entry.state != "running":
                 continue
@@ -213,12 +260,29 @@ class PatrolService:
             current = set(_ports(entry))
             remembered = set(record.web_ports) if record is not None else set[int]()
             ports = sorted((remembered & current) or set(_web_ports(entry)))
-            plan.extend((key, port) for port in ports)
-        plan = plan[:PATROL_MAX_PROBES]
-        results = await asyncio.gather(*(self._probe(port) for _, port in plan))
-        checks: dict[str, bool] = {}
-        for (key, _), ok in zip(plan, results, strict=True):
-            checks[key] = checks.get(key, False) or ok
+            web_plan.extend((key, port) for port in ports)
+            if self._talks_first is None:
+                continue
+            known = (
+                set(record.web_ports) | set(record.quiet_ports)
+                if record is not None
+                else set[int]()
+            )
+            talking = set(record.talk_ports) if record is not None else set[int]()
+            talk_plan.extend(
+                (key, port)
+                for port in sorted(current - set(ports))
+                if port in talking or port not in known
+            )
+        web_plan = web_plan[:PATROL_MAX_PROBES]
+        talk_plan = talk_plan[: PATROL_MAX_PROBES - len(web_plan)]
+        web_results = await asyncio.gather(*(self._probe(port) for _, port in web_plan))
+        talk_results = await asyncio.gather(*(self._talk(port) for _, port in talk_plan))
+        checks: dict[str, _Checks] = {}
+        for (key, port), result in zip(web_plan, web_results, strict=True):
+            checks.setdefault(key, _Checks()).web[port] = result
+        for (key, port), talked in zip(talk_plan, talk_results, strict=True):
+            checks.setdefault(key, _Checks()).talk[port] = talked
         return checks
 
     async def observe_once(self) -> None:
@@ -236,7 +300,7 @@ class PatrolService:
             self._store.delete(key)
             self._streaks.pop(key, None)
             records.pop(key)
-        checks = await self._web_checks(shown, records)
+        checks = await self._checks(shown, records)
         outcome = _Round()
         for key in sorted(shown.keys() | (records.keys() - present.keys())):
             entry = shown.get(key)
@@ -261,24 +325,35 @@ class PatrolService:
         self,
         record: PatrolRecord,
         entry: ServiceEntry | None,
-        web_ok: bool | None,
+        checks: _Checks | None,
         now: datetime,
         outcome: _Round,
     ) -> PatrolRecord | None:
         streak = self._streaks.setdefault(record.key, _Streak())
-        reason = classify(record, entry, web_ok)
+        reason = classify(record, entry, checks)
         if reason is None:
             assert entry is not None
             streak.abnormal = 0
             streak.healthy += 1
+            current = set(_ports(entry))
+            opened = {port for port, ok in (checks.web if checks else {}).items() if ok}
+            talk = checks.talk if checks else {}
+            talking = (set(record.talk_ports) | {p for p, t in talk.items() if t}) & current
             update: dict[str, object] = {
                 "seen_running": True,
                 "name": entry.name,
                 "ports": _ports(entry),
                 # 网页标题探测偶尔读不到，已经记住的网页入口只要端口还在就保留。
                 "web_ports": tuple(
-                    sorted(set(_web_ports(entry)) | (set(record.web_ports) & set(_ports(entry))))
+                    sorted((set(_web_ports(entry)) | opened | set(record.web_ports)) & current)
                 ),
+                "talk_ports": tuple(sorted(talking))[:32],
+                "quiet_ports": tuple(
+                    sorted(
+                        (set(record.quiet_ports) | {p for p, t in talk.items() if not t})
+                        & current - talking
+                    )
+                )[:32],
             }
             if record.status in {PatrolStatus.SUSPECT, PatrolStatus.ACKNOWLEDGED} or (
                 record.status is PatrolStatus.DOWN and streak.healthy >= PATROL_RECOVER_ROUNDS
@@ -291,6 +366,8 @@ class PatrolService:
                     "down_since": None,
                     "confirmed_at": None,
                     "repair_id": None,
+                    "repair_refusal": None,
+                    "manual_steps": (),
                 }
             updated = record.model_copy(update=update)
             return updated if updated != record else None
@@ -311,6 +388,8 @@ class PatrolService:
                     "confirmed_at": now,
                     "thread_id": None,
                     "repair_id": None,
+                    "repair_refusal": None,
+                    "manual_steps": (),
                 }
             )
         return record.model_copy(
@@ -323,9 +402,11 @@ class PatrolService:
 
     # ---- 确认挂了以后 ----
 
-    def _note(self, record: PatrolRecord, text: str) -> None:
+    def _note(
+        self, record: PatrolRecord, text: str, manual_steps: tuple[ManualStep, ...] = ()
+    ) -> None:
         if record.thread_id is not None:
-            self._conversations.append_notice(record.thread_id, text)
+            self._conversations.append_notice(record.thread_id, text, manual_steps=manual_steps)
 
     def _save(self, record: PatrolRecord, **update: object) -> PatrolRecord:
         """只改这次处理负责的字段，不覆盖期间主人改过的开关。"""
@@ -348,6 +429,7 @@ class PatrolService:
         if record is None or record.status is not PatrolStatus.DOWN or record.reason is None:
             return
         reason = REASON_TEXT[record.reason]
+        kind = self._kind_for(key, record.reason)
         context = ThreadContext(
             node_id=str(self._node_id), service_key=key, service_name=record.name
         )
@@ -361,7 +443,6 @@ class PatrolService:
         self._note(record, alert)
         record = await self._investigate(record, context, reason)
         pending = self._pending_repair(record)
-        kind = repair_kind_for(key)
         if pending is None and kind is not None:
             try:
                 pending = await self._repairs.propose(
@@ -377,11 +458,13 @@ class PatrolService:
                 )
             except RepairRefusal as exc:
                 error = exc.error
-                self._note(
-                    record,
-                    f"巡检想提出修法，但{error.message}"
-                    + (f"{error.next_step}" if error.next_step else ""),
+                text = f"巡检想提出修法，但{error.message}" + (
+                    f"{error.next_step}" if error.next_step else ""
                 )
+                record = self._save(
+                    record, repair_refusal=text[:1_000], manual_steps=error.manual_steps
+                )
+                self._note(record, text, error.manual_steps)
                 return
             except ValueError:
                 self._note(record, "巡检没能为它生成修法，需要你手动处理。")
@@ -456,7 +539,10 @@ class PatrolService:
         if record.auto_repair_paused:
             self._note(record, "这个服务的自动修已暂停（上次没修好），这次等你批准。")
             return
-        if pending.plan.kind is not repair_kind_for(record.key):
+        if record.reason is PatrolReason.STUCK and not record.auto_repair_stuck_enabled:
+            self._note(record, "卡住了要不要自动修需要单独打开，这次等你批准。")
+            return
+        if pending.plan.kind is not self._kind_for(record.key, record.reason):
             return
         now = self._clock()
         if record.last_auto_repair_at is not None and now - record.last_auto_repair_at < (
@@ -492,12 +578,33 @@ class PatrolService:
 
     # ---- 网页接口 ----
 
-    def _auto_repair_view(self, key: str, record: PatrolRecord | None) -> AutoRepairView:
-        kind = repair_kind_for(key)
-        # 脚本和后台服务要见过它正常运行、有记录才有现成修法。
-        available = kind is RepairKind.RESTART_CONTAINERS or (
-            kind is not None and self._has_launch_record(key)
+    def _kind_for(self, key: str, reason: PatrolReason | None) -> RepairKind | None:
+        windows = isinstance(self._launch_record(key), WindowsServiceRecord)
+        return repair_kind_for(key, reason, windows_service=windows)
+
+    def _windows_service_view(self, key: str) -> WindowsServiceView | None:
+        record = self._launch_record(key)
+        if not isinstance(record, WindowsServiceRecord) or self._windows_services is None:
+            return None
+        info = self._windows_services.inspect(record.service_name)
+        return WindowsServiceView(
+            name=record.service_name, granted=info is not None and info.granted
         )
+
+    def _auto_repair_view(self, key: str, record: PatrolRecord | None) -> AutoRepairView:
+        kind = self._kind_for(key, None)
+        launch = self._launch_record(key)
+        # 脚本、程序和后台服务要见过它正常运行、有记录才有现成修法；
+        # Windows 服务还要主人允许 Agent 启停它；以管理员身份运行的程序修不了。
+        if kind is RepairKind.RESTART_CONTAINERS:
+            available = True
+        elif kind is RepairKind.RESTART_WINDOWS_SERVICE:
+            service = self._windows_service_view(key)
+            available = service is not None and service.granted
+        elif isinstance(launch, ProgramLaunchRecord):
+            available = not launch.elevated
+        else:
+            available = kind is not None and launch is not None
         return AutoRepairView(
             available=available,
             kind=kind if available else None,
@@ -506,6 +613,8 @@ class PatrolService:
             paused=record.auto_repair_paused if record is not None else False,
             last_attempt_at=record.last_auto_repair_at if record is not None else None,
             last_result=record.last_auto_repair_result if record is not None else None,
+            stuck_available=available,
+            stuck_enabled=record.auto_repair_stuck_enabled if record is not None else False,
         )
 
     def view(self) -> PatrolView:
@@ -527,7 +636,10 @@ class PatrolService:
                     confirmed_at=record.confirmed_at,
                     thread_id=record.thread_id,
                     repair_id=record.repair_id,
+                    repair_refusal=record.repair_refusal,
+                    manual_steps=record.manual_steps,
                     auto_repair=self._auto_repair_view(key, records.get(key)),
+                    windows_service=self._windows_service_view(key),
                 )
             )
         used = self._store.investigations_on(self._clock().astimezone().date())
@@ -537,7 +649,7 @@ class PatrolService:
             services=tuple(values),
         )
 
-    def set_auto_repair(self, key: str, *, enabled: bool) -> PatrolView:
+    def set_auto_repair(self, key: str, *, enabled: bool, stuck: bool | None = None) -> PatrolView:
         """只由本机网页调用；没有现成修法或不在地图上的服务抛 `LookupError`。"""
         record = self._store.get(key)
         if record is None:
@@ -562,10 +674,29 @@ class PatrolService:
                     if enabled
                     else None,
                     "auto_repair_paused": False,
+                    "auto_repair_stuck_enabled": enabled
+                    and (record.auto_repair_stuck_enabled if stuck is None else stuck),
                 }
             )
         )
         logger.info("巡检：%s 的“挂了可以自动修”已%s", key, "打开" if enabled else "关闭")
+        return self.view()
+
+    async def set_windows_service_grant(self, key: str, *, granted: bool) -> PatrolView:
+        """弹一次管理员确认，允许或撤回 Agent 启停这个 Windows 服务。
+
+        不是主人自己标过的 Windows 服务抛 `KeyError`；主人在确认框里拒绝时抛 `PermissionError`。
+        撤回时一并关掉这个服务的自动修。
+        """
+        record = self._launch_record(key)
+        if not isinstance(record, WindowsServiceRecord) or self._windows_services is None:
+            raise KeyError(key)
+        if not await self._windows_services.set_granted(record.service_name, granted=granted):
+            raise PermissionError(key)
+        patrol = self._store.get(key)
+        if not granted and patrol is not None and patrol.auto_repair_enabled:
+            self.set_auto_repair(key, enabled=False)
+        logger.info("巡检：%s 的 Windows 服务启停权限已%s", key, "授予" if granted else "撤回")
         return self.view()
 
     def acknowledge(self, key: str) -> PatrolView:
