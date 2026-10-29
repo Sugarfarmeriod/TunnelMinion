@@ -89,7 +89,13 @@ export function ServiceMapPage() {
   const peers = useQuery({
     queryKey: peersQueryKey,
     queryFn: loadPeers,
-    refetchInterval: 60_000,
+    // 刚加入或刚启动时后台还没探测完，先勤问几次，确定在线与否后再放慢
+    refetchInterval: (query) =>
+      query.state.data?.peers.some(
+        (peer) => !peer.is_local && peer.reachable === null,
+      )
+        ? 5_000
+        : 60_000,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const open = selectedId !== null;
