@@ -1,6 +1,6 @@
 # 按问题挑工具：小模型在工具多时也能选对
 
-> 状态：已实现（#219）。动手修的工具见 [`agent-fix.md`](agent-fix.md)；委派见 [`delegation.md`](delegation.md)；
+> 状态：已实现（#219），2026-10-29 完成真实模型对比和真机抽查，结果见文末。动手修的工具见 [`agent-fix.md`](agent-fix.md)；委派见 [`delegation.md`](delegation.md)；
 > 总体方向见 [`node-agents.md`](node-agents.md)。
 
 ## 一句话
@@ -206,11 +206,44 @@ flowchart TD
 7. 链路追踪里能看到每次挑了哪些工具。
 8. 用上面的真实模型评测脚本分别对 Qwen 和 DeepSeek 跑一遍，报告放进 `evaluations/reports/`。
 
-## 拆成几个 PR
+## 真实模型对比与真机抽查结果（2026-10-29）
 
-1. 本设计文档（docs PR）。
-2. 实现（一个 PR，分支 `feature/tool-selection`）：挑工具模块、`request_more_tools` 中间件、工具说明、
-   系统提示 v6、模型配置 `max_tools` 与设置页、离线评测与真实模型评测脚本、测试。
+### 真实模型对比
+
+同一数据集 21 个问题，A（全部工具）和 B（按问题挑）各跑 3 轮，每组 63 次。两组都用新的工具说明
+（"什么时候用"）和 v6 系统提示，**唯一的区别是挑不挑工具**。报告在
+[`tool-selection-qwen-2026-10-29`](../../evaluations/reports/tool-selection-qwen-2026-10-29/summary.md) 和
+[`tool-selection-deepseek-2026-10-29`](../../evaluations/reports/tool-selection-deepseek-2026-10-29/summary.md)。
+
+| 模型 | 配置 | 先调对工具 | 调齐期望工具 | 说"没有工具" | 请求更多工具 | 平均轮数 | 平均 token |
+|---|---|---|---|---|---|---|---|
+| 本机 Qwen（上限 5） | A | 63/63 | 55/63 | 0 | 0 | 2.79 | 7852 |
+| 本机 Qwen（上限 5） | B | 63/63 | 56/63 | 1 | 4 | 2.94 | 7364 |
+| DeepSeek（不设上限） | A | 63/63 | 62/63 | 1 | 0 | 3.43 | 10970 |
+| DeepSeek（不设上限） | B | 63/63 | 63/63 | 0 | 4 | 3.40 | 9877 |
+
+对照达标线：
+
+- **DeepSeek 达标**：选对比例没有下降，平均轮数没有增加，token 少约 10%。
+- **本机 Qwen 部分达标**：
+  - A 组已经 63/63 先调对工具，"B 比 A 明显提高"在这套数据上无从体现。"问容器只查端口"的老问题在两组里都没有再出现，说明主要是两组共用的工具说明和系统提示起了作用；挑工具本身带来的是 token 少约 6%。
+  - "说没有工具"的目标 0 次没有做到：B 组有 1 次（`docker-stopped-cap5` 第 2 轮），它已经调用了 `list_docker_services`，回答里仍说缺工具。
+  - 两组漏调期望工具的次数接近（A 8 次、B 7 次），集中在容器修复和巡检场景：没有接着读日志或提出修法。
+- `request_more_tools` 在两个模型上各被用了 4 次，都发生在认不出话题或需要修复的问题上，调用之后都能继续查。
+
+### 真机抽查
+
+在 Mac mini 上用本机 Qwen、工具上限 5，问真实的 Docker 和进程（只读）：
+
+| 问题 | 结果 |
+|---|---|
+| "penpot-penpot-backend-1 这个容器是不是停了？" | 直接用 `list_docker_services`，回答"运行中（Up 12 days），并没有停止"；没有出现"没有 Docker 工具" |
+| "这台电脑哪个程序最占内存？" | 用 `get_process_summary`，答出 llama-server，并和第二名做了比较 |
+| "帮我看看有什么问题"（认不出话题） | 正常调查后回答"没有明显的服务故障"，并列出了容器和端口的情况 |
+
+真机验收步骤里的第 3 步（停掉测试容器后修复）、第 6 步（DeepSeek 真机重复）和第 7 步（看链路追踪）没有单独在真机上做：
+容器修复已在[动手修](agent-fix.md)和[主动巡检](proactive-patrol.md)的验收里覆盖；DeepSeek 的表现由上面的对比给出；
+挑了哪些工具会写进链路的属性 `agent.tool_selection.*`，由自动测试覆盖。
 
 ## 明确不做
 

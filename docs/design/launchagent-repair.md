@@ -1,6 +1,6 @@
 # 第三种修法：重新启动 macOS 用户级后台服务（LaunchAgent）
 
-> 状态：设计已确认，待实现（分支 `feature/launchagent-repair`）。
+> 状态：已实现（#220、#221），2026-10-29 在 Mac mini 上真机验收通过，记录见文末。
 > 相关设计：修复的提出、批准、执行前核对和验证见 [`agent-fix.md`](agent-fix.md)；巡检和"挂了可以自动修"见
 > [`proactive-patrol.md`](proactive-patrol.md)；服务分档见 [`node-agents.md`](node-agents.md)。
 
@@ -199,11 +199,22 @@ launchd 记的配置文件位置没变。任何一项变了就不动手，告诉
 7. **收尾**：`launchctl bootout gui/$(id -u)/local.repair-test.web`（如果还加载着），删除 plist、临时目录和
    验收数据目录，确认 `launchctl print gui/$(id -u)/local.repair-test.web` 已找不到这个服务。
 
-## 拆分
+## 真机验收结果（2026-10-29）
 
-一个实现 PR（分支 `feature/launchagent-repair`）：
+在 Mac mini 上用全新的数据目录、只绑本机环回地址的网页做；模型用本机 Qwen（关闭思考模式）。测试服务用
+uv 装的 Python 3.11，监听一个空闲的高端口。整个过程通过本机接口操作，和网页上点按钮走的是同一组接口。
 
-1. macOS 后台服务识别、`launchd:` 身份、后台服务记录、地图"后台服务"和"已停止"。
-2. 新修法：资格检查、计划、执行前核对、`launchctl kickstart`、验证、日志要点；登记为 L2。
-3. 接入：`propose_repair`、巡检 `repair_kind_for` 和"后台服务已退出"、批准框文案、地图开关；OpenAPI 基线。
-4. 前端：服务行标签、批准框、开关说明。
+| 步骤 | 结果 |
+|---|---|
+| 1. 安装测试服务 | `launchctl bootstrap` 后在运行，首页 HTTP 200 |
+| 2. 认出来 | 地图上身份为 `launchd:local.repair-test.web`，直接显示，端口正确，带"后台服务"标记；巡检把它列为正常，"挂了可以自动修"可用、默认关闭 |
+| 3. 人工批准修复 | 让它退出后约 75 秒，巡检确认挂了，原因"后台服务已退出"，并提出"重新启动后台服务 local.repair-test.web"；批准框里的影响、验证、失败说明和设计一致。批准后执行的命令是 `/bin/launchctl kickstart gui/<uid>/local.repair-test.web`，退出码 0；"后台服务在运行""端口在听""首页能打开（HTTP 200）"三项都通过 |
+| 4. 预先允许的自动修 | 打开开关后再让它退出，约 90 秒自动修好，没有任何人工操作；批准人是 `patrol`，依据写着"按主人 2026年10月29日 打开的'挂了可以自动修'自动执行" |
+| 5. 反面：有意卸载 | `launchctl bootout` 后让 Agent 修，Agent 调用 `propose_repair` 被拒，回答"已经被卸载……建议你手动重新启用"，没有生成修复。之后两分钟内服务一直没有被重新加载。当时巡检的自动修还在 1 小时冷却期内，"巡检不会重新加载"由执行前同一道资格检查保证，有自动测试覆盖 |
+| 6. 反面：系统服务 | 让 Agent 重启 `com.apple.cloudd`，被拒绝，理由是这属于系统组件，没有生成修复 |
+| 7. 收尾 | 测试服务已卸载，plist、临时目录和验收数据目录已删除；`launchctl print` 已找不到它，`~/Library/LaunchAgents` 恢复原样 |
+
+验收中发现并已修复（#221）的两个问题：
+
+- 修好以后打开这条修复记录，接口返回 500：结果文案缺少"后台服务在运行"这一项。已补上，并测试每种检查项都有文案。
+- 要求重启受保护的系统服务时，原来回答"我还没见过它正常运行"。已改为先按平台和标签检查，直接说明这是受保护的后台服务。
