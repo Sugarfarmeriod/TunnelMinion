@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import subprocess
+import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -81,6 +82,10 @@ class SystemReader(Protocol):
 class PsutilSystemReader:
     """使用 psutil 实现跨权限降级的 Windows 查询。"""
 
+    # Windows 上读进程状态和线程数要为每个进程重新枚举一遍全系统，几百个进程就要好几秒，
+    # 会让每轮服务观察超时；这两项只是附加信息，所以只在其他平台读取。
+    process_details: bool = sys.platform != "win32"
+
     def interface(self, name: str) -> InterfaceSnapshot | None:
         """读取接口在线状态和 IP，不读取 WireGuard 配置文件。"""
         stats = psutil.net_if_stats().get(name)
@@ -129,7 +134,10 @@ class PsutilSystemReader:
     def processes(self, limit: int) -> tuple[ProcessInfo, ...]:
         """按内存占用返回进程摘要，不请求命令行或环境变量。"""
         values: list[ProcessInfo] = []
-        for process in psutil.process_iter(("pid", "name", "status", "memory_info", "num_threads")):
+        attrs = ("pid", "name", "memory_info")
+        if self.process_details:
+            attrs += ("status", "num_threads")
+        for process in psutil.process_iter(attrs):
             try:
                 info = process.info
                 memory = info.get("memory_info")

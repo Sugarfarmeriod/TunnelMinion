@@ -170,14 +170,24 @@ def test_process_reader_sorts_limits_and_skips_denied(
         Process(None, denied=True),
     ]
 
+    requested: list[tuple[str, ...]] = []
+
     def process_iter(attrs: tuple[str, ...]) -> list[Process]:
         assert "pid" in attrs
         assert "cmdline" not in attrs and "environ" not in attrs
+        requested.append(attrs)
         return processes
 
     monkeypatch.setattr(psutil, "process_iter", process_iter)
-    values = PsutilSystemReader().processes(1)
+    reader = PsutilSystemReader()
+    reader.process_details = True
+    values = reader.processes(1)
     assert len(values) == 1
     assert values[0].name == "large"
     assert values[0].memory_bytes == 200
     assert values[0].thread_count == 4
+    assert "num_threads" in requested[-1] and "status" in requested[-1]
+    # Windows 上不读状态和线程数，避免每个进程都重新枚举全系统。
+    reader.process_details = False
+    assert reader.processes(1)[0].name == "large"
+    assert "num_threads" not in requested[-1] and "status" not in requested[-1]
