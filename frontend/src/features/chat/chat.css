@@ -286,3 +286,14 @@
     margin-left: 8%;
   }
 }
+.chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.chat-suggestions .map-button {
+  font-size: 13px;
+  white-space: normal;
+  text-align: left;
+}

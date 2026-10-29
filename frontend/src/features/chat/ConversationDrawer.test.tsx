@@ -288,7 +288,7 @@ describe("地图对话抽屉", () => {
     expect(cancels).toBe(0);
   });
 
-  it("停止的服务立即提问，缺少 state 的服务按正常服务处理", async () => {
+  it("停止的服务不自动提问，点预设问题才发出；也可以自己打字问别的", async () => {
     renderMap("/app/map", [makeService({ state: "stopped" })]);
     const user = userEvent.setup();
     await user.click(
@@ -299,6 +299,11 @@ describe("地图对话抽屉", () => {
     ).toBeNull();
     await user.click(
       screen.getByRole("button", { name: "问问 WireGuard Panel" }),
+    );
+    expect(screen.getByRole("textbox", { name: "问题" })).toHaveValue("");
+    expect(posts).toHaveLength(0);
+    await user.click(
+      screen.getByRole("button", { name: "WireGuard Panel怎么打不开？" }),
     );
     await source();
     expect(posts).toHaveLength(1);

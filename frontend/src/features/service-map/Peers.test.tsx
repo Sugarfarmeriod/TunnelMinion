@@ -229,21 +229,35 @@ it("远端清单使用对端地址、报来时间，不显示标记按钮；同 
   });
 });
 
-it.each(["stopped", "unopenable"])("远端 %s 服务直接发问", async (state) => {
-  const view = makePeerServices();
-  if (state === "stopped") view.services[0]!.state = "stopped";
-  else view.services[0]!.ports[0]!.has_web_page = false;
-  renderMap([makePeer()], view);
-  const dialog = await openPeer();
-  fireEvent.click(
-    await within(dialog).findByRole("button", { name: "问问 远端相册" }),
-  );
-  await waitFor(() => expect(questions).toHaveLength(1));
-  expect(questions[0]).toMatchObject({
-    question: "远端相册怎么打不开？",
-    about: { node_id: makePeer().node_id, service_key: "python:app.py" },
-  });
-});
+it.each(["stopped", "unopenable"])(
+  "远端 %s 服务不替用户发问，把“打不开”排在预设问题第一个",
+  async (state) => {
+    const view = makePeerServices();
+    if (state === "stopped") view.services[0]!.state = "stopped";
+    else view.services[0]!.ports[0]!.has_web_page = false;
+    renderMap([makePeer()], view);
+    const dialog = await openPeer();
+    fireEvent.click(
+      await within(dialog).findByRole("button", { name: "问问 远端相册" }),
+    );
+    const presets = within(
+      await screen.findByLabelText("可以这样问"),
+    ).getAllByRole("button");
+    expect(presets.map((item) => item.textContent)).toEqual([
+      "远端相册怎么打不开？",
+      "这是什么程序？",
+      "占多少内存和 CPU？",
+      "最近有什么异常？",
+    ]);
+    expect(questions).toHaveLength(0);
+    fireEvent.click(presets[0]!);
+    await waitFor(() => expect(questions).toHaveLength(1));
+    expect(questions[0]).toMatchObject({
+      question: "远端相册怎么打不开？",
+      about: { node_id: makePeer().node_id, service_key: "python:app.py" },
+    });
+  },
+);
 
 it("对方巡检报来挂了：标红原因和确认时间，写明对方会自己修，没有本机才有的按钮", async () => {
   const view = makePeerServices();
@@ -272,6 +286,9 @@ it("对方巡检报来挂了：标红原因和确认时间，写明对方会自�
   expect(within(dialog).queryByRole("checkbox")).toBeNull();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "问问 远端相册" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "远端相册怎么打不开？" }),
   );
   await waitFor(() => expect(questions).toHaveLength(1));
   expect(questions[0]!.question).toBe("远端相册怎么打不开？");

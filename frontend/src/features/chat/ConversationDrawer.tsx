@@ -37,7 +37,10 @@ export interface ChatRequest {
   threadId?: string;
   about?: ConversationAbout;
   service?: ServiceEntry;
+  /** 直接发出的问题，用于用户已经点选了具体问题的入口 */
   question?: string;
+  /** 不自动发出、摆在输入框上方供点选的预设问题 */
+  suggestions?: string[];
 }
 
 function RunSubscription({
@@ -131,6 +134,7 @@ export function ConversationDrawer({
   const [selected, setSelected] = useState<string | null>(null);
   const [about, setAbout] = useState<ConversationAbout | undefined>();
   const [question, setQuestion] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,6 +257,7 @@ export function ConversationDrawer({
       );
       observeRun(run);
       setQuestion("");
+      setSuggestions([]);
       await refresh(identifier);
     } catch (failure) {
       const unknown =
@@ -292,6 +297,7 @@ export function ConversationDrawer({
     setSelected(request.threadId ?? null);
     setAbout(request.about);
     setQuestion("");
+    setSuggestions(request.suggestions ?? []);
     setError(null);
     setNotice(null);
     setConfirmingCancel(false);
@@ -624,6 +630,23 @@ export function ConversationDrawer({
             <footer className="drawer-footer">
               {preview ? (
                 <p role="status">预览模式只能查看已有对话，不能发送问题。</p>
+              ) : null}
+              {suggestions.length && !locked ? (
+                <div className="chat-suggestions" aria-label="可以这样问">
+                  {suggestions.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className="map-button"
+                      disabled={sending || detail.isError}
+                      onClick={() =>
+                        void send(item, selected, context ?? undefined)
+                      }
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
               ) : null}
               <ChatComposer
                 inputRef={inputRef}
