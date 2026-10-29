@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +23,7 @@ function makeConfiguration(
     timeout_seconds: 30,
     disable_thinking: false,
     max_output_tokens: 2048,
+    max_tools: null,
     api_key_configured: false,
     profiles: [],
     borrowed_from: null,
@@ -224,6 +231,14 @@ describe("SettingsPage", () => {
     });
     expect(legacyParsed.max_output_tokens).toBeNull();
     expect(legacyParsed.profiles[0]?.max_output_tokens).toBe(2048);
+    expect(legacyParsed.max_tools).toBeNull();
+    expect(legacyParsed.profiles[0]?.max_tools).toBeNull();
+    expect(
+      modelConfigurationSchema.safeParse({
+        ...makeConfiguration(),
+        max_tools: 2,
+      }).success,
+    ).toBe(false);
     expect(
       modelConfigurationSchema.safeParse({
         ...makeConfiguration(),
@@ -303,10 +318,58 @@ describe("SettingsPage", () => {
         model: "qwen-local",
         timeout_seconds: 30,
         disable_thinking: !disableThinking,
+        max_tools: null,
       });
       expect(checkbox).toHaveProperty("checked", !disableThinking);
     },
   );
+
+  it("工具上限随配置保存，留空表示不限制，越界时提示", async () => {
+    let current = makeConfiguration({ max_tools: 6 });
+    let capturedBody: Record<string, unknown> | undefined;
+    fetchMock.mockImplementation(async (_input, init) => {
+      if (init?.method === "PUT") {
+        capturedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        current = makeConfiguration({
+          max_tools: capturedBody.max_tools as number | null,
+        });
+      }
+      return jsonResponse(current);
+    });
+    const user = userEvent.setup();
+
+    renderSettings();
+    const input = await screen.findByLabelText(/工具上限/);
+    expect(input).toHaveValue(6);
+    await user.clear(input);
+    await user.type(input, "2");
+    await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
+    expect(
+      screen.queryByRole("button", { name: "确认保存一次" }),
+    ).not.toBeInTheDocument();
+    // 绕过浏览器自带的范围校验，确认页面自己的校验也会拦住。
+    fireEvent.submit((input as HTMLInputElement).form!);
+    expect(
+      screen.getByText("工具上限请填 3–12 的整数，或留空表示不限制。"),
+    ).toBeVisible();
+    await user.clear(input);
+    await user.type(input, "5");
+    await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
+    expect(screen.getByText("工具上限：5 个")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "确认保存一次" }));
+    expect(
+      await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。"),
+    ).toBeVisible();
+    expect(capturedBody?.max_tools).toBe(5);
+    expect(input).toHaveValue(5);
+
+    await user.clear(input);
+    await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
+    expect(screen.getByText("工具上限：不限制")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "确认保存一次" }));
+    await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。");
+    expect(capturedBody?.max_tools).toBeNull();
+  });
 
   it("拒绝包含秘密字段的成功响应，且不把秘密写入页面", async () => {
     const leakedSecret = "server-must-not-return-this-secret";
@@ -400,6 +463,7 @@ describe("SettingsPage", () => {
       model: "new-local-model",
       timeout_seconds: 30,
       disable_thinking: false,
+      max_tools: null,
       api_key: secret,
     });
     expect(capturedHeaders?.get("X-TunnelMinion-Request")).toBe("same-origin");
@@ -417,6 +481,7 @@ describe("SettingsPage", () => {
         timeout_seconds: 30,
         disable_thinking: true,
         max_output_tokens: 2048,
+        max_tools: 5,
         api_key_configured: false,
       },
       {
@@ -425,6 +490,7 @@ describe("SettingsPage", () => {
         timeout_seconds: 60,
         disable_thinking: false,
         max_output_tokens: 2048,
+        max_tools: null,
         api_key_configured: true,
       },
     ];
@@ -459,6 +525,7 @@ describe("SettingsPage", () => {
     expect(screen.getByLabelText("模型名称")).toHaveValue("deepseek-chat");
     expect(screen.getByLabelText("超时（秒）")).toHaveValue(60);
     expect(checkbox).not.toBeChecked();
+    expect(screen.getByLabelText(/工具上限/)).toHaveValue(null);
     expect(screen.getByText(/该 endpoint 已保存密钥/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
@@ -469,6 +536,7 @@ describe("SettingsPage", () => {
       model: "deepseek-chat",
       timeout_seconds: 60,
       disable_thinking: false,
+      max_tools: null,
     });
   });
 

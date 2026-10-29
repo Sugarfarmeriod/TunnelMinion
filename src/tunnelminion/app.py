@@ -30,6 +30,7 @@ from tunnelminion.agent.remote_service_presentation import RemoteServicePresenta
 from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
+from tunnelminion.agent.tool_selection import ToolSelectionSettings
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.gateway.api import create_gateway_router
@@ -153,6 +154,7 @@ class WindowsApplication:
             request_gate=RequestGate(
                 provider, provider_name="configured-provider", model_name="configured-model"
             ),
+            tool_selection=ToolSelectionSettings(max_tools=self.model_service.tool_limit()),
         )
 
 
@@ -233,7 +235,11 @@ class WindowsNode:
             provider=self.model_service.create_provider(), artifact_manager=self.artifact_manager
         )
         return LangChainReadOnlyAgent(
-            model, self.tool_registry, self.tool_runtime, Platform.WINDOWS
+            model,
+            self.tool_registry,
+            self.tool_runtime,
+            Platform.WINDOWS,
+            tool_selection=ToolSelectionSettings(max_tools=self.model_service.tool_limit()),
         )
 
 
@@ -452,6 +458,7 @@ def build_windows_application(
             request_gate=RequestGate(
                 provider, provider_name="configured-provider", model_name="configured-model"
             ),
+            tool_selection=ToolSelectionSettings(max_tools=model_service.tool_limit()),
         )
 
     conversations = InMemoryConversationService(

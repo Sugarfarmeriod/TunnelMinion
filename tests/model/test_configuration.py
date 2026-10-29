@@ -9,7 +9,7 @@ from typing import cast
 
 import httpx
 import pytest
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.model.configuration import (
@@ -677,3 +677,32 @@ def test_borrow_requires_injected_factory_and_does_not_read_secrets() -> None:
     assert service.view().status == "available"
     assert secrets.reads == []
     assert asyncio.run(service.validate()).status == "unavailable"
+
+
+def test_tool_limit_follows_local_model_and_is_unset_when_borrowing(tmp_path: Path) -> None:
+    peer = NodeId.new()
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    service = ModelConfigurationService(
+        repository,
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(),
+        lambda _node_id: ValidationProvider(),
+    )
+    assert service.tool_limit() is None
+    limited = input_config().model_copy(update={"max_tools": 5})
+    view = asyncio.run(service.configure(limited))
+    assert view.max_tools == 5
+    assert view.profiles[0].max_tools == 5
+    assert service.tool_limit() == 5
+    assert FileModelConfigurationRepository(tmp_path / "model.json").load() == (
+        limited.provider_config()
+    )
+    asyncio.run(service.borrow(peer))
+    assert service.tool_limit() is None
+    assert service.view().max_tools is None
+
+
+@pytest.mark.parametrize("value", [2, 13])
+def test_tool_limit_rejects_out_of_range(value: int) -> None:
+    with pytest.raises(ValidationError):
+        ModelConfigurationInput.model_validate({**input_config().model_dump(), "max_tools": value})

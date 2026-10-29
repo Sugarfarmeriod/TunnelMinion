@@ -158,6 +158,7 @@ def test_model_config_crud_validation_and_degradation(disable_thinking: bool | N
             "api_key_configured": True,
             "disable_thinking": bool(disable_thinking),
             "max_output_tokens": 2048,
+            "max_tools": None,
         }
     ]
     assert "secret-value" not in saved.text

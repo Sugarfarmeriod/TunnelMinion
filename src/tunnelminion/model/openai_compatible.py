@@ -35,6 +35,8 @@ class OpenAICompatibleConfig(BaseModel):
     # DeepSeek 实测每个问题平均约 900 个输出 token，分多轮时单轮更少；Qwen 关闭思考后仅几十到几百。
     # 2048 留出一倍以上余量，同时挡住失控的长输出。
     max_output_tokens: int = Field(default=2048, ge=16, le=32768)
+    # 一次最多给模型看几个诊断工具；本机小模型工具一多就挑错，留空表示不限制。
+    max_tools: int | None = Field(default=None, ge=3, le=12)
 
     @field_validator("endpoint")
     @classmethod

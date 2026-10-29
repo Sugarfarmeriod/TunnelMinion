@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "dataset_id": "tool-selection-v1",
+  "tool_outputs": {
+    "list_docker_services": {
+      "availability": "available",
+      "items": [
+        {
+          "name": "photos-app-1",
+          "compose_project": "photos",
+          "image": "photoprism/photoprism:latest",
+          "state": "exited",
+          "status": "Exited (137) 6 minutes ago",
+          "ports": []
+        },
+        {
+          "name": "notes-web-1",
+          "compose_project": "notes",
+          "image": "nginx:1.27",
+          "state": "running",
+          "status": "Up 3 hours",
+          "ports": ["0.0.0.0:8081->80/tcp"]
+        }
+      ]
+    },
+    "read_container_logs": {
+      "service_key": "docker:compose:photos",
+      "lines": ["INFO server: listening on :2342", "INFO database: ready", "Killed"]
+    },
+    "list_network_listeners": {
+      "availability": "available",
+      "items": [
+        {"protocol": "tcp", "address": "0.0.0.0", "port": 8081, "program": "com.docker.backend"},
+        {"protocol": "tcp", "address": "127.0.0.1", "port": 5432, "program": "postgres"},
+        {"protocol": "tcp", "address": "127.0.0.1", "port": 3000, "program": "node"}
+      ]
+    },
+    "probe_service_reachability": {"host": "127.0.0.1", "port": 8080, "reachable": false},
+    "get_process_summary": {
+      "items": [
+        {"name": "chrome", "memory_mb": 2140, "cpu_percent": 6.5},
+        {"name": "postgres", "memory_mb": 410, "cpu_percent": 0.4},
+        {"name": "node", "memory_mb": 180, "cpu_percent": 1.1}
+      ]
+    },
+    "list_launch_records": {
+      "records": [
+        {"service_key": "python:train", "entrypoint": "train.py", "last_port": 8000, "running": false}
+      ]
+    },
+    "get_wireguard_status": {
+      "interface": "wg0",
+      "peers": [{"peer": "peer-1", "latest_handshake_seconds": 25}]
+    },
+    "get_node_summary": {"platform": "windows", "model": "available", "tool_count": 9},
+    "propose_repair": {"proposed": true, "service_name": "相册", "action": "重启 compose 组 photos"}
+  },
+  "cases": [
+    {
+      "case_id": "docker-stopped",
+      "question": "相册容器是不是停了？",
+      "must_see": ["list_docker_services", "read_container_logs"],
+      "must_hide": ["get_wireguard_status", "list_launch_records", "get_process_summary"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "question": "相册容器是不是停了？",
+      "max_tools": 5,
+      "must_see": ["list_docker_services", "read_container_logs"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "question": "相册容器是不是停了？",
+      "max_tools": 3,
+      "must_see": ["list_docker_services", "list_network_listeners"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "docker-fix",
+      "question": "相册打不开了，它是用 Docker 跑的，帮我修一下",
+      "must_see": ["list_docker_services", "read_container_logs", "propose_repair"],
+      "must_hide": ["get_wireguard_status", "list_launch_records"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services", "propose_repair"]
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "question": "相册打不开了，它是用 Docker 跑的，帮我修一下",
+      "max_tools": 5,
+      "must_see": ["list_docker_services", "read_container_logs", "propose_repair"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services", "propose_repair"]
+    },
+    {
+      "case_id": "compose-english",
+      "question": "Is the photos docker compose stack still running?",
+      "must_see": ["list_docker_services"],
+      "must_hide": ["get_wireguard_status", "list_launch_records"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "about-context-docker",
+      "question": "关于：{\"node_id\":\"node_00000000000000000000000000000001\",\"service_name\":\"相册\",\"kind\":\"docker\",\"service_key\":\"docker:compose:photos\",\"ports\":[\"tcp/8080\"]}\n它怎么了？",
+      "max_tools": 5,
+      "must_see": ["list_docker_services"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "question": "为什么用不了？",
+      "with_target": true,
+      "application_kind": "docker",
+      "max_tools": 5,
+      "must_see": ["list_docker_services", "list_network_listeners", "propose_repair"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": ["list_docker_services", "list_network_listeners"],
+      "expected_tools": ["list_docker_services", "list_network_listeners"]
+    },
+    {
+      "case_id": "delegated-docker",
+      "question": "相册打不开\n（对方指明的相关服务：docker:compose:photos）",
+      "max_tools": 5,
+      "must_see": ["list_docker_services", "propose_repair"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services"]
+    },
+    {
+      "case_id": "script-exited",
+      "question": "我的 train.py 脚本退出了，能重新跑起来吗？",
+      "must_see": ["list_network_listeners", "list_launch_records", "propose_repair"],
+      "must_hide": ["list_docker_services", "get_wireguard_status"],
+      "acceptable_first_tools": ["list_network_listeners", "list_launch_records"],
+      "expected_tools": ["list_launch_records"]
+    },
+    {
+      "case_id": "workbench-target-python",
+      "question": "这个程序还在吗？",
+      "with_target": true,
+      "application_kind": "python",
+      "max_tools": 5,
+      "must_see": ["list_network_listeners", "list_launch_records"],
+      "must_hide": ["list_docker_services", "get_wireguard_status"],
+      "acceptable_first_tools": ["list_network_listeners", "list_launch_records"],
+      "expected_tools": ["list_network_listeners"]
+    },
+    {
+      "case_id": "port-owner",
+      "question": "5432 端口被哪个程序占着？",
+      "must_see": ["list_network_listeners", "get_process_summary"],
+      "must_hide": ["list_docker_services", "get_wireguard_status", "propose_repair"],
+      "acceptable_first_tools": ["list_network_listeners"],
+      "expected_tools": ["list_network_listeners"]
+    },
+    {
+      "case_id": "port-english",
+      "question": "What is listening on port 3000?",
+      "must_see": ["list_network_listeners"],
+      "must_hide": ["get_wireguard_status", "list_docker_services"],
+      "acceptable_first_tools": ["list_network_listeners"],
+      "expected_tools": ["list_network_listeners"]
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "question": "http://127.0.0.1:8080 网页打不开了",
+      "max_tools": 5,
+      "must_see": [
+        "list_network_listeners",
+        "probe_service_reachability",
+        "propose_repair",
+        "list_docker_services"
+      ],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability"
+      ],
+      "expected_tools": ["list_network_listeners"]
+    },
+    {
+      "case_id": "process-memory",
+      "question": "这台电脑哪个程序最占内存？",
+      "max_tools": 5,
+      "must_see": ["get_process_summary"],
+      "must_hide": ["list_docker_services", "get_wireguard_status", "propose_repair"],
+      "acceptable_first_tools": ["get_process_summary"],
+      "expected_tools": ["get_process_summary"]
+    },
+    {
+      "case_id": "wireguard",
+      "question": "WireGuard 隧道现在通不通？",
+      "max_tools": 5,
+      "must_see": ["get_wireguard_status"],
+      "must_hide": ["list_docker_services", "propose_repair"],
+      "acceptable_first_tools": ["get_wireguard_status"],
+      "expected_tools": ["get_wireguard_status"]
+    },
+    {
+      "case_id": "overview",
+      "question": "这台电脑整体情况怎么样？",
+      "max_tools": 5,
+      "must_see": ["get_node_summary"],
+      "must_hide": ["get_wireguard_status", "propose_repair"],
+      "acceptable_first_tools": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services"
+      ],
+      "expected_tools": ["get_node_summary"]
+    },
+    {
+      "case_id": "unknown-topic",
+      "question": "帮我看看有什么问题",
+      "must_see": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "acceptable_first_tools": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "get_process_summary"
+      ]
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "question": "帮我看看有什么问题",
+      "max_tools": 5,
+      "must_see": ["list_network_listeners", "list_docker_services", "get_process_summary"],
+      "must_hide": ["get_wireguard_status"],
+      "acceptable_first_tools": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "get_process_summary"
+      ]
+    },
+    {
+      "case_id": "patrol-docker",
+      "question": "巡检确认 相册（Docker 容器组 photos）挂了：容器已退出，从 02:13 起连续 3 次检查都不正常。请查明原因；能修的话用 propose_repair 提出修法。",
+      "tool_set": "patrol",
+      "max_tools": 5,
+      "must_see": ["list_docker_services", "read_container_logs", "propose_repair"],
+      "acceptable_first_tools": ["list_docker_services"],
+      "expected_tools": ["list_docker_services", "propose_repair"]
+    },
+    {
+      "case_id": "patrol-script",
+      "question": "巡检确认 训练脚本（Python 脚本 train.py）挂了：脚本已退出，从 02:13 起连续 3 次检查都不正常。请查明原因；能修的话用 propose_repair 提出修法。",
+      "tool_set": "patrol",
+      "max_tools": 5,
+      "must_see": ["list_network_listeners", "list_launch_records", "propose_repair"],
+      "must_hide": ["list_docker_services"],
+      "acceptable_first_tools": ["list_network_listeners", "list_launch_records"],
+      "expected_tools": ["list_launch_records", "propose_repair"]
+    }
+  ]
+}
