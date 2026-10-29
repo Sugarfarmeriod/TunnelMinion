@@ -5,6 +5,7 @@ from tunnelminion.repair.contracts import RepairCheckName, RepairErrorCode, Repa
 
 _CHECKS = {
     RepairCheckName.CONTAINER_RUNNING: "容器运行",
+    RepairCheckName.LAUNCH_AGENT_RUNNING: "后台服务运行",
     RepairCheckName.PORT_LISTENING: "端口监听",
     RepairCheckName.WEB_PAGE: "首页访问",
 }
@@ -21,6 +22,7 @@ _ERRORS = {
     RepairErrorCode.ALREADY_RUNNING: "脚本已经自己启动了，无需再修",
     RepairErrorCode.DOCKER_UNAVAILABLE: "Docker 没开",
     RepairErrorCode.CONTAINER_MISSING: "容器已经不存在了",
+    RepairErrorCode.NOT_LOADED: "后台服务已经被卸载，Agent 不会替你重新加载",
     RepairErrorCode.SERVICE_CHANGED: "执行前核对发现情况变了，没有动手",
     RepairErrorCode.BUSY: "这台电脑正在修另一个服务",
     RepairErrorCode.RATE_LIMITED: "这个服务一小时内的修复次数已用完",

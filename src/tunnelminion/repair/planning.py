@@ -33,6 +33,7 @@ from tunnelminion.repair.eligibility import (
     check_hidden,
     check_identity,
     check_launch_agent,
+    check_launch_agent_label,
     check_python,
     read_containers,
 )
@@ -98,6 +99,7 @@ class RepairPlanner:
             failure = "没修好我会停下来，告诉你卡在哪，不会反复重启。"
         elif kind is RepairKind.RESTART_LAUNCH_AGENT:
             label = service_key.removeprefix("launchd:")
+            check_launch_agent_label(label, self._launch_agents)
             record = self._launch_records.get(service_key)
             if not isinstance(record, LaunchAgentRecord):
                 raise RepairRefusal(

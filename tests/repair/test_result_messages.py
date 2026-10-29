@@ -264,6 +264,23 @@ def test_failure_uses_log_gist_without_raw_commands(log: str, gist: str) -> None
     assert "没修好" in repair_result_text(record.model_copy(update={"verification": passing}))
 
 
+def test_every_check_has_result_text() -> None:
+    record = terminal(ThreadId.new(), OperationStatus.SUCCEEDED)
+    assert record.verification is not None
+    for name in RepairCheckName:
+        check = RepairCheck(name=name, passed=True, detail="通过。")
+        verification = record.verification.model_copy(update={"checks": (check,)})
+        content = repair_result_text(record.model_copy(update={"verification": verification}))
+        assert content.startswith("修好了。已确认：")
+        failed = verification.model_copy(
+            update={"checks": (check.model_copy(update={"passed": False}),)}
+        )
+        failing = record.model_copy(
+            update={"status": OperationStatus.ROLLED_BACK, "verification": failed}
+        )
+        assert "卡在" in repair_result_text(failing)
+
+
 def test_non_web_service_result_does_not_claim_homepage_was_verified() -> None:
     record = terminal(ThreadId.new(), OperationStatus.SUCCEEDED)
     assert record.verification is not None

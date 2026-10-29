@@ -112,6 +112,9 @@ def test_protected_labels(tmp_path: Path, label: str, message: str) -> None:
     h.marks[f"launchd:{label}"] = ServiceMark.MINE
     error = refusal(h, f"launchd:{label}").error
     assert error.code is RepairErrorCode.PROTECTED_TARGET and message in error.message
+    # 从没见过它运行时，拒绝理由仍是受保护，而不是"没见过"。
+    unseen = refusal(RepairHarness(tmp_path / "unseen"), f"launchd:{label}").error
+    assert unseen.code is RepairErrorCode.PROTECTED_TARGET and message in unseen.message
 
 
 @pytest.mark.parametrize(
