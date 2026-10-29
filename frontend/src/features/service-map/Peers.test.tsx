@@ -666,3 +666,19 @@ it("已过期或终态摘要不显示远端感叹号，已打开的终态修复�
   );
   expect(await screen.findByText("10 分钟内有效 · 已过期")).toBeVisible();
 });
+
+it("“这台电脑”下面写出本机在别的电脑上显示的名字", async () => {
+  const local = makePeer(9, {
+    display_name: "Study-PC",
+    is_local: true,
+    source: "local",
+  });
+  const { container } = renderMap([local, makePeer()]);
+  await screen.findByRole("button", { name: /^这台电脑，/ });
+  await waitFor(() =>
+    expect(container.querySelector(".map-node-alias")).toHaveTextContent(
+      "Study-PC",
+    ),
+  );
+  expect(container.querySelectorAll(".map-node-alias")).toHaveLength(1);
+});

@@ -54,6 +54,8 @@ export function platformName(platform: string | null): string {
 
 interface ComputerNodeProps {
   name: string;
+  /** 本机在别的电脑上显示的名字，写在“这台电脑”下面 */
+  alias?: string;
   platform: string | null;
   online: boolean;
   serviceCount: number | null;
@@ -68,6 +70,7 @@ interface ComputerNodeProps {
 
 export function ComputerNode({
   name,
+  alias,
   platform,
   online,
   serviceCount,
@@ -131,6 +134,7 @@ export function ComputerNode({
         </g>
       </svg>
       <span className="map-node-name">{name}</span>
+      {alias ? <span className="map-node-alias">{alias}</span> : null}
       <span className="map-node-summary" aria-live="polite" aria-atomic="true">
         {repairing
           ? "正在修……"
