@@ -1,0 +1,2425 @@
+{
+  "label": "deepseek",
+  "max_tools": null,
+  "rounds": 3,
+  "runs": [
+    {
+      "case_id": "docker-stopped",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12236,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 8229,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12281,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 8321,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12107,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11531,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12921,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11414,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12206,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 14151,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12213,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4676,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12384,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": true,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 15071,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 13074,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12325,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9588,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12389,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9803,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8315,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 5946,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 4774,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5634,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4231,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5774,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4357,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records",
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 5,
+      "total_tokens": 17093,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 5,
+      "total_tokens": 17609,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5446,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 3964,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5333,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 3732,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "get_process_summary",
+        "list_docker_services",
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 4,
+      "total_tokens": 9198,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 6697,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 6,
+      "total_tokens": 14978,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 13601,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "list_launch_records",
+        "read_container_logs",
+        "propose_repair",
+        "propose_repair",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 8,
+      "total_tokens": 19874,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "get_process_summary",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 6,
+      "total_tokens": 14227,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9888,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_node_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": true,
+      "model_rounds": 6,
+      "tool_calls": 4,
+      "total_tokens": 20053,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "A-全部工具",
+      "round_index": 1,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair",
+        "list_docker_services"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 13255,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "B-按问题挑",
+      "round_index": 1,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8827,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12243,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11486,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 8674,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11444,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12099,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11675,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 15822,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11469,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 15745,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11770,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5546,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 7620,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 13367,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": true,
+      "model_rounds": 5,
+      "tool_calls": 3,
+      "total_tokens": 14570,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 13173,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12861,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12319,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12582,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9956,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8391,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 6033,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 4655,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5939,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4284,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5792,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4370,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 14222,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 5,
+      "total_tokens": 18016,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5417,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4122,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "get_wireguard_status",
+        "get_node_summary"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 5722,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 3783,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary",
+        "get_process_summary",
+        "list_docker_services"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9046,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4187,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary",
+        "list_docker_services",
+        "list_network_listeners",
+        "list_launch_records",
+        "read_container_logs",
+        "probe_service_reachability",
+        "propose_repair",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 8,
+      "total_tokens": 16102,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 13815,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "get_process_summary",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 6,
+      "total_tokens": 17022,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "get_node_summary",
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 6,
+      "total_tokens": 17654,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9805,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11951,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "A-全部工具",
+      "round_index": 2,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": true,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9883,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "B-按问题挑",
+      "round_index": 2,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8750,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 16144,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11793,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12163,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11483,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 15944,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11406,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12677,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12695,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12076,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11740,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 9029,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "compose-english",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 7764,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12444,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "about-context-docker",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": true,
+      "model_rounds": 5,
+      "tool_calls": 3,
+      "total_tokens": 14748,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": false,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12218,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "list_network_listeners",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 4,
+      "total_tokens": 12282,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9467,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "delegated-docker",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 11557,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9537,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "script-exited",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8519,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records",
+        "get_process_summary"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9740,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "workbench-target-python",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners",
+        "list_launch_records"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 2,
+      "total_tokens": 4683,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5653,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-owner",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4375,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5946,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "port-english",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 4402,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners",
+        "list_docker_services",
+        "list_launch_records",
+        "read_container_logs",
+        "probe_service_reachability"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 5,
+      "total_tokens": 18347,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair"
+      ],
+      "first_tool": "list_network_listeners",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 13390,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5438,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "process-memory",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "get_process_summary"
+      ],
+      "first_tool": "get_process_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 3918,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 5344,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "wireguard",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "get_wireguard_status"
+      ],
+      "first_tool": "get_wireguard_status",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 2,
+      "tool_calls": 1,
+      "total_tokens": 3659,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "get_process_summary"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 8366,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "overview",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 2,
+      "total_tokens": 6934,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 13367,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 5,
+      "total_tokens": 13589,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "list_docker_services",
+        "list_network_listeners",
+        "list_launch_records",
+        "read_container_logs",
+        "probe_service_reachability",
+        "propose_repair",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 8,
+      "total_tokens": 15579,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "get_process_summary",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "get_node_summary",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 6,
+      "total_tokens": 14302,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "get_process_summary",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 5,
+      "tool_calls": 4,
+      "total_tokens": 16880,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-docker",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_docker_services",
+        "read_container_logs",
+        "propose_repair"
+      ],
+      "first_tool": "list_docker_services",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 4,
+      "tool_calls": 3,
+      "total_tokens": 12620,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "A-全部工具",
+      "round_index": 3,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 9618,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "patrol-script",
+      "variant": "B-按问题挑",
+      "round_index": 3,
+      "tools_called": [
+        "list_launch_records",
+        "list_network_listeners",
+        "propose_repair"
+      ],
+      "first_tool": "list_launch_records",
+      "first_tool_ok": true,
+      "expected_covered": true,
+      "claimed_missing_tool": false,
+      "asked_for_more": false,
+      "model_rounds": 3,
+      "tool_calls": 3,
+      "total_tokens": 8426,
+      "stop_reason": "completed"
+    }
+  ],
+  "summaries": [
+    {
+      "variant": "A-全部工具",
+      "runs": 63,
+      "first_tool_hits": 63,
+      "expected_covered": 62,
+      "missing_tool_claims": 1,
+      "asked_for_more": 0,
+      "mean_model_rounds": 3.43,
+      "mean_total_tokens": 10970.4
+    },
+    {
+      "variant": "B-按问题挑",
+      "runs": 63,
+      "first_tool_hits": 63,
+      "expected_covered": 63,
+      "missing_tool_claims": 0,
+      "asked_for_more": 4,
+      "mean_model_rounds": 3.4,
+      "mean_total_tokens": 9876.7
+    }
+  ]
+}
