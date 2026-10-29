@@ -10,6 +10,9 @@ from tunnelminion.repair.contracts import (
     REPAIR_TOOL_NAMES,
     ContainerRepairTarget,
     ContainerSnapshot,
+    LaunchAgentJob,
+    LaunchAgentRecord,
+    LaunchAgentRepairTarget,
     LaunchRecord,
     PythonRepairTarget,
     RepairKind,
@@ -63,8 +66,47 @@ def launch_record(
     )
 
 
+def launch_agent_record(
+    label: str = "local.photos.web", *, ports: tuple[int, ...] = (8765,), rule_shown: bool = True
+) -> LaunchAgentRecord:
+    return LaunchAgentRecord(
+        service_key=f"launchd:{label}",
+        label=label,
+        ports=ports,
+        rule_shown=rule_shown,
+        recorded_at=NOW,
+    )
+
+
+def launch_agent_job(label: str = "local.photos.web", **update: object) -> LaunchAgentJob:
+    plist = f"/Users/me/Library/LaunchAgents/{label}.plist"
+    return LaunchAgentJob(
+        label=label,
+        uid=501,
+        plist_path=plist,
+        plist_sha256="a" * 64,
+        program="/opt/homebrew/bin/python3",
+        log_paths=("/Users/me/photos.log",),
+        loaded=True,
+        loaded_path=plist,
+        pid=None,
+        last_exit_code=1,
+    ).model_copy(update=update)
+
+
+def launch_agent_target(label: str = "local.photos.web") -> LaunchAgentRepairTarget:
+    job = launch_agent_job(label)
+    return LaunchAgentRepairTarget(
+        label=label,
+        uid=job.uid,
+        plist_path=job.plist_path,
+        plist_sha256=job.plist_sha256,
+        listen_ports=(8765,),
+    )
+
+
 def plan(
-    target: ContainerRepairTarget | PythonRepairTarget | None = None,
+    target: ContainerRepairTarget | PythonRepairTarget | LaunchAgentRepairTarget | None = None,
     *,
     service_key: str | None = None,
     operation_id: OperationId | None = None,
@@ -74,6 +116,8 @@ def plan(
     key = service_key or (
         target.launch.service_key
         if isinstance(target, PythonRepairTarget)
+        else f"launchd:{target.label}"
+        if isinstance(target, LaunchAgentRepairTarget)
         else "docker:compose:photos"
     )
     return RepairPlan(

@@ -340,6 +340,7 @@ def _build_macos_node(
         registry=registry,
         docker_path=default_docker_path(),
         system_reader=reader,
+        platform=Platform.MACOS,
     )
     artifact_manager = ArtifactContextManager(stores.artifacts)
     runtime = ToolRuntime(
@@ -440,6 +441,7 @@ def build_macos_local_application(
         containers=node.repair_service.containers,
         launch_records=stores.launch_records,
         host=node.repair_service.host,
+        launch_agents=node.repair_service.launch_agents,
     )
     service_cache = (
         managed.coordinator.service_cache
@@ -476,6 +478,7 @@ def build_macos_local_application(
             containers=node.repair_service.containers,
             launch_records=stores.launch_records,
             host=node.repair_service.host,
+            launch_agents=node.repair_service.launch_agents,
             launch_recorder=(
                 None if read_only_preview else LaunchRecorder(stores.launch_records).record
             ),

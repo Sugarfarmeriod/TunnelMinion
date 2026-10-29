@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-from tests.repair.factories import NOW, launch_record, plan
+from tests.repair.factories import NOW, launch_agent_record, launch_record, plan
 from tests.repair.fakes import at_status
 
 from tunnelminion.domain.identifiers import OperationId
@@ -86,9 +86,12 @@ def test_launch_records_upsert_persist_and_stay_out_of_export(tmp_path: Path) ->
         update={"arguments": ("changed.py",), "recorded_at": NOW + timedelta(seconds=2)}
     )
     stores.launch_records.put(updated)
+    agent = launch_agent_record().model_copy(update={"recorded_at": NOW + timedelta(seconds=3)})
+    stores.launch_records.put(agent)
     reopened = SQLiteStores.open(path)
     assert reopened.launch_records.get(first.service_key) == updated
-    assert reopened.launch_records.list_all() == (updated, second)
+    assert reopened.launch_records.get(agent.service_key) == agent
+    assert reopened.launch_records.list_all() == (agent, updated, second)
     stores.repairs.put(RepairRecord.planned(plan(), actor="local-cli"))
     exported = build_safe_export(tmp_path)
     assert "repairs" not in exported and "launch_records" not in exported

@@ -16,6 +16,7 @@ from tunnelminion.repair.contracts import (
     REPAIR_TERMINAL_STATUSES,
     ContainerRuntime,
     HostInspector,
+    LaunchAgentRuntime,
     LaunchRecordStore,
     LocalVerifier,
     ProcessLauncher,
@@ -26,6 +27,7 @@ from tunnelminion.repair.contracts import (
     RepairStore,
 )
 from tunnelminion.repair.eligibility import AUTHORIZATION_EXPIRED_ERROR
+from tunnelminion.repair.launch_agents import UnsupportedLaunchAgents
 from tunnelminion.repair.planning import RepairPlanner
 from tunnelminion.repair.workflow import RepairWorkflow
 from tunnelminion.tools.registry import ToolRegistry
@@ -72,6 +74,7 @@ class RepairService:
         clock: Callable[[], datetime],
         containers: ContainerRuntime,
         host: HostInspector,
+        launch_agents: LaunchAgentRuntime | None = None,
     ) -> None:
         self._planner = planner
         self._workflow = workflow
@@ -80,6 +83,7 @@ class RepairService:
         self._clock = clock
         self.containers = containers
         self.host = host
+        self.launch_agents = launch_agents or UnsupportedLaunchAgents()
         self._result_handler: Callable[[RepairRecord], None] | None = None
 
     def set_result_handler(self, handler: Callable[[RepairRecord], None]) -> None:
@@ -263,13 +267,31 @@ def build_repair_service(
     host: HostInspector,
     verifier: LocalVerifier,
     clock: Callable[[], datetime] | None = None,
+    launch_agents: LaunchAgentRuntime | None = None,
 ) -> RepairService:
     clock = clock or (lambda: datetime.now(UTC))
+    launch_agents = launch_agents or UnsupportedLaunchAgents()
     preauthorizations = NoPreauthorizations()
     return RepairService(
-        RepairPlanner(node_id, marks, launch_records, containers, host, clock),
+        RepairPlanner(
+            node_id,
+            marks,
+            launch_records,
+            containers,
+            host,
+            clock,
+            launch_agents=launch_agents,
+        ),
         RepairWorkflow(
-            store, containers, launcher, host, verifier, marks, data_dir / "repair-logs", clock
+            store,
+            containers,
+            launcher,
+            host,
+            verifier,
+            marks,
+            data_dir / "repair-logs",
+            clock,
+            launch_agents=launch_agents,
         ),
         store,
         AuthorizationService(
@@ -278,4 +300,5 @@ def build_repair_service(
         clock,
         containers,
         host,
+        launch_agents,
     )

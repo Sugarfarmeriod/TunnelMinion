@@ -51,7 +51,12 @@ from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.tools import Platform
 from tunnelminion.model.secrets import SecretStoreError
 from tunnelminion.network.path_status import ManagedPathStatus
-from tunnelminion.repair.contracts import ContainerRuntime, HostInspector, LaunchRecordStore
+from tunnelminion.repair.contracts import (
+    ContainerRuntime,
+    HostInspector,
+    LaunchAgentRuntime,
+    LaunchRecordStore,
+)
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -126,6 +131,7 @@ def build_managed_node_application(
     containers: ContainerRuntime | None = None,
     launch_records: LaunchRecordStore | None = None,
     host: HostInspector | None = None,
+    launch_agents: LaunchAgentRuntime | None = None,
 ) -> ManagedNodeApplication:
     """仅在显式配置且已 enrollment 时创建三个真实后台循环。"""
     try:
@@ -175,6 +181,7 @@ def build_managed_node_application(
         containers=containers,
         launch_records=launch_records,
         host=host,
+        launch_agents=launch_agents,
     )
     network = build_managed_network_sync_loop(
         data_dir,

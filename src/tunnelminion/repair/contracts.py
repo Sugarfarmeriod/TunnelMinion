@@ -1,7 +1,8 @@
 """动手修服务的计划、启动记录、执行与验证记录，以及执行层的固定接口。
 
-修复复用操作状态机和授权服务。计划只由本机代码根据服务身份、Docker 实时状态和启动记录生成；
-提出修法的一方只能给出服务身份、修法种类和理由，理由只用于展示，永远不进入任何命令。
+修复复用操作状态机和授权服务。计划只由本机代码根据服务身份、Docker 实时状态、启动记录
+和 launchd 状态生成；提出修法的一方只能给出服务身份、修法种类和理由，理由只用于展示，
+永远不进入任何命令。
 完整命令和路径只保存在本机记录里，对模型和别的电脑只给 `RepairSummary`。
 """
 
@@ -46,13 +47,26 @@ class RepairKind(StrEnum):
 
     RESTART_CONTAINERS = "restart_containers"
     RELAUNCH_PYTHON = "relaunch_python"
+    # 重新启动当前用户 `~/Library/LaunchAgents` 里已经退出的 macOS 后台服务。
+    RESTART_LAUNCH_AGENT = "restart_launch_agent"
 
 
 # 每种修法在工具注册表里登记为 L2，模型拿不到它们的执行入口。
 REPAIR_TOOL_NAMES: dict[RepairKind, str] = {
     RepairKind.RESTART_CONTAINERS: "repair_restart_containers",
     RepairKind.RELAUNCH_PYTHON: "repair_relaunch_python",
+    RepairKind.RESTART_LAUNCH_AGENT: "repair_restart_launch_agent",
 }
+
+# 每种修法只适用于一种服务身份前缀。
+REPAIR_KEY_PREFIXES: dict[RepairKind, str] = {
+    RepairKind.RESTART_CONTAINERS: "docker:",
+    RepairKind.RELAUNCH_PYTHON: "python:",
+    RepairKind.RESTART_LAUNCH_AGENT: "launchd:",
+}
+
+# launchd 标签：只允许字母、数字和 `._@-`，用于服务身份和固定命令参数。
+LAUNCH_AGENT_LABEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
 
 
 class RepairOriginKind(StrEnum):
@@ -184,7 +198,89 @@ class PythonRepairTarget(BaseModel):
         return tuple(sorted(set(self.launch.ports)))
 
 
-RepairTarget = Annotated[ContainerRepairTarget | PythonRepairTarget, Field(discriminator="kind")]
+class LaunchAgentRecord(BaseModel):
+    """见过 macOS 后台服务正常运行时记下的事实；只有标签和端口，不记命令和路径。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_key: str = Field(pattern=MARK_KEY_PATTERN)
+    label: str = Field(pattern=LAUNCH_AGENT_LABEL_PATTERN)
+    # 当时这个后台服务监听的全部 TCP 端口；修好以后据此验证。
+    ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(min_length=1, max_length=32)
+    # 不看用户标记、只按分档规则时它是否直接显示。
+    rule_shown: bool
+    recorded_at: datetime
+
+    @model_validator(mode="after")
+    def validate_key(self) -> Self:
+        if self.service_key != f"launchd:{self.label}":
+            raise ValueError("后台服务记录的身份必须是 launchd:<标签>")
+        return self
+
+
+# 启动记录存储里的一条：Python 脚本的启动方式，或 macOS 后台服务的标签和端口。
+AnyLaunchRecord = LaunchRecord | LaunchAgentRecord
+
+
+class LaunchAgentJob(BaseModel):
+    """本机现读的一个用户后台服务：plist 事实和 launchd 里的状态，只在本机使用。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str = Field(pattern=LAUNCH_AGENT_LABEL_PATTERN)
+    uid: int = Field(gt=0)
+    plist_path: str = Field(min_length=1, max_length=1_024)
+    plist_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # plist 里 `Program` 或 `ProgramArguments` 的第一项；读不出时为 None。
+    program: str | None = Field(default=None, max_length=1_024)
+    # plist 里配置的 `StandardErrorPath`、`StandardOutPath`。
+    log_paths: tuple[Annotated[str, Field(max_length=1_024)], ...] = Field(default=(), max_length=2)
+    # 是否已加载在 `gui/<uid>` 域里，以及 launchd 记的配置文件位置。
+    loaded: bool
+    loaded_path: str | None = Field(default=None, max_length=1_024)
+    pid: int | None = Field(default=None, gt=0)
+    last_exit_code: int | None = None
+
+
+class LaunchAgentProblem(StrEnum):
+    """在用户 `~/Library/LaunchAgents` 里找不到可用的 plist 的原因。"""
+
+    MISSING = "missing"
+    # 符号链接、不属于当前用户、组或其他人可写。
+    UNSAFE = "unsafe"
+    # 读不出 `Label` 或要运行的程序。
+    INVALID = "invalid"
+
+
+class LaunchAgentRepairTarget(BaseModel):
+    """重新启动一个已退出的用户后台服务：生成计划时看到的 plist。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[RepairKind.RESTART_LAUNCH_AGENT] = RepairKind.RESTART_LAUNCH_AGENT
+    label: str = Field(pattern=LAUNCH_AGENT_LABEL_PATTERN)
+    uid: int = Field(gt=0)
+    plist_path: str = Field(min_length=1, max_length=1_024)
+    plist_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # 验证时要确认在听的本机端口，来自后台服务记录。
+    listen_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = Field(
+        min_length=1, max_length=32
+    )
+
+    @property
+    def fingerprint(self) -> str:
+        """plist 位置和内容的指纹；执行前核对配置有没有变。"""
+        return _digest([self.label, self.uid, self.plist_path, self.plist_sha256])
+
+    @property
+    def ports(self) -> tuple[int, ...]:
+        return tuple(sorted(set(self.listen_ports)))
+
+
+RepairTarget = Annotated[
+    ContainerRepairTarget | PythonRepairTarget | LaunchAgentRepairTarget,
+    Field(discriminator="kind"),
+]
 
 
 def _digest(value: object) -> str:
@@ -239,14 +335,18 @@ class RepairPlan(BaseModel):
             raise ValueError("修复工具名与修法种类不一致")
         if self.level is not OperationLevel.L2:
             raise ValueError("修复必须是 L2 操作")
-        prefix = "docker:" if self.kind is RepairKind.RESTART_CONTAINERS else "python:"
-        if not self.service_key.startswith(prefix):
+        if not self.service_key.startswith(REPAIR_KEY_PREFIXES[self.kind]):
             raise ValueError("服务身份与修法种类不一致")
         if (
             isinstance(self.target, PythonRepairTarget)
             and self.target.launch.service_key != self.service_key
         ):
             raise ValueError("启动记录不属于这个服务")
+        if (
+            isinstance(self.target, LaunchAgentRepairTarget)
+            and f"launchd:{self.target.label}" != self.service_key
+        ):
+            raise ValueError("后台服务标签与服务身份不一致")
         expected = compute_repair_idempotency_key(
             node_id=self.node_id,
             service_key=self.service_key,
@@ -295,6 +395,7 @@ class RepairCheckName(StrEnum):
     """本机验证的检查项。"""
 
     CONTAINER_RUNNING = "container_running"
+    LAUNCH_AGENT_RUNNING = "launch_agent_running"
     PORT_LISTENING = "port_listening"
     WEB_PAGE = "web_page"
 
@@ -361,6 +462,8 @@ class RepairErrorCode(StrEnum):
     ALREADY_RUNNING = "already_running"
     DOCKER_UNAVAILABLE = "docker_unavailable"
     CONTAINER_MISSING = "container_missing"
+    # 后台服务已经从 launchd 里卸载（例如 `brew services stop`），不会替主人重新加载。
+    NOT_LOADED = "not_loaded"
     SERVICE_CHANGED = "service_changed"
     BUSY = "busy"
     RATE_LIMITED = "rate_limited"
@@ -534,11 +637,11 @@ class RepairStore(Protocol):
 class LaunchRecordStore(Protocol):
     """启动记录的本机持久化，按服务身份保留最新一条。"""
 
-    def put(self, record: LaunchRecord) -> None: ...
+    def put(self, record: AnyLaunchRecord) -> None: ...
 
-    def get(self, service_key: str) -> LaunchRecord | None: ...
+    def get(self, service_key: str) -> AnyLaunchRecord | None: ...
 
-    def list_all(self) -> tuple[LaunchRecord, ...]: ...
+    def list_all(self) -> tuple[AnyLaunchRecord, ...]: ...
 
 
 class PortOwner(BaseModel):
@@ -599,6 +702,32 @@ class HostInspector(Protocol):
 
     def port_owner(self, port: int, launch: LaunchRecord | None = None) -> PortOwner | None:
         """端口没人监听时返回 None；给了启动记录时顺带判断是不是同一个脚本。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+
+class LaunchAgentRuntime(Protocol):
+    """当前用户 `gui/<uid>` 域里的后台服务：只读查询和固定的 `launchctl kickstart`。
+
+    只看 `~/Library/LaunchAgents` 下属于当前用户、别人不能写的 plist；不改 plist，
+    不加载、卸载、启用或禁用任何服务。
+    """
+
+    def unsupported_reason(self) -> str | None:
+        """这台电脑上不能用这种修法的原因（不是 macOS、以 root 运行）；能用时返回 None。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    async def labels_for_pids(self, pids: frozenset[int]) -> dict[int, str]:
+        """监听进程号到后台服务标签；进程本身或它往上的父进程是后台服务的进程都算。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    async def inspect(self, label: str) -> LaunchAgentJob | LaunchAgentProblem: ...
+
+    async def kickstart(self, label: str) -> RepairCommand:
+        """`launchctl kickstart gui/<uid>/<标签>`，不带 `-k`：已经在跑时什么都不做。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
+
+    def log_tail(self, job: LaunchAgentJob, *, lines: int) -> str:
+        """plist 配置的日志文件最后几行，只读当前用户自己的普通文件，已去掉认证材料。"""
         ...  # pragma: no cover - Protocol 无运行时实现
 
 
