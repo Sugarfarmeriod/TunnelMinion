@@ -59,17 +59,84 @@ function RunSubscription({
   return null;
 }
 
-function DrawerDialog({
-  children,
-  inputRef,
-  toggleRef,
-  onClose,
-}: {
+// 与 service-map.css 中地图让出右侧位置的断点一致
+const SIDE_BY_SIDE_WIDTH = 1100;
+
+function useSideBySide() {
+  const [wide, setWide] = useState(
+    () => window.innerWidth >= SIDE_BY_SIDE_WIDTH,
+  );
+  useEffect(() => {
+    const update = () => setWide(window.innerWidth >= SIDE_BY_SIDE_WIDTH);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return wide;
+}
+
+interface DrawerDialogProps {
   children: ReactNode;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   toggleRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
-}) {
+}
+
+/** 宽屏时地图让出右侧，抽屉与地图并排，不拦地图上的点击；窄屏时抽屉盖住地图，锁定焦点。 */
+function DrawerDialog(props: DrawerDialogProps) {
+  return useSideBySide() ? (
+    <SideDrawer {...props} />
+  ) : (
+    <ModalDrawer {...props} />
+  );
+}
+
+function SideDrawer({
+  children,
+  inputRef,
+  toggleRef,
+  onClose,
+}: DrawerDialogProps) {
+  useEffect(() => {
+    const opener =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const toggle = toggleRef.current;
+    inputRef.current?.focus();
+    return () => {
+      // 关闭后焦点回到打开对话的按钮；它已不在页面上时回到顶栏的对话按钮
+      const target = [opener, toggle].find(
+        (element) =>
+          element !== null && element.isConnected && element !== document.body,
+      );
+      target?.focus();
+    };
+  }, [inputRef, toggleRef]);
+  return (
+    <aside
+      className="conversation-drawer"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="drawer-title"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      {children}
+    </aside>
+  );
+}
+
+function ModalDrawer({
+  children,
+  inputRef,
+  toggleRef,
+  onClose,
+}: DrawerDialogProps) {
   const opener = useRef(
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -296,6 +363,8 @@ export function ConversationDrawer({
     setNotice(null);
     setConfirmingCancel(false);
     if (request.question) void send(request.question, null, request.about);
+    // 并排时抽屉已经开着，新的提问对象要把焦点带回输入框
+    else inputRef.current?.focus();
   }, [request]);
 
   useEffect(() => {

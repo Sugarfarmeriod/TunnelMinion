@@ -439,6 +439,31 @@ it("每六十秒刷新电脑和当前远端清单", async () => {
   await waitFor(() => expect(servicesRead).toHaveBeenCalledTimes(2));
 });
 
+it("对端在线状态还没确定时每五秒再问，确定后恢复六十秒", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  const peer = makePeer(1, { reachable: null });
+  renderMap([peer]);
+  await screen.findByRole("img", {
+    name: `这台电脑到${peer.display_name}：连不上`,
+  });
+  peersRead.mockImplementation(() =>
+    HttpResponse.json({ peers: [{ ...peer, reachable: true }] }),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  await waitFor(() => expect(peersRead).toHaveBeenCalledTimes(2));
+  expect(
+    await screen.findByRole("img", {
+      name: `这台电脑到${peer.display_name}：能连上`,
+    }),
+  ).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(peersRead).toHaveBeenCalledTimes(2);
+});
+
 it("本机修复的感叹号只挂在本机，远端面板没有修复按钮", async () => {
   renderMap([makePeer()], makePeerServices(), [makeRepair()]);
   const bang = await screen.findByRole("button", {
