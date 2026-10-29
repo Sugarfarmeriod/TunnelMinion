@@ -91,6 +91,9 @@ def windows_route_interface(
     address: IPAddress,
 ) -> RouteInterface | None:  # pragma: no cover - Windows 原生 API 薄封装
     """用 GetBestInterfaceEx 按路由表选网卡，再从 GetAdaptersAddresses 读名字和描述。"""
+    # 让类型检查按平台收窄：其他系统上没有 WinDLL，下面的代码只在 Windows 上检查和运行。
+    if sys.platform != "win32":
+        return None
     import ctypes
     from ctypes import wintypes
 
