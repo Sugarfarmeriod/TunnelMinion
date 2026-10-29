@@ -153,6 +153,90 @@ def test_compose_running_group_uses_one_restart(tmp_path: Path) -> None:
     assert h.containers.calls == [("restart", ("a" * 64, "b" * 64))]
 
 
+def compose_items(*, all_running: bool = False) -> tuple[ContainerSnapshot, ...]:
+    return (
+        container("a", service="web", depends_on=("db",), running=all_running),
+        container("b", name="photos-db-1", service="db", running=all_running, health="healthy"),
+        container("c", name="photos-cache-1", service="cache", running=True),
+    )
+
+
+def test_compose_starts_only_stopped_containers_in_dependency_order(tmp_path: Path) -> None:
+    h = RepairHarness(tmp_path)
+    items = compose_items()
+    h.containers.items = items
+    h.containers.start_health = "starting"
+    p = plan(ContainerRepairTarget(compose_project="photos", containers=items))
+    h.authorized(RepairRecord.planned(p, actor="local-cli"))
+
+    def turn_healthy() -> None:
+        h.containers.items = tuple(
+            item.model_copy(update={"health": "healthy"}) for item in h.containers.items or ()
+        )
+
+    h.clock.on_sleep = turn_healthy
+    result = asyncio.run(h.workflow.execute(p.operation_id))
+    assert result.status is OperationStatus.SUCCEEDED
+    assert h.containers.calls == [("start", ("b" * 64,)), ("start", ("a" * 64,))]
+    assert h.clock.sleeps == [1]
+    assert result.execution is not None and len(result.execution.commands) == 2
+    details = [event.detail for event in result.audit]
+    for command in result.execution.commands:
+        assert " ".join(command.argv) in details
+
+
+def test_compose_all_running_restarts_in_reverse_then_forward_order(tmp_path: Path) -> None:
+    h = RepairHarness(tmp_path)
+    items = compose_items(all_running=True)
+    h.containers.items = items
+    p = plan(ContainerRepairTarget(compose_project="photos", containers=items))
+    h.authorized(RepairRecord.planned(p, actor="local-cli"))
+    result = asyncio.run(h.workflow.execute(p.operation_id))
+    assert result.status is OperationStatus.SUCCEEDED
+    assert h.containers.calls == [
+        ("stop", ("a" * 64,)),
+        ("stop", ("c" * 64, "b" * 64)),
+        ("start", ("c" * 64, "b" * 64)),
+        ("start", ("a" * 64,)),
+    ]
+    assert h.clock.sleeps == []
+
+
+def test_compose_stop_failure_stops_before_next_command(tmp_path: Path) -> None:
+    h = RepairHarness(tmp_path)
+    items = compose_items(all_running=True)
+    h.containers.items = items
+    h.containers.exit_codes = [1]
+    p = plan(ContainerRepairTarget(compose_project="photos", containers=items))
+    h.authorized(RepairRecord.planned(p, actor="local-cli"))
+    result = asyncio.run(h.workflow.execute(p.operation_id))
+    assert result.status is OperationStatus.ROLLED_BACK
+    assert result.error is not None and result.error.message == "Docker 没能停下这些容器。"
+    assert h.containers.calls == [("stop", ("a" * 64,))]
+
+
+def test_compose_dependency_never_ready_stops_without_starting_dependents(
+    tmp_path: Path,
+) -> None:
+    h = RepairHarness(tmp_path)
+    items = compose_items()
+    h.containers.items = items
+    h.containers.start_health = "unhealthy"
+    p = plan(ContainerRepairTarget(compose_project="photos", containers=items))
+    h.authorized(RepairRecord.planned(p, actor="local-cli"))
+    result = asyncio.run(h.workflow.execute(p.operation_id))
+    assert result.status is OperationStatus.ROLLED_BACK
+    assert h.containers.calls == [("start", ("b" * 64,))]
+    assert sum(h.clock.sleeps) == 60
+    assert result.error is not None
+    assert result.error.code is RepairErrorCode.EXECUTION_FAILED
+    assert result.error.message == (
+        "photos-db-1 等了 60 秒还没准备好（unhealthy），没有接着启动依赖它的容器。"
+    )
+    assert result.cleanup is not None and result.cleanup.detail == "容器修复失败后不再动它。"
+    assert result.verification is None
+
+
 @pytest.mark.parametrize("exit_code", [1, None])
 def test_command_failure_stops_before_next_command(tmp_path: Path, exit_code: int | None) -> None:
     h = RepairHarness(tmp_path)

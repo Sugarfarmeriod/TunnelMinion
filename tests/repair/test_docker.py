@@ -25,7 +25,7 @@ class FakeRunner:
 
     async def run(self, command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
         assert command[0] == "docker-fixture"
-        assert command[1] in {"ps", "inspect", "start", "restart", "logs"}
+        assert command[1] in {"ps", "inspect", "start", "restart", "stop", "logs"}
         self.calls.append((command, timeout_seconds))
         result = self.results.pop(0)
         if isinstance(result, Exception):
@@ -100,6 +100,47 @@ def test_project_is_exact_and_stopped_ports_come_from_bindings() -> None:
         (("docker-fixture", "ps", "-a", "--no-trunc", "--format", "{{json .}}"), 15),
         (("docker-fixture", "inspect", SECOND, FIRST), 15),
     ]
+
+
+def test_compose_service_dependencies_and_health_come_from_labels_and_state() -> None:
+    web = inspect_row(FIRST, "web", running=True)
+    web["Config"] = {
+        "Image": "fixture:latest",
+        "Labels": {
+            "com.docker.compose.project": "photos",
+            "com.docker.compose.service": "web",
+            "com.docker.compose.depends_on": "db:service_started:false,redis:service_healthy:true",
+        },
+    }
+    web["State"] = {"Running": True, "Status": "running", "Health": {"Status": "healthy"}}
+    db = inspect_row(SECOND, "db", running=True)
+    db["State"] = {"Running": True, "Status": "running", "Health": None}
+    runner = FakeRunner(
+        result(ps_row(FIRST, "web") + "\n" + ps_row(SECOND, "db")),
+        result(json.dumps([web, db])),
+    )
+    snapshots = asyncio.run(
+        DockerContainerRuntime(runner, "docker-fixture").list_containers(compose_project="photos")
+    )
+    assert snapshots is not None
+    assert (snapshots[1].compose_service, snapshots[1].depends_on, snapshots[1].health) == (
+        "web",
+        ("db", "redis"),
+        "healthy",
+    )
+    assert (snapshots[0].compose_service, snapshots[0].depends_on, snapshots[0].health) == (
+        None,
+        (),
+        None,
+    )
+
+
+def test_stop_uses_fixed_arguments() -> None:
+    runner = FakeRunner(result("stopped"))
+    stopped = asyncio.run(DockerContainerRuntime(runner, "docker-fixture").stop((FIRST, SECOND)))
+    assert stopped.argv == ("docker-fixture", "stop", FIRST, SECOND)
+    assert stopped.exit_code == 0
+    assert runner.calls == [(stopped.argv, 120)]
 
 
 def test_name_is_exact_and_null_bindings_and_labels_are_empty() -> None:
@@ -189,7 +230,7 @@ def test_start_restart_group_ids_and_record_times_and_redacted_tail() -> None:
 
 
 @pytest.mark.parametrize("ids", ((), ("A" * 12,), ("a" * 11,), ("a" * 65,), (FIRST, "-bad")))
-@pytest.mark.parametrize("action", ("start", "restart"))
+@pytest.mark.parametrize("action", ("start", "restart", "stop"))
 def test_invalid_ids_never_reach_commands(ids: tuple[str, ...], action: str) -> None:
     runner = FakeRunner()
     runtime = DockerContainerRuntime(runner, "docker-fixture")

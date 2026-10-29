@@ -8,6 +8,11 @@ from datetime import datetime
 from tunnelminion.domain.identifiers import NodeId, OperationId
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.operation.contracts import OperationLevel
+from tunnelminion.repair.compose_order import (
+    COMPOSE_READY_SECONDS,
+    container_steps,
+    describe_order,
+)
 from tunnelminion.repair.contracts import (
     REPAIR_TOOL_NAMES,
     ContainerRepairTarget,
@@ -91,6 +96,14 @@ class RepairPlanner:
                 else f"重启 Docker 容器 {name}"
             )
             impact = "重启大约需要半分钟，这期间这个服务打不开；正在进行的操作可能要重做。"
+            steps, ordered = container_steps(items, compose=compose)
+            if ordered:
+                action = f"按依赖顺序处理 Docker 容器组 {name}：{describe_order(steps)}"
+                impact = (
+                    "被依赖的容器先起来；有下一步时，每一步都等容器在运行（有健康检查的等到健康，"
+                    f"最多 {COMPOSE_READY_SECONDS:.0f} 秒）再接着做。这期间这个服务打不开；"
+                    "正在进行的操作可能要重做。"
+                )
             verification = (
                 "重启后我会确认容器在运行、端口在听，并再打开一次首页。"
                 if target.ports

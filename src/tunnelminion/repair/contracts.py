@@ -106,6 +106,13 @@ class ContainerSnapshot(BaseModel):
     # 容器配置里发布到本机的端口；停掉的容器在 `docker ps` 里看不到端口，所以从配置读。
     published_ports: tuple[Annotated[int, Field(ge=1, le=65535)], ...] = ()
     compose_project: str | None = Field(default=None, min_length=1, max_length=80)
+    # compose 写在容器上的服务名和它依赖的服务名，只用来排启动顺序；读不出时为空。
+    compose_service: str | None = Field(default=None, min_length=1, max_length=128)
+    depends_on: tuple[Annotated[str, Field(min_length=1, max_length=128)], ...] = Field(
+        default=(), max_length=32
+    )
+    # `State.Health.Status`；容器没有健康检查时为 None。
+    health: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class ContainerRepairTarget(BaseModel):
@@ -656,7 +663,7 @@ class PortOwner(BaseModel):
 
 
 class ContainerRuntime(Protocol):
-    """固定的 Docker 命令：只读查询，以及 `docker start` / `docker restart`。
+    """固定的 Docker 命令：只读查询，以及 `docker start` / `docker restart` / `docker stop`。
 
     不用 `docker compose up`、不拉镜像、不重建容器、不删除任何东西。
     """
@@ -670,6 +677,10 @@ class ContainerRuntime(Protocol):
     async def start(self, container_ids: tuple[str, ...]) -> RepairCommand: ...
 
     async def restart(self, container_ids: tuple[str, ...]) -> RepairCommand: ...
+
+    async def stop(self, container_ids: tuple[str, ...]) -> RepairCommand:
+        """停下已有容器，供 compose 组按依赖反向顺序重启；不删除容器。"""
+        ...  # pragma: no cover - Protocol 无运行时实现
 
     async def logs_tail(self, container_id: str, *, lines: int) -> str:
         """最后几行日志，已去掉常见认证材料；读不到时返回空串。"""

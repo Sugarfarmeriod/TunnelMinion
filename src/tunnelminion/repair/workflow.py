@@ -10,6 +10,11 @@ from pathlib import Path
 from tunnelminion.domain.identifiers import OperationId
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.operation.contracts import OperationStatus, transition_operation
+from tunnelminion.repair.compose_order import (
+    COMPOSE_READY_SECONDS,
+    container_steps,
+    wait_until_ready,
+)
 from tunnelminion.repair.contracts import (
     REPAIR_ACTIVE_STATUSES,
     REPAIR_RATE_LIMIT,
@@ -218,15 +223,14 @@ class RepairWorkflow:
             execution = executing.execution
             assert execution is not None
             if isinstance(target, ContainerRepairTarget):
-                for running in (False, True):
-                    ids = tuple(item.container_id for item in items if item.running is running)
-                    if not ids:
-                        continue
-                    command = (
-                        await self._containers.restart(ids)
-                        if running
-                        else await self._containers.start(ids)
-                    )
+                steps, _ = container_steps(items, compose=target.compose_project is not None)
+                for step in steps:
+                    run = {
+                        "start": self._containers.start,
+                        "restart": self._containers.restart,
+                        "stop": self._containers.stop,
+                    }[step.action]
+                    command = await run(step.container_ids)
                     execution = execution.model_copy(
                         update={"commands": (*execution.commands, command)}
                     )
@@ -241,7 +245,34 @@ class RepairWorkflow:
                             record,
                             RepairError(
                                 code=RepairErrorCode.EXECUTION_FAILED,
-                                message="Docker 没能启动这些容器。",
+                                message="Docker 没能停下这些容器。"
+                                if step.action == "stop"
+                                else "Docker 没能启动这些容器。",
+                                next_step=_FAILURE_NEXT_STEP,
+                            ),
+                            RepairCleanupResult.NOTHING_TO_UNDO,
+                            "容器修复失败后不再动它。",
+                        )
+                    if not step.wait_ready:
+                        continue
+                    pending = await wait_until_ready(
+                        self._containers,
+                        compose_project=target.compose_project,
+                        container_name=target.container_name,
+                        waiting=step.containers,
+                        clock=self._clock,
+                        sleep=self._sleep,
+                    )
+                    if pending is not None:
+                        return self._rollback(
+                            record,
+                            RepairError(
+                                code=RepairErrorCode.EXECUTION_FAILED,
+                                message=(
+                                    f"{pending.name} 等了 {COMPOSE_READY_SECONDS:.0f} 秒还没准备好"
+                                    f"（{pending.health or pending.status}），"
+                                    "没有接着启动依赖它的容器。"
+                                )[:500],
                                 next_step=_FAILURE_NEXT_STEP,
                             ),
                             RepairCleanupResult.NOTHING_TO_UNDO,

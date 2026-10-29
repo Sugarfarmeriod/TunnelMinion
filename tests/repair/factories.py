@@ -33,6 +33,9 @@ def container(
     running: bool = False,
     ports: tuple[int, ...] = (8080,),
     compose_project: str | None = "photos",
+    service: str | None = None,
+    depends_on: tuple[str, ...] = (),
+    health: str | None = None,
 ) -> ContainerSnapshot:
     return ContainerSnapshot(
         container_id=suffix * 64,
@@ -42,6 +45,9 @@ def container(
         status="Up 2 minutes" if running else "Exited (1) 13 minutes ago",
         published_ports=ports,
         compose_project=compose_project,
+        compose_service=service,
+        depends_on=depends_on,
+        health=health,
     )
 
 

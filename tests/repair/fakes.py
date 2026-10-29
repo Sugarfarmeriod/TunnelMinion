@@ -170,6 +170,8 @@ class FakeContainers(ContainerRuntime):
         self.log = "startup failed"
         self.log_calls: list[tuple[str, int]] = []
         self.error_on: str | None = None
+        # 启动成功后容器的健康状态；None 表示保持原样。
+        self.start_health: str | None = None
 
     async def list_containers(
         self, *, compose_project: str | None, container_name: str | None
@@ -184,11 +186,19 @@ class FakeContainers(ContainerRuntime):
             raise RuntimeError("fake")
         self.calls.append((action, ids))
         code = self.exit_codes.pop(0) if self.exit_codes else 0
-        if code == 0 and not self.stay_stopped:
+        if code == 0 and action == "stop":
             self.items = tuple(
-                item.model_copy(update={"running": True, "status": "running"})
+                item.model_copy(update={"running": False, "status": "exited (0)"})
                 if item.container_id in ids
                 else item
+                for item in self.items or ()
+            )
+        elif code == 0 and not self.stay_stopped:
+            update: dict[str, object] = {"running": True, "status": "running"}
+            if self.start_health is not None:
+                update["health"] = self.start_health
+            self.items = tuple(
+                item.model_copy(update=update) if item.container_id in ids else item
                 for item in self.items or ()
             )
         return RepairCommand(
@@ -204,6 +214,9 @@ class FakeContainers(ContainerRuntime):
 
     async def restart(self, container_ids: tuple[str, ...]) -> RepairCommand:
         return self._command("restart", container_ids)
+
+    async def stop(self, container_ids: tuple[str, ...]) -> RepairCommand:
+        return self._command("stop", container_ids)
 
     async def logs_tail(self, container_id: str, *, lines: int) -> str:
         if self.error_on == "logs":
