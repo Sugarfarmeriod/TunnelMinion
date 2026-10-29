@@ -217,16 +217,31 @@ describe("WelcomeGate", () => {
     expect(
       requests.find((item) => item.path === "/api/identity/setup")?.body,
     ).toEqual({ host: "10.20.0.9", port: 8787, display_name: "书房电脑" });
-    await user.click(screen.getByRole("button", { name: "我已抄好" }));
-    expect(screen.queryByText(RECOVERY)).not.toBeInTheDocument();
-    const input = screen.getByRole("textbox", { name: "恢复码" });
-    await user.type(input, "wrong");
-    await user.click(screen.getByRole("button", { name: "确认" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("不一致");
-    await user.clear(input);
-    await user.type(input, RECOVERY.toLowerCase());
-    await user.click(screen.getByRole("button", { name: "确认" }));
+    const createUrl = vi.fn((_blob: Blob) => "blob:recovery");
+    const revokeUrl = vi.fn();
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    Object.assign(URL, {
+      createObjectURL: createUrl,
+      revokeObjectURL: revokeUrl,
+    });
+    await user.click(screen.getByRole("button", { name: "存成文件" }));
+    expect(await createUrl.mock.calls[0]?.[0].text()).toContain(RECOVERY);
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeUrl).toHaveBeenCalledWith("blob:recovery");
+    click.mockRestore();
+    // 勾选"已存好"之前不能完成；完成时直接用页面上的恢复码，不用再输一遍。
+    const finish = screen.getByRole("button", { name: "完成" });
+    expect(finish).toBeDisabled();
+    await user.click(
+      screen.getByRole("checkbox", { name: "我已经把恢复码存好了" }),
+    );
+    await user.click(finish);
     expect(await screen.findByText("已建立你的机主身份。")).toBeInTheDocument();
+    expect(
+      requests.find((item) => item.path.endsWith(":confirm"))?.body,
+    ).toEqual({ recovery_code: RECOVERY });
     expect(document.body.textContent).not.toContain(RECOVERY);
     await user.click(screen.getByRole("button", { name: "好的" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -310,9 +325,10 @@ describe("WelcomeGate", () => {
       "小林",
     );
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    await user.click(await screen.findByRole("button", { name: "我已抄好" }));
-    await user.type(screen.getByRole("textbox", { name: "恢复码" }), RECOVERY);
-    await user.click(screen.getByRole("button", { name: "确认" }));
+    await user.click(
+      await screen.findByRole("checkbox", { name: "我已经把恢复码存好了" }),
+    );
+    await user.click(screen.getByRole("button", { name: "完成" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "身份已经建好，但这次没配上对：连不上邀请方的电脑",
     );
