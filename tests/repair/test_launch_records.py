@@ -20,7 +20,12 @@ from tunnelminion.agent.services import (
 )
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.process_origin import ProcessOrigin
-from tunnelminion.repair.contracts import LaunchRecord, LaunchRecordStore
+from tunnelminion.repair.contracts import (
+    AnyLaunchRecord,
+    LaunchAgentRecord,
+    LaunchRecord,
+    LaunchRecordStore,
+)
 from tunnelminion.repair.launch_records import (
     LaunchRecorder,
     ProcessLaunchFacts,
@@ -231,20 +236,20 @@ def service(pid: int | None = 101, port: int = 8080, **changes: object) -> Remot
 
 class MemoryLaunchStore:
     def __init__(self) -> None:
-        self.records: dict[str, LaunchRecord] = {}
-        self.writes: list[LaunchRecord] = []
+        self.records: dict[str, AnyLaunchRecord] = {}
+        self.writes: list[AnyLaunchRecord] = []
         self.error: Exception | None = None
 
-    def put(self, record: LaunchRecord) -> None:
+    def put(self, record: AnyLaunchRecord) -> None:
         if self.error is not None:
             raise self.error
         self.records[record.service_key] = record
         self.writes.append(record)
 
-    def get(self, service_key: str) -> LaunchRecord | None:
+    def get(self, service_key: str) -> AnyLaunchRecord | None:
         return self.records.get(service_key)
 
-    def list_all(self) -> tuple[LaunchRecord, ...]:
+    def list_all(self) -> tuple[AnyLaunchRecord, ...]:
         return tuple(self.records.values())
 
 
@@ -297,10 +302,14 @@ def test_records_mine_and_rule_shown_only_and_reads_pid_once() -> None:
     assert reader.calls == [101, 102]
     assert len(store.list_all()) == 2
     record = store.get("python:app.py@8080")
-    assert record is not None and record.ports == (8080, 8081)
+    assert isinstance(record, LaunchRecord) and record.ports == (8080, 8081)
     assert record.rule_shown and record.recorded_at == NOW and record.process_started_at == NOW
     mine = store.get("python:http.server@9000")
-    assert mine is not None and not mine.rule_shown and mine.arguments == ("-m", "http.server")
+    assert (
+        isinstance(mine, LaunchRecord)
+        and not mine.rule_shown
+        and mine.arguments == ("-m", "http.server")
+    )
     assert set(record.model_dump()) == {
         "service_key",
         "interpreter",
@@ -411,3 +420,41 @@ def test_default_own_pid_is_never_read() -> None:
 
 def test_default_reader_construction_does_not_query_processes() -> None:
     assert LaunchRecorder(MemoryLaunchStore()).record((), {}) == 0
+
+
+def test_launch_agents_record_label_and_ports_only() -> None:
+    reader = FakeLaunchReader({})
+    store = MemoryLaunchStore()
+    recorder = LaunchRecorder(store, reader=reader, clock=lambda: NOW, own_pid=999)
+    inventory = (
+        service(201, 8080, launch_agent_label="local.photos.web"),
+        service(202, 8081, launch_agent_label="local.photos.web", origin=ProcessOrigin.UNKNOWN),
+        service(201, 5353, protocol="udp", launch_agent_label="local.photos.web"),
+        service(203, 9000, launch_agent_label="local.review", origin=ProcessOrigin.UNKNOWN),
+        service(204, 9001, launch_agent_label="local.mine", origin=ProcessOrigin.UNKNOWN),
+        service(205, 9002, launch_agent_label="local.hidden"),
+        service(999, 9003, launch_agent_label="local.self"),
+        service(206, 9004, launch_agent_label="local.boxed", container_running=True),
+    )
+    marks = {"launchd:local.mine": ServiceMark.MINE, "launchd:local.hidden": ServiceMark.HIDDEN}
+    assert recorder.record(inventory, marks) == 2
+    # 后台服务不读 Python 启动方式。
+    assert not reader.calls
+    photos = store.get("launchd:local.photos.web")
+    assert isinstance(photos, LaunchAgentRecord)
+    assert photos.ports == (8080, 8081) and photos.rule_shown and photos.recorded_at == NOW
+    assert set(photos.model_dump()) == {
+        "service_key",
+        "label",
+        "ports",
+        "rule_shown",
+        "recorded_at",
+    }
+    mine = store.get("launchd:local.mine")
+    assert isinstance(mine, LaunchAgentRecord) and not mine.rule_shown
+    assert set(store.records) == {"launchd:local.photos.web", "launchd:local.mine"}
+    # 没变化时不重写；写入出错时跳过这一项。
+    assert recorder.record(inventory, marks) == 0
+    store.records.clear()
+    store.error = RuntimeError("disk")
+    assert recorder.record(inventory, marks) == 0

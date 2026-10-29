@@ -18,6 +18,9 @@ from tunnelminion.repair.contracts import (
     ContainerRuntime,
     ContainerSnapshot,
     HostInspector,
+    LaunchAgentJob,
+    LaunchAgentRepairTarget,
+    LaunchAgentRuntime,
     LocalVerifier,
     ProcessLauncher,
     PythonRepairTarget,
@@ -38,12 +41,15 @@ from tunnelminion.repair.eligibility import (
     AUTHORIZATION_EXPIRED_ERROR,
     RepairRefusal,
     check_hidden,
+    check_launch_agent,
     check_python,
     read_containers,
 )
+from tunnelminion.repair.launch_agents import UnsupportedLaunchAgents
 
 _FAILURE_NEXT_STEP = "看看日志要点；Agent 不会自动重试。"
 _UNCERTAIN_NEXT_STEP = "请检查一下这个服务现在的状态。"
+_LAUNCH_AGENT_LEFT_ALONE = "后台服务归 macOS 管，修复失败后 Agent 不会再动它。"
 
 
 class RepairWorkflow:
@@ -61,7 +67,9 @@ class RepairWorkflow:
         container_verify_seconds: float = 60,
         python_verify_seconds: float = 30,
         interrupted_after_seconds: float = 900,
+        launch_agents: LaunchAgentRuntime | None = None,
     ) -> None:
+        self._launch_agents = launch_agents or UnsupportedLaunchAgents()
         self._store = store
         self._containers = containers
         self._launcher = launcher
@@ -133,6 +141,23 @@ class RepairWorkflow:
                             RepairError(
                                 code=RepairErrorCode.SERVICE_CHANGED,
                                 message="情况变了：容器和批准时看到的不一样，Agent 没有动手。",
+                            )
+                        )
+                elif isinstance(target, LaunchAgentRepairTarget):
+                    job = await check_launch_agent(
+                        target.label, target.ports, self._launch_agents, self._host
+                    )
+                    if (job.uid, job.plist_path, job.plist_sha256) != (
+                        target.uid,
+                        target.plist_path,
+                        target.plist_sha256,
+                    ):
+                        raise RepairRefusal(
+                            RepairError(
+                                code=RepairErrorCode.SERVICE_CHANGED,
+                                message=(
+                                    "情况变了：后台服务的配置文件和批准时不一样，Agent 没有动手。"
+                                ),
                             )
                         )
                 else:
@@ -222,6 +247,28 @@ class RepairWorkflow:
                             RepairCleanupResult.NOTHING_TO_UNDO,
                             "容器修复失败后不再动它。",
                         )
+            elif isinstance(target, LaunchAgentRepairTarget):
+                command = await self._launch_agents.kickstart(target.label)
+                execution = execution.model_copy(
+                    update={"commands": (*execution.commands, command)}
+                )
+                record = self._event(
+                    record.model_copy(update={"execution": execution}),
+                    RepairAuditAction.COMMAND_EXECUTED,
+                    " ".join(command.argv),
+                )
+                self._store.put(record)
+                if command.exit_code != 0:
+                    return self._rollback(
+                        record,
+                        RepairError(
+                            code=RepairErrorCode.EXECUTION_FAILED,
+                            message="macOS 没能启动这个后台服务。",
+                            next_step=_FAILURE_NEXT_STEP,
+                        ),
+                        RepairCleanupResult.NOTHING_TO_UNDO,
+                        _LAUNCH_AGENT_LEFT_ALONE,
+                    )
             else:
                 try:
                     spawned = self._launcher.launch(
@@ -272,6 +319,17 @@ class RepairWorkflow:
                     ),
                     RepairCleanupResult.NOTHING_TO_UNDO,
                     "容器修复失败后不再动它，保持现在的状态。",
+                )
+            if isinstance(target, LaunchAgentRepairTarget):
+                return self._rollback(
+                    record,
+                    RepairError(
+                        code=RepairErrorCode.VERIFICATION_FAILED,
+                        message="后台服务重新启动了，但服务还是没起来。",
+                        next_step=_FAILURE_NEXT_STEP,
+                    ),
+                    RepairCleanupResult.NOTHING_TO_UNDO,
+                    _LAUNCH_AGENT_LEFT_ALONE,
                 )
             error = RepairError(
                 code=RepairErrorCode.VERIFICATION_FAILED,
@@ -328,8 +386,20 @@ class RepairWorkflow:
         elapsed = 0.0
         web_checks: dict[int, RepairCheck] = {}
         items: tuple[ContainerSnapshot, ...] = ()
+        job: LaunchAgentJob | None = None
         while True:
             checks: list[RepairCheck] = []
+            if isinstance(target, LaunchAgentRepairTarget):
+                inspected = await self._launch_agents.inspect(target.label)
+                job = inspected if isinstance(inspected, LaunchAgentJob) else None
+                running = job is not None and job.pid is not None
+                checks.append(
+                    RepairCheck(
+                        name=RepairCheckName.LAUNCH_AGENT_RUNNING,
+                        passed=running,
+                        detail="后台服务在运行。" if running else "后台服务没在运行。",
+                    )
+                )
             if isinstance(target, ContainerRepairTarget):
                 observed = await self._containers.list_containers(
                     compose_project=target.compose_project, container_name=target.container_name
@@ -401,6 +471,11 @@ class RepairWorkflow:
                     items[0] if items else target.containers[0],
                 )
                 excerpt = await self._containers.logs_tail(failed_container.container_id, lines=40)
+            elif isinstance(target, LaunchAgentRepairTarget):
+                parts = [self._launch_agents.log_tail(job, lines=40)] if job is not None else []
+                if job is not None and job.last_exit_code is not None:
+                    parts.append(f"launchd 记的上次退出码：{job.last_exit_code}")
+                excerpt = "\n".join(part for part in parts if part)
             else:
                 assert record.execution is not None and record.execution.spawned is not None
                 excerpt = self._launcher.log_tail(Path(record.execution.spawned.log_path), lines=40)

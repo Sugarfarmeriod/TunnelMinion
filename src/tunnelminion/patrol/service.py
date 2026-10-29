@@ -148,6 +148,8 @@ def classify(
     if entry.state == "stopped":
         if entry.kind == "docker":
             return PatrolReason.CONTAINER_EXITED
+        if entry.launch_agent:
+            return PatrolReason.AGENT_EXITED
         if entry.kind == "python":
             return PatrolReason.SCRIPT_EXITED
         return PatrolReason.PORT_CLOSED
@@ -492,8 +494,9 @@ class PatrolService:
 
     def _auto_repair_view(self, key: str, record: PatrolRecord | None) -> AutoRepairView:
         kind = repair_kind_for(key)
+        # 脚本和后台服务要见过它正常运行、有记录才有现成修法。
         available = kind is RepairKind.RESTART_CONTAINERS or (
-            kind is RepairKind.RELAUNCH_PYTHON and self._has_launch_record(key)
+            kind is not None and self._has_launch_record(key)
         )
         return AutoRepairView(
             available=available,

@@ -238,6 +238,57 @@ describe("地图上的本机修复", () => {
       screen.queryByRole("link", { name: "打开 停止服务" }),
     ).not.toBeInTheDocument();
   });
+  it("后台服务显示类型，批准框的高级里是固定的 kickstart 命令", async () => {
+    repair = makeRepair({
+      service_key: "launchd:local.photos.web",
+      kind: "restart_launch_agent",
+      advanced: {
+        command: "launchctl kickstart gui/501/local.photos.web",
+        plist_path: "/Users/me/Library/LaunchAgents/local.photos.web.plist",
+        ports: [8765],
+      },
+    });
+    server.use(
+      http.get("/api/services/local", () =>
+        HttpResponse.json(
+          makeLocalServices([
+            makeService({
+              key: "launchd:local.photos.web",
+              name: "local.photos.web",
+              kind: "program",
+              launch_agent: true,
+              state: "stopped",
+              endpoints: [
+                {
+                  protocol: "tcp",
+                  address: "127.0.0.1",
+                  port: 8765,
+                  has_web_page: null,
+                },
+              ],
+            }),
+          ]),
+        ),
+      ),
+    );
+    renderMap();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "这台电脑，在线，1 个服务" }),
+    );
+    const list = screen.getByRole("list", { name: "这台电脑上的服务" });
+    expect(within(list).getByText("后台服务 · 8765")).toBeVisible();
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByText("高级：将执行的命令"));
+    expect(
+      within(dialog).getByText(
+        (_, element) =>
+          element?.tagName === "PRE" &&
+          element.textContent ===
+            "launchctl kickstart gui/501/local.photos.web\n配置文件：/Users/me/Library/LaunchAgents/local.photos.web.plist",
+      ),
+    ).toBeVisible();
+  });
+
   it("只给本机未过期的待批准修复显示感叹号，服务框可打开同一个五项批准框", async () => {
     const other = makeRepair({
       repair_id: "operation_" + "b".repeat(32),

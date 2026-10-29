@@ -25,7 +25,9 @@ TOOL_USAGE: dict[str, str] = {
     "list_launch_records": "Python 脚本退出了、想知道能不能按原来的方式重新拉起时用。",
     "get_wireguard_status": "只在问到 WireGuard、隧道、组网时用。",
     "get_node_summary": "问这台电脑整体状态、模型、有哪些工具时用。",
-    "propose_repair": "已经查明容器停了或脚本退出了、需要修时用；只生成待批准的修复。",
+    "propose_repair": (
+        "已经查明容器停了、脚本退出了或 macOS 后台服务退出了、需要修时用；只生成待批准的修复。"
+    ),
 }
 
 # 认不出话题或需要截断时的基础顺序：越靠前越常用。
@@ -92,7 +94,7 @@ _TOPICS = (
     _Topic(
         "repair",
         re.compile(
-            r"挂了|打不开|用不了|停了|退出|报错|崩|坏了|不正常|修|重启|拉起|恢复"
+            r"挂了|打不开|用不了|停了|退出|报错|崩|坏了|不正常|修|重启|拉起|恢复|后台服务|launchd"
             r"|\bdown\b|\bcrash|\bfix|\brestart|\brepair"
         ),
         ("propose_repair", "list_network_listeners"),

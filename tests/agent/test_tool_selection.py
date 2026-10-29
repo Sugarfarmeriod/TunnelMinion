@@ -254,3 +254,10 @@ def test_request_more_tools_result_is_not_evidence() -> None:
 
     assert result.evidence_answer.evidence == ()
     assert json.loads(json.dumps(result.selected_tools)) == list(allowed)
+
+
+def test_background_service_question_keeps_repair_tool() -> None:
+    selection = select_tools("Mac 上的后台服务退出了", WEB_TOOL_NAMES, settings=DEFAULT)
+
+    assert "repair" in selection.topics
+    assert "propose_repair" in selection.visible

@@ -95,6 +95,10 @@ class RemoteServiceSummary(BaseModel):
     python_entrypoint: str | None = None
     python_project_name: str | None = None
     program_name: str | None = None
+    # 拉起这个监听进程的当前用户 macOS 后台服务（LaunchAgent）标签。
+    launch_agent_label: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
+    )
     origin: ProcessOrigin | None = None
     has_web_page: bool | None = None
     web_title: str | None = None

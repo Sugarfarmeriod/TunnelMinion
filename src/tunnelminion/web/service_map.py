@@ -33,7 +33,7 @@ from tunnelminion.agent.services import (
 )
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.python_entrypoint import is_python_process
-from tunnelminion.repair.contracts import LaunchRecord, LaunchRecordStore
+from tunnelminion.repair.contracts import AnyLaunchRecord, LaunchAgentRecord, LaunchRecordStore
 
 ServiceKind = Literal["docker", "python", "program"]
 EntryTier = Literal["show", "review", "hidden"]
@@ -60,6 +60,8 @@ class ServiceEntry(BaseModel):
     kind: ServiceKind
     tier: EntryTier
     state: Literal["running", "stopped"] = "running"
+    # 当前用户的 macOS 后台服务（LaunchAgent）；`kind` 仍是 `program`，旧版本照常能读。
+    launch_agent: bool = False
     mark: ServiceMark | None = None
     web_title: str | None = None
     endpoints: tuple[ServiceEndpoint, ...]
@@ -89,6 +91,8 @@ _TIER_ORDER: dict[EntryTier, int] = {"show": 0, "review": 1, "hidden": 2}
 def _kind(item: RemoteServiceSummary) -> ServiceKind:
     if item.container_running is not None:
         return "docker"
+    if item.launch_agent_label:
+        return "program"
     return "python" if is_python_process(item.process_name) else "program"
 
 
@@ -147,6 +151,7 @@ def _entry(
         kind=_kind(first),
         tier=tier,
         state="stopped" if all(item.container_running is False for item in items) else "running",
+        launch_agent=key.startswith("launchd:"),
         mark=mark,
         web_title=next((item.web_title for item in shown if item.web_title), None),
         endpoints=tuple(endpoints),
@@ -159,7 +164,7 @@ def build_local_service_map(
     marks: Mapping[str, ServiceMark],
     *,
     excluded_pid: int | None = None,
-    launch_records: tuple[LaunchRecord, ...] = (),
+    launch_records: tuple[AnyLaunchRecord, ...] = (),
 ) -> LocalServiceMap:
     """按服务身份合并端口，并按"直接显示、可能是服务、已隐藏"排序。"""
     if snapshot is None:
@@ -201,11 +206,17 @@ def build_local_service_map(
         if launch.service_key in groups:
             continue
         mark = marks.get(launch.service_key)
+        agent = isinstance(launch, LaunchAgentRecord)
         entries.append(
             ServiceEntry(
                 key=launch.service_key,
-                name=launch.service_key.removeprefix("python:").rsplit("@", 1)[0][:80],
-                kind="python",
+                name=(
+                    launch.label
+                    if agent
+                    else launch.service_key.removeprefix("python:").rsplit("@", 1)[0]
+                )[:80],
+                kind="program" if agent else "python",
+                launch_agent=agent,
                 tier="hidden" if mark is ServiceMark.HIDDEN else "show",
                 state="running"
                 if launch.service_key in snapshot.running_launch_keys
@@ -231,6 +242,7 @@ def build_local_service_map(
                 else "python"
                 if prefix == "python"
                 else "program",
+                launch_agent=prefix == "launchd",
                 tier="show",
                 state="stopped",
                 mark=mark,

@@ -52,6 +52,9 @@ def service_mark_key(item: RemoteServiceSummary, anchors: Mapping[int, int]) -> 
             return f"docker:compose:{item.compose_project}"
         if (item.container_name or "").strip():
             return f"docker:{(item.container_name or '').strip()}"
+    elif item.launch_agent_label:
+        # 当前用户的 macOS 后台服务按标签认，换进程号、换端口都不变。
+        return f"launchd:{item.launch_agent_label}"
     elif is_python_process(item.process_name) and item.python_entrypoint:
         return f"python:{item.python_entrypoint}{suffix}"
     elif (

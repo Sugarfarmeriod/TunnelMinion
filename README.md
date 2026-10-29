@@ -31,7 +31,7 @@ flowchart LR
 | 一眼看到几台电脑上各有哪些服务 | 首页是一张像素风的服务地图：电脑在不在线、每台跑着哪些服务。系统程序和桌面应用会自动藏起来，可以手动标成"是我的服务"或者"隐藏" | [`node-agents.md`](docs/design/node-agents.md)、[`map-workspace.md`](docs/design/map-workspace.md) |
 | 问"相册怎么打不开了" | 点服务旁边的"问问"，或者在地图下方直接提问，对话会从右侧滑出来。Agent 用只读工具查端口、进程、容器和日志，回答里会注明哪些结论有证据、哪些只是推断 | [`map-workspace.md`](docs/design/map-workspace.md) |
 | 让另一台电脑帮忙查 | 服务在别的电脑上时，Agent 会把问题委派给那台电脑的 Agent，由它用本机工具查完再把结论带回来。查的过程中，地图连线上能看到数据包在走 | [`delegation.md`](docs/design/delegation.md) |
-| 把服务修好 | 第一批只支持两种修法：重启 Docker 容器（或 compose 组），以及按原来的方式重新拉起已经退出的 Python 脚本。Agent 提出修法以后，电脑头上会冒出红色感叹号，点它批准才会动手，修完会自己验证 | [`agent-fix.md`](docs/design/agent-fix.md) |
+| 把服务修好 | 支持三种修法：重启 Docker 容器（或 compose 组）；按原来的方式重新拉起已经退出的 Python 脚本；在 Mac 上重新启动你自己装在 `~/Library/LaunchAgents` 里、已经退出的后台服务（[`launchagent-repair.md`](docs/design/launchagent-repair.md)）。Agent 提出修法以后，电脑头上会冒出红色感叹号，点它批准才会动手，修完会自己验证 | [`agent-fix.md`](docs/design/agent-fix.md) |
 | 朋友不配模型也能用 | 朋友粘贴一个邀请码就能加入，直接借用你的模型，不需要 key，也不花钱。每天有用量上限，提供模型的一方只记用量，不保存对话内容 | [`model-borrowing.md`](docs/design/model-borrowing.md) |
 | 让 Claude Code 之类的外部 Agent 用这些工具 | `tunnelminion mcp` 把本机的只读诊断工具通过 MCP 提供出去 | [`mcp.md`](docs/design/mcp.md) |
 | 看清一次提问在几台电脑上都做了什么 | 打开 OpenTelemetry 链路追踪以后，一次提问的模型调用、工具调用和委派会串成同一条链路 | [`tracing.md`](docs/design/tracing.md) |
@@ -185,7 +185,7 @@ Docker 容器、端口探测和组网状态。委派和修复都不开放。详�
 ## 安全边界
 
 - **Agent 只能用只读工具查问题。** 能看端口、进程、容器、日志和启动记录，不能执行任意命令。
-- **修复要批准。** 修法只有两种：重启容器和重新拉起脚本。实际执行的命令由本机代码根据服务身份拼出来，
+- **修复要批准。** 修法只有三种：重启容器、重新拉起脚本、在 Mac 上重新启动你自己的后台服务（不碰系统和别的用户的服务）。实际执行的命令由本机代码根据服务身份拼出来，
   模型写的文字不会进入命令。每次动手前都要有人点批准，默认只能在服务所在电脑的本机网页上批准。一次批准只修一次，10 分钟内有效；
   动手前还会再核对一遍情况有没有变。同一个服务 1 小时内最多修 3 次，验证没通过也不会自动重试。
 - **别的电脑默认不能替你批准。** 另一台电脑提出的修复，默认要到那台电脑的地图上批准。服务所在电脑的主人可以为

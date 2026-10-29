@@ -1,6 +1,6 @@
 # 按问题挑工具：小模型在工具多时也能选对
 
-> 状态：已实现，待真机验收。动手修的工具见 [`agent-fix.md`](agent-fix.md)；委派见 [`delegation.md`](delegation.md)；
+> 状态：已实现（#219）。动手修的工具见 [`agent-fix.md`](agent-fix.md)；委派见 [`delegation.md`](delegation.md)；
 > 总体方向见 [`node-agents.md`](node-agents.md)。
 
 ## 一句话

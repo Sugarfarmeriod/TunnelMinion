@@ -110,7 +110,7 @@ def test_propose_refusals_print_fixed_message(
     assert output == (
         "修不了：Docker 没开。\n请先打开 Docker Desktop 或 OrbStack，Agent 不会替你打开。\n"
         if with_next
-        else "修不了：第一版只能修 Docker 容器和 Python 脚本。\n"
+        else "修不了：只能修 Docker 容器、Python 脚本和 macOS 后台服务。\n"
     )
     assert not h.containers.calls
 

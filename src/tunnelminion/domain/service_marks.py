@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 
-MARK_KEY_PATTERN = r"^(docker|python|program|port):[^\x00-\x1f\x7f/\\]{1,150}$"
+MARK_KEY_PATTERN = r"^(docker|python|launchd|program|port):[^\x00-\x1f\x7f/\\]{1,150}$"
 _MARK_KEY = re.compile(MARK_KEY_PATTERN)
 
 

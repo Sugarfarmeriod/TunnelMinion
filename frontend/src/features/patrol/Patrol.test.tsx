@@ -228,6 +228,28 @@ describe("巡检", () => {
     ).toBeNull();
   });
 
+  it("后台服务的开关写明只限重新启动这个后台服务", async () => {
+    renderMap([
+      watched({
+        auto_repair: {
+          available: true,
+          kind: "restart_launch_agent",
+          enabled: false,
+          enabled_on: null,
+          paused: false,
+          last_attempt_at: null,
+          last_result: null,
+        },
+      }),
+    ]);
+    const { dialog } = await openComputer();
+    expect(
+      await within(dialog).findByText(
+        "只限重新启动这个后台服务，修完会自己确认",
+      ),
+    ).toBeVisible();
+  });
+
   it("开关默认关；勾上以后写明从哪天起允许，再取消就关掉", async () => {
     renderMap();
     const { user, dialog } = await openComputer();

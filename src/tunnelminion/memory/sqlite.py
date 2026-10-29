@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from tunnelminion.domain.delegation import DelegationRecord, DelegationStatus
 from tunnelminion.domain.identifiers import (
     ArtifactId,
@@ -53,7 +55,7 @@ from tunnelminion.operation.requester import (
 from tunnelminion.repair.contracts import (
     REPAIR_ACTIVE_STATUSES,
     REPAIR_TERMINAL_STATUSES,
-    LaunchRecord,
+    AnyLaunchRecord,
     LaunchRecordStore,
     RepairClaimResult,
     RepairRecord,
@@ -715,13 +717,17 @@ class SQLiteRepairStore:
             return RepairClaimResult.CLAIMED
 
 
+# Python 脚本的启动记录和 macOS 后台服务记录放在同一张表里，按字段区分。
+_ANY_LAUNCH_RECORD: TypeAdapter[AnyLaunchRecord] = TypeAdapter(AnyLaunchRecord)
+
+
 class SQLiteLaunchRecordStore:
     """按服务身份保存最新的本机启动方式。"""
 
     def __init__(self, database: _SQLiteDatabase) -> None:
         self._database = database
 
-    def put(self, record: LaunchRecord) -> None:
+    def put(self, record: AnyLaunchRecord) -> None:
         with self._database.connect() as connection:
             connection.execute(
                 """INSERT INTO launch_records(service_key, recorded_at, payload) VALUES (?, ?, ?)
@@ -734,19 +740,19 @@ class SQLiteLaunchRecordStore:
                 ),
             )
 
-    def get(self, service_key: str) -> LaunchRecord | None:
+    def get(self, service_key: str) -> AnyLaunchRecord | None:
         with self._database.connect() as connection:
             row = connection.execute(
                 "SELECT payload FROM launch_records WHERE service_key=?", (service_key,)
             ).fetchone()
-        return LaunchRecord.model_validate_json(row[0]) if row is not None else None
+        return _ANY_LAUNCH_RECORD.validate_json(row[0]) if row is not None else None
 
-    def list_all(self) -> tuple[LaunchRecord, ...]:
+    def list_all(self) -> tuple[AnyLaunchRecord, ...]:
         with self._database.connect() as connection:
             rows = connection.execute(
                 "SELECT payload FROM launch_records ORDER BY recorded_at DESC, rowid DESC"
             ).fetchall()
-        return tuple(LaunchRecord.model_validate_json(row[0]) for row in rows)
+        return tuple(_ANY_LAUNCH_RECORD.validate_json(row[0]) for row in rows)
 
 
 class SQLiteRequesterOperationStore:
