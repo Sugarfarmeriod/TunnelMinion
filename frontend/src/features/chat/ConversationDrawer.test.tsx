@@ -316,6 +316,8 @@ describe("地图对话抽屉", () => {
   });
 
   it("电脑提问只带电脑；Esc、顶栏切换和焦点循环都能关闭且不取消", async () => {
+    // 窄屏时抽屉盖住地图，锁定焦点
+    window.innerWidth = 1000;
     renderMap();
     const user = userEvent.setup();
     await user.click(
@@ -465,5 +467,22 @@ describe("地图对话抽屉", () => {
     } finally {
       meta.remove();
     }
+  });
+
+  it("宽屏时对话栏与地图并排，开着对话栏也能点电脑、用服务框", async () => {
+    renderMap();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "对话" }));
+    const drawer = screen.getByRole("dialog", { name: "对话" });
+    expect(drawer).toHaveAttribute("aria-modal", "false");
+    await user.click(
+      screen.getByRole("button", { name: /这台电脑，在线，1 个服务/ }),
+    );
+    const panel = screen.getByRole("dialog", { name: "这台电脑上的服务" });
+    await user.click(
+      within(panel).getByRole("button", { name: "问问 这台电脑 的 Agent" }),
+    );
+    expect(screen.getByRole("textbox", { name: "问题" })).toHaveFocus();
+    expect(screen.getByText(/关于：这台电脑/)).toBeVisible();
   });
 });

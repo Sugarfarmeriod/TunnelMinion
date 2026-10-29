@@ -18,7 +18,6 @@ export type Route = "first" | "join" | "friend";
 type Step =
   | { name: "choose" | "paste" | "address" | "pair" }
   | { name: "show"; setupId: string; code: string }
-  | { name: "confirm"; setupId: string }
   | { name: "done"; message: string };
 
 const routeTitles: Record<Route, string> = {
@@ -32,13 +31,29 @@ export function readableError(error: unknown): string {
   return "没能完成，请确认本机 TunnelMinion 仍在运行后再试。";
 }
 
+/** 把恢复码存成一个文本文件，只在浏览器本地生成，不经过服务器。 */
+function downloadRecoveryCode(code: string): void {
+  const text = `TunnelMinion 机主身份恢复码
+
+${code}
+
+这台电脑坏了或丢了时，用它找回机主身份。请妥善保管，不要发给别人。
+`;
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "tunnelminion-recovery-code.txt";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function expiresText(value: string): string {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
 }
 
 /**
  * 没有机主身份时的三选一，以及已有身份时"粘贴朋友的配对码"。
- * 恢复码只在"抄写"这一步留在页面状态里，点"我已抄好"后立即丢掉。
+ * 恢复码只在"保存恢复码"这一步留在页面状态里，确认后立即丢掉。
  */
 export function OnboardingDialog({
   identity: initial,
@@ -68,14 +83,14 @@ export function OnboardingDialog({
   const [port, setPort] = useState(String(identity.bind?.port ?? 8787));
   const [name, setName] = useState(identity.local_display_name);
   const [myName, setMyName] = useState("");
-  const [typed, setTyped] = useState("");
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstRef = useRef<HTMLButtonElement>(null);
   const locked = identity.bind !== null || inspection?.bind_locked === true;
 
   async function close() {
-    if (step.name === "show" || step.name === "confirm") {
+    if (step.name === "show") {
       // 关掉就作废，内存里的密钥不会写入。
       await cancelSetup(step.setupId).catch(() => undefined);
     }
@@ -179,10 +194,9 @@ export function OnboardingDialog({
 
   function submitConfirm(event: FormEvent) {
     event.preventDefault();
-    if (step.name !== "confirm") return;
+    if (step.name !== "show") return;
     void run(async () => {
-      const created = await confirmSetup(step.setupId, typed);
-      setTyped("");
+      const created = await confirmSetup(step.setupId, step.code);
       onChanged(created);
       if (route === "friend") {
         setStep({ name: "pair" });
@@ -359,13 +373,13 @@ export function OnboardingDialog({
       </form>
     );
   } else if (step.name === "show") {
-    title = "抄下你的恢复码";
+    title = "保存你的恢复码";
     body = (
-      <>
+      <form onSubmit={submitConfirm} className="people-form">
         <p>
           这台电脑坏了或丢了，靠这串恢复码找回你的机主身份。它
           <strong>只显示这一次</strong>
-          ，请抄在纸上或存进密码管理器。
+          ，复制进密码管理器或存成文件都可以。
         </p>
         <p className="people-code people-code--recovery" aria-label="恢复码">
           {step.code}
@@ -377,42 +391,24 @@ export function OnboardingDialog({
           >
             复制
           </button>
-          <button
-            type="button"
-            ref={firstRef}
-            onClick={() => setStep({ name: "confirm", setupId: step.setupId })}
-          >
-            我已抄好
+          <button type="button" onClick={() => downloadRecoveryCode(step.code)}>
+            存成文件
           </button>
         </div>
-      </>
-    );
-  } else if (step.name === "confirm") {
-    title = "再输一遍恢复码";
-    body = (
-      <form onSubmit={submitConfirm} className="people-form">
-        <p>
-          为了确认你已经抄好，请把恢复码完整输入一遍（大小写、空格和连字符不影响）。
-        </p>
-        <label>
-          恢复码
+        <label className="people-check">
           <input
-            autoComplete="off"
-            spellCheck={false}
-            value={typed}
-            onChange={(event) => setTyped(event.currentTarget.value)}
+            type="checkbox"
+            checked={saved}
+            onChange={(event) => setSaved(event.currentTarget.checked)}
           />
+          我已经把恢复码存好了
         </label>
         <div className="people-dialog__actions">
           <button type="button" onClick={() => void close()}>
             放弃
           </button>
-          <button
-            type="submit"
-            disabled={busy || typed.trim() === ""}
-            ref={firstRef}
-          >
-            {busy ? "正在保存……" : "确认"}
+          <button type="submit" disabled={busy || !saved} ref={firstRef}>
+            {busy ? "正在保存……" : "完成"}
           </button>
         </div>
       </form>

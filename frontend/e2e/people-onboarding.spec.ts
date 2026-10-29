@@ -35,13 +35,14 @@ test("第一次打开网页建立机主身份，再生成加入码", async ({ pa
   await expect(shown).toBeVisible();
   const code = (await shown.textContent())?.trim() ?? "";
   expect(code.length).toBeGreaterThan(10);
-  await page.getByRole("button", { name: "我已抄好" }).click();
-  await expect(page.getByText(code)).toHaveCount(0);
-  await page.getByRole("textbox", { name: "恢复码" }).fill("wrong");
-  await page.getByRole("button", { name: "确认" }).click();
-  await expect(page.getByRole("alert")).toContainText("不一致");
-  await page.getByRole("textbox", { name: "恢复码" }).fill(code.toLowerCase());
-  await page.getByRole("button", { name: "确认" }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "存成文件" }).click();
+  expect((await download).suggestedFilename()).toBe(
+    "tunnelminion-recovery-code.txt",
+  );
+  await expect(page.getByRole("button", { name: "完成" })).toBeDisabled();
+  await page.getByRole("checkbox", { name: "我已经把恢复码存好了" }).check();
+  await page.getByRole("button", { name: "完成" }).click();
   await expect(page.getByText("已建立你的机主身份。")).toBeVisible();
   await page.getByRole("button", { name: "好的" }).click();
 

@@ -555,16 +555,21 @@ def test_address_candidates_sort_ipv4_first() -> None:
 
 
 def test_overview_reports_secret_store_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     web = Web(tmp_path / "web", {})
     web.create(host=HOST)
 
     def broken(*_arguments: object) -> None:
-        raise SecretStoreError("钥匙串坏了")
+        raise SecretStoreError("钥匙串坏了") from OSError("User interaction is not allowed")
 
     monkeypatch.setattr("tunnelminion.trust.service.load_private_key", broken)
-    assert detail(web.client.get("/api/identity")) == (500, "secret_store_unavailable")
+    response = web.client.get("/api/identity")
+    assert detail(response) == (500, "secret_store_unavailable")
+    # 页面上告诉主人怎么办，底层原因只进本机日志。
+    assert "ssh" in response.json()["detail"]["message"]
+    assert "User interaction is not allowed" not in response.text
+    assert "User interaction is not allowed" in caplog.text
 
 
 def test_confirm_after_identity_appeared_elsewhere(tmp_path: Path) -> None:
