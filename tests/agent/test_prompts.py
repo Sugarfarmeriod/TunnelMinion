@@ -11,6 +11,7 @@ from tunnelminion.agent.prompts import (
     READONLY_AGENT_PROMPT_V2,
     READONLY_AGENT_PROMPT_V3,
     READONLY_AGENT_PROMPT_V4,
+    READONLY_AGENT_PROMPT_V5,
     REAL_MODEL_EVALUATION_PROMPT,
     PromptRegistry,
 )
@@ -19,7 +20,7 @@ from tunnelminion.agent.prompts import (
 def test_registry_exposes_versioned_hashed_prompts() -> None:
     definitions = PROMPT_REGISTRY.definitions
 
-    assert len(definitions) == 12
+    assert len(definitions) == 13
     assert len({(item.prompt_id, item.version) for item in definitions}) == len(definitions)
     for definition in definitions:
         assert definition.content_hash == (
@@ -29,9 +30,16 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
 
     assert INCIDENT_INVESTIGATION_PROMPT.version == "v3"
     assert INCIDENT_INVESTIGATION_PROMPT.semantic_version == "3.0.0"
-    assert READONLY_AGENT_PROMPT.version == "v5"
-    assert READONLY_AGENT_PROMPT.semantic_version == "5.0.0"
-    assert READONLY_AGENT_PROMPT.change_note == (
+    assert READONLY_AGENT_PROMPT.version == "v6"
+    assert READONLY_AGENT_PROMPT.semantic_version == "6.0.0"
+    assert READONLY_AGENT_PROMPT.template.startswith(READONLY_AGENT_PROMPT_V5.template)
+    assert "request_more_tools" in READONLY_AGENT_PROMPT.template
+    assert "不要回答“没有这个工具”" in READONLY_AGENT_PROMPT.template
+    assert (
+        PROMPT_REGISTRY.resolve("readonly-agent", "v5", ContextTaskType.LOCAL_CONVERSATION)
+        == READONLY_AGENT_PROMPT_V5
+    )
+    assert READONLY_AGENT_PROMPT_V5.change_note == (
         "加入容器挂了和脚本退出了两份排查剧本，可提出待批准的修法但不能执行。"
     )
     assert (

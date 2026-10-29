@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import IPv6Address, ip_address
@@ -14,13 +14,16 @@ from typing import Any, Literal, Protocol, cast
 
 from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariableType]
 from langchain.agents.middleware import (  # pyright: ignore[reportUnknownVariableType]
+    AgentMiddleware,
     AgentState,
     ModelCallLimitMiddleware,
+    ModelRequest,
+    ModelResponse,
     ToolCallLimitMiddleware,
     after_model,
 )
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -36,6 +39,14 @@ from tunnelminion.agent.remote import AgentRemoteToolPreparer, RemoteToolExecuto
 from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.service_observation import compute_observed_service_id
 from tunnelminion.agent.task_progress import TaskProgress
+from tunnelminion.agent.tool_selection import (
+    REQUEST_MORE_TOOLS,
+    ToolSelection,
+    ToolSelectionSettings,
+    request_more_tools_description,
+    select_tools,
+    usage_description,
+)
 from tunnelminion.coordinator.contracts import ServiceProtocol
 from tunnelminion.domain.delegation import DELEGATE_TOOL_NAME
 from tunnelminion.domain.identifiers import NodeId, ServiceId
@@ -68,6 +79,28 @@ class _AgentGraph(Protocol):
     async def ainvoke(self, value: dict[str, object]) -> dict[str, Any]:
         """运行一次 Agent 图。"""
         ...
+
+
+class _VisibleToolsMiddleware(AgentMiddleware):  # pyright: ignore[reportMissingTypeArgument]
+    """每次调用模型前藏起本次没挑中的工具；模型要求后恢复本次允许的全部工具。"""
+
+    def __init__(self, hidden: frozenset[str]) -> None:
+        super().__init__()
+        self._hidden = hidden
+        self.expanded = False
+
+    async def awrap_model_call(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        request: ModelRequest,  # pyright: ignore[reportMissingTypeArgument]
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],  # pyright: ignore[reportMissingTypeArgument]
+    ) -> ModelResponse:  # pyright: ignore[reportMissingTypeArgument]
+        hidden = frozenset({REQUEST_MORE_TOOLS}) if self.expanded else self._hidden
+        tools = [
+            tool
+            for tool in request.tools
+            if not (isinstance(tool, BaseTool) and tool.name in hidden)
+        ]
+        return await handler(request.override(tools=tools))
 
 
 class AgentToolExecutor(Protocol):
@@ -257,6 +290,7 @@ class LangChainReadOnlyAgent:
         *,
         remote_tools: AgentRemoteToolPreparer | None = None,
         request_gate: RequestGate | None = None,
+        tool_selection: ToolSelectionSettings | None = None,
     ) -> None:
         self._model = model
         self._registry = registry
@@ -264,6 +298,7 @@ class LangChainReadOnlyAgent:
         self._platform = platform
         self._remote_tools = remote_tools
         self._request_gate = request_gate
+        self._tool_selection = tool_selection or ToolSelectionSettings()
 
     @property
     def supports_remote(self) -> bool:
@@ -433,12 +468,35 @@ class LangChainReadOnlyAgent:
                         )
                     )
                 current_question = prepared.augment_question(question)
-            tools = tuple(
-                active._build_tool(
-                    entry, context, tool_token, evidence, tool_event_sink, results, save_observation
+            selection = select_tools(
+                question,
+                selected_tools,
+                settings=self._tool_selection,
+                application_kind=target.application_kind if target is not None else None,
+                # 所选服务的连接入口要用本轮监听结果核对，不能藏。
+                required=("list_network_listeners",) if target is not None else (),
+            )
+            visibility = _VisibleToolsMiddleware(frozenset(selection.hidden))
+            tools = (
+                tuple(
+                    active._build_tool(
+                        entry,
+                        context,
+                        tool_token,
+                        evidence,
+                        tool_event_sink,
+                        results,
+                        save_observation,
+                    )
+                    for entry in active._validate_tools(selected_tools)
                 )
-                for entry in active._validate_tools(selected_tools)
-            ) + self._skill_tools(context, selected_tools, target_platform)
+                + self._skill_tools(context, selected_tools, target_platform, selection.visible)
+                + self._more_tools(selection, visibility)
+            )
+            current_span = trace.get_current_span()
+            current_span.set_attribute("agent.tool_selection.topics", selection.topics)
+            current_span.set_attribute("agent.tool_selection.visible", selection.visible)
+            current_span.set_attribute("agent.tool_selection.hidden", selection.hidden)
             delegate = active._delegate_tool(selected_tools)
             if active is self and delegate is not None:
                 # 本机对话总能把问题交给别的电脑；委派方自己的工具集里没有这个工具，不会转手。
@@ -488,6 +546,7 @@ class LangChainReadOnlyAgent:
                 tools=tools,
                 system_prompt=READONLY_AGENT_PROMPT.template,
                 middleware=[
+                    visibility,
                     # after_model 按逆序运行，必须先计入预算再决定是否继续。
                     verify_current_check,
                     ModelCallLimitMiddleware(
@@ -514,7 +573,9 @@ class LangChainReadOnlyAgent:
                 )
             input_messages.extend(historical_messages)
             input_messages.append({"role": "user", "content": current_question})
-            return await graph.ainvoke({"messages": input_messages})
+            state = await graph.ainvoke({"messages": input_messages})
+            current_span.set_attribute("agent.tool_selection.expanded", visibility.expanded)
+            return state
 
         graph_task = asyncio.create_task(invoke())
         cancel_task = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
@@ -639,7 +700,9 @@ class LangChainReadOnlyAgent:
         context: ToolCallContext,
         tool_names: tuple[str, ...],
         target_platform: str | None,
+        visible_tools: tuple[str, ...],
     ) -> tuple[StructuredTool, ...]:
+        """目录只列和可见工具相关的方法；缺少哪些检查仍按本次允许的工具判断。"""
         remote = context.execution_node_id != context.caller_node_id
         skills = tuple(
             skill
@@ -648,7 +711,7 @@ class LangChainReadOnlyAgent:
                 request_platform=self._platform,
                 target_platform=target_platform,
             )
-            if any(step.tool_name in tool_names for step in skill.steps)
+            if any(step.tool_name in visible_tools for step in skill.steps)
         )
         if not skills:
             return ()
@@ -690,6 +753,33 @@ class LangChainReadOnlyAgent:
                 name="read_investigation_skill",
                 description="按需查阅调查方法；不执行检查、不生成事实证据、不扩大权限。目录："
                 + json.dumps(catalogue, ensure_ascii=False),
+            ),
+        )
+
+    @staticmethod
+    def _more_tools(
+        selection: ToolSelection, visibility: _VisibleToolsMiddleware
+    ) -> tuple[StructuredTool, ...]:
+        """有工具被藏起来时，给模型一个恢复全部允许工具的途径；不执行检查、不产生证据。"""
+        if not selection.hidden:
+            return ()
+
+        async def request_more_tools() -> str:
+            visibility.expanded = True
+            return json.dumps(
+                {
+                    "kind": "tool-visibility-not-evidence",
+                    "grants_permissions": False,
+                    "now_available": list(selection.allowed),
+                },
+                ensure_ascii=False,
+            )
+
+        return (
+            StructuredTool.from_function(
+                coroutine=request_more_tools,
+                name=REQUEST_MORE_TOOLS,
+                description=request_more_tools_description(selection.hidden),
             ),
         )
 
@@ -748,7 +838,7 @@ class LangChainReadOnlyAgent:
         return StructuredTool.from_function(
             coroutine=execute,
             name=entry.definition.name,
-            description=entry.definition.description,
+            description=usage_description(entry.definition.name, entry.definition.description),
             args_schema=cast(Any, entry.definition.input_schema),
         )
 

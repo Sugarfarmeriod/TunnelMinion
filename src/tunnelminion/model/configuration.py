@@ -50,6 +50,7 @@ class ModelConfigurationInput(BaseModel):
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=600.0)
     disable_thinking: bool = False
     max_output_tokens: int = Field(default=2048, ge=16, le=32768)
+    max_tools: int | None = Field(default=None, ge=3, le=12)
     api_key: str | None = Field(default=None, max_length=4096)
 
     def provider_config(self) -> OpenAICompatibleConfig:
@@ -60,6 +61,7 @@ class ModelConfigurationInput(BaseModel):
             timeout_seconds=self.timeout_seconds,
             disable_thinking=self.disable_thinking,
             max_output_tokens=self.max_output_tokens,
+            max_tools=self.max_tools,
         )
 
 
@@ -73,6 +75,7 @@ class ModelConfigurationProfileView(BaseModel):
     timeout_seconds: float
     disable_thinking: bool = False
     max_output_tokens: int = Field(default=2048, ge=16, le=32768)
+    max_tools: int | None = Field(default=None, ge=3, le=12)
     api_key_configured: bool = False
 
 
@@ -94,6 +97,7 @@ class ModelConfigurationView(BaseModel):
     timeout_seconds: float | None = None
     disable_thinking: bool = False
     max_output_tokens: int | None = Field(default=None, ge=16, le=32768)
+    max_tools: int | None = Field(default=None, ge=3, le=12)
     api_key_configured: bool = False
     borrowed_from: NodeId | None = None
     profiles: tuple[ModelConfigurationProfileView, ...] = ()
@@ -249,6 +253,7 @@ class ModelConfigurationService:
             timeout_seconds=config.timeout_seconds if config is not None else None,
             disable_thinking=config is not None and config.disable_thinking,
             max_output_tokens=config.max_output_tokens if config is not None else None,
+            max_tools=config.max_tools if config is not None else None,
             api_key_configured=config is not None and self._optional_api_key(config) is not None,
             borrowed_from=borrowed.peer_node_id if borrowed is not None else None,
             profiles=profiles,
@@ -315,6 +320,11 @@ class ModelConfigurationService:
                 retryable=self._last_error.retryable,
             )
 
+    def tool_limit(self) -> int | None:
+        """当前本机模型的工具上限；借用模型时不知道对方是什么模型，不设上限。"""
+        config = self._repository.load()
+        return config.max_tools if config is not None else None
+
     def create_provider(self) -> ModelProvider:
         """为一次 Agent run 创建当前已配置且通过门卫的 Provider。"""
         self.require_available()
@@ -351,6 +361,7 @@ class ModelConfigurationService:
             timeout_seconds=config.timeout_seconds,
             disable_thinking=config.disable_thinking,
             max_output_tokens=config.max_output_tokens,
+            max_tools=config.max_tools,
             api_key_configured=self._optional_api_key(config) is not None,
         )
 

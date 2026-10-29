@@ -139,6 +139,7 @@ export function SettingsPage() {
   const [model, setModel] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState("30");
   const [disableThinking, setDisableThinking] = useState(false);
+  const [maxTools, setMaxTools] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -158,6 +159,9 @@ export function SettingsPage() {
     setModel(query.data.model ?? "");
     setTimeoutSeconds(String(query.data.timeout_seconds ?? 30));
     setDisableThinking(query.data.disable_thinking);
+    setMaxTools(
+      query.data.max_tools === null ? "" : String(query.data.max_tools),
+    );
     setClearApiKey(false);
     // 服务端响应永远不能填充这个字段；用户输入也会在每次写请求后立即清空。
     setApiKey("");
@@ -178,11 +182,20 @@ export function SettingsPage() {
       setFormError("请填写 endpoint、模型名称，以及 0.1–600 秒的超时时间。 ");
       return;
     }
+    const toolLimit = maxTools.trim() === "" ? null : Number(maxTools);
+    if (
+      toolLimit !== null &&
+      (!Number.isInteger(toolLimit) || toolLimit < 3 || toolLimit > 12)
+    ) {
+      setFormError("工具上限请填 3–12 的整数，或留空表示不限制。");
+      return;
+    }
     const input: ModelConfigurationInput = {
       endpoint: normalizedEndpoint,
       model: normalizedModel,
       timeout_seconds: timeout,
       disable_thinking: disableThinking,
+      max_tools: toolLimit,
     };
     let secretAction = "保留该 endpoint 已保存的密钥";
     if (clearApiKey) {
@@ -224,7 +237,8 @@ export function SettingsPage() {
         refreshed.data?.endpoint === response.endpoint &&
         refreshed.data.model === response.model &&
         refreshed.data.timeout_seconds === response.timeout_seconds &&
-        refreshed.data.disable_thinking === response.disable_thinking;
+        refreshed.data.disable_thinking === response.disable_thinking &&
+        refreshed.data.max_tools === response.max_tools;
       if (confirmed) {
         setDeleteUncertain(false);
         setNotice({
@@ -479,6 +493,11 @@ export function SettingsPage() {
                         setModel(profile.model);
                         setTimeoutSeconds(String(profile.timeout_seconds));
                         setDisableThinking(profile.disable_thinking);
+                        setMaxTools(
+                          profile.max_tools === null
+                            ? ""
+                            : String(profile.max_tools),
+                        );
                         setApiKey("");
                         setClearApiKey(false);
                         setFormError(null);
@@ -547,6 +566,18 @@ export function SettingsPage() {
                   type="checkbox"
                 />
                 关闭思考模式（更快，适合本机 Qwen）
+              </label>
+              <label>
+                工具上限（本机小模型建议 5，留空不限制）
+                <input
+                  max={12}
+                  min={3}
+                  onChange={(event) => setMaxTools(event.currentTarget.value)}
+                  placeholder="不限制"
+                  step={1}
+                  type="number"
+                  value={maxTools}
+                />
               </label>
               {data.borrowed_from === null ? (
                 <>
@@ -790,6 +821,12 @@ export function SettingsPage() {
                 <p>
                   关闭思考模式：
                   {confirmation.input.disable_thinking ? "是" : "否"}
+                </p>
+                <p>
+                  工具上限：
+                  {confirmation.input.max_tools === null
+                    ? "不限制"
+                    : `${confirmation.input.max_tools} 个`}
                 </p>
                 <p>密钥处理：{confirmation.secretAction}</p>
               </>

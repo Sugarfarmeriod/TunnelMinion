@@ -34,6 +34,7 @@ from tunnelminion.agent.remote_service_presentation import RemoteServicePresenta
 from tunnelminion.agent.request_gate import RequestGate
 from tunnelminion.agent.runtime import LangChainReadOnlyAgent
 from tunnelminion.agent.service_observation import DeterministicServiceObserver
+from tunnelminion.agent.tool_selection import ToolSelectionSettings
 from tunnelminion.app import (
     build_requester_operation_service,
     default_data_dir,
@@ -274,6 +275,7 @@ def _create_macos_read_only_agent(
         )
         if gate_user_requests
         else None,
+        tool_selection=ToolSelectionSettings(max_tools=node.model_service.tool_limit()),
     )
 
 

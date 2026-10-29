@@ -9,6 +9,7 @@ const modelConfigurationProfileSchema = z
     timeout_seconds: z.number().min(0.1).max(600),
     disable_thinking: z.boolean().default(false),
     max_output_tokens: z.number().int().min(16).max(32768).default(2048),
+    max_tools: z.number().int().min(3).max(12).nullable().default(null),
     api_key_configured: z.boolean(),
   })
   .strict();
@@ -26,6 +27,7 @@ export const modelConfigurationSchema = z
       .max(32768)
       .nullable()
       .default(null),
+    max_tools: z.number().int().min(3).max(12).nullable().default(null),
     api_key_configured: z.boolean(),
     profiles: z.array(modelConfigurationProfileSchema),
     borrowed_from: z
@@ -45,6 +47,7 @@ export interface ModelConfigurationInput {
   model: string;
   timeout_seconds: number;
   disable_thinking: boolean;
+  max_tools: number | null;
   api_key?: string;
 }
 

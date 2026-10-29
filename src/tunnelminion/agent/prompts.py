@@ -123,7 +123,7 @@ READONLY_AGENT_PROMPT_V4 = _prompt(
     change_note="提供按需技能查阅，保留原工具权限、证据要求和无技能调查路径。",
 )
 
-READONLY_AGENT_PROMPT = _prompt(
+READONLY_AGENT_PROMPT_V5 = _prompt(
     prompt_id="readonly-agent",
     task_type=ContextTaskType.LOCAL_CONVERSATION,
     role=PromptRole.SYSTEM,
@@ -166,6 +166,22 @@ propose_repair 说修不了时，照实转告它给的原因和下一步，例�
     version="v5",
     semantic_version="5.0.0",
     change_note="加入容器挂了和脚本退出了两份排查剧本，可提出待批准的修法但不能执行。",
+)
+
+READONLY_AGENT_PROMPT = _prompt(
+    prompt_id="readonly-agent",
+    task_type=ContextTaskType.LOCAL_CONVERSATION,
+    role=PromptRole.SYSTEM,
+    template=READONLY_AGENT_PROMPT_V5.template
+    + """
+
+先选工具：每个工具说明里写了“什么时候用”，按它挑。问到容器、Docker、compose，先用
+list_docker_services；问端口或网页打不开，先用 list_network_listeners；问进程或内存，用
+get_process_summary。若提供 request_more_tools，说明本次只列出了和问题相关的工具；需要的工具
+不在列表里时先调用它，不要回答“没有这个工具”。""",
+    version="v6",
+    semantic_version="6.0.0",
+    change_note="加入按“什么时候用”选工具的提示，需要的工具不在列表里时先请求更多工具。",
 )
 
 REAL_MODEL_EVALUATION_PROMPT = _prompt(
@@ -299,6 +315,7 @@ PROMPT_REGISTRY = PromptRegistry(
         READONLY_AGENT_PROMPT_V2,
         READONLY_AGENT_PROMPT_V3,
         READONLY_AGENT_PROMPT_V4,
+        READONLY_AGENT_PROMPT_V5,
         READONLY_AGENT_PROMPT,
         REAL_MODEL_EVALUATION_PROMPT,
         CROSS_NODE_DIAGNOSTIC_PROMPT,

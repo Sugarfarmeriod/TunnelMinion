@@ -1,0 +1,596 @@
+{
+  "dataset_id": "tool-selection-v1",
+  "cases": 21,
+  "passed": 21,
+  "results": [
+    {
+      "case_id": "docker-stopped",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "docker-stopped-cap5",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "docker-stopped-cap3",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "docker-fix",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "docker-fix-cap5",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "compose-english",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "about-context-docker",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "workbench-target-docker",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "delegated-docker",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "script-exited",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "workbench-target-python",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "list_launch_records",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "port-owner",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "probe_service_reachability",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "port-english",
+      "visible_first_round": [
+        "list_network_listeners",
+        "probe_service_reachability",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "web-down-unknown-kind",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "process-memory",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "wireguard",
+      "visible_first_round": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "overview",
+      "visible_first_round": [
+        "get_node_summary",
+        "list_network_listeners",
+        "list_docker_services",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "unknown-topic",
+      "visible_first_round": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "unknown-topic-cap5",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "get_wireguard_status",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "patrol-docker",
+      "visible_first_round": [
+        "list_network_listeners",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    },
+    {
+      "case_id": "patrol-script",
+      "visible_first_round": [
+        "list_network_listeners",
+        "get_process_summary",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill",
+        "request_more_tools"
+      ],
+      "visible_after_expand": [
+        "get_node_summary",
+        "list_network_listeners",
+        "get_process_summary",
+        "list_docker_services",
+        "probe_service_reachability",
+        "read_container_logs",
+        "list_launch_records",
+        "propose_repair",
+        "read_investigation_skill"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "over_limit": false,
+      "expansion_restores_all": true,
+      "passed": true
+    }
+  ]
+}
