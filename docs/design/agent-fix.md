@@ -90,7 +90,8 @@ Agent 查出"相册打不开，是容器停了"以后，不再只说一句"建�
 ### ③ 应用自带的服务：第一批不做
 
 - Windows 上应用注册的服务归系统服务管理器管，重启要管理员权限，正好落在"绝不碰系统服务"的范围里。
-- macOS 上当前用户自己装的后台服务（`~/Library/LaunchAgents`）作为第三种修法单独设计，见 [`launchagent-repair.md`](launchagent-repair.md)（待实现）。
+- macOS 上当前用户自己装的后台服务（`~/Library/LaunchAgents`）作为第三种修法单独设计，见 [`launchagent-repair.md`](launchagent-repair.md)。
+- 普通程序、卡住的程序、Windows 服务和 compose 依赖顺序见 [`more-repair-kinds.md`](more-repair-kinds.md)。
 
 ## 安全边界
 
