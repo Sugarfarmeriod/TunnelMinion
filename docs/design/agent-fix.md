@@ -90,8 +90,7 @@ Agent 查出"相册打不开，是容器停了"以后，不再只说一句"建�
 ### ③ 应用自带的服务：第一批不做
 
 - Windows 上应用注册的服务归系统服务管理器管，重启要管理员权限，正好落在"绝不碰系统服务"的范围里。
-- macOS 上用户级的后台服务（LaunchAgent）技术上可以用 `launchctl kickstart` 重启，但从一个监听端口可靠地找到它对应哪个后台服务，现在还做不到。
-- 这类服务按现有规则大多本来就不显示。等前两种修法在真机上跑通，再评估是否把"macOS 用户级 LaunchAgent"作为第二批。
+- macOS 上当前用户自己装的后台服务（`~/Library/LaunchAgents`）作为第三种修法单独设计，见 [`launchagent-repair.md`](launchagent-repair.md)（待实现）。
 
 ## 安全边界
 
