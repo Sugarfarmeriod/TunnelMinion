@@ -33,6 +33,7 @@ from tunnelminion.coordinator.contracts import (
     ServiceSummary,
 )
 from tunnelminion.domain.identifiers import NodeId, ServiceId, ToolRunId
+from tunnelminion.platforms.process_origin import ProcessOrigin
 from tunnelminion.platforms.python_entrypoint import is_python_process
 from tunnelminion.platforms.windows.models import Availability, CollectionResult, DockerService
 from tunnelminion.repair.contracts import (
@@ -123,12 +124,19 @@ def service_tier(
 ) -> ServiceTier:
     """按来历和监听方式给一个端口分档，规则见 `decide_tier`；用户的标记优先。
 
+    例外：来历是桌面应用的端口即使标成“是我的”也不显示。
+
     `key` 是这个端口的服务身份，由 `service_mark_keys` 按整份清单算出；没有时不看标记。
     """
     mark = marks.get(key) if marks and key is not None else None
     if mark is ServiceMark.HIDDEN:
         return ServiceTier.HIDE
-    if mark is ServiceMark.MINE and (item.protocol == "tcp" or item.container_running is not None):
+    if (
+        mark is ServiceMark.MINE
+        and (item.protocol == "tcp" or item.container_running is not None)
+        # 有窗口的桌面应用打开窗口就能用，它的后台端口即使被标成“是我的”也不进服务地图。
+        and item.origin is not ProcessOrigin.DESKTOP_APP
+    ):
         return ServiceTier.SHOW
     if item.container_running is not None and not (item.container_name or "").strip():
         # 没有可用名字的容器无法让用户认出来。

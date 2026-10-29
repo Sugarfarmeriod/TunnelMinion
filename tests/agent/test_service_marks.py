@@ -120,6 +120,25 @@ def test_marks_override_rules_for_every_port_of_the_program() -> None:
     assert service_tier(terminal, {}, key="program:sunshine@47990") is ServiceTier.SHOW
 
 
+def test_desktop_apps_stay_hidden_even_when_marked_mine() -> None:
+    """有窗口的桌面应用（网盘、聊天软件）的后台端口不进服务地图，"是我的"标记也不例外。"""
+    host = service(
+        process_name="nethost.exe",
+        address="127.0.0.1",
+        port=8475,
+        origin=ProcessOrigin.DESKTOP_APP,
+        has_web_page=False,
+    )
+    (key,) = service_mark_keys([host])
+    assert service_tier(host) is ServiceTier.HIDE
+    assert service_tier(host, {key: ServiceMark.MINE}, key=key) is ServiceTier.HIDE
+    assert service_tier(host, {key: ServiceMark.HIDDEN}, key=key) is ServiceTier.HIDE
+    # 应用自己注册的 Windows 服务标成"是我的"后照常显示。
+    stream = service(port=47984, has_web_page=False)
+    (stream_key,) = service_mark_keys([stream])
+    assert service_tier(stream, {stream_key: ServiceMark.MINE}, key=stream_key) is ServiceTier.SHOW
+
+
 def test_two_copies_of_the_same_program_are_two_services() -> None:
     """实测问题：两个 `python -m http.server` 曾被合并成一项。"""
     first = service(
