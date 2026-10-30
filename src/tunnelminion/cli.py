@@ -154,6 +154,7 @@ def _runtime_command(values: list[str]) -> int:
         build_runtime_preflight,
         profile_summary,
         runtime_control_view,
+        sign_running_package,
     )
     from tunnelminion.runtime.lifecycle import ComponentRuntimeState
     from tunnelminion.runtime.preflight import PreflightStatus
@@ -212,6 +213,7 @@ def _runtime_command(values: list[str]) -> int:
         return 2
     manager = build_lifecycle_manager(profile, paths, read_only_preview=args.read_only_preview)
     preflight_report = None
+    code_signing = None
     try:
         if args.action == "start":
             current = manager.status()
@@ -242,6 +244,7 @@ def _runtime_command(values: list[str]) -> int:
                     )
                 )
                 return 2
+            code_signing = sign_running_package()
         report = getattr(manager, args.action)()
     except RuntimeOperationBusy:
         print(
@@ -257,6 +260,8 @@ def _runtime_command(values: list[str]) -> int:
     else:
         output = view.model_dump(mode="json")
         output["preflight"] = preflight_report.model_dump(mode="json")
+        if code_signing is not None:
+            output["code_signing"] = code_signing.model_dump(mode="json")
         print(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
     return report.exit_code
 

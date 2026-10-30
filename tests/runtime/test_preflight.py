@@ -187,6 +187,10 @@ def test_manifest_verifies_hash_and_rejects_corruption(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="校验失败"):
         verify_runtime_package(package_root, manifest_path, schema, ())
 
+    (package_root / "tunnelminion.bin").unlink()
+    with pytest.raises(ValueError, match="校验失败"):
+        verify_runtime_package(package_root, manifest_path, schema, ())
+
 
 def test_v2_manifest_selects_schema_directory_and_verifies_frontend(tmp_path: Path) -> None:
     package_root, manifest_path = _v2_package(tmp_path)
