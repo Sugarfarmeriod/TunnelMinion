@@ -463,6 +463,9 @@ export function ServiceMapPage() {
               ) : null}
               <ComputerNode
                 name="这台电脑"
+                alias={
+                  peers.data?.peers.find((peer) => peer.is_local)?.display_name
+                }
                 platform={platform}
                 online
                 serviceCount={count}

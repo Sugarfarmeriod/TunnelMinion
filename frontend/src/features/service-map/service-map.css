@@ -208,6 +208,15 @@
   filter: grayscale(1) brightness(0.65);
 }
 
+.map-node-alias {
+  color: var(--map-fog);
+  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .map-node-name {
   font-size: 20px;
   margin-top: 8px;
