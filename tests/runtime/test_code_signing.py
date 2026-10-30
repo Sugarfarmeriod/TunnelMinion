@@ -423,7 +423,23 @@ def _signing_diagnostics(local: LocalSigningIdentity, sha1: str, sample: Path) -
         probe = _probe("/usr/bin/codesign", "--force", *arguments, str(scratch))
         lines.append(f"[{label}] {probe}")
     if os.environ.get("CI"):
-        # 只在 CI 上试：用户级信任这张证书要不要授权框，信任后能不能签。
+        # 只在 CI 上试：把钥匙串加进用户搜索列表后能不能签（试完恢复原列表）。
+        login = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
+        _probe("/usr/bin/security", "list-keychains", "-d", "user", "-s", login, keychain)
+        try:
+            lines.append(
+                "[search-list] " + _probe("/usr/bin/security", "list-keychains", "-d", "user")
+            )
+            for label, arguments in {
+                "listed+keychain-flag": ("--sign", sha1, "--keychain", keychain),
+                "listed": ("--sign", sha1),
+            }.items():
+                shutil.copy2(sample, scratch)
+                probe = _probe("/usr/bin/codesign", "--force", *arguments, str(scratch))
+                lines.append(f"[{label}] {probe}")
+        finally:
+            _probe("/usr/bin/security", "list-keychains", "-d", "user", "-s", login)
+        # 用户级信任这张证书要不要授权框，信任后能不能签。
         pem = sample.with_name("identity.pem")
         exported = subprocess.run(
             ["/usr/bin/security", "find-certificate", "-c", CERTIFICATE_NAME, "-p", keychain],
