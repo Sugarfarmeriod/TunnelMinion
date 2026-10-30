@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -228,7 +229,7 @@ class OperationWorkflow:
         self._operations.put(executing)
         token_name = operation_token_name(operation_id)
         access_token = secrets.token_urlsafe(32)
-        self._secrets.set(token_name, access_token)
+        await asyncio.to_thread(self._secrets.set, token_name, access_token)
 
         try:
             execution = await self._adapter.create(executing.plan, lease, access_token)
@@ -397,7 +398,9 @@ class OperationWorkflow:
             reason=cleanup.reason,
             occurred_at=cleanup.completed_at,
         )
-        self._secrets.delete(operation_token_name(record.plan.operation_id))
+        await asyncio.to_thread(
+            self._secrets.delete, operation_token_name(record.plan.operation_id)
+        )
         self._operations.put(completed)
         return completed
 
@@ -415,7 +418,9 @@ class OperationWorkflow:
             reason=cleanup.reason,
             occurred_at=cleanup.completed_at,
         )
-        self._secrets.delete(operation_token_name(record.plan.operation_id))
+        await asyncio.to_thread(
+            self._secrets.delete, operation_token_name(record.plan.operation_id)
+        )
         self._operations.put(completed)
         return completed
 

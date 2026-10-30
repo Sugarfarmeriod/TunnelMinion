@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from collections.abc import Callable
@@ -451,7 +452,7 @@ def create_identity_router(
     async def remove_device(device_id: str) -> PushResult:
         owner = devices()
         try:
-            targets = owner.remove(_node(device_id))
+            targets = await asyncio.to_thread(owner.remove, _node(device_id))
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return names(owner, await owner.push(targets))
@@ -491,7 +492,7 @@ def create_identity_router(
     async def rename_friend(fingerprint: str, body: FriendRenameBody) -> PushResult:
         owner = devices()
         try:
-            FriendsService(owner).rename(fingerprint, body.display_name)
+            await asyncio.to_thread(FriendsService(owner).rename, fingerprint, body.display_name)
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return await changed(owner)
@@ -499,7 +500,8 @@ def create_identity_router(
     async def friend_permissions(fingerprint: str, body: FriendPermissionsBody) -> PushResult:
         owner = devices()
         try:
-            update_friend_permissions(
+            await asyncio.to_thread(
+                update_friend_permissions,
                 FriendsService(owner),
                 fingerprint,
                 allow_model_borrowing=body.allow_model_borrowing,
@@ -511,7 +513,7 @@ def create_identity_router(
     async def remove_friend(fingerprint: str) -> PushResult:
         owner = devices()
         try:
-            FriendsService(owner).remove(fingerprint)
+            await asyncio.to_thread(FriendsService(owner).remove, fingerprint)
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return await changed(owner)

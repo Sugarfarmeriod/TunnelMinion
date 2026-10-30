@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable
@@ -281,10 +282,11 @@ class ModelConfigurationService:
         self._repository.save(config)
         if value.api_key is not None:
             secret_name = model_api_key_name(config.endpoint)
+            # 写钥匙串可能要等主人点授权框，放到线程里，网页不会因此卡住。
             if value.api_key:
-                self._secrets.set(secret_name, value.api_key)
+                await asyncio.to_thread(self._secrets.set, secret_name, value.api_key)
             else:
-                self._secrets.delete(secret_name)
+                await asyncio.to_thread(self._secrets.delete, secret_name)
         self._last_error = None
         return self.view()
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import cast
 
@@ -745,3 +746,23 @@ def test_waiting_keychain_is_reported_instead_of_a_missing_key() -> None:
     # 填了新密钥时不用先读旧密钥，授权框没点也能保存。
     asyncio.run(service.configure(input_config("new-key")))
     assert secrets.values[model_api_key_name(input_config().endpoint)] == "new-key"
+
+
+def test_saving_the_key_does_not_run_on_the_event_loop_thread() -> None:
+    """写钥匙串可能要等主人点授权框，保存时放在别的线程里，网页不会被卡住。"""
+    writers: list[threading.Thread] = []
+
+    class RecordingSecrets(MemorySecrets):
+        def set(self, name: str, value: str) -> None:
+            writers.append(threading.current_thread())
+            super().set(name, value)
+
+        def delete(self, name: str) -> None:
+            writers.append(threading.current_thread())
+            super().delete(name)
+
+    service, _, _ = service_with(ValidationProvider(), secrets=RecordingSecrets())
+    asyncio.run(service.configure(input_config("key")))
+    asyncio.run(service.configure(input_config("")))
+    assert len(writers) == 2
+    assert threading.main_thread() not in writers

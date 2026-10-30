@@ -86,8 +86,6 @@ def load_private_key(store: SecretStore, name: str) -> PrivateKey | None:
 def save_private_key(store: SecretStore, name: str, key: PrivateKey) -> None:
     try:
         store.set(name, key.seed_text())
-    except SecretStoreApprovalPendingError:
-        raise
     except Exception:
         raise SecretStoreError("无法保存本机身份密钥") from None
 
@@ -95,8 +93,6 @@ def save_private_key(store: SecretStore, name: str, key: PrivateKey) -> None:
 def delete_private_key(store: SecretStore, name: str) -> None:
     try:
         store.delete(name)
-    except SecretStoreApprovalPendingError:
-        raise
     except Exception:
         raise SecretStoreError("无法清理未完成的本机身份密钥") from None
 

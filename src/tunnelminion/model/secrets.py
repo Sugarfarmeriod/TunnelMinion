@@ -28,7 +28,7 @@ KEYCHAIN_APPROVAL_HINT = (
 
 
 class SecretStoreApprovalPendingError(SecretStoreError):
-    """钥匙串读写在等系统授权框，调用方不必干等；后台读写会在主人点完后继续完成。"""
+    """钥匙串读取在等系统授权框，调用方不必干等；后台读取会在主人点完后继续完成。"""
 
     def __init__(self) -> None:
         super().__init__(KEYCHAIN_APPROVAL_HINT)
@@ -56,14 +56,20 @@ _Job = tuple[Callable[[], object], "Future[object]"]
 
 
 class KeyringAccess:
-    """所有钥匙串读写都在一条后台线程里排队执行，调用方最多等 `wait_seconds`（空表示等到完成）。
+    """所有钥匙串读写都在一条后台线程里排队执行。
 
     macOS 换了未签名的运行包以后，每个条目第一次读写都会弹授权框，主人点之前系统调用一直不返回。
-    放在后台线程里，主线程只是等结果，停止信号和 Ctrl+C 照常生效；对外服务的进程把等待限制在
-    一秒内，等不到时抛出 `SecretStoreApprovalPendingError`，网页照常响应，后台照旧等主人点完。
-    授权框按条目计，换包后每个条目仍各弹一次；同一条目已有读取在排队时跟着等它，不会因为反复
-    读取叠出多个弹框。读到的值不缓存，其他进程改过的密钥下次读取马上生效。线程是守护线程，
-    进程退出不等它。
+    放在后台线程里，调用方只是等结果，停止信号和 Ctrl+C 照常生效。
+
+    - 读取最多等 `wait_seconds`（空表示等到完成）。对外服务的进程把它限制在一秒内，等不到时抛出
+      `SecretStoreApprovalPendingError`，网页照常响应，后台照旧等主人点完。同一条目已有读取在排队
+      时跟着等它，不会因为反复读取叠出多个弹框。读到的值不缓存，其他进程改过的密钥下次读取马上
+      生效。
+    - 写入和删除一律等到完成，调用方拿到的结果就是钥匙串里的实际状态，失败回滚不会被后到的写入
+      覆盖。写入只在主人主动操作时发生；在事件循环里调用的地方用 `asyncio.to_thread`，网页不会
+      因此卡住。
+
+    授权框按条目计，换包后每个条目仍各弹一次。线程是守护线程，进程退出不等它。
     """
 
     def __init__(self, *, wait_seconds: float | None = None) -> None:
@@ -74,7 +80,7 @@ class KeyringAccess:
         self._reads: dict[tuple[str, str], tuple[float, Future[object]]] = {}
 
     def limit_wait(self, seconds: float) -> None:
-        """之后的读写最多等 `seconds` 秒。"""
+        """之后的读取最多等 `seconds` 秒。"""
         self._wait_seconds = seconds
 
     def get(self, service: str, name: str) -> str | None:
@@ -88,12 +94,12 @@ class KeyringAccess:
         return cast(str | None, self._result(*pending))
 
     def set(self, service: str, name: str, value: str) -> None:
-        """写入条目；等不到授权时写入仍在后台排队，主人点完后生效。"""
-        self._result(monotonic(), self._submit(lambda: keyring.set_password(service, name, value)))
+        """写入条目，等到完成。"""
+        self._submit(lambda: keyring.set_password(service, name, value)).result()
 
     def delete(self, service: str, name: str) -> None:
-        """删除条目；条目原本不存在时同样视为成功。"""
-        self._result(monotonic(), self._submit(lambda: self._remove(service, name)))
+        """删除条目，等到完成；条目原本不存在时同样视为成功。"""
+        self._submit(lambda: self._remove(service, name)).result()
 
     def _read(self, key: tuple[str, str]) -> str | None:
         try:
@@ -150,7 +156,7 @@ SERVING_KEYCHAIN_WAIT_SECONDS = 1.0
 
 
 def stop_waiting_for_keychain_approval() -> None:
-    """进程要对外服务时调用：之后钥匙串读写最多等一秒，等不到就先回答“在等授权”。
+    """进程要对外服务时调用：之后钥匙串读取最多等一秒，等不到就先回答“在等授权”。
 
     命令行工具不调用，照旧等主人在弹框上点完再继续。
     """

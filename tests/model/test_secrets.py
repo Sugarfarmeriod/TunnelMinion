@@ -123,10 +123,10 @@ def test_waiting_keychain_answers_at_once_and_asks_each_entry_only_once(
     assert eventually(lambda: store.get("api-key")) == "secret"
 
 
-def test_waiting_writes_finish_after_approval_in_order(
+def test_writes_wait_until_done_even_while_serving(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """写入和删除等不到授权时同样立刻返回，后台按排队顺序做完。"""
+    """写入和删除不受一秒限制：返回时钥匙串里已经是写好的样子，不会在调用方回滚以后才悄悄生效。"""
     approved = threading.Event()
     values = {("svc", "token"): "old", ("svc", "other"): "gone"}
 
@@ -143,15 +143,12 @@ def test_waiting_writes_finish_after_approval_in_order(
     monkeypatch.setattr("keyring.get_password", get_password)
     monkeypatch.setattr("keyring.set_password", set_password)
     monkeypatch.setattr("keyring.delete_password", delete_password)
-    store = KeyringSecretStore("svc", access=KeyringAccess(wait_seconds=0.05))
+    store = KeyringSecretStore("svc", access=KeyringAccess(wait_seconds=0.01))
 
-    with pytest.raises(SecretStoreApprovalPendingError):
-        store.set("token", "new")
-    with pytest.raises(SecretStoreApprovalPendingError):
-        store.delete("other")
-    approved.set()
-    # 队列按顺序执行：排在后面的这次读取返回时，前面的写入和删除都已做完。
-    assert eventually(lambda: store.get("token")) == "new"
+    threading.Timer(0.1, approved.set).start()
+    store.set("token", "new")
+    assert values[("svc", "token")] == "new"
+    store.delete("other")
     assert values == {("svc", "token"): "new"}
 
 

@@ -91,8 +91,6 @@ def read_backup(secrets: SecretStore) -> KeyBackup | None:
 def write_backup(secrets: SecretStore, backup: KeyBackup) -> None:
     try:
         secrets.set(KEY_BACKUP_NAME, backup.model_dump_json())
-    except SecretStoreApprovalPendingError:
-        raise
     except Exception:
         raise SecretStoreError("无法保存身份密钥备份，未改动身份密钥") from None
 
