@@ -207,12 +207,11 @@ class IncidentObservationService:
                 await self._before_snapshot()
                 return
             except Exception as exc:
-                if attempt == _WARM_UP_ATTEMPTS:
-                    _log_exception("启动时刷新服务失败，下个周期重试", exc)
-                    return
-                _log_exception("启动时刷新服务失败，稍后再试", exc)
-            with suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=_WARM_UP_RETRY_SECONDS)
+                last = attempt == _WARM_UP_ATTEMPTS
+                _log_exception(f"启动时刷新服务失败，{'下个周期重试' if last else '稍后再试'}", exc)
+            if attempt < _WARM_UP_ATTEMPTS:
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=_WARM_UP_RETRY_SECONDS)
 
     async def aclose(self) -> None:
         """取消并收齐当前后台调查。"""
