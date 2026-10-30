@@ -33,7 +33,7 @@ from tunnelminion.gateway.configuration import (
 from tunnelminion.gateway.names import load_node_name
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.memory.sqlite import SQLiteStores
-from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.model.secrets import SecretStoreApprovalPendingError, SecretStoreError
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
@@ -511,6 +511,14 @@ def test_errors_map_to_plain_messages(
         500,
         "secret_store_unavailable",
     )
+
+    def waiting(*_arguments: object) -> None:
+        raise SecretStoreApprovalPendingError
+
+    monkeypatch.setattr("tunnelminion.trust.local.ensure_no_identity_keys", waiting)
+    response = web.client.post("/api/identity/setup", json={"host": HOST})
+    assert detail(response) == (503, "keychain_approval_pending")
+    assert "始终允许" in response.json()["detail"]["message"]
 
 
 def test_inspect_without_route_and_with_locked_bind(

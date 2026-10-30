@@ -63,7 +63,7 @@ from tunnelminion.model.configuration import (
     ModelConfigurationService,
 )
 from tunnelminion.model.remote import RemoteModelProvider
-from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.model.secrets import KeyringSecretStore, stop_waiting_for_keychain_approval
 from tunnelminion.operation.definitions import register_safe_http_sharing_operation
 from tunnelminion.operation.http_sharing import UvicornProxyRuntime
 from tunnelminion.operation.policy import AuthorizationService, OperationPolicy
@@ -344,6 +344,8 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         raise RuntimeError("尚未配置 Windows Tool Gateway WireGuard 监听地址")
     load_node_name(node.root, Platform.WINDOWS)
     security_policy = gateway_service.build_security_policy()
+    # 启动时缺了对端令牌网关无法工作，所以上面等主人点完授权框；开始服务以后不再干等。
+    stop_waiting_for_keychain_approval()
     delegation_service = DelegationService(
         node.node_id,
         node.stores.delegations,
@@ -420,6 +422,8 @@ def build_windows_application(
     read_only_preview: bool = False,
 ) -> WindowsApplication:
     """组装模型配置、六个真实只读工具和本机 Web 入口。"""
+    # 网页要先起来，才能告诉主人去点钥匙串授权框，所以组装时就不再干等。
+    stop_waiting_for_keychain_approval()
     node = build_windows_node(data_dir)
     root = node.root
     register_delegate_tool(

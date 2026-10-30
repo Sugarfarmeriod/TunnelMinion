@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import sys
 from datetime import UTC, datetime
@@ -153,18 +154,23 @@ async def join_owner(
         if isinstance(exc, IdentityError):
             raise
         raise IdentityError("加入响应格式无效") from None
-    # 钥匙串条目按节点编号区分，所以先写下节点编号再保存密钥。
-    if not path.exists():
-        root.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(str(node_id), encoding="utf-8")
-        temporary.replace(path)
-    service = OwnDevicesService(node_id, SQLiteStores.open(database).trust, secrets)
-    service.install_join(
-        code, accepted, key, replace=reset, previous_secrets=previous_secrets if reset else None
-    )
-    if secret_store_kind is not None:
-        configure_gateway_secret_store(root, secret_store_kind)
-    if existing is None:
-        GatewayConfigurationService(repository, secrets).configure_local(bind)
-    load_node_name(root, platform)
+
+    def install() -> None:
+        # 钥匙串条目按节点编号区分，所以先写下节点编号再保存密钥。
+        if not path.exists():
+            root.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(str(node_id), encoding="utf-8")
+            temporary.replace(path)
+        service = OwnDevicesService(node_id, SQLiteStores.open(database).trust, secrets)
+        service.install_join(
+            code, accepted, key, replace=reset, previous_secrets=previous_secrets if reset else None
+        )
+        if secret_store_kind is not None:
+            configure_gateway_secret_store(root, secret_store_kind)
+        if existing is None:
+            GatewayConfigurationService(repository, secrets).configure_local(bind)
+        load_node_name(root, platform)
+
+    # 写钥匙串可能要等主人点授权框，放到线程里，网页不会因此卡住。
+    await asyncio.to_thread(install)

@@ -170,6 +170,7 @@ class FailureReason(StrEnum):
     MODEL_CANCELLED = "model_cancelled"
     MODEL_QUOTA_EXCEEDED = "model_quota_exceeded"
     MODEL_BUSY = "model_busy"
+    MODEL_KEYCHAIN_APPROVAL_PENDING = "model_keychain_approval_pending"
     TOOL_FAILED = "tool_failed"
     AGENT_RUNTIME_FAILED = "agent_runtime_failed"
     GOVERNANCE_DENIED = "governance_denied"

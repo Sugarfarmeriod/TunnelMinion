@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable
@@ -28,7 +29,12 @@ from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
 )
-from tunnelminion.model.secrets import SecretStore, SecretStoreError
+from tunnelminion.model.secrets import (
+    KEYCHAIN_APPROVAL_HINT,
+    SecretStore,
+    SecretStoreApprovalPendingError,
+    SecretStoreError,
+)
 
 MODEL_API_KEY_NAME = "model-provider-api-key"
 
@@ -247,6 +253,12 @@ class ModelConfigurationService:
         if config is None and borrowed is None:
             return ModelConfigurationView(status="unconfigured", profiles=profiles)
         error = self._last_error
+        api_key_configured = False
+        if config is not None:
+            try:
+                api_key_configured = self._optional_api_key(config) is not None
+            except ProviderError as exc:
+                error = error or exc
         return ModelConfigurationView(
             endpoint=config.endpoint if config is not None else None,
             model=config.model if config is not None else None,
@@ -254,7 +266,7 @@ class ModelConfigurationService:
             disable_thinking=config is not None and config.disable_thinking,
             max_output_tokens=config.max_output_tokens if config is not None else None,
             max_tools=config.max_tools if config is not None else None,
-            api_key_configured=config is not None and self._optional_api_key(config) is not None,
+            api_key_configured=api_key_configured,
             borrowed_from=borrowed.peer_node_id if borrowed is not None else None,
             profiles=profiles,
             status="unavailable" if error is not None else "available",
@@ -265,16 +277,16 @@ class ModelConfigurationService:
     async def configure(self, value: ModelConfigurationInput) -> ModelConfigurationView:
         """验证成功后才保存配置与可选密钥。"""
         config = value.provider_config()
-        current_key = self._optional_api_key(config)
-        api_key = value.api_key if value.api_key is not None else current_key
+        api_key = value.api_key if value.api_key is not None else self._optional_api_key(config)
         await self._validate_provider(config, api_key)
         self._repository.save(config)
         if value.api_key is not None:
             secret_name = model_api_key_name(config.endpoint)
+            # 写钥匙串可能要等主人点授权框，放到线程里，网页不会因此卡住。
             if value.api_key:
-                self._secrets.set(secret_name, value.api_key)
+                await asyncio.to_thread(self._secrets.set, secret_name, value.api_key)
             else:
-                self._secrets.delete(secret_name)
+                await asyncio.to_thread(self._secrets.delete, secret_name)
         self._last_error = None
         return self.view()
 
@@ -291,10 +303,12 @@ class ModelConfigurationService:
         config = self._repository.load_borrowed() or self._repository.load()
         if config is None:
             raise ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "尚未配置模型")
-        api_key = (
-            self._optional_api_key(config) if isinstance(config, OpenAICompatibleConfig) else None
-        )
         try:
+            api_key = (
+                self._optional_api_key(config)
+                if isinstance(config, OpenAICompatibleConfig)
+                else None
+            )
             await self._validate_provider(config, api_key)
             self._last_error = None
         except ProviderError as exc:
@@ -348,9 +362,13 @@ class ModelConfigurationService:
         return self._borrowed_provider_factory(peer_node_id)
 
     def _optional_api_key(self, config: OpenAICompatibleConfig) -> str | None:
-        """无 Key Provider 在无图形 Keychain 会话中仍可运行。"""
+        """无 Key Provider 在无图形 Keychain 会话中仍可运行；钥匙串在等授权时照实报出。"""
         try:
             return self._secrets.get(model_api_key_name(config.endpoint))
+        except SecretStoreApprovalPendingError:
+            raise ProviderError(
+                ProviderErrorCode.KEYCHAIN_APPROVAL_PENDING, KEYCHAIN_APPROVAL_HINT, retryable=True
+            ) from None
         except SecretStoreError:
             return None
 
@@ -362,8 +380,14 @@ class ModelConfigurationService:
             disable_thinking=config.disable_thinking,
             max_output_tokens=config.max_output_tokens,
             max_tools=config.max_tools,
-            api_key_configured=self._optional_api_key(config) is not None,
+            api_key_configured=self._profile_has_key(config),
         )
+
+    def _profile_has_key(self, config: OpenAICompatibleConfig) -> bool:
+        try:
+            return self._optional_api_key(config) is not None
+        except ProviderError:
+            return False
 
     async def _validate_provider(
         self, config: OpenAICompatibleConfig | BorrowedModelConfig, api_key: str | None

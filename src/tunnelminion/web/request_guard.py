@@ -10,8 +10,11 @@ from typing import cast
 
 from fastapi import FastAPI
 from starlette.datastructures import Headers
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from tunnelminion.model.secrets import SecretStoreApprovalPendingError
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 _FETCH_METADATA_PREFIX = b"sec-fetch-"
@@ -93,6 +96,15 @@ class LocalWebRequestGuardMiddleware:
 def install_local_request_guard(app: FastAPI, *, read_only_preview: bool = False) -> None:
     """把本机请求守卫安装到 FastAPI 应用的路由层之外。"""
     app.add_middleware(LocalWebRequestGuardMiddleware, read_only_preview=read_only_preview)
+    app.add_exception_handler(SecretStoreApprovalPendingError, _keychain_approval_pending)
+
+
+async def _keychain_approval_pending(_request: Request, exc: Exception) -> JSONResponse:
+    """钥匙串在等授权框时，任何接口都直接告诉主人去 Mac 屏幕上点，而不是报内部错误。"""
+    return JSONResponse(
+        status_code=503,
+        content={"detail": {"code": "keychain_approval_pending", "message": str(exc)}},
+    )
 
 
 def _request_error(scope: Scope) -> LocalRequestErrorCode | None:

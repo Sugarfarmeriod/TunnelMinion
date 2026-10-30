@@ -71,7 +71,7 @@ from tunnelminion.model.configuration import (
     ModelConfigurationService,
 )
 from tunnelminion.model.remote import RemoteModelProvider
-from tunnelminion.model.secrets import KeyringSecretStore
+from tunnelminion.model.secrets import KeyringSecretStore, stop_waiting_for_keychain_approval
 from tunnelminion.operation.contracts import (
     LeaseRecord,
     OperationPlan,
@@ -376,6 +376,8 @@ def build_macos_local_application(
     read_only_preview: bool = False,
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
+    # 网页要先起来，才能告诉主人去点钥匙串授权框，所以组装时就不再干等。
+    stop_waiting_for_keychain_approval()
     node = _build_macos_node(data_dir, interface_name=interface_name)
     register_delegate_tool(
         node.tool_registry,
@@ -671,6 +673,8 @@ def build_macos_gateway_application(
         raise RuntimeError("尚未配置 macOS Tool Gateway WireGuard 监听地址")
     load_node_name(node.root, Platform.MACOS)
     security_policy = gateway_service.build_security_policy()
+    # 启动时缺了对端令牌网关无法工作，所以上面等主人点完授权框；开始服务以后不再干等。
+    stop_waiting_for_keychain_approval()
     bind = GatewayBindConfig(
         host=view.bind.host,
         port=(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from collections.abc import Callable
@@ -25,7 +26,7 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.names import load_node_name
 from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
-from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.model.secrets import SecretStoreApprovalPendingError, SecretStoreError
 from tunnelminion.trust.contracts import AlreadyInitializedError, IdentityError
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.friends import FriendsService
@@ -260,6 +261,8 @@ def _identity_failure(exc: Exception) -> NoReturn:
         _fail(409, "already_initialized", str(exc))
     if isinstance(exc, InvalidJoinCodeError):
         _fail(400, "invalid_code", str(exc))
+    if isinstance(exc, SecretStoreApprovalPendingError):
+        _fail(503, "keychain_approval_pending", str(exc))
     if isinstance(exc, SecretStoreError):
         # 底层原因只写进本机日志：常见的是 TunnelMinion 从 ssh 会话里启动，系统不让它用钥匙串。
         logger.warning("系统钥匙串操作失败：%s（%r）", exc, exc.__cause__)
@@ -449,7 +452,7 @@ def create_identity_router(
     async def remove_device(device_id: str) -> PushResult:
         owner = devices()
         try:
-            targets = owner.remove(_node(device_id))
+            targets = await asyncio.to_thread(owner.remove, _node(device_id))
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return names(owner, await owner.push(targets))
@@ -489,7 +492,7 @@ def create_identity_router(
     async def rename_friend(fingerprint: str, body: FriendRenameBody) -> PushResult:
         owner = devices()
         try:
-            FriendsService(owner).rename(fingerprint, body.display_name)
+            await asyncio.to_thread(FriendsService(owner).rename, fingerprint, body.display_name)
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return await changed(owner)
@@ -497,7 +500,8 @@ def create_identity_router(
     async def friend_permissions(fingerprint: str, body: FriendPermissionsBody) -> PushResult:
         owner = devices()
         try:
-            update_friend_permissions(
+            await asyncio.to_thread(
+                update_friend_permissions,
                 FriendsService(owner),
                 fingerprint,
                 allow_model_borrowing=body.allow_model_borrowing,
@@ -509,7 +513,7 @@ def create_identity_router(
     async def remove_friend(fingerprint: str) -> PushResult:
         owner = devices()
         try:
-            FriendsService(owner).remove(fingerprint)
+            await asyncio.to_thread(FriendsService(owner).remove, fingerprint)
         except (IdentityError, SecretStoreError) as exc:
             _identity_failure(exc)
         return await changed(owner)

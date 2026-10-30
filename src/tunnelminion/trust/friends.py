@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 
 import httpx
@@ -195,7 +196,8 @@ class FriendsService:
             if isinstance(exc, IdentityError):
                 raise
             raise IdentityError("配对响应格式无效") from None
-        self.install_pair(code, pairing)
+        # 写钥匙串可能要等主人点授权框，放到线程里，网页不会因此卡住。
+        await asyncio.to_thread(self.install_pair, code, pairing)
         await self.devices.push()
 
     def resolve(self, value: str) -> TrustedPerson:

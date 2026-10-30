@@ -15,7 +15,11 @@ from tunnelminion.domain.trust import (
     encode_public_key,
     key_fingerprint,
 )
-from tunnelminion.model.secrets import SecretStore, SecretStoreError
+from tunnelminion.model.secrets import (
+    SecretStore,
+    SecretStoreApprovalPendingError,
+    SecretStoreError,
+)
 
 OWNER_KEY_NAME = "trust-owner-key"
 DEVICE_KEY_NAME = "trust-device-key"
@@ -73,6 +77,8 @@ def load_private_key(store: SecretStore, name: str) -> PrivateKey | None:
     try:
         text = store.get(name)
         return PrivateKey.from_seed_text(text) if text is not None else None
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法读取本机身份密钥") from None
 

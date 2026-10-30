@@ -438,7 +438,9 @@ def create_gateway_router(
             ):
                 raise ValueError("invite_invalid")
             acceptance = InviteAcceptance.model_validate_json(await http_request.body())
-            return invite_service.accept(
+            # 保存对端令牌要写钥匙串，可能要等主人点授权框，放到线程里。
+            return await asyncio.to_thread(
+                invite_service.accept,
                 authorization.removeprefix("Bearer "),
                 acceptance,
                 http_request.client.host if http_request.client is not None else "",
