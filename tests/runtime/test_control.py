@@ -24,6 +24,7 @@ from tunnelminion.runtime.control import (
     application_version,
     profile_summary,
     runtime_control_view,
+    startup_hint,
 )
 from tunnelminion.runtime.lifecycle import (
     ComponentLaunchError,
@@ -249,3 +250,24 @@ def test_runtime_preflight_factory_distinguishes_source_and_frozen_package(
     monkeypatch.setattr(control.sys, "frozen", True, raising=False)
     frozen = control.build_runtime_preflight()
     assert frozen._manifest_path == manifest  # pyright: ignore[reportPrivateUsage]
+
+
+def test_startup_timeout_hint_points_macos_owner_to_keychain_prompt() -> None:
+    def report(error_code: str | None) -> LifecycleReport:
+        return LifecycleReport(
+            state=OverallRuntimeState.FAILED,
+            components=(
+                ComponentRuntimeStatus(
+                    component=RuntimeComponent.LOCAL,
+                    state=ComponentRuntimeState.FAILED,
+                    error_code=error_code,
+                ),
+            ),
+            exit_code=1,
+        )
+
+    assert startup_hint(report("startup_timeout"), "darwin") == control.MACOS_KEYCHAIN_HINT
+    assert "钥匙串" in control.MACOS_KEYCHAIN_HINT
+    assert startup_hint(report("startup_timeout"), "win32") == control.STARTUP_TIMEOUT_HINT
+    assert startup_hint(report("spawn_failed"), "darwin") is None
+    assert startup_hint(report(None), "darwin") is None

@@ -136,6 +136,8 @@ class RuntimeControlView(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    # 放在最前面：启动脚本常常只显示输出的开头
+    hint: str | None = None
     runtime: LifecycleReport
     model: ModelHealthResult
     logs: dict[str, str]
@@ -191,6 +193,22 @@ def build_runtime_preflight() -> RuntimePreflight:
     )
 
 
+MACOS_KEYCHAIN_HINT = (
+    "启动超时。请看 Mac 屏幕上有没有弹出“tunnelminion 想使用钥匙串中的机密信息”："
+    "输入登录密码并点“始终允许”，然后再运行一次 runtime start。换了运行包以后会弹一次。"
+)
+STARTUP_TIMEOUT_HINT = "启动超时。请查看 logs 里对应组件的日志。"
+
+
+def startup_hint(report: LifecycleReport, platform_name: str | None = None) -> str | None:
+    """启动超时时给一句人能看懂的下一步；macOS 上最常见的原因是钥匙串授权框在等主人点允许。"""
+    if not any(item.error_code == "startup_timeout" for item in report.components):
+        return None
+    return (
+        MACOS_KEYCHAIN_HINT if (platform_name or sys.platform) == "darwin" else STARTUP_TIMEOUT_HINT
+    )
+
+
 def runtime_control_view(
     report: LifecycleReport,
     profile: RuntimeProfile,
@@ -210,6 +228,7 @@ def runtime_control_view(
         )
     )
     return RuntimeControlView(
+        hint=startup_hint(report),
         runtime=report,
         model=model,
         logs={
