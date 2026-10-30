@@ -96,6 +96,15 @@ class UnsupportedWindowsServices:
         raise ValueError("unsupported")
 
 
+def _psutil_service_iter() -> Any:
+    """用到时才取 psutil 的 Windows 专用函数：其他平台的 psutil 没有它。"""
+    return cast(Any, psutil).win_service_iter()
+
+
+def _psutil_service_get(name: str) -> Any:
+    return cast(Any, psutil).win_service_get(name)
+
+
 class WindowsServiceManager:
     """用 psutil 读服务状态，用 `sc.exe` 读权限、启动和停止。"""
 
@@ -112,8 +121,8 @@ class WindowsServiceManager:
     ) -> None:
         self._runner = runner or SubprocessCommandRunner()
         self._run_sync = run_sync or SubprocessCommandRunner._run_sync  # pyright: ignore[reportPrivateUsage]
-        self._service_iter = service_iter or cast(Any, psutil).win_service_iter
-        self._service_get = service_get or cast(Any, psutil).win_service_get
+        self._service_iter = service_iter or _psutil_service_iter
+        self._service_get = service_get or _psutil_service_get
         self._process_factory = process_factory
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic

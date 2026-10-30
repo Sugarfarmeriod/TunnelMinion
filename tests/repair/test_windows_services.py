@@ -154,6 +154,25 @@ def test_unsupported_platform() -> None:
     )
 
 
+def test_default_manager_reads_psutil_only_when_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 其他平台的 psutil 没有 Windows 服务函数：建对象不能出错，用到时才去取。
+    monkeypatch.delattr(psutil, "win_service_iter", raising=False)
+    monkeypatch.delattr(psutil, "win_service_get", raising=False)
+    manager = WindowsServiceManager()
+    service = FakeService("Sunshine", None)
+    monkeypatch.setattr(psutil, "win_service_iter", lambda: [service], raising=False)
+    asked: list[str] = []
+
+    def service_get(name: str) -> FakeService:
+        asked.append(name)
+        return service
+
+    monkeypatch.setattr(psutil, "win_service_get", service_get, raising=False)
+    assert manager.services_for_pids(frozenset({1})) == {}
+    manager.inspect("Sunshine")
+    assert asked == ["Sunshine"]
+
+
 def test_services_for_pids_walks_up_to_the_service_process() -> None:
     h = Harness()
     h.services = [
