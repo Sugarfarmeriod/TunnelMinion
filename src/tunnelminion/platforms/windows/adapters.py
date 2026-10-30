@@ -10,9 +10,10 @@ import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
 from functools import partial
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import TypeVar, cast
 
+import psutil
 from pydantic import JsonValue
 
 from tunnelminion.domain.identifiers import NodeId
@@ -176,11 +177,33 @@ class WireGuardStatusAdapter:
         return parsed if parsed >= 0 else None
 
 
-class NetworkListenersAdapter:
-    """读取监听端点，按需在本机缩减 Python 入口与自装程序名称。"""
+def _process_started_at(pid: int) -> float | None:
+    """进程创建时间；和进程号一起认定还是不是同一个进程，读不到时不缓存。"""
+    try:
+        return psutil.Process(pid).create_time()
+    except (psutil.Error, OSError):
+        return None
 
-    def __init__(self, reader: SystemReader) -> None:
+
+class NetworkListenersAdapter:
+    """读取监听端点，按需在本机缩减 Python 入口与自装程序名称。
+
+    判断来历和访问首页是每轮观察里最慢的两步（几百个进程的电脑上各要两秒以上），结果在进程不变时
+    也不会变，所以跨轮缓存：来历按进程号加创建时间缓存到进程退出，首页按端口和进程号缓存几分钟。
+    """
+
+    def __init__(
+        self,
+        reader: SystemReader,
+        *,
+        started_at: Callable[[int], float | None] = _process_started_at,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
         self._reader = reader
+        self._started_at = started_at
+        self._clock = clock
+        self._origins: dict[tuple[int, str | None, float], ProcessOrigin | None] = {}
+        self._pages: dict[tuple[str, int, int | None], tuple[float, WebPage | None]] = {}
 
     async def execute(
         self,
@@ -222,13 +245,9 @@ class NetworkListenersAdapter:
         projects: dict[tuple[int | None, str | None], str | None] = {}
         origins: dict[tuple[int | None, str | None], ProcessOrigin | None] = {}
         if include_process_origin:
-            for listener in listeners:
-                key = (listener.pid, listener.process_name)
-                if listener.pid is not None and key not in origins:
-                    # 路径和父进程只在本机用于判断，输出里只有来历类别。
-                    origins[key] = read_process_origin(listener.pid, listener.process_name)
+            origins = self._read_origins(listeners)
         pages = (
-            _probe_web_pages(
+            self._read_pages(
                 tuple(
                     listener
                     for listener in listeners
@@ -280,6 +299,55 @@ class NetworkListenersAdapter:
             items.append(item)
         return tuple(items)
 
+    def _read_origins(
+        self, listeners: tuple[NetworkListener, ...]
+    ) -> dict[tuple[int | None, str | None], ProcessOrigin | None]:
+        origins: dict[tuple[int | None, str | None], ProcessOrigin | None] = {}
+        known = self._origins
+        current: dict[tuple[int, str | None, float], ProcessOrigin | None] = {}
+        for listener in listeners:
+            key = (listener.pid, listener.process_name)
+            if listener.pid is None or key in origins:
+                continue
+            started = self._started_at(listener.pid)
+            cached = (listener.pid, listener.process_name, started) if started is not None else None
+            if cached is not None and cached in known:
+                origins[key] = known[cached]
+            else:
+                # 路径和父进程只在本机用于判断，输出里只有来历类别。
+                origins[key] = read_process_origin(listener.pid, listener.process_name)
+            if cached is not None:
+                current[cached] = origins[key]
+        # 只留这一轮还在监听的进程，退出的进程随之丢弃。
+        self._origins = current
+        return origins
+
+    def _read_pages(
+        self, listeners: tuple[NetworkListener, ...]
+    ) -> dict[tuple[str, int], WebPage | None]:
+        now = self._clock()
+        fresh = {
+            key: value
+            for key, value in self._pages.items()
+            if now - value[0] < _WEB_PAGE_CACHE_SECONDS
+        }
+        pages: dict[tuple[str, int], WebPage | None] = {}
+        pending: list[NetworkListener] = []
+        for listener in listeners:
+            cached = fresh.get((listener.address, listener.port, listener.pid))
+            if cached is not None:
+                pages[(listener.address, listener.port)] = cached[1]
+            else:
+                pending.append(listener)
+        probed = _probe_web_pages(tuple(pending))
+        for listener in pending:
+            key = (listener.address, listener.port)
+            if key in probed:
+                pages[key] = probed[key]
+                fresh[(listener.address, listener.port, listener.pid)] = (now, probed[key])
+        self._pages = fresh
+        return pages
+
 
 class ProcessSummaryAdapter:
     """读取有限数量的进程元数据。"""
@@ -312,6 +380,8 @@ _NOT_SERVICES = frozenset({ProcessOrigin.SYSTEM, ProcessOrigin.DESKTOP_APP})
 _WEB_PROBE_LIMIT = 32
 _WEB_PROBE_WORKERS = 8
 _WEB_PROBE_DEADLINE_SECONDS = 4.0
+# 首页标题偶尔会变，几分钟后重新访问一次；程序重启换了进程号会立刻重新访问。
+_WEB_PAGE_CACHE_SECONDS = 300.0
 
 
 def _probe_web_pages(

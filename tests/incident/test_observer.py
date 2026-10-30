@@ -88,6 +88,44 @@ def test_failed_round_logs_sanitized_exception_and_refreshes_next_interval(
     assert "RuntimeError" in caplog.text and "fixture-private" not in caplog.text
 
 
+def test_warm_up_refreshes_services_at_once_without_taking_a_snapshot(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = SQLiteIncidentStore(tmp_path / "warm.sqlite3")
+    stop = asyncio.Event()
+    refreshes = 0
+    error_message = "fixture-private-error"
+
+    async def refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+        if refreshes == 1:
+            raise RuntimeError(error_message)
+
+    observer = IncidentObservationService(MutableOverview(), store, before_snapshot=refresh)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(observer.run(stop, warm_up=True))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        # 刚启动就刷新了一次服务清单，事件快照仍等一个周期后的第一轮。
+        assert refreshes == 1 and store.latest_snapshot() is None
+        stop.set()
+        await task
+
+    asyncio.run(scenario())
+    [record] = caplog.records
+    assert record.getMessage().startswith("启动时刷新服务失败")
+    assert "fixture-private" not in caplog.text
+
+    # 没有刷新动作或已经要停时不做预热。
+    idle = IncidentObservationService(MutableOverview(), store)
+    asyncio.run(idle.run(stop, warm_up=True))
+    stopped = IncidentObservationService(MutableOverview(), store, before_snapshot=refresh)
+    asyncio.run(stopped.run(stop, warm_up=True))
+    assert refreshes == 1
+
+
 def test_cancelling_refresh_stops_promptly_without_error_log(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -148,7 +186,8 @@ def test_blocked_investigation_allows_refresh_and_is_awaited_on_shutdown(
         await asyncio.wait_for(runner.entered.wait(), timeout=1)
         refreshed = await asyncio.wait_for(observer.observe_once(), timeout=1)
         assert refreshed.snapshot.revision == result.snapshot.revision + 1
-        assert refreshes == 4 and not runner.finished.is_set()
+        # 由 lifespan 托管时，后台循环启动后先预热刷新一次。
+        assert refreshes == 4 + (shutdown == "lifespan") and not runner.finished.is_set()
 
     async def scenario() -> None:
         if shutdown == "lifespan":
