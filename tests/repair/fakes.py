@@ -294,7 +294,14 @@ class FakeLauncher(ProcessLauncher):
         self.error: Exception | None = None
         self.error_on_stop = False
 
-    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+    def end_stuck(
+        self,
+        pid: int,
+        started_at: datetime,
+        launch: ProcessLaunchRecord,
+        *,
+        grace_seconds: float,
+    ) -> bool | None:
         self.ended.append(pid)
         return self.end_result
 
@@ -416,6 +423,7 @@ class RepairHarness:
             windows_services=self.windows_services,
             is_stuck=self.stuck.__contains__,
             service_stop_seconds=2,
+            launch_records=self.launch_records,
         )
         self.authorization = AuthorizationService(
             self.store,

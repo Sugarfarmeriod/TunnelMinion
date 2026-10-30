@@ -466,7 +466,13 @@ describe("巡检", () => {
       watched({
         key: "program:notes",
         name: "笔记",
-        windows_service: { name: "NotesSvc", granted: false },
+        windows_service: {
+          name: "NotesSvc",
+          display_name: "Notes Service",
+          binary_path: "D:/Apps/notes/notes-svc.exe",
+          granted: false,
+          allowed: true,
+        },
       }),
     ]);
     const { user, dialog } = await openComputer();
@@ -478,6 +484,10 @@ describe("巡检", () => {
         "打开时会弹一次 Windows 管理员确认，只给这一个服务加启停权限；关掉时撤回",
       ),
     ).toBeVisible();
+    expect(
+      within(dialog).getByText(/Notes Service（\s*NotesSvc）/),
+    ).toBeVisible();
+    expect(within(dialog).getByText(/notes-svc\.exe/)).toBeVisible();
     await user.click(box);
     expect(
       await within(dialog).findByText("等你在弹出的确认框里点“是”…"),
@@ -497,7 +507,13 @@ describe("巡检", () => {
       watched({
         key: "program:notes",
         name: "笔记",
-        windows_service: { name: "NotesSvc", granted: false },
+        windows_service: {
+          name: "NotesSvc",
+          display_name: "Notes Service",
+          binary_path: "D:/Apps/notes/notes-svc.exe",
+          granted: false,
+          allowed: true,
+        },
       }),
     ]);
     const { user, dialog } = await openComputer();
@@ -510,6 +526,28 @@ describe("巡检", () => {
     ).toBeVisible();
     expect(box).not.toBeChecked();
     expect(box).toBeEnabled();
+  });
+
+  it("Windows 服务开关：不能授权的服务只能撤回", async () => {
+    renderMap([
+      watched({
+        key: "program:notes",
+        name: "笔记",
+        windows_service: {
+          name: "WSLService",
+          display_name: "WSL",
+          binary_path: "C:/Program Files/WSL/wslservice.exe",
+          granted: false,
+          allowed: false,
+        },
+      }),
+    ]);
+    const { dialog } = await openComputer();
+    const box = await within(dialog).findByRole("checkbox", {
+      name: "允许 Agent 重启这个 Windows 服务",
+    });
+    expect(box).toBeDisabled();
+    expect(within(dialog).getByText(/只能撤回已有的权限/)).toBeVisible();
   });
 
   it("中文日期", () => {

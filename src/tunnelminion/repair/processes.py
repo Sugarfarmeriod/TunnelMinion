@@ -110,11 +110,21 @@ class BackgroundProcessLauncher:
             raise OSError("无法核对新进程的启动时间") from exc
         return SpawnedProcess(pid=child.pid, started_at=started_at, log_path=str(log_path))
 
-    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+    def end_stuck(
+        self,
+        pid: int,
+        started_at: datetime,
+        launch: ProcessLaunchRecord,
+        *,
+        grace_seconds: float,
+    ) -> bool | None:
         try:
             process = self._process_factory(pid)
             if abs(process.create_time() - started_at.timestamp()) > 1:
                 return False
+            # 动手前再核对一次：进程号和启动时间对得上，命令却变了，就不是记录里那个程序。
+            if not _matches_launch(process, launch):
+                return None
             processes = [*process.children(recursive=True), process]
             for target in processes:
                 with suppress(psutil.Error, OSError):
@@ -219,10 +229,16 @@ def _same_path(left: str, right: str) -> bool:
 
 
 def _matches_launch(process: psutil.Process, launch: ProcessLaunchRecord) -> bool:
-    """参数、工作目录一致；普通程序还要求可执行文件和账户一致。"""
+    """参数、工作目录和账户一致；普通程序还要求可执行文件一致。
+
+    Python 脚本不比对解释器路径：Windows 虚拟环境里的 python.exe 只是转发器，真正监听端口的
+    是它拉起的另一个解释器，记录里存的可能是转发器的路径。
+    """
     if isinstance(launch, LaunchRecord):
-        return tuple(process.cmdline()[1:]) == launch.arguments and _same_path(
-            process.cwd(), launch.working_directory
+        return (
+            tuple(process.cmdline()[1:]) == launch.arguments
+            and _same_path(process.cwd(), launch.working_directory)
+            and process.username() == launch.username
         )
     if launch.elevated or launch.executable is None or launch.working_directory is None:
         return False
@@ -234,26 +250,84 @@ def _matches_launch(process: psutil.Process, launch: ProcessLaunchRecord) -> boo
     )
 
 
+# 巡检探测：连接最多等这么久；连上以后对方这么久一个字节都不回才算"不回应"。
+# 只是慢的服务在这个时间内总会回点什么，不会被当成卡住。
+PROBE_CONNECT_SECONDS = 2.0
+PROBE_REPLY_SECONDS = 10.0
+# 第一次回复不是 HTTP 时改试 HTTPS，这一步最多等这么久。
+PROBE_TLS_SECONDS = 5.0
+_STATUS_LINE = re.compile(rb"HTTP/\d(?:\.\d)? (\d{3})")
+
+
+def _connect_loopback(port: int) -> socket.socket:
+    """连本机环回地址，先 IPv4 后 IPv6；都连不上抛 `ConnectionError`。"""
+    for host in ("127.0.0.1", "::1"):
+        try:
+            return socket.create_connection((host, port), timeout=PROBE_CONNECT_SECONDS)
+        except OSError:
+            continue
+    raise ConnectionError(port)
+
+
 class SocketLocalVerifier:
-    """仅连接本机环回地址，阻塞 IO 在线程里运行。"""
+    """仅连接本机环回地址，阻塞 IO 在线程里运行；每一步都有自己的超时，线程总会自己结束。"""
 
     async def talks_first(self, port: int) -> bool | None:
-        """连上以后不发任何东西，2 秒内对方先说话返回 True，不说话返回 False，连不上返回 None。"""
+        """连上以后不发任何东西：对方先说话返回 True，10 秒都不说话返回 False，连不上返回 None。"""
         return await asyncio.to_thread(self._talks_first, port)
 
     @staticmethod
     def _talks_first(port: int) -> bool | None:
-        for host in ("127.0.0.1", "::1"):
+        try:
+            connection = _connect_loopback(port)
+        except ConnectionError:
+            return None
+        with connection:
+            connection.settimeout(PROBE_REPLY_SECONDS)
             try:
-                with socket.create_connection((host, port), timeout=1) as connection:
-                    connection.settimeout(2)
-                    try:
-                        return bool(connection.recv(1))
-                    except TimeoutError:
-                        return False
+                return bool(connection.recv(1))
+            except TimeoutError:
+                return False
             except OSError:
-                continue
-        return None
+                return None
+
+    async def patrol_web_status(self, port: int) -> int | None:
+        """巡检用的首页探测：返回 HTTP 状态码；连上以后 10 秒一个字节都不回返回 None。
+
+        连不上、或者回了话但读不出状态码时抛 `ConnectionError`，表示这一轮看不清。
+        先说 HTTP；只有对方很快回了非 HTTP 的内容或直接断开，才改试 HTTPS，超时后不再试。
+        """
+        return await asyncio.to_thread(self._patrol_web_status, port)
+
+    @staticmethod
+    def _patrol_web_status(port: int) -> int | None:
+        with _connect_loopback(port) as connection:
+            connection.settimeout(PROBE_REPLY_SECONDS)
+            try:
+                connection.sendall(
+                    b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+                )
+                head = connection.recv(64)
+            except TimeoutError:
+                return None
+            except OSError:
+                head = b""
+        matched = _STATUS_LINE.match(head)
+        if matched is not None:
+            return int(matched.group(1))
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        secure = http.client.HTTPSConnection(
+            "127.0.0.1", port, timeout=PROBE_TLS_SECONDS, context=context
+        )
+        try:
+            secure.request("GET", "/")
+            return secure.getresponse().status
+        except (OSError, http.client.HTTPException) as exc:
+            raise ConnectionError(port) from exc
+        finally:
+            secure.close()
 
     async def port_listening(self, port: int) -> bool:
         return await asyncio.to_thread(self._port_listening, port)

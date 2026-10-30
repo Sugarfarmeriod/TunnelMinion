@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -82,9 +83,38 @@ _PROTECTED_PROGRAM_PREFIXES = (
 )
 _PROTECTED_PROGRAM_NAMES = frozenset({"wg", "wg-quick", "edge", "supernode"})
 
-# Windows 服务的名字、显示名或路径里有这些词的不修：组网、杀毒和安全软件、TunnelMinion 自己。
+# Windows 服务的名字、显示名或路径里有这些词的不修：组网和代理、虚拟化和容器、远程控制、
+# 杀毒和安全软件、微软自己的组件、TunnelMinion 自己。没有做数字签名校验，只按这些词判断。
 _PROTECTED_WINDOWS_SERVICE_WORDS = (
     *_PROTECTED_PROGRAM_PREFIXES,
+    "clash",
+    "mihomo",
+    "v2ray",
+    "xray",
+    "sing-box",
+    "singbox",
+    "frp",
+    "vpn",
+    "docker",
+    "wsl",
+    "hyper-v",
+    "hyperv",
+    "vmcompute",
+    "vmms",
+    "vmware",
+    "virtualbox",
+    "vbox",
+    "sunlogin",
+    "parsec",
+    "todesk",
+    "teamviewer",
+    "anydesk",
+    "rustdesk",
+    "microsoft",
+    "windowsapps",
+    "clicktorun",
+    "edgeupdate",
+    "gamingservices",
     "defender",
     "windefend",
     "antivirus",
@@ -383,14 +413,26 @@ def check_windows_service_runtime(runtime: WindowsServiceRuntime) -> None:
         raise RepairRefusal(RepairError(code=RepairErrorCode.NOT_ELIGIBLE, message=reason))
 
 
-def check_windows_service(
-    info: WindowsServiceInfo, *, stuck: bool, ports: tuple[int, ...], host: HostInspector
-) -> None:
-    """只修主人自己装、单独授权过、没被禁用的第三方服务；在跑的只在卡住时重启。"""
-    path = info.binary_path.replace("\\", "/").casefold()
+def _windows_service_path(binary_path: str) -> str:
+    """服务程序路径统一成小写正斜杠，并展开 `%SystemRoot%`、`\\??\\` 这类写法。"""
+    path = binary_path.strip().replace("\\", "/").casefold()
+    path = path.removeprefix("//?/").removeprefix("/??/")
+    for alias in ("%systemroot%/", "%windir%/", "/systemroot/", "systemroot/"):
+        if path.startswith(alias):
+            return "c:/windows/" + path.removeprefix(alias)
+    return path
+
+
+def check_windows_service_protected(info: WindowsServiceInfo) -> None:
+    """Windows 自带、组网、虚拟化、远控、杀毒安全软件和 TunnelMinion 自己的服务一律不动。
+
+    路径不是带盘符的绝对路径（比如 `system32/x.exe`）时认不准在哪，也按系统服务处理。
+    """
+    path = _windows_service_path(info.binary_path)
     words = f"{info.name} {info.display_name} {path}".casefold()
     if (
-        path[1:].startswith(":/windows/")
+        re.fullmatch(r"[a-z]:/.+", path) is None
+        or path[1:].startswith(":/windows/")
         or path.rsplit("/", 1)[-1] == "svchost.exe"
         or any(word in words for word in _PROTECTED_WINDOWS_SERVICE_WORDS)
     ):
@@ -398,11 +440,18 @@ def check_windows_service(
             RepairError(
                 code=RepairErrorCode.PROTECTED_TARGET,
                 message=(
-                    "这是 Windows 自带、组网、杀毒安全软件或 TunnelMinion 自己的服务，"
-                    "Agent 不会动它。"
+                    "这是 Windows 或微软自带、组网代理、虚拟化、远程控制、杀毒安全软件"
+                    "或 TunnelMinion 自己的服务，Agent 不会动它。"
                 ),
             )
         )
+
+
+def check_windows_service(
+    info: WindowsServiceInfo, *, stuck: bool, ports: tuple[int, ...], host: HostInspector
+) -> None:
+    """只修主人自己装、单独授权过、没被禁用的第三方服务；在跑的只在卡住时重启。"""
+    check_windows_service_protected(info)
     if info.start_type == "disabled":
         raise RepairRefusal(
             RepairError(

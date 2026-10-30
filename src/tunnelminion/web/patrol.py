@@ -40,7 +40,12 @@ def create_patrol_router(patrol: PatrolService) -> APIRouter:
         try:
             return await patrol.set_windows_service_grant(checked(key), granted=payload.granted)
         except KeyError as exc:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "这不是你标过的 Windows 服务") from exc
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "这不是 Windows 服务") from exc
+        except LookupError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "只有标成“是我的服务”、不是系统或受保护软件的服务才能授权",
+            ) from exc
         except PermissionError as exc:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "没有完成管理员确认，权限没有改动"

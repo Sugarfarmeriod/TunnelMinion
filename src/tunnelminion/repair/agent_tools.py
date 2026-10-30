@@ -197,9 +197,16 @@ class ProposeRepairAdapter:
                 actor=f"delegation:{delegation.caller_node_id}" if delegation else "agent",
             )
         except RepairRefusal as exc:
-            if exc.error.manual_steps:
+            result: dict[str, JsonValue] = {
+                "proposed": False,
+                **exc.error.model_dump(mode="json", exclude={"manual_steps"}),
+            }
+            # 现成步骤带着完整路径和参数，只交给本机界面显示；模型只知道有没有。
+            # 委派时连这个标记也不给，步骤不会离开这台电脑。
+            if exc.error.manual_steps and delegation is None:
                 remember_run_steps(str(context.run_id), exc.error.manual_steps)
-            return {"proposed": False, **exc.error.model_dump(mode="json")}
+                result["has_manual_steps"] = True
+            return result
         except ValueError:
             return {
                 "proposed": False,
@@ -271,7 +278,7 @@ def register_repair_agent_tools(
             "先结束再运行）；restart_launch_agent（macOS 后台服务 launchd:<标签>，退出或卡住）；"
             "restart_windows_service（主人允许过的 Windows 服务）。脚本和程序的 service_key "
             "用 list_launch_records 给的身份。reason 用一句大白话写依据，不写命令。修不了时"
-            "返回原因、下一步和可能有的 manual_steps（本机生成的现成步骤），照实转告，不要改写。",
+            "返回原因和下一步；has_manual_steps 为真表示界面会另外显示本机生成的现成步骤。",
             {
                 "service_key": {"type": "string", "pattern": MARK_KEY_PATTERN},
                 "kind": {"type": "string", "enum": [kind.value for kind in RepairKind]},

@@ -121,6 +121,9 @@ def win(name: str, exe: str | None, *ancestors: str, windowed: bool = False) -> 
             win("com.docker.backend.exe", "C:\\Program Files\\Docker\\backend.exe"),
             "container_runtime",
         ),
+        # Lima 替虚拟机转发端口：不是主人自己运行的程序，不记启动方式。
+        (mac("limactl", "/opt/homebrew/bin/limactl", "launchd"), "container_runtime"),
+        (mac("ssh", "/usr/bin/ssh", "limactl", "-zsh", "Terminal"), "container_runtime"),
         # 读不出来历
         (mac("mystery", None, "launchd"), "unknown"),
         (mac("mystery", "/srv/mystery", "launchd"), "unknown"),

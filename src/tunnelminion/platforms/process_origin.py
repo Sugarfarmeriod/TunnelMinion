@@ -78,11 +78,14 @@ _CONTAINER_RUNTIMES = frozenset(
         "com.docker.build",
         "com.docker.vpnkit",
         "docker-proxy",
+        "limactl",
         "orbstack helper",
         "vpnkit",
         "wslrelay",
     }
 )
+
+_VM_PORT_FORWARDERS = frozenset({"limactl", "colima"})
 
 _INTERPRETER = re.compile(
     r"(?:pythonw?(?:\d+(?:\.\d+)*)?|node|deno|bun|java|javaw|ruby|php|perl|dotnet)", re.I
@@ -119,7 +122,8 @@ def classify_origin(facts: ProcessFacts) -> ProcessOrigin:
     name = normalize_process_name(facts.name)
     ancestors = tuple(normalize_process_name(item) for item in facts.ancestors)
     windows = facts.platform == "windows"
-    if name in _CONTAINER_RUNTIMES:
+    # Lima（以及基于它的 Colima）替虚拟机转发端口：limactl 自己监听，或由它拉起的 ssh 监听。
+    if name in _CONTAINER_RUNTIMES or any(item in _VM_PORT_FORWARDERS for item in ancestors):
         return ProcessOrigin.CONTAINER_RUNTIME
     if any(item in _TERMINALS for item in ancestors):
         return ProcessOrigin.TERMINAL

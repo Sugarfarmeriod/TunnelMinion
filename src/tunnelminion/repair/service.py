@@ -304,6 +304,7 @@ def build_repair_service(
             launch_agents=launch_agents,
             windows_services=windows_services,
             is_stuck=is_stuck,
+            launch_records=launch_records,
         ),
         store,
         AuthorizationService(

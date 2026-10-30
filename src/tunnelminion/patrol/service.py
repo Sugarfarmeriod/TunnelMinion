@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -23,6 +23,7 @@ from tunnelminion.agent.conversation import (
     ThreadContext,
     ThreadView,
 )
+from tunnelminion.agent.service_marks import ServiceMark
 from tunnelminion.domain.identifiers import NodeId, OperationId, RunId, ThreadId
 from tunnelminion.model.contracts import ProviderError
 from tunnelminion.operation.contracts import OperationStatus
@@ -57,10 +58,11 @@ from tunnelminion.repair.contracts import (
     RepairOrigin,
     RepairOriginKind,
     RepairRecord,
+    WindowsServiceInfo,
     WindowsServiceRecord,
     WindowsServiceRuntime,
 )
-from tunnelminion.repair.eligibility import RepairRefusal
+from tunnelminion.repair.eligibility import RepairRefusal, check_windows_service_protected
 from tunnelminion.repair.service import OwnerPreapproval
 from tunnelminion.web.service_map import LocalServiceMap, ServiceEntry
 
@@ -131,11 +133,18 @@ class _Streak:
     healthy: int = 0
 
 
+class _Unknown:
+    """这一轮探测看不清（连不上或探测超时），不参与判断。"""
+
+
+_UNKNOWN = _Unknown()
+
+
 @dataclass
 class _Checks:
-    """一个服务这一轮的探测结果。
+    """一个服务这一轮的探测结果；看不清的端口不在里面。
 
-    `web`：端口到首页结果，True 能打开，False 返回服务器错误，None 不回应。
+    `web`：端口到首页结果，True 能打开，False 返回服务器错误，None 连上后一直不回应。
     `talk`：端口到"连上后是否先回话"。
     """
 
@@ -204,6 +213,7 @@ class PatrolService:
         *,
         talks_first: Callable[[int], Awaitable[bool | None]] | None = None,
         windows_services: WindowsServiceRuntime | None = None,
+        marks: Callable[[], Mapping[str, ServiceMark]] = dict,
         clock: Callable[[], datetime] | None = None,
         interval_seconds: float = PATROL_INTERVAL_SECONDS,
         investigation_wait_seconds: float = PATROL_INVESTIGATION_WAIT_SECONDS,
@@ -217,6 +227,7 @@ class PatrolService:
         self._launch_record = launch_record
         self._talks_first = talks_first
         self._windows_services = windows_services
+        self._marks = marks
         self._clock = clock or (lambda: datetime.now(UTC))
         self._interval_seconds = interval_seconds
         self._investigation_wait_seconds = investigation_wait_seconds
@@ -227,25 +238,29 @@ class PatrolService:
 
     # ---- 每轮判定 ----
 
-    async def _probe(self, port: int) -> bool | None:
-        """首页能打开返回 True，服务器错误返回 False，不回应（超时或不说 HTTP）返回 None。"""
+    async def _probe(self, port: int) -> bool | None | _Unknown:
+        """首页能打开返回 True，服务器错误返回 False，连上以后一直一个字节都不回返回 None。
+
+        连不上或探测本身超时只说明这一轮看不清，返回 `_UNKNOWN`，不算不回应：
+        只是慢、或者只听组网地址不听本机地址的服务不会因此被判成卡住。
+        """
         try:
             status = await asyncio.wait_for(
                 self._web_status(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
             )
         except (TimeoutError, OSError):
-            return None
+            return _UNKNOWN
         return None if status is None else status < 500
 
-    async def _talk(self, port: int) -> bool:
+    async def _talk(self, port: int) -> bool | None:
+        """连上以后对方先说话返回 True，一直不说话返回 False；连不上或看不清返回 None。"""
         assert self._talks_first is not None
         try:
-            talked = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 self._talks_first(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
             )
         except (TimeoutError, OSError):
-            return False
-        return talked is True
+            return None
 
     async def _checks(
         self, shown: dict[str, ServiceEntry], records: dict[str, PatrolRecord]
@@ -280,9 +295,11 @@ class PatrolService:
         talk_results = await asyncio.gather(*(self._talk(port) for _, port in talk_plan))
         checks: dict[str, _Checks] = {}
         for (key, port), result in zip(web_plan, web_results, strict=True):
-            checks.setdefault(key, _Checks()).web[port] = result
+            if not isinstance(result, _Unknown):
+                checks.setdefault(key, _Checks()).web[port] = result
         for (key, port), talked in zip(talk_plan, talk_results, strict=True):
-            checks.setdefault(key, _Checks()).talk[port] = talked
+            if talked is not None:
+                checks.setdefault(key, _Checks()).talk[port] = talked
         return checks
 
     async def observe_once(self) -> None:
@@ -582,13 +599,33 @@ class PatrolService:
         windows = isinstance(self._launch_record(key), WindowsServiceRecord)
         return repair_kind_for(key, reason, windows_service=windows)
 
+    def _windows_service_allowed(self, key: str, info: WindowsServiceInfo | None) -> bool:
+        """主人标成"是我的服务"、不在保护名单里的服务才能授权。"""
+        if info is None or self._marks().get(key) is not ServiceMark.MINE:
+            return False
+        try:
+            check_windows_service_protected(info)
+        except RepairRefusal:
+            return False
+        return True
+
     def _windows_service_view(self, key: str) -> WindowsServiceView | None:
+        """能授权或已经授权过的 Windows 服务才显示开关；已授权但不再允许的只能撤回。"""
         record = self._launch_record(key)
         if not isinstance(record, WindowsServiceRecord) or self._windows_services is None:
             return None
         info = self._windows_services.inspect(record.service_name)
+        granted = info is not None and info.granted
+        allowed = self._windows_service_allowed(key, info)
+        if not allowed and not granted:
+            return None
+        assert info is not None
         return WindowsServiceView(
-            name=record.service_name, granted=info is not None and info.granted
+            name=record.service_name,
+            display_name=info.display_name,
+            binary_path=info.binary_path,
+            granted=granted,
+            allowed=allowed,
         )
 
     def _auto_repair_view(self, key: str, record: PatrolRecord | None) -> AutoRepairView:
@@ -685,12 +722,17 @@ class PatrolService:
     async def set_windows_service_grant(self, key: str, *, granted: bool) -> PatrolView:
         """弹一次管理员确认，允许或撤回 Agent 启停这个 Windows 服务。
 
-        不是主人自己标过的 Windows 服务抛 `KeyError`；主人在确认框里拒绝时抛 `PermissionError`。
-        撤回时一并关掉这个服务的自动修。
+        不是 Windows 服务抛 `KeyError`；授予时服务没标成"是我的服务"或在保护名单里抛
+        `LookupError`；主人在确认框里拒绝时抛 `PermissionError`。撤回总是允许，并一并关掉
+        这个服务的自动修。
         """
         record = self._launch_record(key)
         if not isinstance(record, WindowsServiceRecord) or self._windows_services is None:
             raise KeyError(key)
+        if granted and not self._windows_service_allowed(
+            key, self._windows_services.inspect(record.service_name)
+        ):
+            raise LookupError(key)
         if not await self._windows_services.set_granted(record.service_name, granted=granted):
             raise PermissionError(key)
         patrol = self._store.get(key)

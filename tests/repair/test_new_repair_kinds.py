@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from tests.repair.factories import NOW, launch_agent_job, launch_agent_record
+from tests.repair.factories import NODE, NOW, launch_agent_job, launch_agent_record
 from tests.repair.fakes import RepairHarness, local_launch
 
+from tunnelminion.domain.identifiers import DelegationId
 from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.operation.contracts import OperationStatus
 from tunnelminion.repair.contracts import (
     ManualStep,
     PortOwner,
+    ProcessLaunchRecord,
     ProgramLaunchRecord,
     ProgramRepairTarget,
     RepairCleanupResult,
@@ -23,11 +26,12 @@ from tunnelminion.repair.contracts import (
     RepairOrigin,
     RepairOriginKind,
     RepairRecord,
+    SpawnedProcess,
     StuckProgramRepairTarget,
     WindowsServiceRecord,
     WindowsServiceRepairTarget,
 )
-from tunnelminion.repair.eligibility import RepairRefusal
+from tunnelminion.repair.eligibility import RepairRefusal, check_windows_service_protected
 
 PROGRAM = "program:gost@805"
 SERVICE = "program:sunshine@47984"
@@ -44,7 +48,7 @@ def program_record(tmp_path: Path, **update: object) -> ProgramLaunchRecord:
         executable=str(binary),
         executable_size=stat.st_size,
         executable_mtime_ns=stat.st_mtime_ns,
-        arguments=("-L", ":805", "--token=abc"),
+        arguments=("-L", ":805", "--token=s3cret-zq"),
         working_directory=str(tmp_path),
         ports=(805,),
         username="me",
@@ -93,7 +97,71 @@ def test_relaunch_program_runs_with_record_and_verifies(tmp_path: Path) -> None:
     assert result.plan.action_summary == "按上次的启动方式在后台重新运行 gost（端口 805）"
     [(record, _)] = h.launcher.calls
     assert record == program_record(tmp_path)
-    assert "abc" not in result.plan.model_dump_json(exclude={"target"})
+    assert "s3cret-zq" not in result.plan.model_dump_json(exclude={"target"})
+
+
+def listen_on_launch(h: RepairHarness, listener: PortOwner) -> None:
+    """程序被拉起以后才出现在端口上。"""
+    launch = h.launcher.launch
+
+    def launched(record: ProcessLaunchRecord, *, log_path: Path) -> SpawnedProcess:
+        h.host.owners[805] = listener
+        return launch(record, log_path=log_path)
+
+    h.launcher.launch = launched  # type: ignore[method-assign]
+
+
+def test_relaunched_program_is_written_back_so_it_can_be_ended_later(tmp_path: Path) -> None:
+    """重新运行后的进程不是从终端起来的；写回新的进程号，之后卡住了才认得出它。"""
+    h = RepairHarness(tmp_path)
+    h.launch_records.put(program_record(tmp_path))
+    later = NOW + timedelta(minutes=5)
+
+    async def scenario() -> RepairRecord:
+        record = await h.service.propose(
+            PROGRAM, RepairKind.RELAUNCH_PROGRAM, "退出了", ORIGIN, actor="t"
+        )
+        h.service.approve(record.plan.operation_id, operator="me")
+        listen_on_launch(h, owner(pid=77, started=later))
+        return await h.service.execute(record.plan.operation_id)
+
+    assert asyncio.run(scenario()).status is OperationStatus.SUCCEEDED
+    stored = h.launch_records.get(PROGRAM)
+    assert isinstance(stored, ProgramLaunchRecord)
+    assert stored.process_id == 77 and stored.process_started_at == later
+    assert stored.model_dump(exclude={"process_id", "process_started_at", "recorded_at"}) == (
+        program_record(tmp_path).model_dump(
+            exclude={"process_id", "process_started_at", "recorded_at"}
+        )
+    )
+    h.stuck.add(PROGRAM)
+    record = asyncio.run(
+        h.service.propose(PROGRAM, RepairKind.RESTART_STUCK_PROGRAM, "卡住", ORIGIN, actor="t")
+    )
+    target = record.plan.target
+    assert isinstance(target, StuckProgramRepairTarget) and target.process_id == 77
+
+
+@pytest.mark.parametrize("change", ["owner_differs", "record_changed", "no_owner"])
+def test_relaunch_writeback_skips_when_unsure(tmp_path: Path, change: str) -> None:
+    h = RepairHarness(tmp_path)
+    h.launch_records.put(program_record(tmp_path))
+
+    async def scenario() -> RepairRecord:
+        record = await h.service.propose(
+            PROGRAM, RepairKind.RELAUNCH_PROGRAM, "退出了", ORIGIN, actor="t"
+        )
+        h.service.approve(record.plan.operation_id, operator="me")
+        if change == "owner_differs":
+            listen_on_launch(h, owner(matches=False, pid=77))
+        elif change == "record_changed":
+            listen_on_launch(h, owner(pid=77))
+            h.launch_records.put(program_record(tmp_path, arguments=("-L", ":806")))
+        return await h.service.execute(record.plan.operation_id)
+
+    assert asyncio.run(scenario()).status is OperationStatus.SUCCEEDED
+    stored = h.launch_records.get(PROGRAM)
+    assert isinstance(stored, ProgramLaunchRecord) and stored.process_id == 42
 
 
 def test_relaunch_program_failure_stops_spawned(tmp_path: Path) -> None:
@@ -172,7 +240,7 @@ def test_elevated_and_squatter_refusals_carry_redacted_steps(tmp_path: Path) -> 
             h.service.propose(PROGRAM, RepairKind.RELAUNCH_PROGRAM, "测试", ORIGIN, actor="t")
         )
     commands = [step.command or "" for step in caught.value.error.manual_steps]
-    assert len(commands) == 2 and "abc" not in "".join(commands)
+    assert len(commands) == 2 and "s3cret-zq" not in "".join(commands)
     assert "（原来的值）" in commands[1]
 
 
@@ -396,6 +464,39 @@ def test_windows_service_refusals(tmp_path: Path, case: str, code: RepairErrorCo
     assert refusal(h, SERVICE, RepairKind.RESTART_WINDOWS_SERVICE) is code
 
 
+@pytest.mark.parametrize(
+    ("update", "protected"),
+    [
+        ({}, False),
+        ({"binary_path": r"%SystemRoot%\System32\spoolsv.exe"}, True),
+        ({"binary_path": r"\??\C:\Windows\system32\drivers\x.sys"}, True),
+        ({"binary_path": r"\SystemRoot\System32\x.exe"}, True),
+        ({"binary_path": r"system32\x.exe"}, True),
+        ({"binary_path": r"C:\Program Files\Microsoft Office\root\x.exe"}, True),
+        ({"name": "clash_verge_service"}, True),
+        ({"name": "WSLService"}, True),
+        ({"name": "SunloginService"}, True),
+        ({"display_name": "Parsec"}, True),
+        ({"name": "edgeupdate"}, True),
+        ({"name": "GamingServices"}, True),
+        ({"display_name": "Docker Desktop Service"}, True),
+        ({"binary_path": r"D:\Tools\frp\frpc.exe"}, True),
+    ],
+)
+def test_windows_service_protection_list(
+    tmp_path: Path, update: dict[str, str], protected: bool
+) -> None:
+    info = windows_harness(tmp_path).windows_services.info
+    assert info is not None
+    changed = info.model_copy(update=update)
+    if protected:
+        with pytest.raises(RepairRefusal) as caught:
+            check_windows_service_protected(changed)
+        assert caught.value.error.code is RepairErrorCode.PROTECTED_TARGET
+    else:
+        check_windows_service_protected(changed)
+
+
 @pytest.mark.parametrize("change", ["started", "binary", "recovered", "gone"])
 def test_windows_service_precheck_cancels(tmp_path: Path, change: str) -> None:
     h = windows_harness(tmp_path, running=change == "recovered")
@@ -500,7 +601,7 @@ def test_launch_record_summaries_cover_programs_and_windows_services(tmp_path: P
     assert summaries[SERVICE]["kind"] == "windows_service" and summaries[SERVICE]["running"]
     assert "管理员" in str(summaries["program:admin@9000"]["summary"])
     assert summaries[PROGRAM]["kind"] == "program"
-    assert "abc" not in str(output) and "gost.exe" not in str(output)
+    assert "s3cret-zq" not in str(output) and "gost.exe" not in str(output)
 
 
 def test_refusal_steps_are_kept_for_the_answer(
@@ -517,14 +618,33 @@ def test_refusal_steps_are_kept_for_the_answer(
     h = RepairHarness(tmp_path)
     h.launch_records.put(program_record(tmp_path))
     h.host.owners[805] = owner(matches=False)
+    executor = runtime(h, tmp_path)
     output = call(
-        runtime(h, tmp_path),
+        executor,
         "propose_repair",
         {"service_key": PROGRAM, "kind": "relaunch_program", "reason": "退出了"},
     )
-    assert output["proposed"] is False and output["manual_steps"]
+    # 模型只知道有现成步骤；完整路径和参数只交给本机界面。
+    assert output["proposed"] is False and output["has_manual_steps"] is True
+    assert "manual_steps" not in output
+    assert "gost.exe" not in str(output) and str(tmp_path) not in str(output)
     [(run_id, steps)] = kept
-    assert run_id.startswith("run_") and len(steps) == 2 and "abc" not in str(steps)
+    assert run_id.startswith("run_") and len(steps) == 2 and "s3cret-zq" not in str(steps)
+
+    # 委派时既不给标记，也不把步骤留在这台电脑的对话里。
+    class Delegated:
+        def get(self) -> SimpleNamespace:
+            return SimpleNamespace(delegation_id=DelegationId.new(), caller_node_id=NODE)
+
+    monkeypatch.setattr("tunnelminion.repair.agent_tools.current_delegation", Delegated())
+    output = call(
+        executor,
+        "propose_repair",
+        {"service_key": PROGRAM, "kind": "relaunch_program", "reason": "退出了"},
+    )
+    assert output["proposed"] is False and output["code"] == "port_in_use"
+    assert "has_manual_steps" not in output and "manual_steps" not in output
+    assert len(kept) == 1
 
 
 def test_stuck_checker_reads_patrol_records(tmp_path: Path) -> None:

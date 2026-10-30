@@ -197,8 +197,8 @@ Windows 服务时提出 restart_windows_service。
 剧本四，程序还在但不响应：只有巡检已经确认“卡住了”，才提出
 restart_stuck_program（Python 脚本和普通程序）；macOS 后台服务卡住用 restart_launch_agent。
 巡检没确认时照实说可能只是慢，不要提出结束它。
-propose_repair 返回 manual_steps 时，那是本机按固定模板生成的现成步骤，界面会单独显示并带复制按钮；
-正文只说一句“可以照着下面的步骤自己处理”，不要改写、补充或编造命令。""",
+propose_repair 返回 has_manual_steps 为真时，界面会单独显示本机按固定模板生成的
+现成步骤并带复制按钮；正文只说一句“可以照着下面的步骤自己处理”，不要自己写或编造命令。""",
     version="v7",
     semantic_version="7.0.0",
     change_note="加入普通程序退出和程序卡住两份剧本，修不了时引用本机生成的现成步骤。",

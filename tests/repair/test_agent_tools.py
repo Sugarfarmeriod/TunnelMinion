@@ -326,7 +326,7 @@ def test_refusals_and_bad_values_are_normal_tool_results(
         "propose_repair",
         {"service_key": service_key, "kind": kind, "reason": reason},
     )
-    assert set(output) - {"manual_steps"} == {"proposed", "code", "message", "next_step"}
+    assert set(output) == {"proposed", "code", "message", "next_step"}
     assert output["proposed"] is False and output["code"] == code and output["message"]
     assert not harness.store.records
 

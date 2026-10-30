@@ -903,11 +903,18 @@ class ProcessLauncher(Protocol):
         """
         ...  # pragma: no cover - Protocol 无运行时实现
 
-    def end_stuck(self, pid: int, started_at: datetime, *, grace_seconds: float) -> bool | None:
+    def end_stuck(
+        self,
+        pid: int,
+        started_at: datetime,
+        launch: ProcessLaunchRecord,
+        *,
+        grace_seconds: float,
+    ) -> bool | None:
         """先礼貌结束，等 `grace_seconds` 还在再强制结束（连同子进程）。
 
-        进程号和启动时间都对得上才动手；返回是否用了强制结束，没能结束时返回 None。
-        进程已经不在也算结束（返回 False）。
+        进程号、启动时间和启动记录都对得上才动手；返回是否用了强制结束，没能结束或对不上
+        启动记录时返回 None。进程已经不在也算结束（返回 False）。
         """
         ...  # pragma: no cover - Protocol 无运行时实现
 

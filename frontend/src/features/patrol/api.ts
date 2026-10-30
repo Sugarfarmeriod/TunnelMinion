@@ -55,9 +55,16 @@ export const patrolServiceSchema = z
         stuck_enabled: z.boolean(),
       })
       .strict(),
-    // 主人标过的 Windows 服务：是否允许 Agent 启停它。
+    // 主人标过的 Windows 服务：实际的服务名、程序路径，是否允许 Agent 启停它；
+    // allowed 为假时只能撤回（没标成“是我的服务”，或是系统、受保护的软件）。
     windows_service: z
-      .object({ name: z.string().min(1), granted: z.boolean() })
+      .object({
+        name: z.string().min(1),
+        display_name: z.string(),
+        binary_path: z.string(),
+        granted: z.boolean(),
+        allowed: z.boolean(),
+      })
       .strict()
       .nullable(),
   })

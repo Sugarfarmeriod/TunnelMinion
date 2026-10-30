@@ -36,7 +36,7 @@ def test_registry_exposes_versioned_hashed_prompts() -> None:
     assert READONLY_AGENT_PROMPT.template.startswith(READONLY_AGENT_PROMPT_V6.template)
     assert READONLY_AGENT_PROMPT_V6.template.startswith(READONLY_AGENT_PROMPT_V5.template)
     assert "restart_stuck_program" in READONLY_AGENT_PROMPT.template
-    assert "manual_steps" in READONLY_AGENT_PROMPT.template
+    assert "has_manual_steps" in READONLY_AGENT_PROMPT.template
     assert "request_more_tools" in READONLY_AGENT_PROMPT.template
     assert "不要回答“没有这个工具”" in READONLY_AGENT_PROMPT.template
     assert (

@@ -583,7 +583,11 @@ export function ServicesPanel({
                         <input
                           type="checkbox"
                           checked={watch.windows_service.granted}
-                          disabled={windowsServicePending !== null}
+                          disabled={
+                            windowsServicePending !== null ||
+                            (!watch.windows_service.allowed &&
+                              !watch.windows_service.granted)
+                          }
                           onChange={(event) =>
                             onWindowsService?.(
                               service.key,
@@ -593,10 +597,17 @@ export function ServicesPanel({
                         />
                         允许 Agent 重启这个 Windows 服务
                       </label>
+                      <span className="map-auto-repair-hint">
+                        服务 {watch.windows_service.display_name}（
+                        {watch.windows_service.name}），程序{" "}
+                        {watch.windows_service.binary_path}
+                      </span>
                       <span className="map-auto-repair-hint" aria-live="polite">
                         {windowsServicePending === service.key
                           ? "等你在弹出的确认框里点“是”…"
-                          : "打开时会弹一次 Windows 管理员确认，只给这一个服务加启停权限；关掉时撤回"}
+                          : watch.windows_service.allowed
+                            ? "打开时会弹一次 Windows 管理员确认，只给这一个服务加启停权限；关掉时撤回"
+                            : "这个服务现在不能授权（没标成“是我的服务”，或是系统、受保护的软件），只能撤回已有的权限"}
                       </span>
                       {windowsServiceError?.key === service.key ? (
                         <span className="map-error" role="alert">

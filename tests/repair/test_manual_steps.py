@@ -76,6 +76,10 @@ def test_launch_command_quotes_for_each_platform() -> None:
     assert launch_command(program(arguments=()), platform="win32") == (
         "Set-Location -LiteralPath '/home/me/it''s here'; & '/opt/tools/gost'"
     )
+    # 弯引号在 PowerShell 里也算单引号，同样双写。
+    curly = launch_command(program(arguments=("a\u2018b\u2019c\u201ad\u201be",)), platform="win32")
+    assert curly is not None
+    assert curly.endswith("'a\u2018\u2018b\u2019\u2019c\u201a\u201ad\u201b\u201be'")
     python = launch_command(launch_record(), platform="linux")
     assert python == "cd C:/work/site && C:/Python311/python.exe -m http.server 8765"
     assert launch_command(program(elevated=True, executable=None), platform="win32") is None

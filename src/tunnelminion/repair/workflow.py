@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -27,8 +28,11 @@ from tunnelminion.repair.contracts import (
     LaunchAgentRepairTarget,
     LaunchAgentRuntime,
     LaunchRecord,
+    LaunchRecordStore,
     LocalVerifier,
     ProcessLauncher,
+    ProcessLaunchRecord,
+    ProgramLaunchRecord,
     ProgramRepairTarget,
     PythonRepairTarget,
     RepairAuditAction,
@@ -93,7 +97,9 @@ class RepairWorkflow:
         is_stuck: Callable[[str], bool] = lambda _key: False,
         stuck_grace_seconds: float = 10,
         service_stop_seconds: float = 30,
+        launch_records: LaunchRecordStore | None = None,
     ) -> None:
+        self._launch_records = launch_records
         self._launch_agents = launch_agents or UnsupportedLaunchAgents()
         self._windows_services = windows_services or UnsupportedWindowsServices()
         self._is_stuck = is_stuck
@@ -369,6 +375,7 @@ class RepairWorkflow:
                     forcibly = self._launcher.end_stuck(
                         target.process_id,
                         target.process_started_at,
+                        target.launch,
                         grace_seconds=self._stuck_grace_seconds,
                     )
                     execution = execution.model_copy(
@@ -437,6 +444,8 @@ class RepairWorkflow:
             )
             self._store.put(record)
             if verification.passed:
+                if isinstance(target, ProgramRepairTarget | StuckProgramRepairTarget):
+                    self._remember_relaunched(target.launch)
                 return self._transition(
                     record, OperationStatus.SUCCEEDED, RepairAuditAction.FINISHED, "修好了。"
                 )
@@ -516,6 +525,37 @@ class RepairWorkflow:
                 return self._rollback(record, error, RepairCleanupResult.STOP_FAILED, error.message)
             except Exception:
                 return record.model_copy(update={"error": error})
+
+    def _remember_relaunched(self, launch: ProcessLaunchRecord) -> None:
+        """把重新运行后在端口上监听的进程写回启动记录。
+
+        它不是从终端起来的，地图刷新时不会再更新这条记录；不写回的话，之后"结束卡住的程序"
+        会认不出它。记录在这期间被改过、或者端口上不是对得上的进程时不写；写失败不影响修复结果。
+        """
+        if self._launch_records is None or not isinstance(launch, ProgramLaunchRecord):
+            return
+        with suppress(Exception):
+            current = self._launch_records.get(launch.service_key)
+            owner = self._host.port_owner(launch.ports[0], launch)
+            if (
+                current is None
+                or current.model_dump(exclude={"recorded_at"})
+                != launch.model_dump(exclude={"recorded_at"})
+                or owner is None
+                or not owner.matches_launch
+                or owner.pid is None
+                or owner.started_at is None
+            ):
+                return
+            self._launch_records.put(
+                launch.model_copy(
+                    update={
+                        "process_id": owner.pid,
+                        "process_started_at": owner.started_at,
+                        "recorded_at": self._clock(),
+                    }
+                )
+            )
 
     async def _run_windows_service(
         self, record: RepairRecord, target: WindowsServiceRepairTarget

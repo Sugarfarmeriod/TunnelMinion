@@ -33,7 +33,13 @@ def test_port_that_used_to_talk_and_goes_silent_is_stuck(tmp_path: Path) -> None
         h.talk_probed.clear()
         await h.rounds(1)
         assert h.talk_probed == [22]
+        # 连不上或探测出错只算看不清，不算不回话。
+        h.talk[22] = None
+        await h.rounds(2)
         h.talk[22] = TimeoutError()
+        await h.rounds(2)
+        assert h.view_of(PROGRAM).status is PatrolStatus.OK
+        h.talk[22] = False
         await h.rounds(3)
 
     asyncio.run(scenario())
@@ -166,6 +172,33 @@ def test_windows_service_grant_controls_auto_repair(tmp_path: Path) -> None:
         ("grant", "SunshineService"),
         ("revoke", "SunshineService"),
     ]
+
+
+def test_windows_service_grant_needs_mine_and_unprotected(tmp_path: Path) -> None:
+    h = windows_harness(tmp_path)
+    services = h.repairs.windows_services
+    info = services.info
+    assert info is not None
+    view = h.view_of(PROGRAM).windows_service
+    assert view is not None and view.allowed and view.binary_path == info.binary_path
+    # 落进保护名单：已有的授权只能撤回，不能再授予。
+    services.info = info.model_copy(update={"name": "WSLService"})
+    view = h.view_of(PROGRAM).windows_service
+    assert view is not None and view.granted and not view.allowed
+    with pytest.raises(LookupError):
+        asyncio.run(h.patrol.set_windows_service_grant(PROGRAM, granted=True))
+    asyncio.run(h.patrol.set_windows_service_grant(PROGRAM, granted=False))
+    assert h.view_of(PROGRAM).windows_service is None
+    # 没标成"是我的服务"或读不到服务信息时也不能授予。
+    services.info = info.model_copy(update={"granted": False})
+    h.repairs.marks.pop(PROGRAM)
+    assert h.view_of(PROGRAM).windows_service is None
+    with pytest.raises(LookupError):
+        asyncio.run(h.patrol.set_windows_service_grant(PROGRAM, granted=True))
+    services.info = None
+    with pytest.raises(LookupError):
+        asyncio.run(h.patrol.set_windows_service_grant(PROGRAM, granted=True))
+    assert services.calls == [("revoke", "SunshineService")]
 
 
 def test_stopped_windows_service_is_auto_started(tmp_path: Path) -> None:

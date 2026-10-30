@@ -64,8 +64,12 @@ def redact_arguments(arguments: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(result)
 
 
+# PowerShell 把直引号和这几种弯引号都当成单引号，单引号字符串里每一个都要双写。
+_POWERSHELL_QUOTES = re.compile("(['\u2018\u2019\u201a\u201b])")
+
+
 def _powershell_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+    return "'" + _POWERSHELL_QUOTES.sub(r"\1\1", value) + "'"
 
 
 def launch_command(record: ProcessLaunchRecord, *, platform: str = sys.platform) -> str | None:

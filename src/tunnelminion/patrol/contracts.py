@@ -24,9 +24,10 @@ PATROL_INVESTIGATION_COOLDOWN_SECONDS = 3600
 PATROL_AUTO_REPAIR_COOLDOWN_SECONDS = 3600
 # 整台电脑每天最多为巡检调查这么多次。
 PATROL_DAILY_INVESTIGATIONS = 12
-# 每轮最多探测的网页入口数和每次探测的超时。
+# 每轮最多探测的网页入口数，以及等一次探测的上限。探测线程里每一步都有自己的超时
+# （见 `SocketLocalVerifier`），最慢也在这个时间内自己结束；等不到结果只算这一轮看不清。
 PATROL_MAX_PROBES = 16
-PATROL_PROBE_TIMEOUT_SECONDS = 3.0
+PATROL_PROBE_TIMEOUT_SECONDS = 30.0
 # 一次巡检调查最多等这么久，超时就取消，不让自动修一直等模型。
 PATROL_INVESTIGATION_WAIT_SECONDS = 300.0
 
@@ -135,12 +136,16 @@ class AutoRepairView(BaseModel):
 
 
 class WindowsServiceView(BaseModel):
-    """主人自己装的 Windows 服务：有没有允许 Agent 启停它。"""
+    """主人自己装的 Windows 服务：实际的服务名、程序路径，以及有没有允许 Agent 启停它。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
+    display_name: str
+    binary_path: str
     granted: bool
+    # 为假时只能撤回：服务不再标成"是我的服务"，或落进了保护名单。
+    allowed: bool
 
 
 class PatrolServiceView(BaseModel):

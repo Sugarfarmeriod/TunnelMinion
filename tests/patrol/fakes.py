@@ -145,6 +145,7 @@ class PatrolHarness:
             self.repairs.launch_records.get,
             talks_first=self.talks_first,
             windows_services=self.repairs.windows_services,
+            marks=lambda: self.repairs.marks,
             clock=self.repairs.clock,
             investigation_wait_seconds=0.05,
         )

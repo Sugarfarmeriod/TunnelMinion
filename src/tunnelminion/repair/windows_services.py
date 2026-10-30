@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -31,8 +32,12 @@ from tunnelminion.repair.processes import redact_log_text
 _NAME = re.compile(WINDOWS_SERVICE_NAME_PATTERN)
 _SDDL = re.compile(r"^[A-Za-z0-9;:()\-]+$")
 _SID = re.compile(r"^S-1-[0-9-]+$")
-# 启动、停止、查询状态和读权限：只够启停这一个服务。
-_GRANT_RIGHTS = "RPWPLCRC"
+# 查询状态、启动、停止和读权限：只够启停这一个服务。按 Windows 读回时的规范顺序书写。
+_GRANT_RIGHTS = "LCRPWPRC"
+_GRANT_RIGHT_SET = frozenset({"LC", "RP", "WP", "RC"})
+_ACE = re.compile(r"\(([^()]*)\)")
+# 服务进程本身只是包装器、真正的程序是它的子进程：NSSM 和 WinSW。
+_SERVICE_WRAPPERS = ("nssm", "winsw")
 _GRANT_CACHE_SECONDS = 60.0
 _START_TYPES: dict[str, Literal["automatic", "manual", "disabled"]] = {
     "automatic": "automatic",
@@ -55,21 +60,35 @@ def grant_ace(sid: str) -> str:
     return f"(A;;{_GRANT_RIGHTS};;;{sid})"
 
 
+def _allow_rights(ace: str, sid: str) -> frozenset[str] | None:
+    """这一条是给这个账户的允许条目时返回它的权限集合，否则返回 None。"""
+    fields = ace.split(";")
+    if len(fields) != 6 or fields[0] != "A" or fields[5] != sid:
+        return None
+    rights = fields[2]
+    return frozenset(rights[index : index + 2] for index in range(0, len(rights), 2))
+
+
 def has_grant(sddl: str, sid: str) -> bool:
     """当前用户有没有一条允许启动和停止的权限。"""
-    for rights, trustee in re.findall(r"\(A;[^;]*;([A-Z]+);[^;]*;[^;]*;([^)]*)\)", sddl):
-        pairs = {rights[index : index + 2] for index in range(0, len(rights), 2)}
-        if trustee == sid and {"RP", "WP"} <= pairs:
-            return True
-    return False
+    return any(
+        rights is not None and {"RP", "WP"} <= rights
+        for rights in (_allow_rights(ace, sid) for ace in _ACE.findall(sddl))
+    )
 
 
 def with_grant(sddl: str, sid: str, *, granted: bool) -> str:
-    """加上或去掉我们加的那一条；加在访问控制列表末尾、审计部分之前。"""
-    ace = grant_ace(sid)
-    sddl = sddl.replace(ace, "")
-    if not granted:
+    """加上或去掉我们加的那一条；加在访问控制列表末尾、审计部分之前。
+
+    Windows 读回时会把权限字母按规范顺序重排，所以按权限集合认出我们加的条目，不比较原文。
+    """
+    sddl = _ACE.sub(
+        lambda match: "" if _allow_rights(match.group(1), sid) == _GRANT_RIGHT_SET else match[0],
+        sddl,
+    )
+    if not granted or has_grant(sddl, sid):
         return sddl
+    ace = grant_ace(sid)
     audit = sddl.find("S:")
     return sddl + ace if audit < 0 else sddl[:audit] + ace + sddl[audit:]
 
@@ -116,6 +135,7 @@ class WindowsServiceManager:
         service_iter: Callable[[], Any] | None = None,
         service_get: Callable[[str], Any] | None = None,
         process_factory: Callable[[int], psutil.Process] = psutil.Process,
+        path_exists: Callable[[str], bool] = os.path.exists,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -124,6 +144,7 @@ class WindowsServiceManager:
         self._service_iter = service_iter or _psutil_service_iter
         self._service_get = service_get or _psutil_service_get
         self._process_factory = process_factory
+        self._path_exists = path_exists
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic
         self._sid: str | None = None
@@ -148,19 +169,34 @@ class WindowsServiceManager:
             return {}
         result: dict[int, str] = {}
         for pid in pids:
+            if pid in by_pid:
+                result[pid] = by_pid[pid]
+                continue
             try:
                 process = self._process_factory(pid)
-                for _ in range(4):
-                    if process.pid in by_pid:
-                        result[pid] = by_pid[process.pid]
-                        break
-                    parent = process.parent()
-                    if parent is None or parent.create_time() > process.create_time():
-                        break
-                    process = parent
+                parent = process.parent()
+                if (
+                    parent is not None
+                    and parent.pid in by_pid
+                    and parent.create_time() <= process.create_time()
+                    and self._is_wrapper(parent)
+                ):
+                    result[pid] = by_pid[parent.pid]
             except (psutil.Error, OSError):
                 continue
         return result
+
+    def _is_wrapper(self, process: psutil.Process) -> bool:
+        """NSSM 和 WinSW 这类包装器：名字里带它们，或者旁边有同名的 WinSW 配置文件。
+
+        只认直接父进程是包装器的情况；从 sshd、计划任务等系统服务往下拉起的程序不算那个服务。
+        """
+        executable = process.exe()
+        name = os.path.basename(executable).casefold()
+        if any(word in name for word in _SERVICE_WRAPPERS):
+            return True
+        stem, extension = os.path.splitext(executable)
+        return extension.casefold() == ".exe" and self._path_exists(stem + ".xml")
 
     def inspect(self, name: str) -> WindowsServiceInfo | None:
         if _NAME.fullmatch(name) is None:
@@ -220,7 +256,8 @@ class WindowsServiceManager:
         updated = with_grant(sddl, sid, granted=granted)
         self._granted.pop(name, None)
         if updated == sddl:
-            return True
+            # 不用改：只有现状本来就和要的一样才算成功（比如权限是主人自己另外加的，撤不掉）。
+            return has_grant(sddl, sid) is granted
         if _SDDL.fullmatch(updated) is None:
             return False
         # 服务名和权限串都只含受限字符，可以安全放进单引号。

@@ -187,14 +187,17 @@ def test_classify_fixed_rules(
     [
         (500, PatrolReason.WEB_FAILED),
         (None, PatrolReason.STUCK),
-        (TimeoutError(), PatrolReason.STUCK),
-        (OSError(), PatrolReason.STUCK),
+        (TimeoutError(), None),
+        (ConnectionError(), None),
     ],
 )
 def test_web_page_failures_confirm_down(
-    tmp_path: Path, failure: int | None | Exception, reason: PatrolReason
+    tmp_path: Path, failure: int | None | Exception, reason: PatrolReason | None
 ) -> None:
-    """以前能打开的首页不回应算卡住；返回服务器错误算网页打不开。"""
+    """以前能打开的首页连上后不回应算卡住；返回服务器错误算网页打不开。
+
+    连不上或探测超时只是这一轮看不清，不算异常。
+    """
     h = PatrolHarness(tmp_path)
 
     async def scenario() -> None:
@@ -216,7 +219,9 @@ def test_slow_probe_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     h.patrol._web_status = never  # pyright: ignore[reportPrivateUsage]
     asyncio.run(h.rounds(1))
-    assert h.view_of().status is PatrolStatus.OK and h.store.list_all() == ()
+    # 等不到探测结果只算看不清：服务照常算在运行，不算异常。
+    [record] = h.store.list_all()
+    assert record.status is PatrolStatus.OK and record.seen_running
 
 
 def test_remembered_web_port_is_kept_when_title_probe_misses(tmp_path: Path) -> None:

@@ -42,7 +42,7 @@ def test_program_stuck_and_windows_details(tmp_path: Path) -> None:
         return client.get(f"/api/repairs/{record_id}").json()["advanced"]
 
     program = advanced(relaunch.plan.operation_id)
-    assert "（原来的值）" in str(program["command"]) and "abc" not in str(program)
+    assert "（原来的值）" in str(program["command"]) and "s3cret-zq" not in str(program)
     assert program["end_process_id"] is None and program["ports"] == [805]
     assert advanced(stuck.plan.operation_id)["end_process_id"] == 42
     assert advanced(service.plan.operation_id) == {
