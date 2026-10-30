@@ -550,8 +550,12 @@ def test_real_codesign_accepts_the_untrusted_local_certificate(tmp_path: Path) -
         verify_runtime_package(root, manifest, SCHEMA, ())
         subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(entrypoint)], check=True)
         first = requirement()
-        assert f'identifier "{CODE_SIGNING_IDENTIFIER}"' in first
-        assert sha1.lower() in first.lower()
+        # 指定要求固定为标识符加这张证书本身（leaf）的指纹，不要求证书被系统信任。
+        expected = (
+            f"designated => identifier {CODE_SIGNING_IDENTIFIER} "
+            f'and certificate leaf = H"{sha1.lower()}"'
+        )
+        assert expected in first
 
         # 换一个“新版本”（内容不同的可执行文件）用同一张证书签，指定要求保持不变。
         other = tmp_path / "other-version"
