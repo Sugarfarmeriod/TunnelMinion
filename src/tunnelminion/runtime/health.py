@@ -40,7 +40,11 @@ async def probe_external_model(
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> ModelHealthResult:
-    """仅 GET `/models`；模型失败不会改变确定性组件的预检结论。"""
+    """仅 GET `/models`；模型失败不会改变确定性组件的预检结论。
+
+    检查不读钥匙串、不带密钥（从 ssh 运行时也不会弹授权框），所以要密钥的模型服务会回 401/403。
+    这说明服务在线、只是要求认证，算作可达；密钥对不对由网页上的模型验证负责。
+    """
     try:
         config = FileModelConfigurationRepository(data_dir / "model.json").load()
     except (OSError, ValueError):
@@ -63,6 +67,14 @@ async def probe_external_model(
             return ModelHealthResult(
                 status=ModelHealthStatus.REACHABLE,
                 code="model_reachable",
+                endpoint_sha256=endpoint_hash,
+                http_status=response.status_code,
+                latency_ms=latency_ms,
+            )
+        if response.status_code in (401, 403):
+            return ModelHealthResult(
+                status=ModelHealthStatus.REACHABLE,
+                code="model_reachable_key_required",
                 endpoint_sha256=endpoint_hash,
                 http_status=response.status_code,
                 latency_ms=latency_ms,

@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 from collections.abc import Callable
+from concurrent.futures import Future
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol
+from queue import SimpleQueue
+from time import monotonic
+from typing import Protocol, cast
 
 import keyring
 from keyring.errors import KeyringError
@@ -15,6 +19,19 @@ from keyring.errors import KeyringError
 
 class SecretStoreError(RuntimeError):
     """不回显秘密的本机密钥存储错误。"""
+
+
+KEYCHAIN_APPROVAL_HINT = (
+    "系统钥匙串在等你授权：请在 Mac 屏幕上的钥匙串弹框点“始终允许”"
+    "（可能连着弹几个，每个都点），点完马上就能用。"
+)
+
+
+class SecretStoreApprovalPendingError(SecretStoreError):
+    """钥匙串读写在等系统授权框，调用方不必干等；后台读写会在主人点完后继续完成。"""
+
+    def __init__(self) -> None:
+        super().__init__(KEYCHAIN_APPROVAL_HINT)
 
 
 class SecretStore(Protocol):
@@ -35,33 +52,138 @@ class SecretStore(Protocol):
 
 KEYRING_SERVICE_NAME = "TunnelMinion"
 
+_Job = tuple[Callable[[], object], "Future[object]"]
+
+
+class KeyringAccess:
+    """所有钥匙串读写都在一条后台线程里排队执行，调用方最多等 `wait_seconds`（空表示等到完成）。
+
+    macOS 换了未签名的运行包以后，每个条目第一次读写都会弹授权框，主人点之前系统调用一直不返回。
+    放在后台线程里，主线程只是等结果，停止信号和 Ctrl+C 照常生效；对外服务的进程把等待限制在
+    一秒内，等不到时抛出 `SecretStoreApprovalPendingError`，网页照常响应，后台照旧等主人点完。
+    授权框按条目计，换包后每个条目仍各弹一次；同一条目已有读取在排队时跟着等它，不会因为反复
+    读取叠出多个弹框。读到的值不缓存，其他进程改过的密钥下次读取马上生效。线程是守护线程，
+    进程退出不等它。
+    """
+
+    def __init__(self, *, wait_seconds: float | None = None) -> None:
+        self._wait_seconds = wait_seconds
+        self._lock = threading.Lock()
+        self._jobs: SimpleQueue[_Job] = SimpleQueue()
+        self._worker: threading.Thread | None = None
+        self._reads: dict[tuple[str, str], tuple[float, Future[object]]] = {}
+
+    def limit_wait(self, seconds: float) -> None:
+        """之后的读写最多等 `seconds` 秒。"""
+        self._wait_seconds = seconds
+
+    def get(self, service: str, name: str) -> str | None:
+        """读取条目；同一条目已有读取在排队时跟着等它，不再另起一次。"""
+        key = (service, name)
+        with self._lock:
+            pending = self._reads.get(key)
+            if pending is None:
+                pending = (monotonic(), self._submit(lambda: self._read(key)))
+                self._reads[key] = pending
+        return cast(str | None, self._result(*pending))
+
+    def set(self, service: str, name: str, value: str) -> None:
+        """写入条目；等不到授权时写入仍在后台排队，主人点完后生效。"""
+        self._result(monotonic(), self._submit(lambda: keyring.set_password(service, name, value)))
+
+    def delete(self, service: str, name: str) -> None:
+        """删除条目；条目原本不存在时同样视为成功。"""
+        self._result(monotonic(), self._submit(lambda: self._remove(service, name)))
+
+    def _read(self, key: tuple[str, str]) -> str | None:
+        try:
+            return keyring.get_password(*key)
+        finally:
+            with self._lock:
+                self._reads.pop(key, None)
+
+    @staticmethod
+    def _remove(service: str, name: str) -> None:
+        if keyring.get_password(service, name) is not None:
+            keyring.delete_password(service, name)
+
+    def _result(self, started: float, future: Future[object]) -> object:
+        remaining = (
+            None
+            if self._wait_seconds is None
+            else max(0.0, started + self._wait_seconds - monotonic())
+        )
+        try:
+            return future.result(timeout=remaining)
+        except TimeoutError:
+            raise SecretStoreApprovalPendingError from None
+
+    def _submit(self, call: Callable[[], object]) -> Future[object]:
+        future: Future[object] = Future()
+        self._jobs.put((call, future))
+        if self._worker is None:
+            self._worker = threading.Thread(
+                target=self._run, name="tunnelminion-keychain", daemon=True
+            )
+            self._worker.start()
+        return future
+
+    def _run(self) -> None:
+        while True:
+            call, future = self._jobs.get()
+            future.set_running_or_notify_cancel()
+            try:
+                future.set_result(call())
+            except BaseException as exc:
+                future.set_exception(exc)
+
+
+_shared_access = KeyringAccess()
+
+
+def shared_keyring_access() -> KeyringAccess:
+    """整个进程共用的钥匙串队列。"""
+    return _shared_access
+
+
+SERVING_KEYCHAIN_WAIT_SECONDS = 1.0
+
+
+def stop_waiting_for_keychain_approval() -> None:
+    """进程要对外服务时调用：之后钥匙串读写最多等一秒，等不到就先回答“在等授权”。
+
+    命令行工具不调用，照旧等主人在弹框上点完再继续。
+    """
+    shared_keyring_access().limit_wait(SERVING_KEYCHAIN_WAIT_SECONDS)
+
 
 class KeyringSecretStore:
     """使用 Windows Credential Manager 或 macOS Keychain 保存秘密。"""
 
-    def __init__(self, service_name: str = KEYRING_SERVICE_NAME) -> None:
+    def __init__(
+        self, service_name: str = KEYRING_SERVICE_NAME, *, access: KeyringAccess | None = None
+    ) -> None:
         self._service_name = service_name
+        self._access = access if access is not None else shared_keyring_access()
 
     def get(self, name: str) -> str | None:
         """从操作系统密钥环读取秘密。"""
         try:
-            return keyring.get_password(self._service_name, name)
+            return self._access.get(self._service_name, name)
         except KeyringError as exc:
             raise SecretStoreError("无法读取本机模型密钥") from exc
 
     def set(self, name: str, value: str) -> None:
         """把秘密保存到操作系统密钥环。"""
         try:
-            keyring.set_password(self._service_name, name, value)
+            self._access.set(self._service_name, name, value)
         except KeyringError as exc:
             raise SecretStoreError("无法保存本机模型密钥") from exc
 
     def delete(self, name: str) -> None:
         """删除秘密；秘密原本不存在时同样视为成功。"""
         try:
-            existing = keyring.get_password(self._service_name, name)
-            if existing is not None:
-                keyring.delete_password(self._service_name, name)
+            self._access.delete(self._service_name, name)
         except KeyringError as exc:
             raise SecretStoreError("无法删除本机模型密钥") from exc
 

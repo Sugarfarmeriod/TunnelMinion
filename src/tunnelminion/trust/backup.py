@@ -15,7 +15,12 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tunnelminion.domain.trust import SignaturePurpose, key_fingerprint
-from tunnelminion.model.secrets import DataDirKeyringSecretStore, SecretStore, SecretStoreError
+from tunnelminion.model.secrets import (
+    DataDirKeyringSecretStore,
+    SecretStore,
+    SecretStoreApprovalPendingError,
+    SecretStoreError,
+)
 from tunnelminion.trust.contracts import IdentityError, TrustStore
 from tunnelminion.trust.keys import (
     DEVICE_KEY_NAME,
@@ -77,6 +82,8 @@ def read_backup(secrets: SecretStore) -> KeyBackup | None:
         return KeyBackup.model_validate_json(text) if text is not None else None
     except (ValidationError, ValueError):
         raise SecretStoreError("身份密钥备份已损坏，已保留原样，请人工核对") from None
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法读取身份密钥备份") from None
 
@@ -84,6 +91,8 @@ def read_backup(secrets: SecretStore) -> KeyBackup | None:
 def write_backup(secrets: SecretStore, backup: KeyBackup) -> None:
     try:
         secrets.set(KEY_BACKUP_NAME, backup.model_dump_json())
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法保存身份密钥备份，未改动身份密钥") from None
 

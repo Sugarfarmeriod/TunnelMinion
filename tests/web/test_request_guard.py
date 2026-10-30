@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from starlette.types import Message, Receive, Scope, Send
 
+from tunnelminion.model.secrets import SecretStoreApprovalPendingError
 from tunnelminion.web.request_guard import (
     LocalWebRequestGuardMiddleware,
     install_local_request_guard,
@@ -390,3 +391,19 @@ def test_non_http_asgi_scope_passes_through() -> None:
     messages, calls = _invoke_scope(scope)
     assert messages == []
     assert calls == ["downstream"]
+
+
+def test_waiting_keychain_answers_with_a_hint_instead_of_an_internal_error() -> None:
+    """接口里读钥匙串等不到授权时，页面拿到“去 Mac 屏幕上点始终允许”，而不是 500。"""
+    app = FastAPI()
+
+    async def reads_secret() -> None:
+        raise SecretStoreApprovalPendingError
+
+    app.add_api_route("/secret", reads_secret, methods=["GET"])
+    install_local_request_guard(app)
+    client = cast(ApiClient, TestClient(app, base_url="http://localhost:8765"))
+    response = client.request("GET", "/secret")
+    assert response.status_code == 503
+    assert _error_code(response) == "keychain_approval_pending"
+    assert "始终允许" in response.text

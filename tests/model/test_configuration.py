@@ -35,7 +35,11 @@ from tunnelminion.model.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
 )
-from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.model.secrets import (
+    KEYCHAIN_APPROVAL_HINT,
+    SecretStoreApprovalPendingError,
+    SecretStoreError,
+)
 
 
 class MemoryRepository:
@@ -706,3 +710,38 @@ def test_tool_limit_follows_local_model_and_is_unset_when_borrowing(tmp_path: Pa
 def test_tool_limit_rejects_out_of_range(value: int) -> None:
     with pytest.raises(ValidationError):
         ModelConfigurationInput.model_validate({**input_config().model_dump(), "max_tools": value})
+
+
+class PendingSecrets(MemorySecrets):
+    """钥匙串授权框还没点：读取一律等不到。"""
+
+    def get(self, name: str) -> str | None:
+        self.reads.append(name)
+        raise SecretStoreApprovalPendingError
+
+
+def test_waiting_keychain_is_reported_instead_of_a_missing_key() -> None:
+    """授权框没点时，网页说去点允许，也不会不带密钥去请求模型、换来一个 401。"""
+    repository = MemoryRepository()
+    repository.save(input_config().provider_config())
+    service, _, secrets = service_with(ValidationProvider(), repository, PendingSecrets())
+
+    view = service.view()
+    assert (view.status, view.error_code, view.error_message) == (
+        "unavailable",
+        ProviderErrorCode.KEYCHAIN_APPROVAL_PENDING,
+        KEYCHAIN_APPROVAL_HINT,
+    )
+    assert not view.api_key_configured
+    assert not view.profiles[0].api_key_configured
+    with pytest.raises(ProviderError) as caught:
+        service.create_provider()
+    assert caught.value.code is ProviderErrorCode.KEYCHAIN_APPROVAL_PENDING
+    assert caught.value.retryable
+
+    validated = asyncio.run(service.validate())
+    assert validated.error_code == ProviderErrorCode.KEYCHAIN_APPROVAL_PENDING
+
+    # 填了新密钥时不用先读旧密钥，授权框没点也能保存。
+    asyncio.run(service.configure(input_config("new-key")))
+    assert secrets.values[model_api_key_name(input_config().endpoint)] == "new-key"

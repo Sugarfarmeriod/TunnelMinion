@@ -48,6 +48,10 @@ const failureMessages = new Map([
   ["model_network_unreachable", "这次联系模型时遇到问题，还没查完。"],
   ["model_invalid_response", "模型这次没有给出可用的回答，检查没能完成。"],
   ["model_capability_incompatible", "当前模型还不能完成这类检查。"],
+  [
+    "model_keychain_approval_pending",
+    "模型密钥在等你授权：请在 Mac 屏幕上的钥匙串弹框点“始终允许”，再查一次。",
+  ],
   ["tool_failed", "读取程序情况时遇到问题，这次还没查完。"],
   ["context_invalid", "检查记录暂时没能整理好，这次检查没有完成。"],
   ["summary_failed", "检查记录暂时没能整理好，这次检查没有完成。"],

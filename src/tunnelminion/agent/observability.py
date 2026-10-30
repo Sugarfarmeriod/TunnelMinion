@@ -25,6 +25,7 @@ _PROVIDER_REASONS = {
     ProviderErrorCode.INVALID_CONTEXT: FailureReason.CONTEXT_INVALID,
     ProviderErrorCode.QUOTA_EXCEEDED: FailureReason.MODEL_QUOTA_EXCEEDED,
     ProviderErrorCode.BUSY: FailureReason.MODEL_BUSY,
+    ProviderErrorCode.KEYCHAIN_APPROVAL_PENDING: FailureReason.MODEL_KEYCHAIN_APPROVAL_PENDING,
 }
 
 

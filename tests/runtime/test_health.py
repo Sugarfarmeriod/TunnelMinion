@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import pytest
 
 from tunnelminion.model.configuration import FileModelConfigurationRepository
 from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
@@ -92,3 +93,23 @@ def test_model_health_reports_http_error_and_timeout(tmp_path: Path) -> None:
         503,
     )
     assert timed_out.code == "model_timeout"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_model_that_asks_for_a_key_counts_as_reachable(tmp_path: Path, status: int) -> None:
+    """检查不带密钥，要密钥的模型服务回 401/403 说明它在线，不算模型不可用。"""
+    FileModelConfigurationRepository(tmp_path / "model.json").save(
+        OpenAICompatibleConfig(endpoint="http://model.internal:8082/v1", model="fixture")
+    )
+    result = asyncio.run(
+        probe_external_model(
+            tmp_path,
+            0.1,
+            transport=httpx.MockTransport(lambda request: httpx.Response(status, request=request)),
+        )
+    )
+    assert (result.status, result.code, result.http_status) == (
+        ModelHealthStatus.REACHABLE,
+        "model_reachable_key_required",
+        status,
+    )

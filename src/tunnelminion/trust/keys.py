@@ -15,7 +15,11 @@ from tunnelminion.domain.trust import (
     encode_public_key,
     key_fingerprint,
 )
-from tunnelminion.model.secrets import SecretStore, SecretStoreError
+from tunnelminion.model.secrets import (
+    SecretStore,
+    SecretStoreApprovalPendingError,
+    SecretStoreError,
+)
 
 OWNER_KEY_NAME = "trust-owner-key"
 DEVICE_KEY_NAME = "trust-device-key"
@@ -73,6 +77,8 @@ def load_private_key(store: SecretStore, name: str) -> PrivateKey | None:
     try:
         text = store.get(name)
         return PrivateKey.from_seed_text(text) if text is not None else None
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法读取本机身份密钥") from None
 
@@ -80,6 +86,8 @@ def load_private_key(store: SecretStore, name: str) -> PrivateKey | None:
 def save_private_key(store: SecretStore, name: str, key: PrivateKey) -> None:
     try:
         store.set(name, key.seed_text())
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法保存本机身份密钥") from None
 
@@ -87,6 +95,8 @@ def save_private_key(store: SecretStore, name: str, key: PrivateKey) -> None:
 def delete_private_key(store: SecretStore, name: str) -> None:
     try:
         store.delete(name)
+    except SecretStoreApprovalPendingError:
+        raise
     except Exception:
         raise SecretStoreError("无法清理未完成的本机身份密钥") from None
 

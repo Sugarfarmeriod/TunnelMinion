@@ -23,6 +23,7 @@ class ProviderErrorCode(StrEnum):
     INVALID_CONTEXT = "invalid_context"
     QUOTA_EXCEEDED = "quota_exceeded"
     BUSY = "busy"
+    KEYCHAIN_APPROVAL_PENDING = "keychain_approval_pending"
 
 
 class ProviderError(Exception):

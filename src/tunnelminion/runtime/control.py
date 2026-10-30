@@ -195,7 +195,7 @@ def build_runtime_preflight() -> RuntimePreflight:
 
 MACOS_KEYCHAIN_HINT = (
     "启动超时。请看 Mac 屏幕上有没有弹出“tunnelminion 想使用钥匙串中的机密信息”："
-    "输入登录密码并点“始终允许”，然后再运行一次 runtime start。换了运行包以后会弹一次。"
+    "输入登录密码并点“始终允许”，然后再运行一次 runtime start。换了运行包以后每个密钥条目各弹一次。"
 )
 STARTUP_TIMEOUT_HINT = "启动超时。请查看 logs 里对应组件的日志。"
 

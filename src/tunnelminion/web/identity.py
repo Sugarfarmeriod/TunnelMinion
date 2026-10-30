@@ -25,7 +25,7 @@ from tunnelminion.gateway.configuration import (
 )
 from tunnelminion.gateway.names import load_node_name
 from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
-from tunnelminion.model.secrets import SecretStoreError
+from tunnelminion.model.secrets import SecretStoreApprovalPendingError, SecretStoreError
 from tunnelminion.trust.contracts import AlreadyInitializedError, IdentityError
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.friends import FriendsService
@@ -260,6 +260,8 @@ def _identity_failure(exc: Exception) -> NoReturn:
         _fail(409, "already_initialized", str(exc))
     if isinstance(exc, InvalidJoinCodeError):
         _fail(400, "invalid_code", str(exc))
+    if isinstance(exc, SecretStoreApprovalPendingError):
+        _fail(503, "keychain_approval_pending", str(exc))
     if isinstance(exc, SecretStoreError):
         # 底层原因只写进本机日志：常见的是 TunnelMinion 从 ssh 会话里启动，系统不让它用钥匙串。
         logger.warning("系统钥匙串操作失败：%s（%r）", exc, exc.__cause__)
