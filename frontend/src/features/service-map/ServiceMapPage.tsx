@@ -7,6 +7,7 @@ import {
   programOverviewQueryKey,
 } from "../../api/overview";
 import { ApiError } from "../../api/client";
+import { keychainHint } from "../../shared/keychainNotice";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import {
   loadLocalServices,
@@ -694,7 +695,7 @@ export function ServiceMapPage() {
         ) : null}
         {peers.isError ? (
           <p className="map-status" role="alert">
-            暂时无法读取其他电脑。
+            {keychainHint(peers.error) ?? "暂时无法读取其他电脑。"}
             <button
               type="button"
               className="map-button"
@@ -793,7 +794,7 @@ export function ServiceMapPage() {
       ) : null}
       {!open && services.isError ? (
         <p className="map-status" role="alert">
-          暂时无法查看这台电脑上的服务。{" "}
+          {keychainHint(services.error) ?? "暂时无法查看这台电脑上的服务。"}{" "}
           <button
             type="button"
             className="map-button"

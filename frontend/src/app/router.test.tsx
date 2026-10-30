@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { http, HttpResponse } from "msw";
@@ -124,5 +130,56 @@ describe("地图产品外壳", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("navigation", { name: "更多" })).toBeNull();
     expect(button).toHaveFocus();
+  });
+});
+describe("钥匙串等授权", () => {
+  const hint = "请在 Mac 屏幕上的钥匙串弹框点始终允许";
+  const pending = () =>
+    HttpResponse.json(
+      { detail: { code: "keychain_approval_pending", message: hint } },
+      { status: 503 },
+    );
+  it("地图读不到服务时直接显示去 Mac 上点允许，点完重新读取后提示消失", async () => {
+    let approved = false;
+    server.use(
+      http.get("/api/services/local", () =>
+        approved ? HttpResponse.json(makeLocalServices()) : pending(),
+      ),
+    );
+    mount("/app/map");
+    await waitFor(() =>
+      expect(
+        [...document.querySelectorAll(".map-status")].map((p) => p.textContent),
+      ).toContain(`${hint} 重试`),
+    );
+    expect(document.querySelector(".keychain-notice")).toHaveTextContent(hint);
+    expect(screen.queryByText(/暂时无法查看这台电脑上的服务/)).toBeNull();
+    approved = true;
+    const status = [...document.querySelectorAll(".map-status")].find((p) =>
+      p.textContent?.startsWith(hint),
+    ) as HTMLElement;
+    await userEvent
+      .setup()
+      .click(within(status).getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(screen.queryByText(hint)).toBeNull());
+  });
+  it("人员页读不到身份时也显示同一句提示", async () => {
+    server.use(http.get("/api/identity", pending));
+    mount("/app/people");
+    expect((await screen.findAllByText(hint)).length).toBeGreaterThan(0);
+    expect(document.querySelector(".keychain-notice")).toHaveTextContent(hint);
+  });
+  it("其他失败不显示钥匙串提示", async () => {
+    server.use(
+      http.get(
+        "/api/services/local",
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    );
+    mount("/app/map");
+    expect(
+      await screen.findByText(/暂时无法查看这台电脑上的服务/),
+    ).toBeVisible();
+    expect(document.querySelector(".keychain-notice")).toBeNull();
   });
 });

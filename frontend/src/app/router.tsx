@@ -13,6 +13,7 @@ import { IncidentsPage } from "../features/overview";
 import { SettingsPage } from "../features/settings";
 import { ServiceMapPage } from "../features/service-map/ServiceMapPage";
 import { RouteErrorPage } from "./RouteErrorPage";
+import { KeychainNotice } from "../shared/keychainNotice";
 import { isReadOnlyPreview } from "../shared/previewMode";
 
 function ProductShell() {
@@ -37,6 +38,7 @@ function ProductShell() {
         </nav>
       </div>
       <main id="main-content" tabIndex={-1}>
+        <KeychainNotice />
         <Outlet />
       </main>
     </div>

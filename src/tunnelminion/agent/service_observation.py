@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Protocol, cast
@@ -56,6 +56,23 @@ class CollectionAdapter(Protocol):
         arguments: dict[str, JsonValue],
         cancellation: ToolCancellationToken,
     ) -> JsonValue: ...
+
+
+# docker 只占观察时限的一部分：刚开机 Docker Desktop 还没起来时 `docker ps` 会一直等，到点就按
+# docker 暂不可用处理，监听端口和进程照常出结果，不让整轮观察超时。
+_DOCKER_BUDGET_SHARE = 0.6
+
+
+async def _gather_or_cancel(
+    *calls: Coroutine[object, object, ToolObservation],
+) -> list[ToolObservation]:
+    """同时等几个读取；任何一个失败就取消其余的，原样抛出这个失败。"""
+    tasks = [asyncio.ensure_future(call) for call in calls]
+    try:
+        return await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
 
 
 class ServiceObservationError(RuntimeError):
@@ -373,25 +390,28 @@ class DeterministicServiceObserver:
                 raise ServiceObservationError("refresh_limited", "服务观察刷新过于频繁")
             try:
                 async with asyncio.timeout(self._config.timeout_seconds):
-                    listener = await self._collect(
-                        "list_network_listeners",
-                        self._listeners,
-                        self._config.listeners_enabled,
-                        arguments={
-                            "include_python_entrypoint": True,
-                            "include_program_names": True,
-                            "include_python_project_name": True,
-                            "include_process_origin": True,
-                            "include_web_title": True,
-                        },
+                    # 三个来源互不依赖，同时读；总时间按最慢的一个算，不再一个接一个累加。
+                    listener, process, docker = await _gather_or_cancel(
+                        self._collect(
+                            "list_network_listeners",
+                            self._listeners,
+                            self._config.listeners_enabled,
+                            arguments={
+                                "include_python_entrypoint": True,
+                                "include_program_names": True,
+                                "include_python_project_name": True,
+                                "include_process_origin": True,
+                                "include_web_title": True,
+                            },
+                        ),
+                        self._collect(
+                            "get_process_summary",
+                            self._processes,
+                            self._config.processes_enabled,
+                            arguments={"limit": self._config.max_services},
+                        ),
+                        self._collect_docker(),
                     )
-                    process = await self._collect(
-                        "get_process_summary",
-                        self._processes,
-                        self._config.processes_enabled,
-                        arguments={"limit": self._config.max_services},
-                    )
-                    docker = await self._collect_docker()
                 inventory = RemoteServiceInventoryBuilder().build(
                     self._node_id, listener, process, docker
                 )
@@ -597,7 +617,8 @@ class DeterministicServiceObserver:
         if not self._config.docker_enabled:
             return await self._collect("list_docker_services", self._docker, enabled=False)
         try:
-            return await self._collect("list_docker_services", self._docker, enabled=True)
+            async with asyncio.timeout(self._config.timeout_seconds * _DOCKER_BUDGET_SHARE):
+                return await self._collect("list_docker_services", self._docker, enabled=True)
         except asyncio.CancelledError:
             raise
         except Exception:

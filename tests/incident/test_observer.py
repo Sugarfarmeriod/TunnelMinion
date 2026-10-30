@@ -23,6 +23,7 @@ from tunnelminion.agent.services import (
     ServiceAccessibility,
 )
 from tunnelminion.coordinator.contracts import ServiceProtocol
+from tunnelminion.incident import observer as observer_module
 from tunnelminion.incident.contracts import Incident, IncidentStatus
 from tunnelminion.incident.observer import (
     IncidentObservationService,
@@ -124,6 +125,45 @@ def test_warm_up_refreshes_services_at_once_without_taking_a_snapshot(
     stopped = IncidentObservationService(MutableOverview(), store, before_snapshot=refresh)
     asyncio.run(stopped.run(stop, warm_up=True))
     assert refreshes == 1
+
+
+@pytest.mark.parametrize(("failures", "expected_calls"), [(1, 2), (5, 3)])
+def test_warm_up_retries_after_seconds_instead_of_a_whole_cycle(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    failures: int,
+    expected_calls: int,
+) -> None:
+    """刚开机第一次扫描超时后几秒内再试，最多试三次；周期本身仍是 30 秒。"""
+    monkeypatch.setattr(observer_module, "_WARM_UP_RETRY_SECONDS", 0)
+    stop = asyncio.Event()
+    calls = 0
+    error_message = "fixture-private-error"
+
+    async def refresh() -> None:
+        nonlocal calls
+        calls += 1
+        if calls <= failures:
+            raise RuntimeError(error_message)
+
+    observer = IncidentObservationService(
+        MutableOverview(), SQLiteIncidentStore(tmp_path / "retry.sqlite3"), before_snapshot=refresh
+    )
+
+    async def scenario() -> None:
+        task = asyncio.create_task(observer.run(stop, warm_up=True))
+        for _ in range(50):
+            await asyncio.sleep(0)
+        stop.set()
+        await task
+
+    asyncio.run(scenario())
+    assert calls == expected_calls
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == min(failures, expected_calls)
+    assert messages[-1].endswith("下个周期重试" if failures >= expected_calls else "稍后再试")
+    assert "fixture-private" not in caplog.text
 
 
 def test_cancelling_refresh_stops_promptly_without_error_log(

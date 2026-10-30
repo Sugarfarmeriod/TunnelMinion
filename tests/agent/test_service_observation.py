@@ -176,6 +176,72 @@ def test_docker_failure_is_degraded_but_listener_snapshot_is_complete() -> None:
     assert value.status.last_error_code is None
 
 
+class Rendezvous(FakeAdapter):
+    """先报到再等另一个来源报到；一个接一个读时会互相等到超时。"""
+
+    def __init__(self, value: JsonValue, arrived: asyncio.Event, other: asyncio.Event) -> None:
+        super().__init__(value)
+        self.arrived = arrived
+        self.other = other
+        self.cancelled = False
+
+    async def execute(
+        self,
+        arguments: dict[str, JsonValue],
+        cancellation: ToolCancellationToken,
+    ) -> JsonValue:
+        self.arrived.set()
+        try:
+            await self.other.wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return await super().execute(arguments, cancellation)
+
+
+def test_sources_are_read_at_the_same_time_not_one_after_another() -> None:
+    async def scenario() -> None:
+        first, second = asyncio.Event(), asyncio.Event()
+        listeners = Rendezvous(
+            collection(NetworkListener(protocol="tcp", address="10.77.0.2", port=8787)),
+            first,
+            second,
+        )
+        processes = Rendezvous(collection(), second, first)
+        snapshot = await observer(listeners, processes, FakeAdapter(collection())).observe()
+        assert len(snapshot.services) == 1
+
+    asyncio.run(scenario())
+
+
+def test_slow_docker_is_cut_off_without_failing_the_whole_observation() -> None:
+    """刚开机 Docker Desktop 还没起来时 `docker ps` 一直等；只把 docker 记为暂不可用。"""
+    listeners = FakeAdapter(
+        collection(NetworkListener(protocol="tcp", address="10.77.0.2", port=8787))
+    )
+    docker = FakeAdapter(collection(), wait=asyncio.Event())
+    value = observer(listeners, FakeAdapter(collection()), docker, timeout_seconds=0.5)
+
+    snapshot = asyncio.run(value.observe())
+
+    assert len(snapshot.services) == 1
+    assert snapshot.degraded_sources == ("list_docker_services",)
+    assert value.status.last_error_code is None
+
+
+def test_a_failed_source_stops_the_others_and_keeps_its_error_code() -> None:
+    hanging = Rendezvous(collection(), asyncio.Event(), asyncio.Event())
+    value = observer(
+        FakeAdapter(collection(), error=PermissionError("sensitive path")),
+        hanging,
+        FakeAdapter(collection()),
+    )
+    with pytest.raises(ServiceObservationError) as failed:
+        asyncio.run(value.observe())
+    assert failed.value.code == "observation_failed"
+    assert hanging.cancelled
+
+
 def test_automatic_names_select_python_without_system_ports_or_own_runtime() -> None:
     listeners = FakeAdapter(
         collection(

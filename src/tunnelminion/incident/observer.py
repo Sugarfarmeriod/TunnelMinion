@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -26,6 +26,11 @@ from tunnelminion.incident.storage import SQLiteIncidentStore
 from tunnelminion.web.overview import OverviewSource, ResourceOverview
 
 logger = logging.getLogger(__name__)
+
+
+# 启动刷新最多试几次、每次隔几秒；上一次超时时后台线程已把进程来历和首页结果记进缓存，重试会快很多。
+_WARM_UP_ATTEMPTS = 3
+_WARM_UP_RETRY_SECONDS = 3.0
 
 
 def _log_exception(message: str, error: Exception) -> None:
@@ -176,14 +181,12 @@ class IncidentObservationService:
         """按有界周期运行，停止信号不会触发额外刷新。
 
         `warm_up` 时先立刻刷新一次服务清单，让刚启动的页面不必空等一个周期；这次不留事件快照，
-        基线仍由一个周期后的第一轮建立。
+        基线仍由一个周期后的第一轮建立。刚开机时第一次读取常常偏慢，失败后隔几秒再试，
+        不等整个周期。
         """
         try:
-            if warm_up and self._before_snapshot is not None and not stop.is_set():
-                try:
-                    await self._before_snapshot()
-                except Exception as exc:
-                    _log_exception("启动时刷新服务失败，下个周期重试", exc)
+            if warm_up and self._before_snapshot is not None:
+                await self._warm_up(stop)
             while not stop.is_set():
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=self._interval_seconds)
@@ -194,6 +197,21 @@ class IncidentObservationService:
                         _log_exception("观察轮次失败，下个周期重试", exc)
         finally:
             await self.aclose()
+
+    async def _warm_up(self, stop: asyncio.Event) -> None:
+        assert self._before_snapshot is not None
+        for attempt in range(1, _WARM_UP_ATTEMPTS + 1):
+            if stop.is_set():
+                return
+            try:
+                await self._before_snapshot()
+                return
+            except Exception as exc:
+                last = attempt == _WARM_UP_ATTEMPTS
+                _log_exception(f"启动时刷新服务失败，{'下个周期重试' if last else '稍后再试'}", exc)
+            if attempt < _WARM_UP_ATTEMPTS:
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=_WARM_UP_RETRY_SECONDS)
 
     async def aclose(self) -> None:
         """取消并收齐当前后台调查。"""
