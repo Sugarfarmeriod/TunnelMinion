@@ -172,9 +172,18 @@ class IncidentObservationService:
             }
         )
 
-    async def run(self, stop: asyncio.Event) -> None:
-        """按有界周期运行，停止信号不会触发额外刷新。"""
+    async def run(self, stop: asyncio.Event, *, warm_up: bool = False) -> None:
+        """按有界周期运行，停止信号不会触发额外刷新。
+
+        `warm_up` 时先立刻刷新一次服务清单，让刚启动的页面不必空等一个周期；这次不留事件快照，
+        基线仍由一个周期后的第一轮建立。
+        """
         try:
+            if warm_up and self._before_snapshot is not None and not stop.is_set():
+                try:
+                    await self._before_snapshot()
+                except Exception as exc:
+                    _log_exception("启动时刷新服务失败，下个周期重试", exc)
             while not stop.is_set():
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=self._interval_seconds)
@@ -237,7 +246,7 @@ def incident_observation_lifespan(
             else:
                 store.recover_interrupted(at=now())
             stop = asyncio.Event()
-            task = asyncio.create_task(observer.run(stop))
+            task = asyncio.create_task(observer.run(stop, warm_up=not observer.read_only_preview))
             try:
                 yield
             finally:

@@ -485,6 +485,107 @@ def test_web_probing_with_no_candidates_does_nothing(monkeypatch: pytest.MonkeyP
     assert "has_web_page" not in result.items[0]
 
 
+def test_process_origin_is_reused_across_rounds_until_the_process_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    started: dict[int, float | None] = {101: 1.0, 102: None}
+    present = [101, 102]
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return tuple(
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=7000 + pid, pid=pid)
+                for pid in present
+            )
+
+    def origin(pid: int, expected_name: str | None) -> ProcessOrigin | None:
+        calls.append(pid)
+        return ProcessOrigin.TERMINAL
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.read_process_origin", origin)
+    adapter = NetworkListenersAdapter(Reader(), started_at=started.get)
+
+    def observe() -> list[object]:
+        result = CollectionResult.model_validate(
+            run(adapter.execute({"include_process_origin": True}, token()))
+        )
+        return [item.get("origin") for item in result.items]
+
+    assert observe() == ["terminal", "terminal"]
+    # 同一个进程第二轮直接用上次的结论；读不到创建时间的进程每轮重读。
+    assert observe() == ["terminal", "terminal"]
+    assert calls == [101, 102, 102]
+    # 进程号被新进程复用时重新判断。
+    started[101] = 2.0
+    observe()
+    assert calls[3:] == [101, 102]
+    # 进程退出后缓存随之丢弃，再出现同一进程也重新判断。
+    present.remove(101)
+    observe()
+    present.append(101)
+    observe()
+    assert calls[5:] == [102, 102, 101]
+
+
+def test_web_pages_are_reused_for_a_while_and_cover_ports_beyond_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probed: list[int] = []
+    now = [0.0]
+    pids = dict.fromkeys(range(3000, 3040), 1)
+
+    class Reader(FakeReader):
+        def listeners(self) -> tuple[NetworkListener, ...]:
+            return tuple(
+                NetworkListener(protocol="tcp", address="127.0.0.1", port=port, pid=pid)
+                for port, pid in pids.items()
+            )
+
+    def probe(address: str, port: int) -> WebPage | None:
+        probed.append(port)
+        return WebPage(title="Panel") if port == 3000 else None
+
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.probe_web_page", probe)
+    adapter = NetworkListenersAdapter(Reader(), clock=lambda: now[0])
+
+    def observe() -> dict[object, object]:
+        result = CollectionResult.model_validate(
+            run(adapter.execute({"include_web_title": True}, token()))
+        )
+        return {item["port"]: item.get("has_web_page") for item in result.items}
+
+    first = observe()
+    assert sorted(probed) == list(range(3000, 3032)) and first[3000] is True
+    assert first[3035] is None
+    # 第二轮只访问上一轮超出数量限制没访问到的端口，已访问过的直接沿用。
+    probed.clear()
+    second = observe()
+    assert sorted(probed) == list(range(3032, 3040))
+    assert second[3000] is True and second[3035] is False
+    probed.clear()
+    observe()
+    assert probed == []
+    # 程序重启换了进程号，或者过了缓存时间，都重新访问。
+    pids[3000] = 2
+    now[0] = 299.0
+    probed.clear()
+    observe()
+    assert probed == [3000]
+    now[0] = 600.0
+    probed.clear()
+    observe()
+    assert sorted(probed) == list(range(3000, 3032))
+
+
+def test_process_start_time_is_read_from_the_live_process() -> None:
+    from tunnelminion.platforms.windows import adapters
+
+    started_at = adapters._process_started_at  # pyright: ignore[reportPrivateUsage]
+    assert started_at(os.getpid()) == psutil.Process().create_time()
+    assert started_at(2**31 - 4) is None
+
+
 def test_docker_adapter_reads_compose_project_from_labels() -> None:
     lines = "\n".join(
         (

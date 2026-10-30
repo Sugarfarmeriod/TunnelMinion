@@ -479,7 +479,8 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         # 第一轮建立基线，第二轮确认基线稳定。
         for _ in range(2):
             assert client.portal.call(observer.observe_once).incidents == ()
-        assert observations == 2
+        # 应用启动时先预热刷新一次服务清单，再加上两轮观察。
+        assert observations == 3
         overview = client.get("/api/resources/overview").json()
         assert [item["port"] for item in overview["services"]["items"]] == [18081]
         assert overview["incidents"]["items"] == []
@@ -489,7 +490,7 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         # 新服务需要连续两轮观察确认后才形成 incident。
         assert client.portal.call(observer.observe_once).incidents == ()
         assert len(client.portal.call(observer.observe_once).incidents) == 1
-        assert observations == 4
+        assert observations == 5
 
         async def finish_investigations() -> None:
             await asyncio.gather(*observer._active.values())  # pyright: ignore[reportPrivateUsage]
