@@ -166,11 +166,18 @@ def _windows_flags_adapter(
     return adapter, popen
 
 
+def _windows_access_denied() -> OSError:
+    """Windows 拒绝脱离作业时的错误；非 Windows 的 Python 不会从构造参数填 winerror，手动补上。"""
+    error = OSError(0, "access denied")
+    setattr(error, "winerror", 5)  # noqa: B010
+    return error
+
+
 @pytest.mark.parametrize(
     "error",
     [
         PermissionError(13, "denied"),
-        OSError(0, "access denied", None, 5),
+        _windows_access_denied(),
     ],
 )
 def test_spawn_falls_back_when_job_forbids_breakaway(
