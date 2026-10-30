@@ -185,6 +185,51 @@ it.each([0, 1, 3, 8])("%i 个对端只与中心电脑相连", async (count) => {
   }
 });
 
+it.each([1440, 320])(
+  "%ipx 连线标出走 WireGuard、n2n 还是其他网卡，认不出时不标",
+  async (width) => {
+    window.innerWidth = width;
+    const peers = [
+      makePeer(1, { network: "wireguard" }),
+      makePeer(2, { network: "n2n" }),
+      makePeer(3, { network: "other", reachable: false }),
+      makePeer(4),
+    ];
+    const { container } = renderMap(peers);
+    await waitFor(() =>
+      expect(container.querySelectorAll(".map-link")).toHaveLength(4),
+    );
+    const links = Array.from(container.querySelectorAll(".map-link"));
+    expect(links.map((link) => link.getAttribute("aria-label"))).toEqual([
+      "这台电脑到测试电脑 1：能连上，走WireGuard",
+      "这台电脑到测试电脑 2：能连上，走n2n",
+      "这台电脑到测试电脑 3：连不上，走其他网卡",
+      "这台电脑到测试电脑 4：能连上",
+    ]);
+    expect(links.map((link) => link.getAttribute("data-network"))).toEqual([
+      "wireguard",
+      "n2n",
+      "other",
+      null,
+    ]);
+    expect(links[0]).toHaveClass("is-wireguard");
+    expect(links[2]).toHaveClass("is-unreachable", "is-other");
+    const labels = Array.from(container.querySelectorAll(".map-link-network"));
+    expect(labels.map((label) => label.textContent)).toEqual([
+      "WireGuard",
+      "n2n",
+      "其他网卡",
+    ]);
+    expect(labels.map((label) => label.getAttribute("data-to"))).toEqual(
+      peers.slice(0, 3).map((peer) => peer.node_id),
+    );
+    labels.forEach((label) => {
+      expect(label).toHaveAttribute("aria-hidden", "true");
+      expect(label.classList.contains("is-vertical")).toBe(width <= 760);
+    });
+  },
+);
+
 async function openPeer(peer = makePeer()) {
   fireEvent.click(
     await screen.findByRole("button", {
