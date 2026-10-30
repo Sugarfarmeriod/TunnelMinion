@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -142,15 +143,28 @@ class DetachedProcessAdapter:
         restrict_file_permissions(log_path)
         creationflags, start_new_session = detached_process_options()
         with Path(os.devnull).open("wb") as output:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                close_fds=True,
-                creationflags=creationflags,
-                start_new_session=start_new_session,
-            )
+
+            def launch(flags: int) -> subprocess.Popen[bytes]:
+                return subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    close_fds=True,
+                    creationflags=flags,
+                    start_new_session=start_new_session,
+                )
+
+            try:
+                process = launch(creationflags)
+            except OSError as exc:
+                # 所在作业对象不允许脱离时，Windows 拒绝 CREATE_BREAKAWAY_FROM_JOB，退回不脱离启动
+                if not creationflags & WINDOWS_BREAKAWAY_FROM_JOB or (
+                    getattr(exc, "winerror", None) != 5
+                    and exc.errno not in {errno.EACCES, errno.EPERM}
+                ):
+                    raise
+                process = launch(creationflags & ~WINDOWS_BREAKAWAY_FROM_JOB)
         snapshot = self.inspect(process.pid)
         if snapshot is None:
             raise RuntimeError("子进程启动后立即退出")
@@ -241,14 +255,23 @@ def runtime_identity_arguments(component: RuntimeComponent, instance_id: UUID) -
     )
 
 
+# Windows 的 CREATE_BREAKAWAY_FROM_JOB；非 Windows 的 subprocess 没有这个常量
+WINDOWS_BREAKAWAY_FROM_JOB = 0x01000000
+
+
 def detached_process_options(platform_name: str | None = None) -> tuple[int, bool]:
-    """返回 Windows/POSIX 的 detached 参数，不创建服务、计划任务或登录项。"""
+    """返回 Windows/POSIX 的 detached 参数，不创建服务、计划任务或登录项。
+
+    Windows 上同时脱离启动者所在的作业对象：从终端、编辑器或其他应用里运行 `runtime start` 时，
+    那个应用退出或重启会结束整个作业里的进程，组件会无声无息地消失。
+    """
     if (platform_name or os.name) != "nt":
         return 0, True
     flags = (
-        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        | getattr(subprocess, "DETACHED_PROCESS", 0)
-        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        | WINDOWS_BREAKAWAY_FROM_JOB
     )
     return flags, False
 

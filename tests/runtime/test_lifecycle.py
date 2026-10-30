@@ -349,18 +349,14 @@ def test_status_distinguishes_stale_failed_and_invalid_record(tmp_path: Path) ->
     assert invalid.components[0].error_code == "process_record_invalid"
 
 
-@pytest.mark.parametrize("replacement", ["time", "executable", "arguments", "data"])
-def test_pid_reuse_and_identity_replacement_fail_closed(tmp_path: Path, replacement: str) -> None:
+@pytest.mark.parametrize("replacement", ["arguments", "data"])
+def test_identity_replacement_fail_closed(tmp_path: Path, replacement: str) -> None:
     adapter = FakeProcessAdapter()
     manager = _manager(tmp_path, adapter)
     started = manager.start().components[0]
     assert started.pid is not None
     snapshot = adapter.snapshots[started.pid]
-    if replacement == "time":
-        snapshot = snapshot.model_copy(update={"process_started_at": 9999.0})
-    elif replacement == "executable":
-        snapshot = snapshot.model_copy(update={"executable": str(tmp_path / "foreign")})
-    elif replacement == "arguments":
+    if replacement == "arguments":
         snapshot = snapshot.model_copy(update={"command_line": (sys.executable, "foreign")})
     else:
         record_path = tmp_path / "data" / "runtime" / "state" / "local.json"
@@ -373,6 +369,34 @@ def test_pid_reuse_and_identity_replacement_fail_closed(tmp_path: Path, replacem
     stopped = manager.stop()
     assert status.components[0].state is ComponentRuntimeState.OWNERSHIP_CONFLICT
     assert stopped.components[0].state is ComponentRuntimeState.OWNERSHIP_CONFLICT
+    assert adapter.terminate_calls == []
+    assert manager.start().components[0].state is ComponentRuntimeState.OWNERSHIP_CONFLICT
+
+
+@pytest.mark.parametrize("replacement", ["time", "executable"])
+def test_reused_pid_is_stale_record_and_start_replaces_it(tmp_path: Path, replacement: str) -> None:
+    """记录里的进程号被系统换给了别的程序：判为过期记录，不结束它，start 照常起新实例。"""
+    adapter = FakeProcessAdapter()
+    manager = _manager(tmp_path, adapter)
+    started = manager.start().components[0]
+    assert started.pid is not None
+    snapshot = adapter.snapshots[started.pid]
+    adapter.snapshots[started.pid] = snapshot.model_copy(
+        update=(
+            {"process_started_at": 9999.0}
+            if replacement == "time"
+            else {"executable": str(tmp_path / "conhost.exe")}
+        )
+    )
+
+    assert manager.status().components[0].state is ComponentRuntimeState.STALE
+    stopped = manager.stop().components[0]
+    assert stopped.state is ComponentRuntimeState.STALE
+    assert stopped.process_present is False
+    assert adapter.terminate_calls == []
+    restarted = manager.start().components[0]
+    assert restarted.state is ComponentRuntimeState.RUNNING
+    assert restarted.pid != started.pid
     assert adapter.terminate_calls == []
 
 
@@ -409,12 +433,17 @@ def test_missing_command_line_and_stop_time_identity_race_fail_closed(
         calls += 1
         value = original(pid)
         if calls == 2 and value is not None:
+            return value.model_copy(update={"command_line": (sys.executable, "foreign")})
+        if calls == 4 and value is not None:
             return value.model_copy(update={"process_started_at": 9999.0})
         return value
 
     monkeypatch.setattr(racing, "inspect", replace_after_status)
     stopped = race_manager.stop().components[0]
     assert stopped.state is ComponentRuntimeState.OWNERSHIP_CONFLICT
+    # 两次核对之间进程号被复用：按过期记录处理，同样不结束它
+    stopped = race_manager.stop().components[0]
+    assert stopped.state is ComponentRuntimeState.STALE
     assert racing.terminate_calls == []
 
 
@@ -666,8 +695,8 @@ def test_status_checks_identity_before_listener_and_stop_ignores_listener_failur
         update={"executable": str(tmp_path / "foreign")}
     )
     calls_before_conflict = identity_health.calls
-    conflict = identity_manager.status().components[0]
-    assert conflict.state is ComponentRuntimeState.OWNERSHIP_CONFLICT
+    reused = identity_manager.status().components[0]
+    assert reused.state is ComponentRuntimeState.STALE
     assert identity_health.calls == calls_before_conflict
 
 
@@ -753,6 +782,30 @@ def test_start_fails_if_listener_or_process_disappears_during_stability_window(
         _command,
         health=TimeoutReadiness(clock, ready_after=0),
         sleep=drop_process,
+        monotonic=clock.monotonic,
+    )
+
+    assert manager.start().components[0].error_code == "startup_unstable"
+
+
+def test_start_fails_if_pid_is_reused_during_stability_window(tmp_path: Path) -> None:
+    clock = FakeClock()
+    adapter = FakeProcessAdapter()
+    profile, paths = _profile(tmp_path)
+
+    def reuse_pid(seconds: float) -> None:
+        del seconds
+        for pid, snapshot in list(adapter.snapshots.items()):
+            adapter.snapshots[pid] = snapshot.model_copy(update={"process_started_at": 9999.0})
+
+    manager = ManualLifecycleManager(
+        profile,
+        paths,
+        "0.1.0",
+        adapter,
+        _command,
+        health=TimeoutReadiness(clock, ready_after=0),
+        sleep=reuse_pid,
         monotonic=clock.monotonic,
     )
 
