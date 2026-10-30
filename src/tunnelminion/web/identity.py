@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -235,6 +236,14 @@ class PendingSetups:
                 self._pending = None
 
 
+logger = logging.getLogger(__name__)
+
+SECRET_STORE_UNAVAILABLE = (
+    "这台电脑的系统钥匙串打不开，密钥存不进去。如果 TunnelMinion 是通过 ssh 远程启动的，"
+    "系统不让它用钥匙串：请在这台电脑的桌面上（Mac 用“终端”App）重新启动 TunnelMinion 后再试"
+)
+
+
 def _fail(status: int, code: str, message: str) -> NoReturn:
     raise HTTPException(status_code=status, detail={"code": code, "message": message})
 
@@ -252,7 +261,9 @@ def _identity_failure(exc: Exception) -> NoReturn:
     if isinstance(exc, InvalidJoinCodeError):
         _fail(400, "invalid_code", str(exc))
     if isinstance(exc, SecretStoreError):
-        _fail(500, "secret_store_unavailable", "系统钥匙串暂时不可用，请稍后再试")
+        # 底层原因只写进本机日志：常见的是 TunnelMinion 从 ssh 会话里启动，系统不让它用钥匙串。
+        logger.warning("系统钥匙串操作失败：%s（%r）", exc, exc.__cause__)
+        _fail(500, "secret_store_unavailable", SECRET_STORE_UNAVAILABLE)
     if isinstance(exc, VerificationError):
         _fail(400, "verification_failed", str(exc))
     _fail(400, "identity_error", str(exc))

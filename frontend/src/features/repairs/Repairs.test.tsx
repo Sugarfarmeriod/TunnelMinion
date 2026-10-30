@@ -315,6 +315,12 @@ describe("地图上的本机修复", () => {
     expect(screen.getByText("已停止")).toBeVisible();
     const panel = screen.getByRole("dialog", { name: "这台电脑上的服务" });
     expect(within(panel).getByText("需要处理的事")).toBeVisible();
+    // 待批准的修复放在服务清单的滚动区里，不再单独占住面板高度
+    expect(
+      within(within(panel).getByLabelText("服务清单")).getByText(
+        "需要处理的事",
+      ),
+    ).toBeVisible();
     fireEvent.click(within(panel).getByRole("button", { name: "看看怎么修" }));
     const dialog = await screen.findByRole("dialog", {
       name: "要修好“相册”吗？",

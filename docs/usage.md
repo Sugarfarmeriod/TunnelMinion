@@ -42,6 +42,10 @@ EXE="./package/tunnelminion"
 停止用 `runtime stop --profile <同一个 profile>`。目前不会开机自启，电脑重启后要再运行一次 `start`。
 如果提示 `package_invalid`，请重新下载同一次 CI 的完整运行包，不要手工拼文件。
 
+`start` 要在这台电脑自己的桌面上运行（Windows 的 PowerShell 窗口、Mac 的"终端"App）。通过 ssh
+远程启动的进程用不了系统钥匙串（Windows 凭据管理器、macOS 登录钥匙串），建机主身份、保存模型密钥时
+会提示"系统钥匙串打不开"；这时回到那台电脑的桌面上 `stop` 再 `start` 一次即可。
+
 要和别的电脑互相查、互相委派，需要同时运行网关。先按第 3 步生成或使用邀请码，然后在 `configure`
 时加上 `--enable-gateway`，再运行 `start`。
 

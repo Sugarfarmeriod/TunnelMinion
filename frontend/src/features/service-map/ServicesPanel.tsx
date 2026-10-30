@@ -323,23 +323,6 @@ export function ServicesPanel({
           </nav>
         </div>
       ) : null}
-      {pendingRepairs.length ? (
-        <div className="map-repair-box">
-          <strong>需要处理的事</strong>
-          {pendingRepairs.map((repair) => (
-            <div key={repair.repair_id}>
-              <p title={repair.action_summary}>{repair.action_summary}</p>
-              <button
-                type="button"
-                className="map-button"
-                onClick={() => onRepair?.(repair.repair_id)}
-              >
-                看看怎么修
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
       {markError ? (
         <p className="map-error" role="alert">
           标记没有保存，请再试一次。
@@ -356,6 +339,24 @@ export function ServicesPanel({
         tabIndex={0}
         aria-label="服务清单"
       >
+        {/* 待批准的修复随清单一起滚动，避免在矮地图上把服务清单挤没 */}
+        {pendingRepairs.length ? (
+          <div className="map-repair-box">
+            <strong>需要处理的事</strong>
+            {pendingRepairs.map((repair) => (
+              <div key={repair.repair_id}>
+                <p title={repair.action_summary}>{repair.action_summary}</p>
+                <button
+                  type="button"
+                  className="map-button"
+                  onClick={() => onRepair?.(repair.repair_id)}
+                >
+                  看看怎么修
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {message ? (
           <p className="map-empty">{message}</p>
         ) : loading ? (
