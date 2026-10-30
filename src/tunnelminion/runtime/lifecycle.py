@@ -296,7 +296,7 @@ class ManualLifecycleManager:
             return self._view(record, ComponentRuntimeState.STOPPED, False)
 
         snapshot = self._adapter.inspect(record.pid)
-        if snapshot is None or not snapshot.running:
+        if snapshot is None or not snapshot.running or self._is_reused_pid(record, snapshot):
             state = (
                 ComponentRuntimeState.FAILED
                 if record.lifecycle is ComponentLifecycle.FAILED
@@ -335,7 +335,7 @@ class ManualLifecycleManager:
             )
 
         snapshot = self._adapter.inspect(record.pid)
-        if snapshot is None or not snapshot.running:
+        if snapshot is None or not snapshot.running or self._is_reused_pid(record, snapshot):
             state = (
                 ComponentRuntimeState.FAILED
                 if record.lifecycle is ComponentLifecycle.FAILED
@@ -345,7 +345,11 @@ class ManualLifecycleManager:
         if not self._is_owned(record, snapshot):
             return self._view(record, ComponentRuntimeState.OWNERSHIP_CONFLICT, True)
         latest_snapshot = self._adapter.inspect(record.pid)
-        if latest_snapshot is None or not latest_snapshot.running:
+        if (
+            latest_snapshot is None
+            or not latest_snapshot.running
+            or self._is_reused_pid(record, latest_snapshot)
+        ):
             state = (
                 ComponentRuntimeState.FAILED
                 if record.lifecycle is ComponentLifecycle.FAILED
@@ -380,14 +384,25 @@ class ManualLifecycleManager:
         self._records.save(stopped)
         return self._view(stopped, ComponentRuntimeState.STOPPED, False)
 
+    @staticmethod
+    def _is_reused_pid(record: RuntimeProcessRecord, snapshot: ProcessSnapshot) -> bool:
+        """进程号还在，但启动时间或可执行文件和记录对不上：记录里的进程早已退出，号被系统复用。
+
+        读不到启动时间或可执行文件时无法证明是复用，仍按归属冲突处理。
+        """
+        if snapshot.process_started_at is None or snapshot.executable is None:
+            return False
+        return (
+            abs(snapshot.process_started_at - record.process_started_at) > 0.01
+            or Path(snapshot.executable).resolve() != record.executable.resolve()
+        )
+
     def _is_owned(self, record: RuntimeProcessRecord, snapshot: ProcessSnapshot | None) -> bool:
         if snapshot is None or not snapshot.running:
             return False
         if snapshot.process_started_at is None or snapshot.executable is None:
             return False
-        if abs(snapshot.process_started_at - record.process_started_at) > 0.01:
-            return False
-        if Path(snapshot.executable).resolve() != record.executable.resolve():
+        if self._is_reused_pid(record, snapshot):
             return False
         if snapshot.command_line is None:
             return False

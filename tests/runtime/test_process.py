@@ -11,6 +11,7 @@ import psutil
 import pytest
 
 from tunnelminion.runtime.process import (
+    WINDOWS_BREAKAWAY_FROM_JOB,
     DetachedProcessAdapter,
     ProcessSnapshot,
     RuntimeOperationLock,
@@ -25,7 +26,8 @@ from tunnelminion.runtime.profile import RuntimeComponent
 def test_detached_options_cover_windows_and_posix_without_autostart_registration() -> None:
     windows_flags, windows_session = detached_process_options("nt")
     posix_flags, posix_session = detached_process_options("posix")
-    assert windows_flags >= 0
+    # Windows 上脱离启动者的作业对象，启动它的应用退出时组件不会被一起结束
+    assert windows_flags & WINDOWS_BREAKAWAY_FROM_JOB
     assert not windows_session
     assert posix_flags == 0
     assert posix_session
@@ -127,6 +129,81 @@ def test_detached_adapter_rejects_child_that_exits_before_inspection(
             (sys.executable, "-c", "pass"),
             tmp_path / "logs" / "exited.log",
         )
+
+
+class _RefusingPopen:
+    """第一次带脱离作业标志启动时按给定错误拒绝，之后记录收到的标志。"""
+
+    def __init__(self, error: OSError) -> None:
+        self.error = error
+        self.flags: list[int] = []
+
+    def __call__(self, command: tuple[str, ...], **kwargs: object) -> object:
+        del command
+        flags = kwargs["creationflags"]
+        assert isinstance(flags, int)
+        self.flags.append(flags)
+        if flags & WINDOWS_BREAKAWAY_FROM_JOB:
+            raise self.error
+        return type("Child", (), {"pid": 4242})()
+
+
+def _windows_flags_adapter(
+    monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> tuple[DetachedProcessAdapter, _RefusingPopen]:
+    adapter = DetachedProcessAdapter()
+    popen = _RefusingPopen(error)
+    monkeypatch.setattr("tunnelminion.runtime.process.subprocess.Popen", popen)
+    monkeypatch.setattr(
+        "tunnelminion.runtime.process.detached_process_options",
+        lambda: (0x00000200 | WINDOWS_BREAKAWAY_FROM_JOB, False),
+    )
+
+    def found(pid: int) -> ProcessSnapshot:
+        return ProcessSnapshot(pid=pid)
+
+    monkeypatch.setattr(adapter, "inspect", found)
+    return adapter, popen
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PermissionError(13, "denied"),
+        OSError(0, "access denied", None, 5),
+    ],
+)
+def test_spawn_falls_back_when_job_forbids_breakaway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    adapter, popen = _windows_flags_adapter(monkeypatch, error)
+    snapshot = adapter.spawn(("component",), tmp_path / "logs" / "component.log")
+    assert snapshot.pid == 4242
+    assert popen.flags == [0x00000200 | WINDOWS_BREAKAWAY_FROM_JOB, 0x00000200]
+
+
+def test_spawn_does_not_hide_other_launch_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter, popen = _windows_flags_adapter(monkeypatch, FileNotFoundError(2, "missing"))
+    with pytest.raises(FileNotFoundError):
+        adapter.spawn(("component",), tmp_path / "logs" / "component.log")
+    assert len(popen.flags) == 1
+
+
+def test_spawn_errors_without_breakaway_are_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = DetachedProcessAdapter()
+    monkeypatch.setattr("tunnelminion.runtime.process.detached_process_options", lambda: (0, True))
+
+    def refuse(command: tuple[str, ...], **kwargs: object) -> object:
+        del command, kwargs
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr("tunnelminion.runtime.process.subprocess.Popen", refuse)
+    with pytest.raises(PermissionError):
+        adapter.spawn(("component",), tmp_path / "logs" / "component.log")
 
 
 def test_operation_lock_exit_without_enter_is_safe(tmp_path: Path) -> None:
