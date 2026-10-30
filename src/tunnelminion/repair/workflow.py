@@ -431,12 +431,14 @@ class RepairWorkflow:
                 )
                 self._store.put(record)
             execution = execution.model_copy(update={"finished_at": self._clock()})
-            record = self._transition(
+            # 进入验证只改状态；审计在验证做完后记一条 verified。
+            record = transition_operation(
                 record.model_copy(update={"execution": execution}),
                 OperationStatus.VERIFYING,
-                RepairAuditAction.VERIFIED,
-                record.plan.verification_summary,
+                reason=record.plan.verification_summary,
+                occurred_at=self._clock(),
             )
+            self._store.put(record)
             verification = await self._verify(record)
             record = record.model_copy(update={"verification": verification})
             record = self._event(

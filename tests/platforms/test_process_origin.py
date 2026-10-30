@@ -55,6 +55,27 @@ def win(name: str, exe: str | None, *ancestors: str, windowed: bool = False) -> 
         ),
         (mac("gost", "/opt/homebrew/bin/gost", "launchd"), "user_install"),
         (mac("tool", "/usr/local/bin/tool", "launchd"), "user_install"),
+        # 系统自带的 /usr/bin/python3 真身在 Python.app 里：nohup 启动或被 TunnelMinion 重新拉起时
+        # 父进程不是终端，也要算用户的脚本
+        (
+            mac(
+                "Python",
+                "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/"
+                "3.9/Resources/Python.app/Contents/MacOS/Python",
+                "launchd",
+            ),
+            "user_install",
+        ),
+        (
+            mac(
+                "Python",
+                "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/"
+                "3.9/Resources/Python.app/Contents/MacOS/Python",
+                "python3.12",
+                "launchd",
+            ),
+            "user_install",
+        ),
         (mac("python3", "/nix/store/python3", "launchd"), "user_install"),
         (
             win(

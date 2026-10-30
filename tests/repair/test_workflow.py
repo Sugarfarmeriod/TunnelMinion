@@ -130,6 +130,8 @@ def test_container_start_then_restart_and_persist_every_step(tmp_path: Path) -> 
         RepairAuditAction.FINISHED,
     ):
         assert action in actions
+    # 验证只记一条，不在进入验证和验证完成时各记一次。
+    assert actions.count(RepairAuditAction.VERIFIED) == 1
     for command in result.execution.commands:
         assert " ".join(command.argv) in [event.detail for event in result.audit]
     assert all(event.actor == "repair-workflow" for event in result.audit[len(record.audit) :])

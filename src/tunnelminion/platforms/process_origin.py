@@ -159,7 +159,9 @@ def _classify_windows(
 
 
 def _classify_unix(name: str, path: str, home: str) -> ProcessOrigin:
-    if ".app/contents/" in path:
+    # macOS 自带和官方安装包的 Python 真身在 Python.framework 里的 Python.app 内，跑的是用户脚本，
+    # 不是桌面应用；其他 .app 里带的解释器（如桌面应用自带的 node）仍算那个应用。
+    if ".app/contents/" in path and not (is_interpreter(name) and "/python.app/contents/" in path):
         return ProcessOrigin.DESKTOP_APP
     if path.startswith(home):
         # ~/Library 由应用自己管理，不是用户亲手装的程序。

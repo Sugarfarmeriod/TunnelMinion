@@ -30,7 +30,7 @@ from tunnelminion.repair.contracts import (
     StuckProgramRepairTarget,
     WindowsServiceRepairTarget,
 )
-from tunnelminion.repair.manual_steps import launch_command
+from tunnelminion.repair.manual_steps import launch_command, redact_arguments
 from tunnelminion.repair.service import RepairService
 
 
@@ -193,7 +193,8 @@ def _detail(record: RepairRecord) -> RepairDetail:
     else:
         advanced = PythonAdvancedView(
             interpreter=target.launch.interpreter,
-            arguments=target.launch.arguments,
+            # 和普通程序的命令一样，把看起来像密钥的参数换成占位再给网页。
+            arguments=redact_arguments(target.launch.arguments),
             working_directory=target.launch.working_directory,
             ports=target.ports,
         )
