@@ -1,4 +1,4 @@
-"""按固定参数查询和重启已有容器。"""
+"""按固定参数查询、启动、重启和停下已有容器。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from tunnelminion.platforms.windows.system import CommandRunner
+from tunnelminion.repair.compose_order import parse_depends_on
 from tunnelminion.repair.contracts import ContainerSnapshot, RepairCommand
 from tunnelminion.repair.processes import redact_log_text
 
@@ -85,6 +86,7 @@ class DockerContainerRuntime:
                 status = state["Status"]
                 if status == "exited":
                     status = f"{status} ({state['ExitCode']})"
+                health = cast(dict[str, Any], state.get("Health") or {}).get("Status") or None
                 snapshots.append(
                     ContainerSnapshot(
                         container_id=item["Id"],
@@ -103,6 +105,11 @@ class DockerContainerRuntime:
                             )
                         ),
                         compose_project=config_labels.get("com.docker.compose.project"),
+                        compose_service=config_labels.get("com.docker.compose.service") or None,
+                        depends_on=parse_depends_on(
+                            config_labels.get("com.docker.compose.depends_on")
+                        ),
+                        health=health,
                     )
                 )
             return tuple(sorted(snapshots, key=lambda value: value.name))
@@ -121,6 +128,9 @@ class DockerContainerRuntime:
 
     async def restart(self, container_ids: tuple[str, ...]) -> RepairCommand:
         return await self._execute("restart", container_ids)
+
+    async def stop(self, container_ids: tuple[str, ...]) -> RepairCommand:
+        return await self._execute("stop", container_ids)
 
     async def _execute(self, action: str, container_ids: tuple[str, ...]) -> RepairCommand:
         _validate_ids(container_ids)

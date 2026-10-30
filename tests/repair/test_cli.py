@@ -91,7 +91,7 @@ def test_propose_refusals_print_fixed_message(
     install_factory(monkeypatch, h)
     if with_next:
         h.containers.items = None
-    key = "docker:compose:photos" if with_next else "program:svc"
+    key = "docker:compose:photos" if with_next else "port:tcp:8080"
     assert (
         cli.main(
             [
@@ -110,7 +110,7 @@ def test_propose_refusals_print_fixed_message(
     assert output == (
         "修不了：Docker 没开。\n请先打开 Docker Desktop 或 OrbStack，Agent 不会替你打开。\n"
         if with_next
-        else "修不了：只能修 Docker 容器、Python 脚本和 macOS 后台服务。\n"
+        else "修不了：只能修 Docker 容器、Python 脚本、普通程序、macOS 后台服务和 Windows 服务。\n"
     )
     assert not h.containers.calls
 

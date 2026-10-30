@@ -99,6 +99,10 @@ class RemoteServiceSummary(BaseModel):
     launch_agent_label: str | None = Field(
         default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
     )
+    # 拉起这个监听进程的 Windows 服务名（进程本身或它往上的父进程是服务进程）。
+    windows_service_name: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    )
     origin: ProcessOrigin | None = None
     has_web_page: bool | None = None
     web_title: str | None = None

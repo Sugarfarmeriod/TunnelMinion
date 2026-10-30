@@ -40,6 +40,9 @@ let client: QueryClient;
 let patrol: Patrol;
 const changes: { url: string; body: unknown }[] = [];
 const threadReads: string[] = [];
+// 模拟主人还没在管理员确认框里点按钮：测试放行前 Windows 服务权限请求一直等着。
+let windowsGate: Promise<void> = Promise.resolve();
+let windowsRefused = false;
 
 function watched(overrides: Partial<PatrolService> = {}): PatrolService {
   return {
@@ -52,6 +55,9 @@ function watched(overrides: Partial<PatrolService> = {}): PatrolService {
     confirmed_at: null,
     thread_id: null,
     repair_id: null,
+    repair_refusal: null,
+    manual_steps: [],
+    windows_service: null,
     auto_repair: {
       available: true,
       kind: "restart_containers",
@@ -60,6 +66,8 @@ function watched(overrides: Partial<PatrolService> = {}): PatrolService {
       paused: false,
       last_attempt_at: null,
       last_result: null,
+      stuck_available: false,
+      stuck_enabled: false,
     },
     ...overrides,
   };
@@ -98,7 +106,10 @@ function renderMap(services = [watched()]) {
     http.put(
       "/api/patrol/services/:key/auto-repair",
       async ({ request, params }) => {
-        const body = (await request.json()) as { enabled: boolean };
+        const body = (await request.json()) as {
+          enabled: boolean;
+          stuck?: boolean;
+        };
         changes.push({ url: String(params.key), body });
         patrol = {
           ...patrol,
@@ -109,6 +120,34 @@ function renderMap(services = [watched()]) {
               enabled: body.enabled,
               enabled_on: body.enabled ? "2026-10-29" : null,
               paused: false,
+              // 和后端一致：stuck 不给时保持原样，关掉自动修时一并关掉。
+              stuck_enabled: body.enabled
+                ? (body.stuck ?? item.auto_repair.stuck_enabled)
+                : false,
+            },
+          })),
+        };
+        return HttpResponse.json(patrol);
+      },
+    ),
+    http.put(
+      "/api/patrol/services/:key/windows-service",
+      async ({ request, params }) => {
+        const body = (await request.json()) as { granted: boolean };
+        changes.push({ url: `windows:${String(params.key)}`, body });
+        await windowsGate;
+        if (windowsRefused)
+          return HttpResponse.json(
+            { detail: "没有完成管理员确认，权限没有改动" },
+            { status: 409 },
+          );
+        patrol = {
+          ...patrol,
+          services: patrol.services.map((item) => ({
+            ...item,
+            windows_service: item.windows_service && {
+              ...item.windows_service,
+              granted: body.granted,
             },
           })),
         };
@@ -160,6 +199,8 @@ async function openComputer(name: RegExp = /^这台电脑，在线/) {
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 beforeEach(() => {
   changes.length = 0;
+  windowsGate = Promise.resolve();
+  windowsRefused = false;
   threadReads.length = 0;
   vi.stubGlobal(
     "ResizeObserver",
@@ -239,6 +280,8 @@ describe("巡检", () => {
           paused: false,
           last_attempt_at: null,
           last_result: null,
+          stuck_available: false,
+          stuck_enabled: false,
         },
       }),
     ]);
@@ -355,6 +398,156 @@ describe("巡检", () => {
     await client.invalidateQueries({ queryKey: patrolQueryKey });
     await waitFor(() => expect(reads).toBe(1));
     expect(await within(dialog).findByText("正常")).toBeVisible();
+  });
+
+  it("有卡住修法且已打开自动修时，才显示'卡住了也自动修'，勾上时带 stuck", async () => {
+    renderMap([
+      watched({
+        key: "program:notes",
+        name: "笔记",
+        auto_repair: {
+          ...watched().auto_repair,
+          kind: "relaunch_program",
+          stuck_available: true,
+        },
+      }),
+    ]);
+    const { user, dialog } = await openComputer();
+    expect(
+      await within(dialog).findByText(
+        "只限按上次的方式重新运行程序，修完会自己确认",
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "卡住了也自动修" }),
+    ).toBeNull();
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "挂了可以自动修" }),
+    );
+    const stuck = await within(dialog).findByRole("checkbox", {
+      name: "卡住了也自动修",
+    });
+    expect(stuck).not.toBeChecked();
+    await user.click(stuck);
+    await waitFor(() => expect(stuck).toBeChecked());
+    expect(changes.map((item) => item.body)).toEqual([
+      { enabled: true },
+      { enabled: true, stuck: true },
+    ]);
+  });
+
+  it("修法被拒绝时写明原因，并给出可以照着做的步骤", async () => {
+    renderMap([
+      {
+        ...down(),
+        reason: "stuck",
+        reason_text: "卡住了：端口还在听，但不再响应",
+        repair_refusal: "这个程序的启动信息读不全，不能替你重新运行",
+        manual_steps: [
+          { text: "在程序原来的目录里重新运行", command: "node server.js" },
+        ],
+      },
+    ]);
+    const { dialog } = await openComputer();
+    expect(
+      await within(dialog).findByText(
+        "这个程序的启动信息读不全，不能替你重新运行",
+      ),
+    ).toBeVisible();
+    const steps = within(dialog).getByRole("region", { name: "可以照着做" });
+    expect(within(steps).getByText("node server.js")).toBeVisible();
+    expect(within(steps).getByRole("button", { name: "复制" })).toBeVisible();
+  });
+
+  it("Windows 服务开关：等确认时禁用并提示，确认后打开", async () => {
+    let release = () => {};
+    windowsGate = new Promise((resolve) => (release = resolve));
+    renderMap([
+      watched({
+        key: "program:notes",
+        name: "笔记",
+        windows_service: {
+          name: "NotesSvc",
+          display_name: "Notes Service",
+          binary_path: "D:/Apps/notes/notes-svc.exe",
+          granted: false,
+          allowed: true,
+        },
+      }),
+    ]);
+    const { user, dialog } = await openComputer();
+    const box = await within(dialog).findByRole("checkbox", {
+      name: "允许 Agent 重启这个 Windows 服务",
+    });
+    expect(
+      within(dialog).getByText(
+        "打开时会弹一次 Windows 管理员确认，只给这一个服务加启停权限；关掉时撤回",
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText(/Notes Service（\s*NotesSvc）/),
+    ).toBeVisible();
+    expect(within(dialog).getByText(/notes-svc\.exe/)).toBeVisible();
+    await user.click(box);
+    expect(
+      await within(dialog).findByText("等你在弹出的确认框里点“是”…"),
+    ).toBeVisible();
+    expect(box).toBeDisabled();
+    release();
+    await waitFor(() => expect(box).toBeChecked());
+    expect(box).toBeEnabled();
+    expect(changes).toEqual([
+      { url: "windows:program:notes", body: { granted: true } },
+    ]);
+  });
+
+  it("Windows 服务开关：主人点了'否'时显示后端说明，开关保持原样", async () => {
+    windowsRefused = true;
+    renderMap([
+      watched({
+        key: "program:notes",
+        name: "笔记",
+        windows_service: {
+          name: "NotesSvc",
+          display_name: "Notes Service",
+          binary_path: "D:/Apps/notes/notes-svc.exe",
+          granted: false,
+          allowed: true,
+        },
+      }),
+    ]);
+    const { user, dialog } = await openComputer();
+    const box = await within(dialog).findByRole("checkbox", {
+      name: "允许 Agent 重启这个 Windows 服务",
+    });
+    await user.click(box);
+    expect(
+      await within(dialog).findByText("没有完成管理员确认，权限没有改动"),
+    ).toBeVisible();
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+  });
+
+  it("Windows 服务开关：不能授权的服务只能撤回", async () => {
+    renderMap([
+      watched({
+        key: "program:notes",
+        name: "笔记",
+        windows_service: {
+          name: "WSLService",
+          display_name: "WSL",
+          binary_path: "C:/Program Files/WSL/wslservice.exe",
+          granted: false,
+          allowed: false,
+        },
+      }),
+    ]);
+    const { dialog } = await openComputer();
+    const box = await within(dialog).findByRole("checkbox", {
+      name: "允许 Agent 重启这个 Windows 服务",
+    });
+    expect(box).toBeDisabled();
+    expect(within(dialog).getByText(/只能撤回已有的权限/)).toBeVisible();
   });
 
   it("中文日期", () => {

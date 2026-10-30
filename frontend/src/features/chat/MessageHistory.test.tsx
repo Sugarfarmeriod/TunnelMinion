@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { MessageHistory } from "./MessageHistory";
 import { makeMessage, makeThread } from "./testFixtures";
 
@@ -49,4 +49,38 @@ it("旧的未核对回答按需查看，恶意 HTML 与用户的证据标记只�
   expect(screen.getByText(unsafe)).not.toBeVisible();
   await userEvent.click(screen.getByText("查看原始说明（未核对）"));
   expect(screen.getByText(unsafe)).toBeVisible();
+});
+
+it("回答带现成步骤时在正文下面显示，命令可以复制；旧消息没有步骤也照常显示", async () => {
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  render(
+    <MessageHistory
+      compact
+      detail={{
+        thread: makeThread(),
+        messages: [
+          makeMessage("assistant", "旧回答"),
+          {
+            ...makeMessage("assistant", "这次修不了"),
+            manual_steps: [
+              { text: "打开终端，进到项目目录", command: null },
+              { text: "重新运行", command: "python app.py" },
+            ],
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByText("旧回答")).toBeVisible();
+  const steps = screen.getByRole("region", { name: "可以照着做" });
+  expect(steps.closest("article")).toHaveTextContent("这次修不了");
+  expect(screen.getAllByRole("region", { name: "可以照着做" })).toHaveLength(1);
+  expect(screen.getByText("打开终端，进到项目目录")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "复制" }));
+  expect(writeText).toHaveBeenCalledWith("python app.py");
+  expect(await screen.findByRole("button", { name: "已复制" })).toBeVisible();
 });

@@ -4,6 +4,25 @@ import { requestJson } from "../../api/client";
 import { operationStatusSchema } from "../operations/schemas";
 
 const timestamp = z.string().datetime({ offset: true });
+
+/** 修不了时本机按固定模板生成的一步：只显示、不执行。 */
+export const manualStepSchema = z
+  .object({
+    text: z.string().min(1),
+    command: z.string().min(1).nullable(),
+  })
+  .strict();
+export type ManualStep = z.infer<typeof manualStepSchema>;
+
+export const repairKindSchema = z.enum([
+  "restart_containers",
+  "relaunch_python",
+  "restart_launch_agent",
+  "relaunch_program",
+  "restart_stuck_program",
+  "restart_windows_service",
+]);
+export type RepairKind = z.infer<typeof repairKindSchema>;
 export const remoteRepairSchema = z
   .object({
     repair_id: z.string().regex(/^operation_[0-9a-f]{32}$/),
@@ -20,11 +39,7 @@ export const repairSchema = z.object({
   node_id: z.string().regex(/^node_[0-9a-f]{32}$/),
   service_key: z.string(),
   service_name: z.string(),
-  kind: z.enum([
-    "restart_containers",
-    "relaunch_python",
-    "restart_launch_agent",
-  ]),
+  kind: repairKindSchema,
   status: operationStatusSchema,
   action_summary: z.string(),
   reason: z.string(),
@@ -36,6 +51,7 @@ export const repairSchema = z.object({
       code: z.string(),
       message: z.string(),
       next_step: z.string().nullable(),
+      manual_steps: z.array(manualStepSchema).max(5),
     })
     .nullable(),
   origin: z.object({
@@ -51,7 +67,27 @@ export const repairDetailSchema = repairSchema.extend({
   impact_summary: z.string(),
   verification_summary: z.string(),
   failure_summary: z.string(),
+  // 联合按从具体到宽泛排列：zod 取第一个能解析的分支，并丢掉它不认识的字段。
   advanced: z.union([
+    // Windows 服务：sc.exe 命令和服务程序路径。
+    z.object({
+      commands: z.array(z.string()),
+      binary_path: z.string(),
+      ports: z.array(z.number()),
+    }),
+    // 后台服务：kickstart 命令和配置文件。
+    z.object({
+      command: z.string(),
+      plist_path: z.string(),
+      ports: z.array(z.number()),
+    }),
+    // 普通程序或卡住的程序：重新运行的命令，卡住时还有要先结束的进程。
+    z.object({
+      command: z.string(),
+      ports: z.array(z.number()),
+      end_process_id: z.number().int().nullable(),
+    }),
+    // 容器：docker 命令。
     z.object({ commands: z.array(z.string()) }),
     z.object({
       interpreter: z.string(),
@@ -59,12 +95,15 @@ export const repairDetailSchema = repairSchema.extend({
       working_directory: z.string(),
       ports: z.array(z.number()),
     }),
-    z.object({
-      command: z.string(),
-      plist_path: z.string(),
-      ports: z.array(z.number()),
-    }),
   ]),
+  execution: z
+    .object({
+      // 卡住的程序：结束了哪个进程，以及是不是用了强制结束。
+      ended_process_id: z.number().int().nullable().optional(),
+      ended_forcibly: z.boolean().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   verification: z
     .object({
       passed: z.boolean(),

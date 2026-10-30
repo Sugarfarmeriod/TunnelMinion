@@ -25,12 +25,16 @@ from tunnelminion.repair.contracts import (
     LaunchAgentRecord,
     LaunchRecord,
     LaunchRecordStore,
+    ProgramLaunchRecord,
+    WindowsServiceRecord,
 )
 from tunnelminion.repair.launch_records import (
     LaunchRecorder,
     ProcessLaunchFacts,
     ProcessLaunchReader,
+    ProgramLaunchFacts,
     PsutilProcessLaunchReader,
+    PsutilProgramLaunchReader,
 )
 
 NOW = datetime(2026, 10, 25, tzinfo=UTC)
@@ -281,7 +285,13 @@ def test_records_mine_and_rule_shown_only_and_reads_pid_once() -> None:
     reader = FakeLaunchReader({101: facts(), 102: facts(arguments=("-m", "http.server"))})
     memory = MemoryLaunchStore()
     store: LaunchRecordStore = memory
-    recorder = LaunchRecorder(store, reader=reader, clock=lambda: NOW, own_pid=999)
+    recorder = LaunchRecorder(
+        store,
+        reader=reader,
+        program_reader=FakeProgramReader({106: None}),
+        clock=lambda: NOW,
+        own_pid=999,
+    )
     inventory = (
         service(101, 8081),
         service(101, 8080),
@@ -458,3 +468,134 @@ def test_launch_agents_record_label_and_ports_only() -> None:
     store.records.clear()
     store.error = RuntimeError("disk")
     assert recorder.record(inventory, marks) == 0
+
+
+class FakeProgramReader:
+    def __init__(self, values: dict[int, ProgramLaunchFacts | Exception | None]) -> None:
+        self.values = values
+        self.calls: list[int] = []
+
+    def read(self, pid: int) -> ProgramLaunchFacts | None:
+        self.calls.append(pid)
+        value = self.values[pid]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def program_facts(**changes: object) -> ProgramLaunchFacts:
+    values: dict[str, object] = {
+        "executable": "fixture/bin/gost",
+        "executable_size": 10,
+        "executable_mtime_ns": 20,
+        "arguments": ("-L", ":805"),
+        "working_directory": "fixture/site",
+        "username": "fixture-user",
+        "started_at": NOW,
+    }
+    values.update(changes)
+    return ProgramLaunchFacts.model_validate(values)
+
+
+def program_service(
+    pid: int, port: int, name: str = "gost", **changes: object
+) -> RemoteServiceSummary:
+    return service(pid, port, process_name=name, python_entrypoint=None, **changes)
+
+
+def test_programs_record_launch_or_windows_service_name() -> None:
+    programs = FakeProgramReader(
+        {
+            301: program_facts(),
+            302: ProgramLaunchFacts(
+                executable=None, username="fixture-user", started_at=NOW, elevated=True
+            ),
+            303: None,
+            304: RuntimeError("boom"),
+        }
+    )
+    store = MemoryLaunchStore()
+    recorder = LaunchRecorder(
+        store, reader=FakeLaunchReader({}), program_reader=programs, clock=lambda: NOW, own_pid=999
+    )
+    inventory = (
+        program_service(301, 805),
+        program_service(301, 806),
+        program_service(302, 9000, "admin-tool"),
+        program_service(303, 9001, "gone"),
+        program_service(304, 9002, "broken"),
+        program_service(305, 47984, "sunshine", windows_service_name="SunshineService"),
+        program_service(305, 47990, "sunshine", windows_service_name="SunshineService"),
+        program_service(306, 9003, "desk", origin=ProcessOrigin.DESKTOP_APP),
+        program_service(307, 9004, "svc", origin=ProcessOrigin.APP_SERVICE),
+        program_service(308, 9005, "udp", protocol="udp"),
+        program_service(999, 9006, "self"),
+    )
+    marks = {
+        "program:svc@9004": ServiceMark.MINE,
+        "program:sunshine@47984": ServiceMark.MINE,
+    }
+    assert recorder.record(inventory, marks) == 3
+    # 桌面应用和应用自启服务不读启动方式；同一进程只读一次。
+    assert programs.calls == [301, 302, 303, 304]
+    gost = store.get("program:gost@805")
+    assert isinstance(gost, ProgramLaunchRecord) and gost.ports == (805, 806)
+    assert gost.executable == "fixture/bin/gost" and gost.rule_shown and not gost.elevated
+    admin = store.get("program:admin-tool@9000")
+    assert isinstance(admin, ProgramLaunchRecord) and admin.elevated and admin.executable is None
+    sunshine = store.get("program:sunshine@47984")
+    assert isinstance(sunshine, WindowsServiceRecord)
+    assert sunshine.service_name == "SunshineService" and sunshine.ports == (47984, 47990)
+    assert recorder.record(inventory, marks) == 0
+    # 进程换了（重新启动过），记录跟着更新，结束卡住的进程时才认得准。
+    programs.values[301] = program_facts(started_at=NOW + timedelta(minutes=1))
+    assert recorder.record(inventory, marks) == 1
+
+
+class FakeProgramProcess:
+    def __init__(self, executable: str, *, denied: str | None = None) -> None:
+        self.executable = executable
+        self.denied = denied
+
+    def _check(self, name: str) -> None:
+        if self.denied == name:
+            raise psutil.AccessDenied(1)
+
+    def create_time(self) -> float:
+        self._check("create_time")
+        return NOW.timestamp()
+
+    def username(self) -> str:
+        self._check("username")
+        return "fixture-user"
+
+    def exe(self) -> str:
+        self._check("exe")
+        return self.executable
+
+    def cmdline(self) -> list[str]:
+        self._check("cmdline")
+        return [self.executable, "--token=abc"] if self.executable else []
+
+    def cwd(self) -> str:
+        return "fixture/site"
+
+
+def test_program_reader_reads_facts_or_marks_elevated(tmp_path: Path) -> None:
+    binary = tmp_path / "gost.exe"
+    binary.write_bytes(b"12345")
+
+    def reader(process: FakeProgramProcess) -> PsutilProgramLaunchReader:
+        return PsutilProgramLaunchReader(lambda pid: cast(psutil.Process, process))
+
+    facts = reader(FakeProgramProcess(str(binary))).read(1)
+    assert facts is not None and facts.executable_size == 5 and not facts.elevated
+    assert facts.arguments == ("--token=abc",) and facts.username == "fixture-user"
+    elevated = reader(FakeProgramProcess(str(binary), denied="cmdline")).read(1)
+    assert elevated is not None and elevated.elevated and elevated.executable is None
+    nobody = reader(FakeProgramProcess(str(binary), denied="username")).read(1)
+    assert nobody is not None and nobody.username is None
+    assert reader(FakeProgramProcess("")).read(1) is None
+    assert reader(FakeProgramProcess(str(binary), denied="create_time")).read(1) is None
+    assert reader(FakeProgramProcess(str(tmp_path / "missing.exe"))).read(1) is None
+    assert PsutilProgramLaunchReader().read(2**31 - 7) is None

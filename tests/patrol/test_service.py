@@ -25,7 +25,12 @@ from tunnelminion.patrol.contracts import (
     PatrolStatus,
     repair_kind_for,
 )
-from tunnelminion.patrol.service import PATROL_TOOL_NAMES, classify, patrol_lifespan
+from tunnelminion.patrol.service import (
+    PATROL_TOOL_NAMES,
+    _Checks,  # pyright: ignore[reportPrivateUsage]
+    classify,
+    patrol_lifespan,
+)
 from tunnelminion.repair.contracts import (
     RepairError,
     RepairErrorCode,
@@ -137,31 +142,62 @@ def test_no_observation_yet_skips_the_round(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("record_ports", "current", "web_ok", "expected"),
+    ("record_ports", "current", "checks", "expected"),
     [
         ((8080,), None, None, PatrolReason.PORT_CLOSED),
         ((8080,), entry(state="stopped"), None, PatrolReason.CONTAINER_EXITED),
         ((8765,), entry(SCRIPT, state="stopped"), None, PatrolReason.SCRIPT_EXITED),
-        ((9000,), entry(PROGRAM, state="stopped"), None, PatrolReason.PORT_CLOSED),
+        ((9000,), entry(PROGRAM, state="stopped"), None, PatrolReason.PROGRAM_EXITED),
+        (
+            (9000,),
+            entry(PROGRAM, state="stopped", windows_service=True),
+            None,
+            PatrolReason.SERVICE_STOPPED,
+        ),
         ((8765,), entry(AGENT, state="stopped"), None, PatrolReason.AGENT_EXITED),
         ((8080,), entry(ports=(9090,)), None, PatrolReason.PORT_CLOSED),
-        ((8080,), entry(), False, PatrolReason.WEB_FAILED),
-        ((8080,), entry(), True, None),
+        ((8080,), entry(), _Checks(web={8080: False}), PatrolReason.WEB_FAILED),
+        ((8080,), entry(), _Checks(web={8080: None}), PatrolReason.STUCK),
+        ((8080,), entry(), _Checks(web={9090: None}), PatrolReason.WEB_FAILED),
+        ((8080,), entry(), _Checks(web={8080: True, 9090: None}), None),
+        ((8080,), entry(), _Checks(talk={22: False}), PatrolReason.STUCK),
+        ((8080,), entry(), _Checks(talk={23: False}), None),
         ((), entry(ports=()), None, None),
     ],
 )
 def test_classify_fixed_rules(
     record_ports: tuple[int, ...],
     current: object,
-    web_ok: bool | None,
+    checks: _Checks | None,
     expected: PatrolReason | None,
 ) -> None:
-    record = PatrolRecord(key=PHOTOS, name="相册", seen_running=True, ports=record_ports)
-    assert classify(record, current, web_ok) is expected  # type: ignore[arg-type]
+    record = PatrolRecord(
+        key=PHOTOS,
+        name="相册",
+        seen_running=True,
+        ports=record_ports,
+        web_ports=(8080,),
+        talk_ports=(22,),
+    )
+    assert classify(record, current, checks) is expected  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("failure", [500, None, TimeoutError(), OSError()])
-def test_web_page_failures_confirm_down(tmp_path: Path, failure: int | None | Exception) -> None:
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (500, PatrolReason.WEB_FAILED),
+        (None, PatrolReason.STUCK),
+        (TimeoutError(), None),
+        (ConnectionError(), None),
+    ],
+)
+def test_web_page_failures_confirm_down(
+    tmp_path: Path, failure: int | None | Exception, reason: PatrolReason | None
+) -> None:
+    """以前能打开的首页连上后不回应算卡住；返回服务器错误算网页打不开。
+
+    连不上或探测超时只是这一轮看不清，不算异常。
+    """
     h = PatrolHarness(tmp_path)
 
     async def scenario() -> None:
@@ -170,7 +206,7 @@ def test_web_page_failures_confirm_down(tmp_path: Path, failure: int | None | Ex
         await h.rounds(3)
 
     asyncio.run(scenario())
-    assert h.view_of().reason is PatrolReason.WEB_FAILED
+    assert h.view_of().reason is reason
 
 
 def test_slow_probe_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,7 +219,9 @@ def test_slow_probe_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     h.patrol._web_status = never  # pyright: ignore[reportPrivateUsage]
     asyncio.run(h.rounds(1))
-    assert h.view_of().status is PatrolStatus.OK and h.store.list_all() == ()
+    # 等不到探测结果只算看不清：服务照常算在运行，不算异常。
+    [record] = h.store.list_all()
+    assert record.status is PatrolStatus.OK and record.seen_running
 
 
 def test_remembered_web_port_is_kept_when_title_probe_misses(tmp_path: Path) -> None:
@@ -222,7 +260,8 @@ def test_vanished_service_is_port_closed_and_program_has_no_fix(tmp_path: Path) 
     view = h.view_of(PROGRAM)
     assert view.status is PatrolStatus.DOWN and view.reason is PatrolReason.PORT_CLOSED
     assert not view.auto_repair.available and view.auto_repair.kind is None
-    assert h.conversations.texts()[-1] == "这个服务没有现成的修法，需要你手动处理。"
+    assert h.conversations.texts()[-1].startswith("巡检想提出修法，但我不知道它原来是怎么启动的。")
+    assert view.repair_refusal is not None and view.manual_steps == ()
     assert h.repairs.store.list_all() == ()
 
 
@@ -634,10 +673,16 @@ def test_run_loop_survives_failed_round_and_lifespan_stops(
 
 
 def test_repair_kind_for_each_key_type() -> None:
+    stuck = PatrolReason.STUCK
     assert repair_kind_for(PHOTOS) is RepairKind.RESTART_CONTAINERS
+    assert repair_kind_for(PHOTOS, stuck) is RepairKind.RESTART_CONTAINERS
     assert repair_kind_for(SCRIPT) is RepairKind.RELAUNCH_PYTHON
-    assert repair_kind_for(PROGRAM) is None
-    assert repair_kind_for(AGENT) is RepairKind.RESTART_LAUNCH_AGENT
+    assert repair_kind_for(SCRIPT, stuck) is RepairKind.RESTART_STUCK_PROGRAM
+    assert repair_kind_for(PROGRAM) is RepairKind.RELAUNCH_PROGRAM
+    assert repair_kind_for(PROGRAM, stuck) is RepairKind.RESTART_STUCK_PROGRAM
+    assert repair_kind_for(PROGRAM, windows_service=True) is RepairKind.RESTART_WINDOWS_SERVICE
+    assert repair_kind_for(AGENT, stuck) is RepairKind.RESTART_LAUNCH_AGENT
+    assert repair_kind_for("port:tcp:22") is None
 
 
 def test_second_confirm_while_handling_does_not_start_another_and_close_cancels(

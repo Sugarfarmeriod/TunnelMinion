@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { manualStepSchema } from "../repairs/api";
+
 const timestampSchema = z.string().datetime({ offset: true });
 const identifierSchema = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}_[0-9a-f]{32}$`));
@@ -55,6 +57,8 @@ export const threadMessageSchema = z
     run_id: runIdSchema,
     answer_checked: z.boolean().optional(),
     answer_basis: z.enum(["checked", "inferred", "none"]).optional(),
+    // 修不了时本机生成的现成步骤；旧消息没有这个字段。
+    manual_steps: z.array(manualStepSchema).max(5).optional(),
   })
   .strict();
 

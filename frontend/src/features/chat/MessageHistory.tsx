@@ -1,5 +1,6 @@
 import type { ThreadDetail, ThreadMessage } from "./contracts";
 import type { Repair } from "../repairs/api";
+import { ManualSteps } from "../repairs/ManualSteps";
 
 export function MessageHistory({
   compact,
@@ -103,6 +104,9 @@ function MessageItem({
             {index < 0 ? message.content : message.content.slice(0, index)}
           </p>
         )}
+        {message.role === "assistant" && message.manual_steps?.length ? (
+          <ManualSteps steps={message.manual_steps} />
+        ) : null}
         {inferred ? (
           <p className="chat-basis-note">
             这是模型根据本次检查记录得出的判断，程序还没有逐条核对；改设置前请先自己确认。

@@ -25,10 +25,12 @@ from tunnelminion.repair.contracts import (
     RepairOrigin,
     RepairRecord,
     RepairStore,
+    WindowsServiceRuntime,
 )
 from tunnelminion.repair.eligibility import AUTHORIZATION_EXPIRED_ERROR
 from tunnelminion.repair.launch_agents import UnsupportedLaunchAgents
 from tunnelminion.repair.planning import RepairPlanner
+from tunnelminion.repair.windows_services import UnsupportedWindowsServices
 from tunnelminion.repair.workflow import RepairWorkflow
 from tunnelminion.tools.registry import ToolRegistry
 
@@ -75,6 +77,7 @@ class RepairService:
         containers: ContainerRuntime,
         host: HostInspector,
         launch_agents: LaunchAgentRuntime | None = None,
+        windows_services: WindowsServiceRuntime | None = None,
     ) -> None:
         self._planner = planner
         self._workflow = workflow
@@ -84,6 +87,7 @@ class RepairService:
         self.containers = containers
         self.host = host
         self.launch_agents = launch_agents or UnsupportedLaunchAgents()
+        self.windows_services = windows_services or UnsupportedWindowsServices()
         self._result_handler: Callable[[RepairRecord], None] | None = None
 
     def set_result_handler(self, handler: Callable[[RepairRecord], None]) -> None:
@@ -268,9 +272,13 @@ def build_repair_service(
     verifier: LocalVerifier,
     clock: Callable[[], datetime] | None = None,
     launch_agents: LaunchAgentRuntime | None = None,
+    windows_services: WindowsServiceRuntime | None = None,
+    is_stuck: Callable[[str], bool] = lambda _key: False,
 ) -> RepairService:
+    """`is_stuck` 回答巡检是否确认某个服务卡住了；卡住的修法只在确认以后才能提出和执行。"""
     clock = clock or (lambda: datetime.now(UTC))
     launch_agents = launch_agents or UnsupportedLaunchAgents()
+    windows_services = windows_services or UnsupportedWindowsServices()
     preauthorizations = NoPreauthorizations()
     return RepairService(
         RepairPlanner(
@@ -281,6 +289,8 @@ def build_repair_service(
             host,
             clock,
             launch_agents=launch_agents,
+            windows_services=windows_services,
+            is_stuck=is_stuck,
         ),
         RepairWorkflow(
             store,
@@ -292,6 +302,9 @@ def build_repair_service(
             data_dir / "repair-logs",
             clock,
             launch_agents=launch_agents,
+            windows_services=windows_services,
+            is_stuck=is_stuck,
+            launch_records=launch_records,
         ),
         store,
         AuthorizationService(
@@ -301,4 +314,5 @@ def build_repair_service(
         containers,
         host,
         launch_agents,
+        windows_services,
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import psutil
 import pytest
@@ -14,6 +15,7 @@ from tunnelminion.platforms.process_origin import (
     classify_origin,
     current_platform,
     is_interpreter,
+    is_windows_gui_program,
     normalize_process_name,
     read_process_facts,
     read_process_origin,
@@ -27,8 +29,8 @@ def mac(name: str, exe: str | None, *ancestors: str) -> ProcessFacts:
     return ProcessFacts("darwin", name, exe, ancestors, MAC_HOME)
 
 
-def win(name: str, exe: str | None, *ancestors: str) -> ProcessFacts:
-    return ProcessFacts("windows", name, exe, ancestors, WIN_HOME)
+def win(name: str, exe: str | None, *ancestors: str, windowed: bool = False) -> ProcessFacts:
+    return ProcessFacts("windows", name, exe, ancestors, WIN_HOME, windowed=windowed)
 
 
 @pytest.mark.parametrize(
@@ -119,6 +121,9 @@ def win(name: str, exe: str | None, *ancestors: str) -> ProcessFacts:
             win("com.docker.backend.exe", "C:\\Program Files\\Docker\\backend.exe"),
             "container_runtime",
         ),
+        # Lima 替虚拟机转发端口：不是主人自己运行的程序，不记启动方式。
+        (mac("limactl", "/opt/homebrew/bin/limactl", "launchd"), "container_runtime"),
+        (mac("ssh", "/usr/bin/ssh", "limactl", "-zsh", "Terminal"), "container_runtime"),
         # 读不出来历
         (mac("mystery", None, "launchd"), "unknown"),
         (mac("mystery", "/srv/mystery", "launchd"), "unknown"),
@@ -135,6 +140,91 @@ def test_same_program_name_gets_different_origins() -> None:
     bundled = mac("llama-server", "/Applications/Some.app/Contents/MacOS/llama-server", "launchd")
     assert classify_origin(terminal) is ProcessOrigin.TERMINAL
     assert classify_origin(bundled) is ProcessOrigin.DESKTOP_APP
+
+
+@pytest.mark.parametrize(
+    ("facts", "expected"),
+    [
+        # 装在自定义目录的网盘后台进程：祖先是有窗口的网盘主程序。
+        (
+            win(
+                "nethost.exe",
+                "E:\\apps\\netdisk\\engine\\nethost.exe",
+                "netengine.exe",
+                "netdisk.exe",
+                windowed=True,
+            ),
+            "desktop_app",
+        ),
+        # 装在用户目录但有窗口，仍是桌面应用。
+        (
+            win("chat.exe", "C:\\Users\\me\\chat\\chat.exe", "launcher.exe", windowed=True),
+            "desktop_app",
+        ),
+        # 下面这些规则排在图形界面判断之前。
+        (win("tool.exe", "E:\\apps\\tool.exe", "pwsh.exe", windowed=True), "terminal"),
+        (
+            win(
+                "stream.exe", "E:\\apps\\stream.exe", "streamsvc.exe", "services.exe", windowed=True
+            ),
+            "app_service",
+        ),
+        (win("pythonw.exe", "E:\\py\\pythonw.exe", "launcher.exe", windowed=True), "user_install"),
+        (win("svc.exe", "C:\\Windows\\svc.exe", "launcher.exe", windowed=True), "system"),
+        # 没有窗口时保持原来的判断。
+        (win("nethost.exe", "E:\\apps\\netdisk\\nethost.exe", "netengine.exe"), "unknown"),
+    ],
+)
+def test_windowed_programs_are_desktop_apps_wherever_installed(
+    facts: ProcessFacts, expected: str
+) -> None:
+    assert classify_origin(facts) is ProcessOrigin(expected)
+
+
+def test_old_facts_without_windowed_field_keep_working() -> None:
+    """评测脚本保存的旧事实数据没有 `windowed`，按不是图形界面程序处理。"""
+    raw = {
+        "platform": "windows",
+        "name": "x.exe",
+        "exe": "E:\\x.exe",
+        "ancestors": ("launcher.exe",),
+        "home": WIN_HOME,
+    }
+    facts = ProcessFacts(**raw)  # type: ignore[arg-type]
+    assert facts.windowed is False
+    assert classify_origin(facts) is ProcessOrigin.UNKNOWN
+
+
+def write_pe(path: Path, subsystem: int, *, signature: bytes = b"PE\0\0") -> Path:
+    """写一个只有判断所需字段的最小假 PE 文件。"""
+    e_lfanew = 0x80
+    data = bytearray(e_lfanew + 24 + 96)
+    data[0:2] = b"MZ"
+    data[60:64] = e_lfanew.to_bytes(4, "little")
+    data[e_lfanew : e_lfanew + 4] = signature
+    offset = e_lfanew + 24 + 68
+    data[offset : offset + 2] = subsystem.to_bytes(2, "little")
+    path.write_bytes(bytes(data))
+    return path
+
+
+def test_pe_subsystem_tells_gui_from_console(tmp_path: Path) -> None:
+    assert is_windows_gui_program(str(write_pe(tmp_path / "gui.exe", 2)))
+    assert not is_windows_gui_program(str(write_pe(tmp_path / "console.exe", 3)))
+
+
+def test_unreadable_or_malformed_pe_is_not_gui(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.exe"
+    not_pe = tmp_path / "script.sh"
+    not_pe.write_bytes(b"#!/bin/sh\n" + b"\0" * 100)
+    short = tmp_path / "short.exe"
+    short.write_bytes(b"MZ")
+    bad_signature = write_pe(tmp_path / "bad.exe", 2, signature=b"NE\0\0")
+    # e_lfanew 指向文件末尾之外，读不到完整的 PE 头。
+    truncated = tmp_path / "truncated.exe"
+    truncated.write_bytes(b"MZ" + b"\0" * 58 + (4096).to_bytes(4, "little"))
+    for path in (missing, not_pe, short, bad_signature, truncated):
+        assert not is_windows_gui_program(str(path))
 
 
 @pytest.mark.parametrize(
@@ -263,3 +353,75 @@ def test_vanished_or_denied_process_has_no_origin(
     install(monkeypatch, failure)
     assert read_process_facts(42) is None
     assert read_process_origin(42) is None
+
+
+def chain(*programs: tuple[str, str | BaseException | None]) -> FakeProcess:
+    """按"本进程、父进程、祖父进程……"的顺序搭一条进程链。"""
+    parent: FakeProcess | None = None
+    for index, (name, path) in enumerate(reversed(programs)):
+        parent = FakeProcess(name, path, created=float(index), parent_process=parent)
+    assert parent is not None
+    return parent
+
+
+def test_windows_facts_record_a_windowed_ancestor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    host = write_pe(tmp_path / "nethost.exe", 3)
+    engine = write_pe(tmp_path / "netengine.exe", 3)
+    main = write_pe(tmp_path / "netdisk.exe", 2)
+    install(
+        monkeypatch,
+        chain(
+            ("nethost.exe", str(host)), ("netengine.exe", str(engine)), ("netdisk.exe", str(main))
+        ),
+    )
+    monkeypatch.setattr(process_origin.sys, "platform", "win32")
+    facts = read_process_facts(42)
+    assert facts is not None and facts.windowed
+    assert facts.ancestors == ("netengine.exe", "netdisk.exe")
+    assert classify_origin(facts) is ProcessOrigin.DESKTOP_APP
+
+
+def test_console_chain_is_not_windowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    tool = write_pe(tmp_path / "tool.exe", 3)
+    install(monkeypatch, chain(("tool.exe", str(tool)), ("launcher.exe", str(tool))))
+    monkeypatch.setattr(process_origin.sys, "platform", "win32")
+    facts = read_process_facts(42)
+    assert facts is not None and not facts.windowed
+
+
+def test_system_programs_explorer_and_interpreters_do_not_count_as_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """它们是几乎所有进程的祖先或本身是图形子系统的解释器，不能说明端口属于桌面应用。"""
+    checked: list[str] = []
+
+    def everything_is_gui(path: str) -> bool:
+        checked.append(path)
+        return True
+
+    monkeypatch.setattr(process_origin, "is_windows_gui_program", everything_is_gui)
+    install(
+        monkeypatch,
+        chain(
+            ("pythonw.exe", "E:\\py\\pythonw.exe"),
+            ("guarded.exe", psutil.AccessDenied()),
+            ("explorer.exe", "C:\\Windows\\explorer.exe"),
+            ("Explorer.EXE", "E:\\shell\\explorer.exe"),
+            ("svchost.exe", "C:\\WINDOWS\\System32\\svchost.exe"),
+        ),
+    )
+    monkeypatch.setattr(process_origin.sys, "platform", "win32")
+    facts = read_process_facts(42)
+    assert facts is not None and not facts.windowed
+    assert checked == []
+
+
+def test_windowed_is_only_collected_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gui = write_pe(tmp_path / "gui.exe", 2)
+    install(monkeypatch, chain(("gui", str(gui))))
+    facts = read_process_facts(42)
+    assert facts is not None and facts.platform == "darwin" and not facts.windowed

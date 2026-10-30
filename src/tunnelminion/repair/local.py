@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from tunnelminion.domain.identifiers import NodeId
@@ -10,7 +11,7 @@ from tunnelminion.domain.tools import Platform
 from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.platforms.windows.system import SubprocessCommandRunner, SystemReader
 from tunnelminion.repair.agent_tools import register_repair_agent_tools
-from tunnelminion.repair.contracts import LaunchAgentRuntime
+from tunnelminion.repair.contracts import LaunchAgentRuntime, WindowsServiceRuntime
 from tunnelminion.repair.definitions import register_repair_operations
 from tunnelminion.repair.docker import DockerContainerRuntime
 from tunnelminion.repair.launch_agents import MacLaunchAgentRuntime
@@ -20,6 +21,7 @@ from tunnelminion.repair.processes import (
     SocketLocalVerifier,
 )
 from tunnelminion.repair.service import RepairService, build_repair_service
+from tunnelminion.repair.windows_services import WindowsServiceManager
 from tunnelminion.tools.registry import ToolRegistry
 
 
@@ -38,6 +40,11 @@ def build_node_repair_service(
     launch_agents: LaunchAgentRuntime | None = (
         MacLaunchAgentRuntime(SubprocessCommandRunner()) if platform is Platform.MACOS else None
     )
+    windows_services: WindowsServiceRuntime | None = (
+        WindowsServiceManager(SubprocessCommandRunner())
+        if platform is Platform.WINDOWS and sys.platform == "win32"
+        else None
+    )
     host = PsutilHostInspector(system_reader)
     service = build_repair_service(
         node_id=node_id,
@@ -51,6 +58,8 @@ def build_node_repair_service(
         host=host,
         verifier=SocketLocalVerifier(),
         launch_agents=launch_agents,
+        windows_services=windows_services,
+        is_stuck=stuck_checker(root),
     )
     register_repair_agent_tools(
         registry,
@@ -62,6 +71,24 @@ def build_node_repair_service(
         data_dir=root,
     )
     return service
+
+
+def stuck_checker(root: Path) -> Callable[[str], bool]:
+    """巡检记录里确认"卡住了"的服务；网页、Gateway 和命令行读同一份巡检记录。"""
+    from tunnelminion.patrol.contracts import PatrolReason, PatrolStatus
+    from tunnelminion.patrol.local import patrol_store
+
+    store = patrol_store(root)
+
+    def is_stuck(key: str) -> bool:
+        record = store.get(key)
+        return (
+            record is not None
+            and record.status is PatrolStatus.DOWN
+            and record.reason is PatrolReason.STUCK
+        )
+
+    return is_stuck
 
 
 def build_local_repair_service(

@@ -168,7 +168,7 @@ propose_repair 说修不了时，照实转告它给的原因和下一步，例�
     change_note="加入容器挂了和脚本退出了两份排查剧本，可提出待批准的修法但不能执行。",
 )
 
-READONLY_AGENT_PROMPT = _prompt(
+READONLY_AGENT_PROMPT_V6 = _prompt(
     prompt_id="readonly-agent",
     task_type=ContextTaskType.LOCAL_CONVERSATION,
     role=PromptRole.SYSTEM,
@@ -182,6 +182,26 @@ get_process_summary。若提供 request_more_tools，说明本次只列出了和
     version="v6",
     semantic_version="6.0.0",
     change_note="加入按“什么时候用”选工具的提示，需要的工具不在列表里时先请求更多工具。",
+)
+
+READONLY_AGENT_PROMPT = _prompt(
+    prompt_id="readonly-agent",
+    task_type=ContextTaskType.LOCAL_CONVERSATION,
+    role=PromptRole.SYSTEM,
+    template=READONLY_AGENT_PROMPT_V6.template
+    + """
+
+剧本三，普通程序退出了（服务身份是 program:）：用 list_network_listeners 确认端口没人在听，再用
+list_launch_records 查启动记录。有记录、它现在没在运行，才提出 relaunch_program。记录说它是
+Windows 服务时提出 restart_windows_service。
+剧本四，程序还在但不响应：只有巡检已经确认“卡住了”，才提出
+restart_stuck_program（Python 脚本和普通程序）；macOS 后台服务卡住用 restart_launch_agent。
+巡检没确认时照实说可能只是慢，不要提出结束它。
+propose_repair 返回 has_manual_steps 为真时，界面会单独显示本机按固定模板生成的
+现成步骤并带复制按钮；正文只说一句“可以照着下面的步骤自己处理”，不要自己写或编造命令。""",
+    version="v7",
+    semantic_version="7.0.0",
+    change_note="加入普通程序退出和程序卡住两份剧本，修不了时引用本机生成的现成步骤。",
 )
 
 REAL_MODEL_EVALUATION_PROMPT = _prompt(
@@ -316,6 +336,7 @@ PROMPT_REGISTRY = PromptRegistry(
         READONLY_AGENT_PROMPT_V3,
         READONLY_AGENT_PROMPT_V4,
         READONLY_AGENT_PROMPT_V5,
+        READONLY_AGENT_PROMPT_V6,
         READONLY_AGENT_PROMPT,
         REAL_MODEL_EVALUATION_PROMPT,
         CROSS_NODE_DIAGNOSTIC_PROMPT,

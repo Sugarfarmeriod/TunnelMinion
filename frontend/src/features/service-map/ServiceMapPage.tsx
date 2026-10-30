@@ -6,6 +6,7 @@ import {
   loadProgramOverview,
   programOverviewQueryKey,
 } from "../../api/overview";
+import { ApiError } from "../../api/client";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 import {
   loadLocalServices,
@@ -45,6 +46,7 @@ import {
   acknowledgeDown,
   patrolQueryKey,
   setAutoRepair,
+  setWindowsServiceGrant,
   usePatrol,
 } from "../patrol/api";
 import "./service-map.css";
@@ -69,11 +71,30 @@ export function ServiceMapPage() {
   const patrol = usePatrol();
   const patrolChange = useMutation({
     mutationFn: (
-      change: { key: string; enabled: boolean } | { key: string; ack: true },
+      change:
+        | { key: string; enabled: boolean; stuck?: boolean }
+        | { key: string; ack: true },
     ) =>
       "ack" in change ? acknowledgeDown(change.key) : setAutoRepair(change),
     onSuccess: (data) => client.setQueryData(patrolQueryKey, data),
   });
+  // 改 Windows 服务权限要等主人在本机的管理员确认框里点“是”，单独跟踪进行中和失败说明。
+  const windowsService = useMutation({
+    mutationFn: setWindowsServiceGrant,
+    onSuccess: (data) => client.setQueryData(patrolQueryKey, data),
+  });
+  const windowsServiceError =
+    windowsService.isError && windowsService.variables
+      ? {
+          key: windowsService.variables.key,
+          message:
+            windowsService.error instanceof ApiError &&
+            windowsService.error.status === 409 &&
+            windowsService.error.detail
+              ? windowsService.error.detail
+              : "权限没有改动，请再试一次。",
+        }
+      : null;
   const downKeys = patrol.isSuccess
     ? patrol.down.map((service) => service.key).join(" ")
     : null;
@@ -637,9 +658,22 @@ export function ServiceMapPage() {
               }
               patrolBusy={patrolChange.isPending || isReadOnlyPreview()}
               patrolError={!selectedPeer && patrolChange.isError}
-              onAutoRepair={(key, enabled) =>
-                patrolChange.mutate({ key, enabled })
+              onAutoRepair={(key, enabled, stuck) =>
+                patrolChange.mutate(
+                  stuck === undefined
+                    ? { key, enabled }
+                    : { key, enabled, stuck },
+                )
               }
+              onWindowsService={(key, granted) =>
+                windowsService.mutate({ key, granted })
+              }
+              windowsServicePending={
+                windowsService.isPending
+                  ? (windowsService.variables?.key ?? null)
+                  : null
+              }
+              windowsServiceError={selectedPeer ? null : windowsServiceError}
               onAcknowledge={(key) => patrolChange.mutate({ key, ack: true })}
               onOpenThread={(threadId) => openChat({ threadId })}
               onRepair={(id) => {

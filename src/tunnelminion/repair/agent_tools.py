@@ -21,12 +21,15 @@ from tunnelminion.repair.contracts import (
     HostInspector,
     LaunchRecord,
     LaunchRecordStore,
+    ProgramLaunchRecord,
     RepairKind,
     RepairOrigin,
     RepairOriginKind,
     RepairStore,
+    WindowsServiceRecord,
 )
 from tunnelminion.repair.eligibility import RepairRefusal
+from tunnelminion.repair.manual_steps import remember_run_steps
 from tunnelminion.repair.service import RepairService
 from tunnelminion.runtime.profile import default_runtime_data_dir
 from tunnelminion.tools.contracts import ToolAdapter, ToolCancellationToken
@@ -127,25 +130,43 @@ class ListLaunchRecordsAdapter:
     ) -> JsonValue:
         records: list[JsonValue] = []
         marks = self._marks()
-        launches = [item for item in self._records.list_all() if isinstance(item, LaunchRecord)]
+        launches = [
+            item
+            for item in self._records.list_all()
+            if isinstance(item, LaunchRecord | ProgramLaunchRecord | WindowsServiceRecord)
+        ]
         for launch in sorted(launches, key=lambda item: item.recorded_at, reverse=True)[:20]:
-            entry = launch.service_key.removeprefix("python:").rsplit("@", 1)[0]
-            running = any(
-                (owner := self._host.port_owner(port, launch)) is not None and owner.matches_launch
-                for port in launch.ports
-            )
-            mark = marks.get(launch.service_key)
+            entry = launch.service_key.split(":", 1)[1].rsplit("@", 1)[0]
             ports = "、".join(str(port) for port in launch.ports)
+            mark = marks.get(launch.service_key)
+            if isinstance(launch, WindowsServiceRecord):
+                running = any(self._host.port_owner(port) is not None for port in launch.ports)
+                kind = "windows_service"
+                summary = f"是 Windows 服务 {launch.service_name}，上次在 {ports} 端口"
+            else:
+                running = any(
+                    (owner := self._host.port_owner(port, launch)) is not None
+                    and owner.matches_launch
+                    for port in launch.ports
+                )
+                elevated = isinstance(launch, ProgramLaunchRecord) and launch.elevated
+                kind = "python" if isinstance(launch, LaunchRecord) else "program"
+                summary = (
+                    f"见过它以管理员身份运行，Agent 修不了：{entry}，上次在 {ports} 端口"
+                    if elevated
+                    else f"有启动记录：{entry}，上次在 {ports} 端口"
+                )
             state = "现在正在运行" if running else "现在没有在运行"
             records.append(
                 {
                     "service_key": launch.service_key,
+                    "kind": kind,
                     "entry": entry,
                     "ports": list(launch.ports),
                     "recorded_at": launch.recorded_at.isoformat(),
                     "running": running,
                     "mark": mark.value if mark is not None else None,
-                    "summary": f"有启动记录：入口 {entry}，上次在 {ports} 端口，{state}",
+                    "summary": f"{summary}，{state}",
                 }
             )
         return {"records": records}
@@ -176,7 +197,16 @@ class ProposeRepairAdapter:
                 actor=f"delegation:{delegation.caller_node_id}" if delegation else "agent",
             )
         except RepairRefusal as exc:
-            return {"proposed": False, **exc.error.model_dump(mode="json")}
+            result: dict[str, JsonValue] = {
+                "proposed": False,
+                **exc.error.model_dump(mode="json", exclude={"manual_steps"}),
+            }
+            # 现成步骤带着完整路径和参数，只交给本机界面显示；模型只知道有没有。
+            # 委派时连这个标记也不给，步骤不会离开这台电脑。
+            if exc.error.manual_steps and delegation is None:
+                remember_run_steps(str(context.run_id), exc.error.manual_steps)
+                result["has_manual_steps"] = True
+            return result
         except ValueError:
             return {
                 "proposed": False,
@@ -232,24 +262,23 @@ def register_repair_agent_tools(
         ),
         (
             "list_launch_records",
-            "列出这台电脑记得启动方式的 Python 脚本：入口文件、上次监听的端口、记下的时间、"
-            "现在是否还在运行、用户标记。只给摘要，不含完整命令和路径。"
-            "脚本退出后，靠这里判断能不能按原来的方式重新拉起。",
+            "列出这台电脑记得启动方式的 Python 脚本、普通程序和 Windows 服务：名字、种类、"
+            "上次监听的端口、记下的时间、现在是否还在运行、用户标记。只给摘要，不含完整命令、"
+            "参数和路径。程序退出后，靠这里判断能不能按原来的方式重新运行。",
             {},
             [],
             ListLaunchRecordsAdapter(launch_records, host, marks),
         ),
         (
             "propose_repair",
-            "提出一个修法，交给这台电脑的主人批准。它只生成一条待批准的修复，不会执行任何东西；"
-            "主人批准后由本机固定流程执行并自己验证。只有三种修法：restart_containers"
-            "（重启 Docker 容器或 compose 组，service_key 用 docker:<容器名> 或 "
-            "docker:compose:<项目名>）；"
-            "relaunch_python（按启动记录重新拉起已经退出的 Python 脚本，service_key 用 "
-            "list_launch_records 给出的身份）；restart_launch_agent（只在 macOS 上：重新启动"
-            "当前用户已经退出的后台服务，service_key 用服务清单里的 launchd:<标签>）。"
-            "reason 用一句大白话写清依据，不要写命令，"
-            "写了也不会执行。修不了时会返回原因和下一步，照实告诉用户。",
+            "提出一个修法交给这台电脑的主人批准；只生成待批准的修复，不执行任何东西，"
+            "批准后由本机固定流程执行并验证。修法：restart_containers（docker:<容器名> 或 "
+            "docker:compose:<项目名>，按依赖顺序）；relaunch_python、relaunch_program（按启动记录"
+            "重新运行已退出的脚本或程序）；restart_stuck_program（巡检确认卡住的脚本或程序，"
+            "先结束再运行）；restart_launch_agent（macOS 后台服务 launchd:<标签>，退出或卡住）；"
+            "restart_windows_service（主人允许过的 Windows 服务）。脚本和程序的 service_key "
+            "用 list_launch_records 给的身份。reason 用一句大白话写依据，不写命令。修不了时"
+            "返回原因和下一步；has_manual_steps 为真表示界面会另外显示本机生成的现成步骤。",
             {
                 "service_key": {"type": "string", "pattern": MARK_KEY_PATTERN},
                 "kind": {"type": "string", "enum": [kind.value for kind in RepairKind]},

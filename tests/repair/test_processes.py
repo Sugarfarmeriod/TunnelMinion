@@ -8,8 +8,10 @@ import http.client
 import os
 import socket
 import ssl
+import struct
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +27,7 @@ from tunnelminion.repair.contracts import (
     LaunchRecord,
     LocalVerifier,
     ProcessLauncher,
+    ProgramLaunchRecord,
     SpawnedProcess,
 )
 from tunnelminion.repair.processes import (
@@ -468,3 +471,242 @@ def test_web_probe_caps_reads_and_falls_back_to_unverified_https(
     if succeeds_on != "http":
         expected += [("https", "request"), ("https", "close")]
     assert events == expected
+
+
+def program_record(**update: object) -> ProgramLaunchRecord:
+    return ProgramLaunchRecord(
+        service_key="program:gost@8080",
+        executable="fixture/python",
+        executable_size=1,
+        executable_mtime_ns=1,
+        arguments=("app.py", "--port", "8080"),
+        working_directory="fixture/site",
+        ports=(8080,),
+        username="fixture-user",
+        rule_shown=True,
+        process_id=101,
+        process_started_at=NOW,
+        recorded_at=NOW,
+    ).model_copy(update=update)
+
+
+class ProgramProcess(FakeProcess):
+    def exe(self) -> str:
+        return "fixture/python"
+
+
+def test_launch_runs_program_executable_and_rejects_incomplete_records(tmp_path: Path) -> None:
+    popen = FakePopen()
+    launcher = BackgroundProcessLauncher(
+        platform="linux",
+        popen=popen,
+        process_factory=factory(FakeProcess(popen.child.pid)),
+        environ={},
+    )
+    launcher.launch(program_record(), log_path=tmp_path / "out.log")
+    assert popen.calls[0][0] == ["fixture/python", "app.py", "--port", "8080"]
+    assert popen.calls[0][1]["cwd"] == "fixture/site"
+    with pytest.raises(OSError):
+        launcher.launch(
+            program_record(elevated=True, working_directory=None), log_path=tmp_path / "x.log"
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "matches"),
+    [
+        ("same", True),
+        ("other_user", False),
+        ("other_exe", False),
+        ("elevated", False),
+    ],
+)
+def test_port_owner_matches_program_by_exe_args_dir_and_account(case: str, matches: bool) -> None:
+    process = ProgramProcess()
+    record = program_record()
+    if case == "other_user":
+        record = record.model_copy(update={"username": "someone"})
+    elif case == "other_exe":
+        record = record.model_copy(update={"executable": "fixture/other"})
+    elif case == "elevated":
+        record = record.model_copy(update={"elevated": True})
+    inspector = PsutilHostInspector(
+        cast(SystemReader, FakeReader(listener())), process_factory=factory(process)
+    )
+    owner = inspector.port_owner(8080, record)
+    assert owner is not None and owner.matches_launch is matches
+    assert owner.started_at == NOW
+
+
+@pytest.mark.parametrize("outcome", ["graceful", "forced", "survives"])
+def test_end_stuck_terminates_then_kills(monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
+    parent, child = FakeProcess(), FakeProcess(102)
+    parent.descendants = [cast(psutil.Process, child)]
+    waits: list[float] = []
+
+    def wait_procs(
+        processes: list[psutil.Process], timeout: float
+    ) -> tuple[list[psutil.Process], list[psutil.Process]]:
+        waits.append(timeout)
+        if outcome == "graceful" or (outcome == "forced" and timeout == 3):
+            return processes, []
+        return [], processes
+
+    monkeypatch.setattr(psutil, "wait_procs", wait_procs)
+    result = BackgroundProcessLauncher(process_factory=factory(parent)).end_stuck(
+        101, NOW, launch_record(), grace_seconds=10
+    )
+    assert result is {"graceful": False, "forced": True, "survives": None}[outcome]
+    assert waits == ([10] if outcome == "graceful" else [10, 3])
+
+
+def test_end_stuck_leaves_other_or_missing_processes() -> None:
+    reused = FakeProcess()
+    reused.started = NOW.timestamp() + 60
+    assert (
+        BackgroundProcessLauncher(process_factory=factory(reused)).end_stuck(
+            101, NOW, launch_record(), grace_seconds=1
+        )
+        is False
+    )
+    assert reused.events == []
+    gone = BackgroundProcessLauncher(process_factory=factory(psutil.NoSuchProcess(101)))
+    assert gone.end_stuck(101, NOW, launch_record(), grace_seconds=1) is False
+    denied = BackgroundProcessLauncher(process_factory=factory(psutil.AccessDenied(101)))
+    assert denied.end_stuck(101, NOW, launch_record(), grace_seconds=1) is None
+    # 进程号和启动时间对得上，命令却不一样：不是记录里那个程序，不动它。
+    other = FakeProcess()
+    other.command = ["fixture/python", "other.py"]
+    launcher = BackgroundProcessLauncher(process_factory=factory(other))
+    assert launcher.end_stuck(101, NOW, launch_record(), grace_seconds=1) is None
+    assert other.events == []
+
+
+def test_talks_first_probe_on_real_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tunnelminion.repair.processes.PROBE_REPLY_SECONDS", 0.5)
+    verifier = SocketLocalVerifier()
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+
+        def greet() -> None:
+            connection, _ = server.accept()
+            with connection:
+                connection.sendall(b"SSH-2.0-fixture\r\n")
+
+        thread = threading.Thread(target=greet)
+        thread.start()
+        assert asyncio.run(verifier.talks_first(port)) is True
+        thread.join()
+
+        def silent() -> None:
+            connection, _ = server.accept()
+            with connection:
+                time.sleep(1)
+
+        thread = threading.Thread(target=silent)
+        thread.start()
+        assert asyncio.run(verifier.talks_first(port)) is False
+        thread.join()
+    assert asyncio.run(verifier.talks_first(port)) is None
+
+
+def serve_once(server: socket.socket, reply: Callable[[socket.socket], None]) -> threading.Thread:
+    def handle() -> None:
+        connection, _ = server.accept()
+        with connection:
+            reply(connection)
+
+    thread = threading.Thread(target=handle)
+    thread.start()
+    return thread
+
+
+class FakeHttps:
+    status: int | Exception = 200
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def request(self, method: str, path: str) -> None:
+        if isinstance(self.status, Exception):
+            raise self.status
+
+    def getresponse(self) -> FakeHttps:
+        return self
+
+    def close(self) -> None:
+        pass
+
+
+def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tunnelminion.repair.processes.PROBE_REPLY_SECONDS", 0.5)
+    monkeypatch.setattr("tunnelminion.repair.processes.http.client.HTTPSConnection", FakeHttps)
+    verifier = SocketLocalVerifier()
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+
+        def answer(connection: socket.socket) -> None:
+            connection.recv(1024)
+            time.sleep(0.2)
+            connection.sendall(b"HTTP/1.1 503 Busy\r\n\r\n")
+
+        thread = serve_once(server, answer)
+        assert asyncio.run(verifier.patrol_web_status(port)) == 503
+        thread.join()
+
+        def silent(connection: socket.socket) -> None:
+            time.sleep(1)
+
+        thread = serve_once(server, silent)
+        assert asyncio.run(verifier.patrol_web_status(port)) is None
+        thread.join()
+
+        # 很快断开或回了非 HTTP 的内容：改试 HTTPS。
+        thread = serve_once(server, lambda connection: connection.sendall(b"\x15\x03\x01"))
+        assert asyncio.run(verifier.patrol_web_status(port)) == 200
+        thread.join()
+
+        def reset(connection: socket.socket) -> None:
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+        FakeHttps.status = OSError("handshake")
+        thread = serve_once(server, reset)
+        with pytest.raises(ConnectionError):
+            asyncio.run(verifier.patrol_web_status(port))
+        thread.join()
+        FakeHttps.status = 200
+    with pytest.raises(ConnectionError):
+        asyncio.run(verifier.patrol_web_status(port))
+
+
+def test_talks_first_treats_reset_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Reset:
+        def __enter__(self) -> Reset:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def settimeout(self, value: float) -> None:
+            pass
+
+        def recv(self, size: int) -> bytes:
+            raise ConnectionResetError
+
+    attempts: list[str] = []
+
+    def connect(address: tuple[str, int], timeout: float) -> Reset:
+        attempts.append(address[0])
+        if address[0] == "127.0.0.1":
+            raise OSError("refused")
+        return Reset()
+
+    monkeypatch.setattr("tunnelminion.repair.processes.socket.create_connection", connect)
+    assert SocketLocalVerifier._talks_first(1) is None  # pyright: ignore[reportPrivateUsage]
+    assert attempts == ["127.0.0.1", "::1"]

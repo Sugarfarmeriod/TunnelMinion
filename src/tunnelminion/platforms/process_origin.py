@@ -29,13 +29,18 @@ class ProcessOrigin(StrEnum):
 
 @dataclass(frozen=True)
 class ProcessFacts:
-    """判断来历所需的本机事实；`ancestors` 从直接父进程开始向上排列。"""
+    """判断来历所需的本机事实；`ancestors` 从直接父进程开始向上排列。
+
+    `windowed` 表示本进程或某个非系统祖先是 Windows 图形界面程序（有窗口的桌面应用），
+    只在 Windows 上采集；旧的事实数据没有这个字段时按 False 处理。
+    """
 
     platform: str
     name: str
     exe: str | None
     ancestors: tuple[str, ...]
     home: str
+    windowed: bool = False
 
 
 # 交互式 shell、终端程序和终端复用器：在这些进程下面启动的程序视为用户亲手启动。
@@ -73,15 +78,25 @@ _CONTAINER_RUNTIMES = frozenset(
         "com.docker.build",
         "com.docker.vpnkit",
         "docker-proxy",
+        "limactl",
         "orbstack helper",
         "vpnkit",
         "wslrelay",
     }
 )
 
+_VM_PORT_FORWARDERS = frozenset({"limactl", "colima"})
+
 _INTERPRETER = re.compile(
     r"(?:pythonw?(?:\d+(?:\.\d+)*)?|node|deno|bun|java|javaw|ruby|php|perl|dotnet)", re.I
 )
+
+# PE 可选头里 Subsystem 字段的“Windows 图形界面”取值（IMAGE_SUBSYSTEM_WINDOWS_GUI）。
+_PE_SUBSYSTEM_WINDOWS_GUI = 2
+# "PE\0\0" 签名 4 字节 + COFF 文件头 20 字节之后是可选头；Subsystem 在可选头偏移 68 处，
+# PE32 与 PE32+ 相同。
+_PE_OPTIONAL_HEADER_OFFSET = 24
+_PE_SUBSYSTEM_OFFSET = _PE_OPTIONAL_HEADER_OFFSET + 68
 
 _UNIX_SYSTEM_PREFIXES = ("/system/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/usr/bin/", "/bin/")
 _UNIX_USER_PREFIXES = ("/opt/homebrew/", "/usr/local/", "/opt/")
@@ -107,7 +122,8 @@ def classify_origin(facts: ProcessFacts) -> ProcessOrigin:
     name = normalize_process_name(facts.name)
     ancestors = tuple(normalize_process_name(item) for item in facts.ancestors)
     windows = facts.platform == "windows"
-    if name in _CONTAINER_RUNTIMES:
+    # Lima（以及基于它的 Colima）替虚拟机转发端口：limactl 自己监听，或由它拉起的 ssh 监听。
+    if name in _CONTAINER_RUNTIMES or any(item in _VM_PORT_FORWARDERS for item in ancestors):
         return ProcessOrigin.CONTAINER_RUNTIME
     if any(item in _TERMINALS for item in ancestors):
         return ProcessOrigin.TERMINAL
@@ -117,17 +133,22 @@ def classify_origin(facts: ProcessFacts) -> ProcessOrigin:
     path = _normalize_path(facts.exe)
     home = _normalize_path(facts.home).rstrip("/") + "/"
     if windows:
-        return _classify_windows(name, path, home, ancestors)
+        return _classify_windows(name, path, home, ancestors, windowed=facts.windowed)
     return _classify_unix(name, path, home)
 
 
-def _classify_windows(name: str, path: str, home: str, ancestors: tuple[str, ...]) -> ProcessOrigin:
+def _classify_windows(
+    name: str, path: str, home: str, ancestors: tuple[str, ...], *, windowed: bool
+) -> ProcessOrigin:
     if path[1:].startswith(":/windows/"):
         return ProcessOrigin.SYSTEM
     if "services" in ancestors:
         return ProcessOrigin.APP_SERVICE
     if is_interpreter(name):
         return ProcessOrigin.USER_INSTALL
+    if windowed:
+        # 网盘、聊天软件这类有窗口的应用，其后台进程装在哪里都算桌面应用。
+        return ProcessOrigin.DESKTOP_APP
     if "/appdata/" in path or "/program files" in path or "/programdata/" in path:
         return ProcessOrigin.DESKTOP_APP
     if "explorer" in ancestors:
@@ -156,6 +177,47 @@ def _classify_unix(name: str, path: str, home: str) -> ProcessOrigin:
     return ProcessOrigin.UNKNOWN
 
 
+def is_windows_gui_program(path: str) -> bool:
+    """读 PE 文件头判断是不是 Windows 图形界面程序；不是 PE 文件或读不出时返回 False。"""
+    try:
+        with open(path, "rb") as file:
+            dos_header = file.read(64)
+            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                return False
+            # MZ 头偏移 60 处的 e_lfanew 指向 PE 签名。
+            file.seek(int.from_bytes(dos_header[60:64], "little"))
+            header = file.read(_PE_SUBSYSTEM_OFFSET + 2)
+    except OSError:
+        return False
+    if len(header) < _PE_SUBSYSTEM_OFFSET + 2 or header[:4] != b"PE\0\0":
+        return False
+    subsystem = int.from_bytes(header[_PE_SUBSYSTEM_OFFSET : _PE_SUBSYSTEM_OFFSET + 2], "little")
+    return subsystem == _PE_SUBSYSTEM_WINDOWS_GUI
+
+
+def _has_windowed_program(programs: list[tuple[str, str | None]]) -> bool:
+    """本进程或祖先里有没有图形界面程序；跳过系统目录下的程序、explorer 和脚本解释器。
+
+    explorer 和系统程序几乎是所有进程的祖先，解释器（如 pythonw）本身是图形子系统，
+    它们都说明不了端口属于某个桌面应用。
+    """
+    for name, exe in programs:
+        if exe is None or is_interpreter(name) or normalize_process_name(name) == "explorer":
+            continue
+        if _normalize_path(exe)[1:].startswith(":/windows/"):
+            continue
+        if is_windows_gui_program(exe):
+            return True
+    return False
+
+
+def _read_exe(process: psutil.Process) -> str | None:
+    try:
+        return process.exe() or None
+    except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+        return None
+
+
 def current_platform() -> str:
     """返回 `windows`、`darwin` 或 `linux`。"""
     return {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
@@ -174,11 +236,9 @@ def read_process_facts(pid: int, expected_name: str | None = None) -> ProcessFac
         name = process.name()
         if expected_name is not None and not _same_process_name(name, expected_name):
             return None
-        try:
-            exe: str | None = process.exe() or None
-        except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
-            exe = None
+        exe = _read_exe(process)
         ancestors: list[str] = []
+        programs: list[tuple[str, str | None]] = [(name, exe)]
         created = process.create_time()
         current = process
         for _ in range(8):
@@ -187,15 +247,18 @@ def read_process_facts(pid: int, expected_name: str | None = None) -> ProcessFac
             if parent is None or parent.create_time() > created:
                 break
             ancestors.append(parent.name())
+            programs.append((parent.name(), _read_exe(parent)))
             current, created = parent, parent.create_time()
     except (psutil.Error, OSError):
         return None
+    platform = current_platform()
     return ProcessFacts(
-        platform=current_platform(),
+        platform=platform,
         name=name,
         exe=exe,
         ancestors=tuple(ancestors),
         home=str(Path.home()),
+        windowed=platform == "windows" and _has_windowed_program(programs),
     )
 
 

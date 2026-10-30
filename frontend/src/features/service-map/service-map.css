@@ -743,3 +743,8 @@
     animation: none;
   }
 }
+.map-repair-refusal {
+  display: block;
+  margin: 2px 0 6px;
+  color: var(--map-gold);
+}

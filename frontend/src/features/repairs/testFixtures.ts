@@ -101,6 +101,7 @@ export function finishedRepair(
           code: "verification_failed",
           message: "容器重启了，但服务还是没起来。",
           next_step: "看看日志要点，不会自动重试。",
+          manual_steps: [],
         },
   });
 }

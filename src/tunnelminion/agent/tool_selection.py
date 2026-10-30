@@ -22,11 +22,12 @@ TOOL_USAGE: dict[str, str] = {
     ),
     "probe_service_reachability": "程序在听，但要确认这台电脑能不能连上某个地址和端口时用。",
     "get_process_summary": "问进程、内存、CPU 或“哪个程序”时用。",
-    "list_launch_records": "Python 脚本退出了、想知道能不能按原来的方式重新拉起时用。",
+    "list_launch_records": ("Python 脚本或普通程序退出了、想知道能不能按原来的方式重新运行时用。"),
     "get_wireguard_status": "只在问到 WireGuard、隧道、组网时用。",
     "get_node_summary": "问这台电脑整体状态、模型、有哪些工具时用。",
     "propose_repair": (
-        "已经查明容器停了、脚本退出了或 macOS 后台服务退出了、需要修时用；只生成待批准的修复。"
+        "已经查明容器停了、脚本或程序退出了、巡检确认卡住了、后台服务或 Windows 服务停了，"
+        "需要修时用；只生成待批准的修复。"
     ),
 }
 

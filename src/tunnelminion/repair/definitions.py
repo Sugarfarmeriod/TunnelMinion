@@ -34,8 +34,17 @@ def register_repair_operations(registry: ToolRegistry) -> tuple[ToolDefinition, 
             "按启动记录在后台重新拉起已退出的 Python 脚本，只能经本机批准后由修复流程执行。"
         ),
         RepairKind.RESTART_LAUNCH_AGENT: (
-            "用 launchctl kickstart 重新启动当前用户已经退出的 macOS 后台服务，"
+            "用 launchctl kickstart 重新启动当前用户已经退出或卡住的 macOS 后台服务，"
             "只能经本机批准后由修复流程执行。"
+        ),
+        RepairKind.RELAUNCH_PROGRAM: (
+            "按启动记录在后台重新运行已退出的普通程序，只能经本机批准后由修复流程执行。"
+        ),
+        RepairKind.RESTART_STUCK_PROGRAM: (
+            "结束巡检确认卡住的程序再按启动记录重新运行，只能经本机批准后由修复流程执行。"
+        ),
+        RepairKind.RESTART_WINDOWS_SERVICE: (
+            "启动或重启主人单独授权过的 Windows 服务，只能经本机批准后由修复流程执行。"
         ),
     }
     definitions: list[ToolDefinition] = []

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from tests.patrol.fakes import PHOTOS, PROGRAM, PatrolHarness, entry
 from tests.repair.factories import NODE, NOW
 
+from tunnelminion.agent.service_marks import ServiceMark
 from tunnelminion.domain.identifiers import NodeId, SnapshotId, ThreadId
 from tunnelminion.gateway import api as gateway_api
 from tunnelminion.incident.contracts import (
@@ -30,6 +31,7 @@ from tunnelminion.patrol.local import (
     peer_patrol_reports,
 )
 from tunnelminion.patrol.storage import SQLitePatrolStore
+from tunnelminion.repair.contracts import WindowsServiceRecord
 from tunnelminion.web.patrol import create_patrol_router
 from tunnelminion.web.request_guard import install_local_request_guard
 
@@ -204,3 +206,46 @@ def test_peer_reports_only_down_services_without_private_fields(tmp_path: Path) 
     assert not reports["docker:paused"].auto_repair
     assert reports["docker:paused"].reason is None
     assert "thread" not in script.model_dump_json()
+
+
+def test_windows_service_grant_route(tmp_path: Path) -> None:
+    h = PatrolHarness(tmp_path)
+    h.repairs.launch_records.put(
+        WindowsServiceRecord(
+            service_key=PROGRAM,
+            service_name="SunshineService",
+            ports=(9000,),
+            rule_shown=False,
+            recorded_at=NOW,
+        )
+    )
+    h.entries = (entry(PROGRAM, ports=(9000,), windows_service=True),)
+    client = client_for(h)
+    url = f"/api/patrol/services/{PROGRAM}/windows-service"
+    # 没标成"是我的服务"：已有的授权只能撤回，不能再授予。
+    revoked = client.put(url, json={"granted": False}, headers=SAME_ORIGIN)
+    assert revoked.status_code == 200
+    item = next(value for value in revoked.json()["services"] if value["key"] == PROGRAM)
+    assert item["windows_service"] is None
+    refused = client.put(url, json={"granted": True}, headers=SAME_ORIGIN)
+    assert refused.status_code == 422
+    h.repairs.marks[PROGRAM] = ServiceMark.MINE
+    shown = next(
+        value for value in client.get("/api/patrol").json()["services"] if value["key"] == PROGRAM
+    )
+    assert shown["windows_service"] == {
+        "name": "SunshineService",
+        "display_name": "Sunshine",
+        "binary_path": "D:/Apps/Sunshine/sunshinesvc.exe",
+        "granted": False,
+        "allowed": True,
+    }
+    h.repairs.windows_services.grant_result = False
+    declined = client.put(url, json={"granted": True}, headers=SAME_ORIGIN)
+    assert declined.status_code == 409
+    missing = client.put(
+        f"/api/patrol/services/{PHOTOS}/windows-service",
+        json={"granted": True},
+        headers=SAME_ORIGIN,
+    )
+    assert missing.status_code == 404

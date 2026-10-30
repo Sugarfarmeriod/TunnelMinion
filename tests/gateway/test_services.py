@@ -103,7 +103,7 @@ def reader(
                 port=8084,
                 pid=104,
                 process_name="mine-service",
-                origin=ProcessOrigin.DESKTOP_APP,
+                origin=ProcessOrigin.APP_SERVICE,
             ),
             NetworkListener(
                 protocol="tcp",

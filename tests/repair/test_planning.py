@@ -38,17 +38,17 @@ def test_reason_validation(tmp_path: Path, reason: str) -> None:
         (
             "program:svc",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "这种修法不适用于这个服务。",
         ),
         (
             "port:8080",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "只能修 Docker 容器、Python 脚本、普通程序、macOS 后台服务和 Windows 服务。",
         ),
         (
             "docker:a/b",
             RepairKind.RESTART_CONTAINERS,
-            "只能修 Docker 容器、Python 脚本和 macOS 后台服务。",
+            "只能修 Docker 容器、Python 脚本、普通程序、macOS 后台服务和 Windows 服务。",
         ),
         ("docker:photos", RepairKind.RELAUNCH_PYTHON, "这种修法不适用于这个服务。"),
         ("python:app.py@8765", RepairKind.RESTART_CONTAINERS, "这种修法不适用于这个服务。"),
@@ -140,6 +140,33 @@ def test_compose_plan_all_ports_and_reason_are_display_only(tmp_path: Path, mine
         )
     )
     assert p.idempotency_key == again.idempotency_key
+
+
+def test_compose_plan_names_dependency_order(tmp_path: Path) -> None:
+    h = RepairHarness(tmp_path)
+    h.containers.items = (
+        container(service="web", depends_on=("db",)),
+        container("b", name="photos-db-1", service="db"),
+    )
+    p = asyncio.run(
+        h.planner.propose("docker:compose:photos", RepairKind.RESTART_CONTAINERS, "退出了", ORIGIN)
+    )
+    assert p.action_summary == "按依赖顺序处理 Docker 容器组 photos：先启动 db，再启动 web"
+    assert "最多 60 秒" in p.impact_summary
+    long_name = "s" * 128
+    h.containers.items = tuple(
+        container(
+            chr(ord("a") + index),
+            name=f"photos-{index}",
+            service=f"{long_name[:-2]}{index:02d}",
+            depends_on=(f"{long_name[:-2]}{index - 1:02d}",) if index else (),
+        )
+        for index in range(6)
+    )
+    p = asyncio.run(
+        h.planner.propose("docker:compose:photos", RepairKind.RESTART_CONTAINERS, "退出了", ORIGIN)
+    )
+    assert len(p.action_summary) == 300
 
 
 def test_single_container_plan_and_safe_truncation(tmp_path: Path) -> None:

@@ -7,6 +7,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    // 后端用纯文字给出的 detail；需要原样展示后端说明的界面才读它。
+    readonly detail: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -55,7 +57,13 @@ async function request(
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
     const detail = getErrorDetail(payload);
-    throw new ApiError(response.status, detail.code, detail.message);
+    const text =
+      typeof payload === "object" &&
+      payload !== null &&
+      typeof (payload as Record<string, unknown>).detail === "string"
+        ? ((payload as Record<string, unknown>).detail as string)
+        : null;
+    throw new ApiError(response.status, detail.code, detail.message, text);
   }
   return response;
 }
