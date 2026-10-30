@@ -15,6 +15,10 @@ test("地图提问、后台回答、未读提示和证据在同一抽屉完成",
   await page.getByRole("button", { name: "问问 WireGuard Panel" }).click();
   const drawer = page.getByRole("dialog", { name: "对话", exact: true });
   await expect(drawer).toBeVisible();
+  expect(backend.questions).toHaveLength(0);
+  await drawer
+    .getByRole("button", { name: "WireGuard Panel怎么打不开？" })
+    .click();
   await expect.poll(() => backend.questions.length).toBe(1);
   expect(backend.questions[0]).toEqual({
     question: "WireGuard Panel怎么打不开？",

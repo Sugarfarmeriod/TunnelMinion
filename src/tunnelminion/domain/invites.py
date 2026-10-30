@@ -45,7 +45,7 @@ DisplayName = Annotated[
 
 
 def platform_display_name(platform: Platform | None) -> str:
-    """默认名字只取平台，不读取主机名。"""
+    """对方没有报来名字时按平台给的名字，也是取不到系统电脑名时的退路。"""
     return {
         Platform.WINDOWS: "Windows 电脑",
         Platform.MACOS: "Mac",
