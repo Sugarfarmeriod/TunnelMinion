@@ -85,15 +85,19 @@ def test_list_and_details_show_only_local_advanced_fields(tmp_path: Path) -> Non
 
 def test_python_detail_exposes_launch_only_locally(tmp_path: Path) -> None:
     h = RepairHarness(tmp_path)
-    launch = local_launch(tmp_path)
+    launch = local_launch(tmp_path).model_copy(
+        update={"arguments": (*local_launch(tmp_path).arguments, "--token=fixture-private")}
+    )
     record = pending(
         h, RepairRecord.planned(plan(PythonRepairTarget(launch=launch)), actor="local-cli")
     )
     client = client_for(h)
     detail = client.get(f"/api/repairs/{record.plan.operation_id}")
+    # 启动参数里像密钥的部分不给网页看。
+    assert "fixture-private" not in detail.text
     assert detail.json()["advanced"] == {
         "interpreter": launch.interpreter,
-        "arguments": list(launch.arguments),
+        "arguments": [*launch.arguments[:-1], "--token=（原来的值）"],
         "working_directory": launch.working_directory,
         "ports": [8765],
     }
