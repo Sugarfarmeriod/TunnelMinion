@@ -27,6 +27,7 @@ from tunnelminion.runtime.code_signing import (
     CodeSignatureRecord,
     CodeSigningResult,
     CodeSigningStatus,
+    CommandOutcome,
     LocalSigningIdentity,
     PackageCodeSigner,
     SignedFile,
@@ -47,13 +48,14 @@ class FakeSecurity:
         self.fail = fail
         self.certificates: list[x509.Certificate] = []
 
-    def __call__(self, command: Sequence[str]) -> bool:
+    def __call__(self, command: Sequence[str]) -> CommandOutcome:
         values = tuple(command)
         self.commands.append(values)
         tool = Path(values[0]).name
         action = values[1] if tool == "security" else tool
         if action == self.fail:
-            return False
+            # 错误输出里带上整条命令，用来确认失败说明会去掉密码。
+            return CommandOutcome(False, "exit 1: " + " ".join(values))
         if action == "create-keychain":
             Path(values[-1]).write_bytes(b"keychain")
         if action == "import":
@@ -66,7 +68,7 @@ class FakeSecurity:
             sha1 = values[values.index("--sign") + 1]
             with Path(values[-1]).open("ab") as stream:
                 stream.write(f"signed-by-{sha1}".encode())
-        return True
+        return CommandOutcome(True)
 
     def actions(self) -> list[str]:
         return [
@@ -130,6 +132,12 @@ def test_failed_creation_leaves_no_identity_and_is_retried_cleanly(
     local = identity(tmp_path, run)
     assert local.ensure() is None
     directory = tmp_path / "code-signing"
+    # 失败说明写明是哪一步，命令里的密码都换成了 ***。
+    assert local.failure is not None and local.failure.startswith(f"security {step}: exit 1")
+    password = (directory / "keychain-password").read_text(encoding="utf-8")
+    assert password not in local.failure
+    if step != "set-keychain-settings":
+        assert "***" in local.failure
     assert not (directory / "identity.json").exists()
     assert not (directory / ".identity.p12").exists()
 
@@ -252,14 +260,18 @@ def test_signing_failures_leave_the_package_as_it_was(
     entrypoint = root / "tunnelminion.bin"
 
     no_identity = FakeSecurity(fail="create-keychain")
-    result = PackageCodeSigner(identity(tmp_path / "a", no_identity), run=no_identity).sign(
-        root, manifest
-    )
+    signer = PackageCodeSigner(identity(tmp_path / "a", no_identity), run=no_identity)
+    result = signer.sign(root, manifest)
     assert result.error_code == "signing_identity_unavailable"
+    assert signer.failure is not None and signer.failure.startswith("security create-keychain")
 
     refused = FakeSecurity(fail="codesign")
-    result = PackageCodeSigner(identity(tmp_path / "b", refused), run=refused).sign(root, manifest)
+    signer = PackageCodeSigner(identity(tmp_path / "b", refused), run=refused)
+    result = signer.sign(root, manifest)
     assert result.error_code == "codesign_failed"
+    assert signer.failure is not None and signer.failure.startswith("codesign: exit 1")
+    # 失败说明只留在签名器上，不进 `start` 输出。
+    assert "exit" not in result.model_dump_json()
     assert entrypoint.read_bytes() == b"runtime"
     assert load_signature_record(root) is None
 
@@ -360,15 +372,20 @@ def test_start_signs_only_frozen_packages_on_macos(
 def test_commands_run_without_a_shell_and_failures_are_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert run_command((sys.executable, "-c", "pass"))
-    assert not run_command((sys.executable, "-c", "raise SystemExit(3)"))
-    assert not run_command(("tunnelminion-command-that-does-not-exist",))
+    assert run_command((sys.executable, "-c", "pass")) == CommandOutcome(True)
+    script = "import sys; sys.stderr.write('boom'); sys.exit(3)"
+    failed = run_command((sys.executable, "-c", script))
+    assert failed == CommandOutcome(False, "exit 3: boom")
+    quiet = run_command((sys.executable, "-c", "print('only stdout'); raise SystemExit(4)"))
+    assert quiet == CommandOutcome(False, "exit 4: only stdout")
+    missing = run_command(("tunnelminion-command-that-does-not-exist",))
+    assert missing == CommandOutcome(False, "FileNotFoundError")
 
     def slow(*_: object, **__: object) -> None:
         raise subprocess.TimeoutExpired("security", 60)
 
     monkeypatch.setattr("tunnelminion.runtime.code_signing.subprocess.run", slow)
-    assert not run_command(("security", "unlock-keychain"))
+    assert run_command(("security", "unlock-keychain")) == CommandOutcome(False, "timeout")
 
 
 def test_signing_material_lives_under_the_users_tunnelminion_directory(
@@ -378,6 +395,67 @@ def test_signing_material_lives_under_the_users_tunnelminion_directory(
     assert default_signing_directory() == tmp_path / ".tunnelminion" / "code-signing"
 
 
+def _probe(*command: str) -> str:
+    """跑一条诊断命令，返回退出码和全部输出。"""
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+    except subprocess.TimeoutExpired:
+        return f"$ {' '.join(command)}\n  timeout"
+    return f"$ {' '.join(command)}\n  exit {done.returncode}: {(done.stdout + done.stderr).strip()}"
+
+
+def _signing_diagnostics(local: LocalSigningIdentity, sha1: str, sample: Path) -> str:
+    """签名失败时收集排查信息：钥匙串搜索列表、可用身份、几种签法各自的报错。"""
+    keychain = str(local.keychain)
+    scratch = sample.with_name("diagnostic-copy")
+    lines = [
+        _probe("/usr/bin/security", "list-keychains", "-d", "user"),
+        _probe("/usr/bin/security", "find-identity", "-p", "codesigning", keychain),
+        _probe("/usr/bin/security", "find-identity", "-v", "-p", "codesigning", keychain),
+        _probe("/usr/bin/xcode-select", "-p"),
+    ]
+    variants = {
+        "no-keychain-flag": ("--sign", sha1),
+        "by-name": ("--sign", CERTIFICATE_NAME, "--keychain", keychain),
+    }
+    for label, arguments in variants.items():
+        shutil.copy2(sample, scratch)
+        probe = _probe("/usr/bin/codesign", "--force", *arguments, str(scratch))
+        lines.append(f"[{label}] {probe}")
+    if os.environ.get("CI"):
+        # 只在 CI 上试：用户级信任这张证书要不要授权框，信任后能不能签。
+        pem = sample.with_name("identity.pem")
+        exported = subprocess.run(
+            ["/usr/bin/security", "find-certificate", "-c", CERTIFICATE_NAME, "-p", keychain],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        pem.write_text(exported.stdout, encoding="utf-8")
+        lines.append(
+            "[trust] "
+            + _probe(
+                "/usr/bin/security",
+                "add-trusted-cert",
+                "-r",
+                "trustRoot",
+                "-p",
+                "codeSign",
+                "-k",
+                keychain,
+                str(pem),
+            )
+        )
+        shutil.copy2(sample, scratch)
+        lines.append(
+            "[after-trust] "
+            + _probe(
+                "/usr/bin/codesign", "--force", "--sign", sha1, "--keychain", keychain, str(scratch)
+            )
+        )
+    return "\n".join(lines)
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="只有 macOS 有 security 和 codesign")
 def test_real_codesign_accepts_the_untrusted_local_certificate(tmp_path: Path) -> None:
     """在 macOS CI 上真跑一遍：不用 sudo、不改信任设置，自签名证书也能签，指定要求固定。"""
@@ -385,45 +463,56 @@ def test_real_codesign_accepts_the_untrusted_local_certificate(tmp_path: Path) -
     local = LocalSigningIdentity(directory)
     try:
         sha1 = local.ensure()
-        assert sha1 is not None
-        assert local.ensure() == sha1
+        assert sha1 is not None, local.failure
+        assert local.ensure() == sha1, local.failure
 
         root, manifest = _package(tmp_path)
         entrypoint = root / "tunnelminion.bin"
-        shutil.copy2(Path(sys.executable).resolve(), entrypoint)
-        value = json.loads(manifest.read_text(encoding="utf-8"))
-        data = entrypoint.read_bytes()
-        value["files"][0].update(sha256=hashlib.sha256(data).hexdigest(), size=len(data))
-        manifest.write_text(json.dumps(value), encoding="utf-8")
+        sample = tmp_path / "sample-binary"
+        shutil.copy2(Path(sys.executable).resolve(), sample)
 
-        assert PackageCodeSigner(local).sign(root, manifest).status is CodeSigningStatus.SIGNED
+        def install(version: Path) -> None:
+            shutil.copy2(version, entrypoint)
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            data = entrypoint.read_bytes()
+            value["files"][0].update(sha256=hashlib.sha256(data).hexdigest(), size=len(data))
+            manifest.write_text(json.dumps(value), encoding="utf-8")
+            (root / CODE_SIGNATURE_RECORD_FILE).unlink(missing_ok=True)
+
+        def requirement() -> str:
+            shown = subprocess.run(
+                ["/usr/bin/codesign", "--display", "--requirements", "-", str(entrypoint)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return shown.stdout + shown.stderr
+
+        install(sample)
+        signer = PackageCodeSigner(local)
+        result = signer.sign(root, manifest)
+        if result.status is not CodeSigningStatus.SIGNED:
+            pytest.fail(
+                f"{result.error_code}: {signer.failure}\n"
+                + _signing_diagnostics(local, sha1, sample)
+            )
         verify_runtime_package(root, manifest, SCHEMA, ())
-        subprocess.run(["codesign", "--verify", "--strict", str(entrypoint)], check=True)
-        requirement = subprocess.run(
-            ["codesign", "--display", "--requirements", "-", str(entrypoint)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        text = requirement.stdout + requirement.stderr
-        assert f'identifier "{CODE_SIGNING_IDENTIFIER}"' in text
-        assert sha1.lower() in text.lower()
+        subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(entrypoint)], check=True)
+        first = requirement()
+        assert f'identifier "{CODE_SIGNING_IDENTIFIER}"' in first
+        assert sha1.lower() in first.lower()
 
-        # 换一个“新版本”（内容不同的原文件）用同一张证书签，指定要求保持不变。
-        shutil.copy2(Path(sys.executable).resolve(), entrypoint)
-        with entrypoint.open("ab") as stream:
-            stream.write(b"\0")
-        data = entrypoint.read_bytes()
-        value["files"][0].update(sha256=hashlib.sha256(data).hexdigest(), size=len(data))
-        manifest.write_text(json.dumps(value), encoding="utf-8")
-        (root / CODE_SIGNATURE_RECORD_FILE).unlink()
-        assert PackageCodeSigner(local).sign(root, manifest).status is CodeSigningStatus.SIGNED
-        again = subprocess.run(
-            ["codesign", "--display", "--requirements", "-", str(entrypoint)],
+        # 换一个“新版本”（内容不同的可执行文件）用同一张证书签，指定要求保持不变。
+        other = tmp_path / "other-version"
+        shutil.copy2(sample, other)
+        subprocess.run(
+            ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", "other", str(other)],
             check=True,
-            capture_output=True,
-            text=True,
         )
-        assert again.stdout + again.stderr == text
+        assert other.read_bytes() != sample.read_bytes()
+        install(other)
+        result = signer.sign(root, manifest)
+        assert result.status is CodeSigningStatus.SIGNED, signer.failure
+        assert requirement() == first
     finally:
-        subprocess.run(["security", "delete-keychain", str(local.keychain)], check=False)
+        subprocess.run(["/usr/bin/security", "delete-keychain", str(local.keychain)], check=False)

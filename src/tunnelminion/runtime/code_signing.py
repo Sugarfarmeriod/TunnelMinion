@@ -36,7 +36,7 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -57,22 +57,49 @@ _IDENTITY_FILE = "identity.json"
 _COMMAND_TIMEOUT_SECONDS = 60.0
 _CERTIFICATE_YEARS = 20
 
-CommandRunner = Callable[[Sequence[str]], bool]
-"""运行一条命令，返回是否成功；不读取输出。"""
+
+class CommandOutcome(NamedTuple):
+    """一条命令是否成功；失败时带上它的错误输出，供排查用。"""
+
+    ok: bool
+    detail: str = ""
 
 
-def run_command(command: Sequence[str]) -> bool:
+CommandRunner = Callable[[Sequence[str]], CommandOutcome]
+"""运行一条命令，返回是否成功和失败时的错误输出。"""
+
+_DETAIL_LIMIT = 2_000
+
+
+def run_command(command: Sequence[str]) -> CommandOutcome:
     """不经过 shell 运行固定命令；超时或找不到命令都按失败处理。"""
     try:
         completed = subprocess.run(
             list(command),
             check=False,
             capture_output=True,
+            text=True,
+            errors="replace",
             timeout=_COMMAND_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return completed.returncode == 0
+    except subprocess.TimeoutExpired:
+        return CommandOutcome(False, "timeout")
+    except OSError as exc:
+        return CommandOutcome(False, type(exc).__name__)
+    if completed.returncode == 0:
+        return CommandOutcome(True)
+    detail = (completed.stderr or completed.stdout).strip()
+    return CommandOutcome(False, f"exit {completed.returncode}: {detail}"[-_DETAIL_LIMIT:])
+
+
+def _failure(command: Sequence[str], outcome: CommandOutcome, hidden: Sequence[str]) -> str:
+    """失败说明：工具名、子命令和错误输出，去掉命令里出现的密码。"""
+    tool = Path(command[0]).name
+    action = command[1] if tool == "security" and len(command) > 1 else ""
+    text = f"{tool} {action}".strip() + f": {outcome.detail}"
+    for secret in hidden:
+        text = text.replace(secret, "***")
+    return text
 
 
 class CodeSigningStatus(StrEnum):
@@ -175,6 +202,14 @@ class LocalSigningIdentity:
         self._directory = directory
         self._run = run
         self._clock = clock
+        self.failure: str | None = None
+        """最近一次失败的说明（不含密码），只供排查，不写进 `start` 输出。"""
+
+    def _step(self, command: Sequence[str], *hidden: str) -> bool:
+        outcome = self._run(command)
+        if not outcome.ok:
+            self.failure = _failure(command, outcome, hidden)
+        return outcome.ok
 
     @property
     def keychain(self) -> Path:
@@ -185,7 +220,9 @@ class LocalSigningIdentity:
         existing = self._existing()
         if existing is not None:
             sha1, password = existing
-            if self._run((SECURITY, "unlock-keychain", "-p", password, str(self.keychain))):
+            if self._step(
+                (SECURITY, "unlock-keychain", "-p", password, str(self.keychain)), password
+            ):
                 return sha1
             return None
         return self._create()
@@ -210,7 +247,7 @@ class LocalSigningIdentity:
         os.chmod(self._directory, 0o700)
         if self.keychain.exists():
             # 上次没做完：钥匙串文件在，但证书记录没写成。删掉重建，不碰别的钥匙串。
-            self._run((SECURITY, "delete-keychain", str(self.keychain)))
+            self._step((SECURITY, "delete-keychain", str(self.keychain)))
             self.keychain.unlink(missing_ok=True)
         password = secrets.token_urlsafe(32)
         transfer = secrets.token_urlsafe(32)
@@ -250,7 +287,7 @@ class LocalSigningIdentity:
                 ),
             )
             for step in steps:
-                if not self._run(step):
+                if not self._step(step, password, transfer):
                     return None
         finally:
             bundle.unlink(missing_ok=True)
@@ -310,6 +347,8 @@ class PackageCodeSigner:
     def __init__(self, identity: LocalSigningIdentity, *, run: CommandRunner = run_command) -> None:
         self._identity = identity
         self._run = run
+        self.failure: str | None = None
+        """最近一次失败的说明，只供排查，不写进 `start` 输出。"""
 
     def sign(self, package_root: Path, manifest_path: Path) -> CodeSigningResult:
         try:
@@ -327,6 +366,7 @@ class PackageCodeSigner:
             )
         sha1 = self._identity.ensure()
         if sha1 is None:
+            self.failure = self._identity.failure
             return CodeSigningResult(
                 status=CodeSigningStatus.FAILED, error_code="signing_identity_unavailable"
             )
@@ -342,21 +382,21 @@ class PackageCodeSigner:
         temporary = target.with_name(f".{target.name}.codesign")
         try:
             shutil.copy2(target, temporary)
-            signed = self._run(
-                (
-                    CODESIGN,
-                    "--force",
-                    "--sign",
-                    sha1,
-                    "--keychain",
-                    str(self._identity.keychain),
-                    "--identifier",
-                    CODE_SIGNING_IDENTIFIER,
-                    "--timestamp=none",
-                    str(temporary),
-                )
+            command = (
+                CODESIGN,
+                "--force",
+                "--sign",
+                sha1,
+                "--keychain",
+                str(self._identity.keychain),
+                "--identifier",
+                CODE_SIGNING_IDENTIFIER,
+                "--timestamp=none",
+                str(temporary),
             )
-            if not signed:
+            outcome = self._run(command)
+            if not outcome.ok:
+                self.failure = _failure(command, outcome, ())
                 return CodeSigningResult(
                     status=CodeSigningStatus.FAILED, error_code="codesign_failed"
                 )
