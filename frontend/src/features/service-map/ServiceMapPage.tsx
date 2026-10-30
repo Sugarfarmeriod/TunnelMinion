@@ -186,18 +186,25 @@ export function ServiceMapPage() {
       (selectedPeer && selectedPeer.reachable !== true)
     )
       return;
+    const broken =
+      service !== undefined &&
+      (service.state === "stopped" ||
+        (selectedPeer
+          ? peerPatrol(peerServices.data)[service.key] !== undefined
+          : patrol.byKey[service.key]?.status === "down") ||
+        service.endpoints.some((endpoint) => endpoint.has_web_page === false));
+    // 只带上提问对象，不替用户发问；看起来坏了的服务把“打不开”排在第一个
     openChat({
       about: { node_id: targetId, service_key: service?.key ?? null },
       service,
-      question:
-        service &&
-        (service.state === "stopped" ||
-          (selectedPeer
-            ? peerPatrol(peerServices.data)[service.key] !== undefined
-            : patrol.byKey[service.key]?.status === "down") ||
-          service.endpoints.some((endpoint) => endpoint.has_web_page === false))
-          ? `${service.name}怎么打不开？`
-          : undefined,
+      suggestions: service
+        ? [
+            ...(broken ? [`${service.name}怎么打不开？`] : []),
+            "这是什么程序？",
+            "占多少内存和 CPU？",
+            "最近有什么异常？",
+          ]
+        : ["有哪些服务？", "哪个程序最占内存？", "有没有服务挂了？"],
     });
   }
 
