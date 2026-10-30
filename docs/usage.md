@@ -54,7 +54,7 @@ EXE="./package/tunnelminion"
   配对令牌等不再各占一条，授权框按条目弹，合并后最多弹一个。
 - **`runtime start` 会给运行包签上本机固定签名**：第一次运行时在 `~/.tunnelminion/code-signing/`
   生成一张只属于这台电脑的自签名证书，放在单独的钥匙串文件 `tunnelminion-signing.keychain-db` 里，
-  "钥匙串访问"里会多出这个钥匙串。以后每次 `start` 都用同一张证书重签新运行包，钥匙串就认得是同一个程序。
+  这个钥匙串会被加进你的钥匙串搜索列表（codesign 只在这个列表里找证书），所以"钥匙串访问"里会多出它。以后每次 `start` 都用同一张证书重签新运行包，钥匙串就认得是同一个程序。
   这一步不用 sudo，不改系统信任设置，也不弹框。`start` 输出里的 `code_signing` 写着结果：
   `signed`（刚签好）、`already_signed`（已经签过），或 `failed` 加原因。签名失败不影响启动。
 

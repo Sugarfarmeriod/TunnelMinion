@@ -13,7 +13,12 @@
   密码随机生成，存在同目录的 600 权限文件里，每次签名前先用它解锁；
 - `security import -T /usr/bin/codesign` 导入证书和私钥，`set-key-partition-list` 允许 codesign
   直接使用私钥，签名时不弹框；
+- `security list-keychains -d user -s` 把这个钥匙串追加进当前用户的钥匙串搜索列表（只追加，不删除
+  原有条目）：codesign 只在搜索列表里找签名身份，`--keychain` 不能代替；
 - `codesign --force --sign <证书 SHA-1> --identifier tunnelminion` 签运行包入口。
+
+证书没有被系统信任（`security find-identity` 显示 `CSSMERR_TP_NOT_TRUSTED`）也能签。把它设成受信任
+（`security add-trusted-cert`）要弹授权框，所以不做。
 
 钥匙串认的是正在运行的进程，也就是入口可执行文件；`_internal` 里的库保持构建时的签名。
 
@@ -59,10 +64,11 @@ _CERTIFICATE_YEARS = 20
 
 
 class CommandOutcome(NamedTuple):
-    """一条命令是否成功；失败时带上它的错误输出，供排查用。"""
+    """一条命令是否成功；失败时带上它的错误输出，供排查用；成功时带上标准输出。"""
 
     ok: bool
     detail: str = ""
+    output: str = ""
 
 
 CommandRunner = Callable[[Sequence[str]], CommandOutcome]
@@ -87,7 +93,7 @@ def run_command(command: Sequence[str]) -> CommandOutcome:
     except OSError as exc:
         return CommandOutcome(False, type(exc).__name__)
     if completed.returncode == 0:
-        return CommandOutcome(True)
+        return CommandOutcome(True, output=completed.stdout)
     detail = (completed.stderr or completed.stdout).strip()
     return CommandOutcome(False, f"exit {completed.returncode}: {detail}"[-_DETAIL_LIMIT:])
 
@@ -216,16 +222,34 @@ class LocalSigningIdentity:
         return self._directory / _KEYCHAIN_FILE
 
     def ensure(self) -> str | None:
-        """返回可用证书的 SHA-1 指纹并解锁它所在的钥匙串；做不到时返回 None。"""
+        """返回可用证书的 SHA-1 指纹，解锁它所在的钥匙串并确认它在搜索列表里；做不到时返回 None。"""
         existing = self._existing()
-        if existing is not None:
+        if existing is None:
+            sha1 = self._create()
+        else:
             sha1, password = existing
-            if self._step(
-                (SECURITY, "unlock-keychain", "-p", password, str(self.keychain)), password
-            ):
-                return sha1
+            unlock = (SECURITY, "unlock-keychain", "-p", password, str(self.keychain))
+            if not self._step(unlock, password):
+                return None
+        if sha1 is None or not self._listed():
             return None
-        return self._create()
+        return sha1
+
+    def _listed(self) -> bool:
+        """把签名钥匙串追加进当前用户的钥匙串搜索列表。
+
+        codesign 只在搜索列表里找签名身份，`--keychain` 不能代替。只追加、不删除列表里原有的
+        钥匙串；已经在列表里时不改动。
+        """
+        listed = self._run((SECURITY, "list-keychains", "-d", "user"))
+        if not listed.ok:
+            self.failure = _failure((SECURITY, "list-keychains"), listed, ())
+            return False
+        current = [line.strip().strip('"') for line in listed.output.splitlines() if line.strip()]
+        target = os.path.realpath(self.keychain)
+        if any(os.path.realpath(item) == target for item in current):
+            return True
+        return self._step((SECURITY, "list-keychains", "-d", "user", "-s", *current, target))
 
     def _existing(self) -> tuple[str, str] | None:
         identity = self._directory / _IDENTITY_FILE

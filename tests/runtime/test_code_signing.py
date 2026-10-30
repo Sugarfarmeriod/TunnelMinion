@@ -47,15 +47,21 @@ class FakeSecurity:
         self.commands: list[tuple[str, ...]] = []
         self.fail = fail
         self.certificates: list[x509.Certificate] = []
+        # 当前用户的钥匙串搜索列表，和真实输出一样每行一个带引号的路径。
+        self.search_list = ["/Users/someone/Library/Keychains/login.keychain-db"]
 
     def __call__(self, command: Sequence[str]) -> CommandOutcome:
         values = tuple(command)
         self.commands.append(values)
-        tool = Path(values[0]).name
-        action = values[1] if tool == "security" else tool
+        action = _action(values)
         if action == self.fail:
             # 错误输出里带上整条命令，用来确认失败说明会去掉密码。
             return CommandOutcome(False, "exit 1: " + " ".join(values))
+        if action == "list-keychains":
+            output = "".join(f'    "{item}"\n' for item in self.search_list)
+            return CommandOutcome(True, output=output)
+        if action == "list-keychains-set":
+            self.search_list = list(values[values.index("-s") + 1 :])
         if action == "create-keychain":
             Path(values[-1]).write_bytes(b"keychain")
         if action == "import":
@@ -71,10 +77,14 @@ class FakeSecurity:
         return CommandOutcome(True)
 
     def actions(self) -> list[str]:
-        return [
-            item[1] if Path(item[0]).name == "security" else Path(item[0]).name
-            for item in self.commands
-        ]
+        return [_action(item) for item in self.commands]
+
+
+def _action(values: tuple[str, ...]) -> str:
+    tool = Path(values[0]).name
+    if tool != "security":
+        return tool
+    return "list-keychains-set" if values[1] == "list-keychains" and "-s" in values else values[1]
 
 
 def identity(tmp_path: Path, run: FakeSecurity) -> LocalSigningIdentity:
@@ -93,10 +103,23 @@ def test_identity_is_created_once_in_its_own_keychain_and_reused(tmp_path: Path)
         "unlock-keychain",
         "import",
         "set-key-partition-list",
+        "list-keychains",
+        "list-keychains-set",
+    ]
+    # 签名钥匙串追加在搜索列表末尾，原有的钥匙串都还在。
+    assert run.search_list == [
+        "/Users/someone/Library/Keychains/login.keychain-db",
+        os.path.realpath(local.keychain),
     ]
     import_command = run.commands[3]
     assert import_command[import_command.index("-T") + 1] == "/usr/bin/codesign"
-    assert all(str(local.keychain) in item for item in run.commands)
+    # 除了读搜索列表，每条命令都只针对 TunnelMinion 自己的钥匙串文件。
+    target = os.path.realpath(local.keychain)
+    assert all(
+        any(os.path.realpath(value) == target for value in item)
+        for item in run.commands
+        if _action(item) != "list-keychains"
+    )
     directory = tmp_path / "code-signing"
     assert not (directory / ".identity.p12").exists()
     assert json.loads((directory / "identity.json").read_text(encoding="utf-8"))["sha1"] == sha1
@@ -116,10 +139,10 @@ def test_identity_is_created_once_in_its_own_keychain_and_reused(tmp_path: Path)
     assert certificate.extensions.get_extension_for_class(x509.KeyUsage).value.digital_signature
     assert certificate.not_valid_after_utc > NOW + dt.timedelta(days=365 * 19)
 
-    # 第二次只解锁同一个钥匙串，不再生成证书。
+    # 第二次只解锁同一个钥匙串、确认它还在搜索列表里，不再生成证书。
     run.commands.clear()
     assert local.ensure() == sha1
-    assert run.actions() == ["unlock-keychain"]
+    assert run.actions() == ["unlock-keychain", "list-keychains"]
 
 
 @pytest.mark.parametrize(
@@ -162,6 +185,26 @@ def test_unreadable_identity_record_is_rebuilt(tmp_path: Path) -> None:
         replacement = local.ensure()
         assert replacement is not None and replacement != first
         assert run.actions()[0] == "delete-keychain"
+
+
+@pytest.mark.parametrize("step", ["list-keychains", "list-keychains-set"])
+def test_identity_is_unusable_until_its_keychain_is_in_the_search_list(
+    tmp_path: Path, step: str
+) -> None:
+    """codesign 只在搜索列表里找签名身份：列表读不到或改不了时不给出身份，下次再试。"""
+    run = FakeSecurity(fail=step)
+    local = identity(tmp_path, run)
+    assert local.ensure() is None
+    assert local.failure is not None and local.failure.startswith("security list-keychains")
+    assert run.search_list == ["/Users/someone/Library/Keychains/login.keychain-db"]
+
+    run.fail = None
+    run.commands.clear()
+    sha1 = local.ensure()
+    assert sha1 is not None
+    # 证书已经生成过，这次只解锁并补进搜索列表。
+    assert run.actions() == ["unlock-keychain", "list-keychains", "list-keychains-set"]
+    assert run.search_list[-1] == os.path.realpath(local.keychain)
 
 
 def test_locked_keychain_that_cannot_be_unlocked_gives_no_identity(tmp_path: Path) -> None:
@@ -423,22 +466,6 @@ def _signing_diagnostics(local: LocalSigningIdentity, sha1: str, sample: Path) -
         probe = _probe("/usr/bin/codesign", "--force", *arguments, str(scratch))
         lines.append(f"[{label}] {probe}")
     if os.environ.get("CI"):
-        # 只在 CI 上试：把钥匙串加进用户搜索列表后能不能签（试完恢复原列表）。
-        login = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
-        _probe("/usr/bin/security", "list-keychains", "-d", "user", "-s", login, keychain)
-        try:
-            lines.append(
-                "[search-list] " + _probe("/usr/bin/security", "list-keychains", "-d", "user")
-            )
-            for label, arguments in {
-                "listed+keychain-flag": ("--sign", sha1, "--keychain", keychain),
-                "listed": ("--sign", sha1),
-            }.items():
-                shutil.copy2(sample, scratch)
-                probe = _probe("/usr/bin/codesign", "--force", *arguments, str(scratch))
-                lines.append(f"[{label}] {probe}")
-        finally:
-            _probe("/usr/bin/security", "list-keychains", "-d", "user", "-s", login)
         # 用户级信任这张证书要不要授权框，信任后能不能签。
         pem = sample.with_name("identity.pem")
         exported = subprocess.run(
@@ -481,6 +508,14 @@ def test_real_codesign_accepts_the_untrusted_local_certificate(tmp_path: Path) -
         sha1 = local.ensure()
         assert sha1 is not None, local.failure
         assert local.ensure() == sha1, local.failure
+        # 证书没被系统信任也能签；前提是签名钥匙串在当前用户的搜索列表里。
+        listed = subprocess.run(
+            ["/usr/bin/security", "list-keychains", "-d", "user"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert os.path.realpath(local.keychain) in listed.stdout
 
         root, manifest = _package(tmp_path)
         entrypoint = root / "tunnelminion.bin"
