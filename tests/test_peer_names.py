@@ -55,17 +55,39 @@ def configuration(root: Path, secrets: MemorySecrets) -> GatewayConfigurationSer
     ("platform", "expected"),
     [(Platform.WINDOWS, "Windows 电脑"), (Platform.MACOS, "Mac"), (Platform.LINUX, "Linux 电脑")],
 )
-def test_names_default_to_platform_and_persist_without_reading_hostname(
+def test_names_default_to_system_name_and_persist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: Platform, expected: str
 ) -> None:
-    def forbidden() -> str:
-        raise AssertionError("显示名不能读取主机名")
-
-    monkeypatch.setattr(socket, "gethostname", forbidden)
-    assert load_node_name(tmp_path, platform) == expected
-    assert load_node_name(tmp_path, Platform.LINUX) == expected
+    monkeypatch.setattr(socket, "gethostname", lambda: "Study-PC.local")
+    assert load_node_name(tmp_path, platform, persist_default=False) == "Study-PC"
+    assert not (tmp_path / "node-name.json").exists()
+    assert load_node_name(tmp_path, platform) == "Study-PC"
+    monkeypatch.setattr(socket, "gethostname", lambda: "Other")
+    assert load_node_name(tmp_path, Platform.LINUX) == "Study-PC"
     assert save_node_name(tmp_path, "测试电脑") == "测试电脑"
     assert load_node_name(tmp_path, platform) == "测试电脑"
+    # 旧版本保存的平台默认名不算用户起的名字，换成系统电脑名
+    save_node_name(tmp_path, expected)
+    assert load_node_name(tmp_path, platform) == "Other"
+    assert load_node_name(tmp_path, platform, persist_default=False) == "Other"
+
+
+@pytest.mark.parametrize("hostname", ["", "x" * 41, "a	b"])
+def test_names_fall_back_to_platform_when_system_name_is_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, hostname: str
+) -> None:
+    monkeypatch.setattr(socket, "gethostname", lambda: hostname)
+    assert load_node_name(tmp_path, Platform.WINDOWS) == "Windows 电脑"
+
+
+def test_names_fall_back_to_platform_when_system_name_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken() -> str:
+        raise OSError("no hostname")
+
+    monkeypatch.setattr(socket, "gethostname", broken)
+    assert load_node_name(tmp_path, Platform.MACOS) == "Mac"
 
 
 @pytest.mark.parametrize("command", ["node-name", "peer-rename"])
@@ -228,6 +250,8 @@ def test_invite_cli_persists_linux_default_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.sys, "platform", "linux")
+    # 取不到系统电脑名时，按发出邀请的平台保存默认名
+    monkeypatch.setattr(socket, "gethostname", lambda: "")
     assert (
         cli.main(
             [

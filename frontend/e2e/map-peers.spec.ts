@@ -19,12 +19,37 @@ for (const width of [1440, 760, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const count of [0, 1, 3, 8]) {
       peers = Array.from({ length: count }, (_, index) =>
-        makePeer(index + 1, { reachable: index !== 2 }),
+        makePeer(index + 1, {
+          reachable: index !== 2,
+          network: (["wireguard", "n2n", "other", null] as const)[index % 4],
+        }),
       );
       await page.goto("/app/map");
       const nodes = page.locator(".map-node");
       await expect(nodes).toHaveCount(count + 1);
       await expect(page.locator(".map-link")).toHaveCount(count);
+      const labels = page.locator(".map-link-network");
+      await expect(labels).toHaveCount(
+        peers.filter((peer) => peer.network !== null).length,
+      );
+      // 组网标签不能压在任何电脑上；字体换好后再量，免得量到替代字体的宽度。
+      await page.evaluate(() => document.fonts.ready);
+      const nodeBoxes = await nodes.evaluateAll((items) =>
+        items.map((item) => item.getBoundingClientRect().toJSON() as DOMRect),
+      );
+      for (const label of await labels.evaluateAll((items) =>
+        items.map((item) => item.getBoundingClientRect().toJSON() as DOMRect),
+      )) {
+        expect(label.left).toBeGreaterThanOrEqual(0);
+        for (const node of nodeBoxes) {
+          expect(
+            label.right <= node.left ||
+              node.right <= label.left ||
+              label.bottom <= node.top ||
+              node.bottom <= label.top,
+          ).toBe(true);
+        }
+      }
       const boxes = await nodes.evaluateAll((items) =>
         items.map((item) => {
           const { left, top, right, bottom } = item.getBoundingClientRect();

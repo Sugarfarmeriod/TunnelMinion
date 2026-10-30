@@ -190,6 +190,51 @@ it.each([0, 1, 3, 8])("%i 个对端只与中心电脑相连", async (count) => {
   }
 });
 
+it.each([1440, 320])(
+  "%ipx 连线标出走 WireGuard、n2n 还是其他网卡，认不出时不标",
+  async (width) => {
+    window.innerWidth = width;
+    const peers = [
+      makePeer(1, { network: "wireguard" }),
+      makePeer(2, { network: "n2n" }),
+      makePeer(3, { network: "other", reachable: false }),
+      makePeer(4),
+    ];
+    const { container } = renderMap(peers);
+    await waitFor(() =>
+      expect(container.querySelectorAll(".map-link")).toHaveLength(4),
+    );
+    const links = Array.from(container.querySelectorAll(".map-link"));
+    expect(links.map((link) => link.getAttribute("aria-label"))).toEqual([
+      "这台电脑到测试电脑 1：能连上，走WireGuard",
+      "这台电脑到测试电脑 2：能连上，走n2n",
+      "这台电脑到测试电脑 3：连不上，走其他网卡",
+      "这台电脑到测试电脑 4：能连上",
+    ]);
+    expect(links.map((link) => link.getAttribute("data-network"))).toEqual([
+      "wireguard",
+      "n2n",
+      "other",
+      null,
+    ]);
+    expect(links[0]).toHaveClass("is-wireguard");
+    expect(links[2]).toHaveClass("is-unreachable", "is-other");
+    const labels = Array.from(container.querySelectorAll(".map-link-network"));
+    expect(labels.map((label) => label.textContent)).toEqual([
+      "WireGuard",
+      "n2n",
+      "其他网卡",
+    ]);
+    expect(labels.map((label) => label.getAttribute("data-to"))).toEqual(
+      peers.slice(0, 3).map((peer) => peer.node_id),
+    );
+    labels.forEach((label) => {
+      expect(label).toHaveAttribute("aria-hidden", "true");
+      expect(label.classList.contains("is-vertical")).toBe(width <= 760);
+    });
+  },
+);
+
 async function openPeer(peer = makePeer()) {
   fireEvent.click(
     await screen.findByRole("button", {
@@ -234,21 +279,35 @@ it("远端清单使用对端地址、报来时间，不显示标记按钮；同 
   });
 });
 
-it.each(["stopped", "unopenable"])("远端 %s 服务直接发问", async (state) => {
-  const view = makePeerServices();
-  if (state === "stopped") view.services[0]!.state = "stopped";
-  else view.services[0]!.ports[0]!.has_web_page = false;
-  renderMap([makePeer()], view);
-  const dialog = await openPeer();
-  fireEvent.click(
-    await within(dialog).findByRole("button", { name: "问问 远端相册" }),
-  );
-  await waitFor(() => expect(questions).toHaveLength(1));
-  expect(questions[0]).toMatchObject({
-    question: "远端相册怎么打不开？",
-    about: { node_id: makePeer().node_id, service_key: "python:app.py" },
-  });
-});
+it.each(["stopped", "unopenable"])(
+  "远端 %s 服务不替用户发问，把“打不开”排在预设问题第一个",
+  async (state) => {
+    const view = makePeerServices();
+    if (state === "stopped") view.services[0]!.state = "stopped";
+    else view.services[0]!.ports[0]!.has_web_page = false;
+    renderMap([makePeer()], view);
+    const dialog = await openPeer();
+    fireEvent.click(
+      await within(dialog).findByRole("button", { name: "问问 远端相册" }),
+    );
+    const presets = within(
+      await screen.findByLabelText("可以这样问"),
+    ).getAllByRole("button");
+    expect(presets.map((item) => item.textContent)).toEqual([
+      "远端相册怎么打不开？",
+      "这是什么程序？",
+      "占多少内存和 CPU？",
+      "最近有什么异常？",
+    ]);
+    expect(questions).toHaveLength(0);
+    fireEvent.click(presets[0]!);
+    await waitFor(() => expect(questions).toHaveLength(1));
+    expect(questions[0]).toMatchObject({
+      question: "远端相册怎么打不开？",
+      about: { node_id: makePeer().node_id, service_key: "python:app.py" },
+    });
+  },
+);
 
 it("对方巡检报来挂了：标红原因和确认时间，写明对方会自己修，没有本机才有的按钮", async () => {
   const view = makePeerServices();
@@ -277,6 +336,9 @@ it("对方巡检报来挂了：标红原因和确认时间，写明对方会自�
   expect(within(dialog).queryByRole("checkbox")).toBeNull();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "问问 远端相册" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "远端相册怎么打不开？" }),
   );
   await waitFor(() => expect(questions).toHaveLength(1));
   expect(questions[0]!.question).toBe("远端相册怎么打不开？");
@@ -695,4 +757,20 @@ it("已过期或终态摘要不显示远端感叹号，已打开的终态修复�
     </QueryClientProvider>,
   );
   expect(await screen.findByText("10 分钟内有效 · 已过期")).toBeVisible();
+});
+
+it("“这台电脑”下面写出本机在别的电脑上显示的名字", async () => {
+  const local = makePeer(9, {
+    display_name: "Study-PC",
+    is_local: true,
+    source: "local",
+  });
+  const { container } = renderMap([local, makePeer()]);
+  await screen.findByRole("button", { name: /^这台电脑，/ });
+  await waitFor(() =>
+    expect(container.querySelector(".map-node-alias")).toHaveTextContent(
+      "Study-PC",
+    ),
+  );
+  expect(container.querySelectorAll(".map-node-alias")).toHaveLength(1);
 });

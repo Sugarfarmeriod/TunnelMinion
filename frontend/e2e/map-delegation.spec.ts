@@ -105,6 +105,7 @@ for (const width of [1440, 760, 320]) {
     await page.getByRole("button", { name: /^测试电脑 1，在线/ }).click();
     const panel = page.getByRole("dialog", { name: "测试电脑 1上的服务" });
     await panel.getByRole("button", { name: "问问 远端相册" }).click();
+    await page.getByRole("button", { name: "远端相册怎么打不开？" }).click();
     await expect.poll(() => backend.questions.length).toBe(1);
     expect(backend.questions[0]!.about).toEqual({
       node_id: peer.node_id,

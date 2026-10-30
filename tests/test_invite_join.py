@@ -196,6 +196,8 @@ def test_fresh_join_saves_bind_peer_token_and_validated_model(
     platform: str,
 ) -> None:
     monkeypatch.setattr(joining.sys, "platform", platform)
+    # 取不到系统电脑名时报平台默认名
+    monkeypatch.setattr(socket, "gethostname", lambda: "")
     assert (
         asyncio.run(
             joining.join(

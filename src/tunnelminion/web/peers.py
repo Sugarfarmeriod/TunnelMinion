@@ -31,6 +31,7 @@ from tunnelminion.gateway.contracts import (
 from tunnelminion.gateway.credentials import GatewayCredentialError
 from tunnelminion.repair.contracts import REPAIR_TERMINAL_STATUSES
 from tunnelminion.tools.audit import AuditSink
+from tunnelminion.web.peer_network import PeerNetwork, PeerNetworkProbe, system_route_lookup
 from tunnelminion.web.service_map import LocalServiceMap
 
 PollOutcome = Literal["ok", "unreachable", "rejected", "forbidden", "error"]
@@ -243,6 +244,8 @@ class PeerSummary(BaseModel):
     source: Literal["local", "gateway", "coordinator"]
     reachable: bool | None
     auth_rejected: bool = False
+    # 本机去这台电脑走的组网；None 表示不知道（没有地址或系统查不到路由）。
+    network: PeerNetwork | None = None
     last_seen_at: datetime | None
     services_visible: bool
     service_count: int
@@ -300,9 +303,11 @@ def create_peers_router(
     poller: PeerServicePoller,
     local_services: Callable[[], LocalServiceMap],
     coordinator_cache: CoordinatorCache | None = None,
+    network_probe: PeerNetworkProbe | None = None,
 ) -> APIRouter:
     """挂载到已有本机请求保护之下，不在请求中拉取远端服务。"""
     router = APIRouter()
+    probe = network_probe or PeerNetworkProbe(system_route_lookup())
 
     def list_peers() -> PeersView:
         local = local_services()
@@ -333,6 +338,7 @@ def create_peers_router(
                     source="gateway",
                     reachable=cached.reachable,
                     auth_rejected=cached.outcome == "rejected",
+                    network=probe.network(peer.host),
                     last_seen_at=cached.last_seen_at,
                     services_visible=visible,
                     service_count=len(cached.snapshot.services)
