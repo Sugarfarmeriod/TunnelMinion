@@ -14,12 +14,6 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from tunnelminion.gateway.configuration import FileGatewayConfigurationRepository
-from tunnelminion.runtime.code_signing import (
-    CodeSigningResult,
-    LocalSigningIdentity,
-    PackageCodeSigner,
-    default_signing_directory,
-)
 from tunnelminion.runtime.health import ModelHealthResult, ModelHealthStatus, probe_external_model
 from tunnelminion.runtime.lifecycle import (
     ComponentLaunchError,
@@ -199,25 +193,10 @@ def build_runtime_preflight() -> RuntimePreflight:
     )
 
 
-def sign_running_package(
-    *,
-    platform_name: str | None = None,
-    frozen: bool | None = None,
-    signer: PackageCodeSigner | None = None,
-) -> CodeSigningResult | None:
-    """macOS 正式运行包在启动组件前签成本机固定身份，换包后钥匙串仍认得它；其他情况不做事。"""
-    if (platform_name or sys.platform) != "darwin":
-        return None
-    if not (getattr(sys, "frozen", False) if frozen is None else frozen):
-        return None
-    program = current_program_dir()
-    active = signer or PackageCodeSigner(LocalSigningIdentity(default_signing_directory()))
-    return active.sign(program, program / _PACKAGE_MANIFEST_FILE)
-
-
 MACOS_KEYCHAIN_HINT = (
     "启动超时。请看 Mac 屏幕上有没有弹出“tunnelminion 想使用钥匙串中的机密信息”："
     "输入登录密码并点“始终允许”，然后再运行一次 runtime start。"
+    "这是把密钥从钥匙串搬到本机文件的最后一次，以后换运行包不再弹。"
 )
 STARTUP_TIMEOUT_HINT = "启动超时。请查看 logs 里对应组件的日志。"
 

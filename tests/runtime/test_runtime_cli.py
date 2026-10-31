@@ -28,7 +28,6 @@ from tunnelminion.gateway.configuration import (
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.model.configuration import FileModelConfigurationRepository
 from tunnelminion.model.openai_compatible import OpenAICompatibleConfig
-from tunnelminion.runtime.code_signing import CodeSigningResult, CodeSigningStatus
 from tunnelminion.runtime.lifecycle import (
     ComponentRuntimeState,
     ComponentRuntimeStatus,
@@ -268,12 +267,8 @@ def test_runtime_start_blocks_global_preflight_failure_without_spawning(
     assert preflight.calls[0][1] == frozenset()
 
 
-@pytest.mark.parametrize("signed", [False, True])
 def test_runtime_start_reports_component_preflight_failure_but_preserves_isolation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    signed: bool,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     profile_path = tmp_path / "profile.json"
     data_dir = tmp_path / "data"
@@ -322,22 +317,18 @@ def test_runtime_start_reports_component_preflight_failure_but_preserves_isolati
         lambda: preflight,
     )
 
-    def sign() -> CodeSigningResult | None:
-        # 签名在启动组件之前；只有 macOS 正式运行包才有结果。
-        manager.calls.append("sign")
-        return CodeSigningResult(status=CodeSigningStatus.SIGNED) if signed else None
+    def cleanup() -> bool:
+        # 清理旧的本机签名钥匙串在启动组件之前，失败也不影响启动。
+        manager.calls.append("cleanup")
+        return False
 
-    monkeypatch.setattr("tunnelminion.runtime.control.sign_running_package", sign)
+    monkeypatch.setattr("tunnelminion.runtime.legacy_signing.remove_legacy_signing", cleanup)
 
     assert cli.main(["runtime", "start", "--profile", str(profile_path)]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["runtime"]["state"] == "running"
     assert output["preflight"]["checks"][0]["code"] == "port_unavailable"
-    assert manager.calls == ["status", "sign", "start"]
-    if signed:
-        assert output["code_signing"] == {"status": "signed", "error_code": None}
-    else:
-        assert "code_signing" not in output
+    assert manager.calls == ["status", "cleanup", "start"]
     assert preflight.calls[0][1] == frozenset({RuntimeComponent.LOCAL})
 
 

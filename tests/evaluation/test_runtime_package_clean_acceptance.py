@@ -219,15 +219,11 @@ def test_runtime_package_evidence_is_minimal_and_requires_sections() -> None:
 
 
 @pytest.mark.parametrize(
-    ("destroy_data", "raise_on_repeat", "signing", "expected_passed"),
+    ("destroy_data", "raise_on_repeat", "expected_passed"),
     (
-        (False, False, ("signed", "already_signed"), True),
-        (True, False, ("signed", "already_signed"), False),
-        (False, True, ("signed", "already_signed"), False),
-        # macOS 上签名失败或第二次 start 又重签，都算验收不通过。
-        (False, False, ("failed", "failed"), False),
-        (False, False, ("signed", "signed"), False),
-        (False, False, None, False),
+        (False, False, True),
+        (True, False, False),
+        (False, True, False),
     ),
 )
 def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
@@ -235,7 +231,6 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
     monkeypatch: pytest.MonkeyPatch,
     destroy_data: bool,
     raise_on_repeat: bool,
-    signing: tuple[str, str] | None,
     expected_passed: bool,
 ) -> None:
     package_root = tmp_path / "program"
@@ -283,16 +278,9 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         elif command[:2] == ("runtime", "configure"):
             body = {"schema_version": "runtime-profile/v1"}
         elif command[:2] == ("runtime", "start"):
-            starts = sum(item[:2] == ("runtime", "start") for item in commands)
-            if raise_on_repeat and starts == 2:
+            if raise_on_repeat and sum(item[:2] == ("runtime", "start") for item in commands) == 2:
                 raise OSError("simulated command failure")
             body = runtime_body("running")
-            if signing is not None:
-                status = signing[starts - 1]
-                body["code_signing"] = {
-                    "status": status,
-                    "error_code": "codesign_failed" if status == "failed" else None,
-                }
         elif command[:2] == ("runtime", "status"):
             body = runtime_body("stopped" if stopped else "running")
         elif command[:2] == ("runtime", "stop"):
@@ -346,14 +334,9 @@ def test_product_lifecycle_uses_only_public_commands_and_preserves_data(
         "candidate",
         data_dir,
         working_dir,
-        require_code_signing=True,
     )
 
     assert report["passed"] is expected_passed
-    assert report["code_signing_required"] is True
-    steps = cast(dict[str, dict[str, JsonValue]], report["commands"])
-    if signing is not None and signing[0] == "failed":
-        assert steps["runtime-start"]["code_signing_error_code"] == "codesign_failed"
     assert report["public_cli"] is True
     assert report["idempotent_start"] is (not raise_on_repeat)
     assert report["data_preserved"] is (not destroy_data)

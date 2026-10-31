@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import logging
 import os
 import sys
 import threading
@@ -19,6 +20,8 @@ from typing import Any, Protocol, cast
 import keyring
 from keyring.errors import KeyringError
 
+logger = logging.getLogger(__name__)
+
 
 class SecretStoreError(RuntimeError):
     """不回显秘密的本机密钥存储错误。"""
@@ -26,7 +29,7 @@ class SecretStoreError(RuntimeError):
 
 KEYCHAIN_APPROVAL_HINT = (
     "系统钥匙串在等你授权：请在 Mac 屏幕上的钥匙串弹框点“始终允许”"
-    "（第一次用这个版本时旧条目可能连着弹几个，每个都点），点完马上就能用。"
+    "（这是把密钥从钥匙串搬到本机文件的最后一次），点完马上就能用。"
 )
 
 
@@ -72,12 +75,12 @@ class KeyringAccess:
       覆盖。写入只在主人主动操作时发生；在事件循环里调用的地方用 `asyncio.to_thread`，网页不会
       因此卡住。
 
-    给了 `vault` 时，所有条目合存在钥匙串的一条里（见 `KeychainVault`），授权框只为这一条弹；
-    否则每个条目各占钥匙串的一条。线程是守护线程，进程退出不等它。
+    给了 `vault` 时读写都交给它（macOS 上是 `FileSecretVault`，秘密存成本账户的文件）；否则
+    每个秘密各占系统密钥环的一条（Windows 凭据管理器）。线程是守护线程，进程退出不等它。
     """
 
     def __init__(
-        self, *, wait_seconds: float | None = None, vault: KeychainVault | None = None
+        self, *, wait_seconds: float | None = None, vault: SecretVault | None = None
     ) -> None:
         self._wait_seconds = wait_seconds
         self._vault = vault
@@ -161,52 +164,99 @@ def _remove_item(service: str, name: str) -> None:
         keyring.delete_password(service, name)
 
 
-VAULT_ACCOUNT = "all-secrets"
+class SecretVault(Protocol):
+    """把所有秘密存在一处的后端；读写都在 `KeyringAccess` 的后台线程里调用。"""
+
+    def get(self, service: str, name: str) -> str | None: ...
+
+    def set(self, service: str, name: str, value: str) -> None: ...
+
+    def delete(self, service: str, name: str) -> None: ...
+
+
+# 更早的版本在 macOS 钥匙串里把所有秘密合存的那一条：服务名 `TunnelMinion`，账户 `all-secrets`。
+KEYCHAIN_VAULT_ACCOUNT = "all-secrets"
 _VAULT_VERSION = 1
+SECRET_FILE_NAME = "secrets.json"
+_LOCK_FILE_NAME = "secrets.lock"
+# 文件里记下钥匙串的合并条目已经整个搬过来了，以后不再读它。
+_IMPORTED = "keychain_imported"
 
 
-class KeychainVaultError(KeyringError):
-    """合并条目的内容读不懂；不覆盖它，以免丢掉里面的秘密。"""
+class SecretFileError(KeyringError):
+    """秘密文件读不了、写不了或内容读不懂；不覆盖它，以免丢掉里面的秘密。"""
 
 
-class KeychainVault:
-    """把所有秘密合存成钥匙串里的一条 JSON（服务名 `TunnelMinion`，账户 `all-secrets`）。
+def _empty_vault() -> dict[str, Any]:
+    return {"version": _VAULT_VERSION, "items": {}, "settled": {}}
 
-    macOS 钥匙串按条目询问授权：分开存时每换一次运行包，模型密钥、身份密钥、配对令牌各弹一次框；
-    合成一条后最多弹一次。
 
-    更早的版本每个秘密各占一条（`服务名, 条目名`）。读到合并条目里还没有记录的名字时，去对应的旧条目
-    读一次：有值就搬进合并条目，没有也记下“已经查过”（`settled`），以后只读合并条目，不再碰旧条目。
-    旧条目原样留在钥匙串里：删除它们同样要过授权框，留着不影响使用，主人可以在“钥匙串访问”里自己删。
-    读旧条目时在等授权框，就和其他读取一样抛出 `SecretStoreApprovalPendingError`，合并条目不改动。
+def _parse_vault(raw: str, source: str) -> dict[str, Any]:
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise SecretFileError(f"{source}的内容无法解析") from exc
+    if not isinstance(data, dict) or not _valid_vault(cast(dict[str, Any], data)):
+        raise SecretFileError(f"{source}的格式不受支持")
+    return cast(dict[str, Any], data)
 
-    改动合并条目要先读后写，同一用户的网页、网关和命令行可能同时在改，所以改动时持有 `lock_path`
-    上的文件锁，读写之间不会互相覆盖。
+
+class FileSecretVault:
+    """macOS 上把所有秘密存成本账户才能读的一个 JSON 文件，不再放进钥匙串。
+
+    钥匙串按程序的指纹（cdhash）授权，没有 Apple 开发者证书的程序每换一个运行包都会重新弹授权框；
+    存成文件以后换包不弹框，从 ssh 启动的进程也能用。保护级别和 Windows 凭据管理器一样：本账户下
+    运行的程序都能读到，别的账户读不到。
+
+    - 文件在 `directory/secrets.json`，目录 0700、文件 0600，先写临时文件再原子替换。内容格式和
+      更早版本钥匙串里的合并条目相同：`items` 按服务名、条目名存值，`settled` 记下已经查过旧位置
+      的名字。
+    - 读取前检查属主和权限：属主不是当前用户时拒绝读取；权限比 0600 宽时像 SSH 私钥那样改回 0600
+      （目录改回 0700），并写一条日志说明原因。
+    - 改动先读后写，同一用户的网页、网关和命令行可能同时在改，所以改动时持有同目录 `secrets.lock`
+      上的文件锁。
+
+    迁移：第一次遇到文件里没有记录的名字时，把钥匙串的合并条目整个搬进文件（只读一次，主人点一次
+    “允许”就够）；合并条目也不知道的名字，再去更早版本按条目分开存的旧条目找。找到就写进文件；钥匙串
+    明确回答“条目不存在”才记为查过。钥匙串打不开（例如从 ssh 启动的进程）或在等
+    授权框时，钥匙串调用抛错或一直不返回，这时什么都不写，下次读取再查，绝不把这个名字当成不存在：
+    否则身份密钥会被当成没有而重新生成。钥匙串里的条目原样留着，删除它们也要过授权框。
     """
 
-    def __init__(
-        self,
-        lock_path: Path,
-        *,
-        service: str = KEYRING_SERVICE_NAME,
-        account: str = VAULT_ACCOUNT,
-    ) -> None:
-        self._lock_path = lock_path
-        self._service = service
-        self._account = account
+    def __init__(self, directory: Path, *, migrate_from_keychain: bool = True) -> None:
+        self._directory = directory
+        self._path = directory / SECRET_FILE_NAME
+        self._lock_path = directory / _LOCK_FILE_NAME
+        self._migrate = migrate_from_keychain
+
+    @property
+    def path(self) -> Path:
+        return self._path
 
     def get(self, service: str, name: str) -> str | None:
         data = self._load()
         if _known(data, service, name):
             return _items(data, service).get(name)
-        legacy = keyring.get_password(service, name)
+        if not self._migrate:
+            return None
+        # 钥匙串打不开、拒绝访问或不允许弹框时下面两步会抛错，文件什么都不改。
+        imported = data.get(_IMPORTED) is True
+        merged = None if imported else _read_merged_keychain_item()
+        legacy = None
+        if merged is None or not _known(merged, service, name):
+            legacy = keyring.get_password(service, name)
         with self._locked():
             data = self._load()
+            if data.get(_IMPORTED) is not True:
+                # 合并条目一次整个搬过来：主人只点了一次“允许”时，后面的名字不会再弹框。
+                if merged is not None:
+                    _absorb(data, merged)
+                data[_IMPORTED] = True
             if not _known(data, service, name):
                 if legacy is not None:
                     _items(data, service)[name] = legacy
                 _settle(data, service, name)
-                self._save(data)
+            self._save(data)
             return _items(data, service).get(name)
 
     def set(self, service: str, name: str, value: str) -> None:
@@ -224,30 +274,90 @@ class KeychainVault:
             self._save(data)
 
     def _load(self) -> dict[str, Any]:
-        raw = keyring.get_password(self._service, self._account)
-        if raw is None:
-            return {"version": _VAULT_VERSION, "items": {}, "settled": {}}
+        if not self._path.exists():
+            return _empty_vault()
+        self._check_private(self._directory, 0o700)
+        self._check_private(self._path, 0o600)
         try:
-            data = json.loads(raw)
-        except ValueError as exc:
-            raise KeychainVaultError("合并的钥匙串条目无法解析") from exc
-        if not isinstance(data, dict) or not _valid_vault(cast(dict[str, Any], data)):
-            raise KeychainVaultError("合并的钥匙串条目格式不受支持")
-        return cast(dict[str, Any], data)
+            raw = self._path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SecretFileError("秘密文件读不出来") from exc
+        return _parse_vault(raw, "秘密文件")
+
+    def _check_private(self, path: Path, mode: int) -> None:
+        owner, current = _owner_and_mode(path)
+        user = _current_user()
+        if user is not None and owner != user:
+            raise SecretFileError(f"{path.name} 的属主不是当前用户，已拒绝读取")
+        if current & 0o077:
+            logger.warning(
+                "%s 的权限是 %o，别的账户也能读写，已改回 %o", path.name, current & 0o777, mode
+            )
+            os.chmod(path, mode)
 
     def _save(self, data: dict[str, Any]) -> None:
         text = json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        keyring.set_password(self._service, self._account, text)
+        temporary = self._directory / f".{SECRET_FILE_NAME}.{os.getpid()}.tmp"
+        try:
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self._path)
+        except OSError as exc:
+            raise SecretFileError("秘密文件写不进去") from exc
+        finally:
+            temporary.unlink(missing_ok=True)
 
     @contextmanager
     def _locked(self) -> Generator[None, None, None]:
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor = os.open(self._lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            self._directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(self._directory, 0o700)
+            descriptor = os.open(self._lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as exc:
+            raise SecretFileError("秘密目录建不起来") from exc
         try:
             with _exclusive(descriptor):
                 yield
         finally:
             os.close(descriptor)
+
+
+def _owner_and_mode(path: Path) -> tuple[int, int]:
+    stat = path.stat()
+    return stat.st_uid, stat.st_mode & 0o777
+
+
+def _current_user() -> int | None:
+    """当前账户的 uid；Windows 没有 uid，返回 None，不检查属主。"""
+    getuid = cast(Callable[[], int] | None, getattr(os, "getuid", None))
+    return getuid() if getuid is not None else None
+
+
+def _read_merged_keychain_item() -> dict[str, Any] | None:
+    """读钥匙串里的合并条目；钥匙串明确回答“不存在”时返回 None。
+
+    keyring 只在 macOS 返回“条目不存在”时给 None；钥匙串打不开、拒绝访问、不允许弹框时抛出
+    `KeyringError`，原样往外抛。
+    """
+    raw = keyring.get_password(KEYRING_SERVICE_NAME, KEYCHAIN_VAULT_ACCOUNT)
+    return _parse_vault(raw, "钥匙串里的合并条目") if raw is not None else None
+
+
+def _absorb(data: dict[str, Any], merged: dict[str, Any]) -> None:
+    """把钥匙串合并条目里文件还没记的名字搬进文件，文件里已有的以文件为准。"""
+    for service, values in cast(dict[str, dict[str, str]], merged["items"]).items():
+        for name, value in values.items():
+            if not _known(data, service, name):
+                _items(data, service)[name] = value
+                _settle(data, service, name)
+    for service, names in cast(dict[str, list[str]], merged["settled"]).items():
+        for name in names:
+            if not _known(data, service, name):
+                _settle(data, service, name)
 
 
 def _valid_vault(data: dict[str, Any]) -> bool:
@@ -303,18 +413,22 @@ def _exclusive(descriptor: int) -> Generator[None, None, None]:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
-def default_keychain_vault(platform: str = sys.platform) -> KeychainVault | None:
-    """只在 macOS 上合并条目。
+def default_secret_directory() -> Path:
+    """macOS 秘密文件所在的目录。"""
+    return Path.home() / ".tunnelminion" / "secrets"
 
-    Windows 凭据管理器不按条目弹框，单条凭据还有 2560 字节的上限，装不下身份密钥和备份，所以
-    仍然每个秘密各存一条。
+
+def default_secret_vault(platform: str = sys.platform) -> FileSecretVault | None:
+    """只在 macOS 上把秘密存成文件。
+
+    Windows 凭据管理器不按程序弹框，继续每个秘密各存一条。
     """
     if platform != "darwin":
         return None
-    return KeychainVault(Path.home() / ".tunnelminion" / "keychain-vault.lock")
+    return FileSecretVault(default_secret_directory())
 
 
-_shared_access = KeyringAccess(vault=default_keychain_vault())
+_shared_access = KeyringAccess(vault=default_secret_vault())
 
 
 def shared_keyring_access() -> KeyringAccess:
