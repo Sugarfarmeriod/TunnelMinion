@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from keyring.errors import KeyringError, KeyringLocked
@@ -34,12 +37,22 @@ class FakeKeychain:
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.values: dict[tuple[str, str], str] = {}
         self.failing: dict[tuple[str, str], Exception] = {}
+        # 只查条目在不在时也查不清的条目（例如钥匙串被锁、命令报错）。
+        self.unsure: set[tuple[str, str]] = set()
+        self.asked: list[tuple[str, str]] = []
         self.reads: list[tuple[str, str]] = []
         self.writes: list[tuple[str, str]] = []
         self.deletes: list[tuple[str, str]] = []
         monkeypatch.setattr("keyring.get_password", self.get_password)
         monkeypatch.setattr("keyring.set_password", self.set_password)
         monkeypatch.setattr("keyring.delete_password", self.delete_password)
+
+    def has(self, service: str, name: str) -> bool | None:
+        """只看条目在不在，不读内容；读内容会报错的条目也算存在。"""
+        self.asked.append((service, name))
+        if (service, name) in self.unsure:
+            return None
+        return (service, name) in self.values or (service, name) in self.failing
 
     def get_password(self, service: str, name: str) -> str | None:
         self.reads.append((service, name))
@@ -74,7 +87,7 @@ def store(vault: FileSecretVault, service: str = "TunnelMinion") -> KeyringSecre
 def test_secrets_live_in_one_private_file_and_never_touch_the_keychain_on_write(
     keychain: FakeKeychain, tmp_path: Path
 ) -> None:
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     model = store(vault)
     scoped = KeyringSecretStore("TunnelMinion/node", access=model._access)  # pyright: ignore[reportPrivateUsage]
     model.set("model-provider-api-key", "fixture-model")
@@ -106,7 +119,9 @@ def test_merged_keychain_item_is_read_and_copied_into_the_file(
         {"TunnelMinion/node": ["trust-device-key", "trust-owner-key"]},
     )
     keychain.values[("TunnelMinion/node", "trust-device-key")] = "fixture-stale"
-    scoped = store(FileSecretVault(tmp_path / "secrets"), "TunnelMinion/node")
+    scoped = store(
+        FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has), "TunnelMinion/node"
+    )
 
     assert scoped.get("trust-owner-key") == "fixture-owner"
     # 合并条目记过已经删除的名字，不再去旧条目里找回来。
@@ -128,7 +143,7 @@ def test_merged_keychain_item_is_read_only_once_so_one_prompt_is_enough(
         },
         {"TunnelMinion/node": ["trust-owner-key"]},
     )
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     # 换包后先在网页里存过一个新值：文件里已有的以文件为准，不被钥匙串的旧值盖掉。
     vault.set("TunnelMinion", "model-provider-api-key", "fixture-new")
     assert vault.get("TunnelMinion/node", "trust-owner-key") == "fixture-owner"
@@ -142,10 +157,12 @@ def test_without_a_merged_item_only_the_legacy_items_are_asked(
     keychain: FakeKeychain, tmp_path: Path
 ) -> None:
     keychain.values[("TunnelMinion", "token")] = "fixture-token"
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     assert vault.get("TunnelMinion", "token") == "fixture-token"
     assert vault.get("TunnelMinion", "other") is None
-    assert keychain.reads == [MERGED, ("TunnelMinion", "token"), ("TunnelMinion", "other")]
+    # 合并条目和 other 都明确不存在，只查不读；只有存在的 token 读了内容。
+    assert keychain.reads == [("TunnelMinion", "token")]
+    assert keychain.asked == [MERGED, ("TunnelMinion", "token"), ("TunnelMinion", "other")]
 
 
 def test_legacy_separate_items_are_found_when_the_merged_item_does_not_know_them(
@@ -153,7 +170,7 @@ def test_legacy_separate_items_are_found_when_the_merged_item_does_not_know_them
 ) -> None:
     keychain.merge({}, {})
     keychain.values[("TunnelMinion", "model-provider-api-key")] = "fixture-model"
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     model = store(vault)
     assert model.get("model-provider-api-key") == "fixture-model"
     assert model.get("never-saved") is None
@@ -183,7 +200,7 @@ def test_an_unreadable_keychain_is_never_recorded_as_no_secret(
     """从 ssh 启动或钥匙串拒绝访问时，绝不能把身份密钥记成“不存在”，否则会被重新生成。"""
     keychain.values[("TunnelMinion/node", "trust-owner-key")] = "fixture-owner"
     keychain.failing[failing] = error
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     scoped = store(vault, "TunnelMinion/node")
 
     with pytest.raises(SecretStoreError):
@@ -193,6 +210,42 @@ def test_an_unreadable_keychain_is_never_recorded_as_no_secret(
     # 钥匙串恢复以后照常迁移过来。
     keychain.failing.clear()
     assert scoped.get("trust-owner-key") == "fixture-owner"
+
+
+def test_a_brand_new_mac_started_over_ssh_works_without_any_prompt(
+    keychain: FakeKeychain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """钥匙串里从来没有 TunnelMinion 的条目：只查不读就知道没有，ssh 会话里读内容会报错也不影响。"""
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
+
+    def ssh(service: str, name: str) -> str | None:
+        keychain.reads.append((service, name))
+        raise KeyringError("interaction not allowed")
+
+    monkeypatch.setattr("keyring.get_password", ssh)
+    model = store(vault)
+    assert model.get("model-provider-api-key") is None
+    model.set("model-provider-api-key", "fixture-model")
+    assert model.get("model-provider-api-key") == "fixture-model"
+    assert read_file(vault)["keychain_imported"] is True
+    assert keychain.reads == []
+
+
+@pytest.mark.parametrize(
+    "unsure",
+    [MERGED, ("TunnelMinion/node", "trust-owner-key")],
+    ids=["merged-item", "legacy-item"],
+)
+def test_an_uncertain_existence_check_writes_nothing(
+    keychain: FakeKeychain, tmp_path: Path, unsure: tuple[str, str]
+) -> None:
+    """查不清条目在不在时按“不确定”处理：报错、不写文件，绝不当成不存在。"""
+    keychain.unsure.add(unsure)
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
+    with pytest.raises(SecretStoreError):
+        store(vault, "TunnelMinion/node").get("trust-owner-key")
+    assert not vault.path.exists()
+    assert keychain.reads == []
 
 
 def test_waiting_for_the_last_keychain_prompt_records_nothing(
@@ -207,7 +260,7 @@ def test_waiting_for_the_last_keychain_prompt_records_nothing(
         return original(service, name)
 
     monkeypatch.setattr("keyring.get_password", prompt)
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     access = KeyringAccess(wait_seconds=0.05, vault=vault)
     model = KeyringSecretStore(access=access)
 
@@ -231,11 +284,13 @@ def test_a_value_saved_while_migrating_wins(
         value = original(service, name)
         if (service, name) == ("TunnelMinion", "token"):
             # 读钥匙串期间另一个进程已经写入了新值。
-            FileSecretVault(tmp_path / "secrets").set("TunnelMinion", "token", "fixture-new")
+            FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has).set(
+                "TunnelMinion", "token", "fixture-new"
+            )
         return value
 
     monkeypatch.setattr("keyring.get_password", racing)
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     assert vault.get("TunnelMinion", "token") == "fixture-new"
 
 
@@ -253,7 +308,9 @@ def test_concurrent_writers_do_not_lose_each_others_secrets(
 
     def writer(index: int) -> None:
         try:
-            FileSecretVault(tmp_path / "secrets").set("TunnelMinion", f"name-{index}", "x")
+            FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has).set(
+                "TunnelMinion", f"name-{index}", "x"
+            )
         except BaseException as exc:  # pragma: no cover - 只在失败时用于诊断
             errors.append(exc)
 
@@ -263,7 +320,7 @@ def test_concurrent_writers_do_not_lose_each_others_secrets(
     for thread in threads:
         thread.join()
     assert errors == []
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     assert set(read_file(vault)["items"]["TunnelMinion"]) == {f"name-{i}" for i in range(6)}
 
 
@@ -292,7 +349,7 @@ def test_without_migration_unknown_names_are_simply_absent(
 def test_unreadable_file_is_never_overwritten(
     keychain: FakeKeychain, tmp_path: Path, content: str
 ) -> None:
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     vault.set("TunnelMinion", "seed", "x")
     vault.path.write_text(content, encoding="utf-8")
     model = store(vault)
@@ -309,7 +366,7 @@ def test_unreadable_merged_keychain_item_blocks_migration_instead_of_guessing(
     keychain: FakeKeychain, tmp_path: Path
 ) -> None:
     keychain.values[MERGED] = "not json"
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     with pytest.raises(SecretStoreError):
         store(vault).get("model-provider-api-key")
     assert not vault.path.exists()
@@ -321,7 +378,7 @@ def test_permissions_are_tightened_and_foreign_owner_is_refused(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     vault.set("TunnelMinion", "seed", "fixture-secret")
     changed: list[tuple[str, int]] = []
     owner = {"uid": 501}
@@ -357,7 +414,7 @@ def test_permissions_are_tightened_and_foreign_owner_is_refused(
 def test_file_errors_are_reported_without_leaking_values(
     keychain: FakeKeychain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    vault = FileSecretVault(tmp_path / "secrets")
+    vault = FileSecretVault(tmp_path / "secrets", keychain_has=keychain.has)
     vault.set("TunnelMinion", "seed", "fixture-secret")
 
     def unreadable(*_: object, **__: object) -> str:
@@ -382,7 +439,7 @@ def test_file_errors_are_reported_without_leaking_values(
     blocked = tmp_path / "blocked"
     blocked.write_text("not a directory", encoding="utf-8")
     with pytest.raises(SecretStoreError, match="保存"):
-        store(FileSecretVault(blocked / "secrets")).set("seed", "x")
+        store(FileSecretVault(blocked / "secrets", keychain_has=keychain.has)).set("seed", "x")
 
 
 def test_file_store_is_only_used_on_macos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -427,3 +484,88 @@ def test_lock_uses_the_platform_file_lock(
         ["locking-1", "inside", "locking-0"] if system == "nt" else ["flock-2", "inside", "flock-8"]
     )
     assert calls == expected
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [(0, True), (44, False), (36, None), (OSError("no security"), None), ("timeout", None)],
+)
+def test_existence_check_only_trusts_found_and_not_found(
+    monkeypatch: pytest.MonkeyPatch, outcome: object, expected: bool | None
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def run(command: tuple[str, ...], **options: object) -> SimpleNamespace:
+        calls.append(command)
+        assert options["stdin"] is subprocess.DEVNULL
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired("security", 10)
+        return SimpleNamespace(returncode=outcome)
+
+    monkeypatch.setattr(secrets.subprocess, "run", run)
+    assert secrets.keychain_item_exists("TunnelMinion", "all-secrets") is expected
+    # 不带 -w / -g：只取属性，不取内容。
+    assert calls == [
+        ("/usr/bin/security", "find-generic-password", "-s", "TunnelMinion", "-a", "all-secrets")
+    ]
+
+
+def test_vault_uses_the_security_command_by_default(tmp_path: Path) -> None:
+    vault = FileSecretVault(tmp_path / "secrets")
+    assert vault._keychain_has is secrets.keychain_item_exists  # pyright: ignore[reportPrivateUsage]
+
+
+def _security(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["/usr/bin/security", *arguments],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=20,
+        check=False,
+    )
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="只有 macOS 有 security")
+def test_real_security_reports_existence_without_reading_or_prompting(tmp_path: Path) -> None:
+    """在 macOS CI 上确认前提：只查属性时，不存在返回 44，存在返回 0，都不弹框、不读内容。"""
+    missing = f"tunnelminion-ci-missing-{uuid4().hex}"
+    assert secrets.keychain_item_exists(missing, "probe") is False
+
+    # 一个单独的钥匙串，里面的条目不允许任何程序读内容（-T ""）：读内容会要授权，只查属性不该要。
+    keychain = tmp_path / "probe.keychain-db"
+    password = uuid4().hex
+    try:
+        assert _security("create-keychain", "-p", password, str(keychain)).returncode == 0
+        assert _security("unlock-keychain", "-p", password, str(keychain)).returncode == 0
+        added = _security(
+            "add-generic-password",
+            "-s",
+            missing,
+            "-a",
+            "probe",
+            "-w",
+            "fixture",
+            "-T",
+            "",
+            str(keychain),
+        )
+        assert added.returncode == 0, added.stderr
+        found = _security("find-generic-password", "-s", missing, "-a", "probe", str(keychain))
+        assert found.returncode == 0, found.stderr
+        assert "fixture" not in found.stdout + found.stderr
+        absent = _security("find-generic-password", "-s", missing, "-a", "other", str(keychain))
+        assert absent.returncode == 44, absent.stderr
+
+        # 钥匙串锁住（ssh 会话里登录钥匙串常是这样）时只查属性也要答得清：在就是 0，不在就是 44。
+        assert _security("lock-keychain", str(keychain)).returncode == 0
+        locked = [
+            _security("find-generic-password", "-s", missing, "-a", account, str(keychain))
+            for account in ("probe", "other")
+        ]
+        detail = [(item.returncode, item.stderr.strip()) for item in locked]
+        assert [item.returncode for item in locked] == [0, 44], detail
+    finally:
+        _security("delete-keychain", str(keychain))

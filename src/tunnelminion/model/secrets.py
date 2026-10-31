@@ -7,6 +7,7 @@ import importlib
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 from collections.abc import Callable, Generator
@@ -223,11 +224,18 @@ class FileSecretVault:
     否则身份密钥会被当成没有而重新生成。钥匙串里的条目原样留着，删除它们也要过授权框。
     """
 
-    def __init__(self, directory: Path, *, migrate_from_keychain: bool = True) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        migrate_from_keychain: bool = True,
+        keychain_has: Callable[[str, str], bool | None] | None = None,
+    ) -> None:
         self._directory = directory
         self._path = directory / SECRET_FILE_NAME
         self._lock_path = directory / _LOCK_FILE_NAME
         self._migrate = migrate_from_keychain
+        self._keychain_has = keychain_has or keychain_item_exists
 
     @property
     def path(self) -> Path:
@@ -241,9 +249,11 @@ class FileSecretVault:
             return None
         # 钥匙串打不开、拒绝访问或不允许弹框时下面两步会抛错，文件什么都不改。
         imported = data.get(_IMPORTED) is True
-        merged = None if imported else _read_merged_keychain_item()
+        merged = None
+        if not imported and self._exists(KEYRING_SERVICE_NAME, KEYCHAIN_VAULT_ACCOUNT):
+            merged = _read_merged_keychain_item()
         legacy = None
-        if merged is None or not _known(merged, service, name):
+        if (merged is None or not _known(merged, service, name)) and self._exists(service, name):
             legacy = keyring.get_password(service, name)
         with self._locked():
             data = self._load()
@@ -258,6 +268,17 @@ class FileSecretVault:
                 _settle(data, service, name)
             self._save(data)
             return _items(data, service).get(name)
+
+    def _exists(self, service: str, name: str) -> bool:
+        """先只查钥匙串里有没有这个条目：不读内容，不触发授权框，ssh 会话里也能查。
+
+        条目存在时才去读内容，那一步可能弹框，或者在 ssh 会话里报错。查不清（`None`）时抛错，
+        什么都不写，绝不当成“不存在”。
+        """
+        exists = self._keychain_has(service, name)
+        if exists is None:
+            raise SecretFileError("现在查不了钥匙串里有没有旧的密钥，请在 Mac 桌面上启动一次")
+        return exists
 
     def set(self, service: str, name: str, value: str) -> None:
         with self._locked():
@@ -335,6 +356,35 @@ def _current_user() -> int | None:
     """当前账户的 uid；Windows 没有 uid，返回 None，不检查属主。"""
     getuid = cast(Callable[[], int] | None, getattr(os, "getuid", None))
     return getuid() if getuid is not None else None
+
+
+SECURITY = "/usr/bin/security"
+# `security` 找不到条目时的退出码（errSecItemNotFound）。
+_SECURITY_ITEM_NOT_FOUND = 44
+_SECURITY_TIMEOUT_SECONDS = 10.0
+
+
+def keychain_item_exists(service: str, name: str) -> bool | None:
+    """用 `security find-generic-password -s 服务名 -a 条目名`（不带 -w/-g）只查条目在不在。
+
+    只取属性、不取内容，不触发钥匙串的授权框。返回 True 存在、False 明确不存在、None 查不清
+    （命令报了别的错、超时或者找不到 `security`）。
+    """
+    try:
+        completed = subprocess.run(
+            (SECURITY, "find-generic-password", "-s", service, "-a", name),
+            check=False,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=_SECURITY_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == _SECURITY_ITEM_NOT_FOUND:
+        return False
+    return None
 
 
 def _read_merged_keychain_item() -> dict[str, Any] | None:
