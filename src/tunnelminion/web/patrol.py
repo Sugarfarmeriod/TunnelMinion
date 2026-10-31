@@ -59,6 +59,21 @@ def create_patrol_router(patrol: PatrolService) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, "这个服务现在没有挂") from exc
 
+    async def forget(key: str) -> PatrolView:
+        try:
+            return await patrol.forget(checked(key))
+        except KeyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "地图上没有这个服务") from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "这个服务还在运行，不能从地图上移除"
+            ) from exc
+        except LookupError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "停掉的 Docker 容器还留在 Docker 里，要在 Docker 里删掉它",
+            ) from exc
+
     router.add_api_route("/api/patrol", view, methods=["GET"], response_model=PatrolView)
     router.add_api_route(
         "/api/patrol/services/{key}/auto-repair",
@@ -75,6 +90,12 @@ def create_patrol_router(patrol: PatrolService) -> APIRouter:
     router.add_api_route(
         "/api/patrol/services/{key}/acknowledge",
         acknowledge,
+        methods=["POST"],
+        response_model=PatrolView,
+    )
+    router.add_api_route(
+        "/api/patrol/services/{key}/forget",
+        forget,
         methods=["POST"],
         response_model=PatrolView,
     )

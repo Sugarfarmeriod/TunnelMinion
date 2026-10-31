@@ -121,6 +121,9 @@ class MemoryLaunchRecordStore(LaunchRecordStore):
     def list_all(self) -> tuple[AnyLaunchRecord, ...]:
         return tuple(self.records.values())
 
+    def delete(self, service_key: str) -> None:
+        self.records.pop(service_key, None)
+
 
 class FakeLaunchAgents(LaunchAgentRuntime):
     """不碰 launchctl 的后台服务替身；kickstart 成功后服务进入运行状态。"""

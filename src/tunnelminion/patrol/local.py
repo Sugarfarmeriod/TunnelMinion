@@ -27,8 +27,16 @@ def build_local_patrol(
     launch_records: LaunchRecordStore,
     windows_services: WindowsServiceRuntime | None = None,
     marks: Callable[[], Mapping[str, ServiceMark]] = dict,
+    clear_mark: Callable[[str], None] | None = None,
 ) -> PatrolService:
     verifier = SocketLocalVerifier()
+
+    def forget_records(key: str) -> None:
+        # 移除已停止的服务：启动记录和“是我的服务 / 隐藏”标记都不再留着它。
+        launch_records.delete(key)
+        if clear_mark is not None:
+            clear_mark(key)
+
     return PatrolService(
         node_id,
         patrol_store(root),
@@ -40,6 +48,7 @@ def build_local_patrol(
         talks_first=verifier.talks_first,
         windows_services=windows_services,
         marks=marks,
+        forget_records=forget_records,
     )
 
 

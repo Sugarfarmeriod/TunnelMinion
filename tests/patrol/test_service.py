@@ -446,6 +446,11 @@ class _Repairs:
             raise self.approve_error
         return self.inner.approve_preauthorized(operation_id, preapproval=preapproval)
 
+    def reject(
+        self, operation_id: OperationId, *, operator: str, reason: str | None
+    ) -> RepairRecord:
+        return self.inner.reject(operation_id, operator=operator, reason=reason)
+
     async def execute(self, operation_id: OperationId) -> RepairRecord:
         record = await self.inner.execute(operation_id)
         if self.result_code is not None:

@@ -612,6 +612,7 @@ def build_windows_application(
         launch_records=stores.launch_records,
         windows_services=node.repair_service.windows_services,
         marks=stores.service_marks.all,
+        clear_mark=stores.service_marks.clear,
     )
     peer_poller = PeerServicePoller(
         GatewayConfigurationService(

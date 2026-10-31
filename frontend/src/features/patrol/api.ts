@@ -136,6 +136,15 @@ export function acknowledgeDown(key: string) {
   );
 }
 
+/** 把已停止的服务从地图上移除，不再追踪；正在运行的服务后端会拒绝。 */
+export function forgetService(key: string) {
+  return requestJson(
+    `/api/patrol/services/${encodeURIComponent(key)}/forget`,
+    patrolSchema,
+    { method: "POST" },
+  );
+}
+
 /** "2026-10-29" → "2026年10月29日"。 */
 export function chineseDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
