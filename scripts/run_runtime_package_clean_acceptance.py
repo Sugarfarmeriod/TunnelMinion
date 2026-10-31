@@ -439,32 +439,14 @@ def _cleanup_owned_runtime_processes(entrypoint: Path, data_dir: Path) -> bool:
     return confirmed
 
 
-def _signing_status(steps: dict[str, JsonValue], name: str) -> JsonValue:
-    """某条命令输出里的签名结果；没有签名结果时返回 None。"""
-    step = steps.get(name)
-    return (
-        cast(dict[str, JsonValue], step).get("code_signing_status")
-        if isinstance(step, dict)
-        else None
-    )
-
-
 def run_product_lifecycle(
     entrypoint: Path,
     package_root: Path,
     candidate_id: str,
     data_dir: Path,
     working_dir: Path,
-    *,
-    require_code_signing: bool | None = None,
 ) -> dict[str, JsonValue]:
-    """仅经公开 CLI 验收本地/Gateway 生命周期和保留数据的版本管理。
-
-    macOS 上 `runtime start` 会给运行包签本机固定签名：第一次应是 `signed`（或已签过的
-    `already_signed`），再次 `start` 必须是 `already_signed`，签名失败即验收不通过。
-    """
-    if require_code_signing is None:
-        require_code_signing = sys.platform == "darwin"
+    """仅经公开 CLI 验收本地/Gateway 生命周期和保留数据的版本管理。"""
     local_port = _available_port()
     gateway_host, gateway_port = _private_host_and_port()
     profile = working_dir.parent / "config" / "runtime-profile.json"
@@ -499,12 +481,6 @@ def run_product_lifecycle(
             for field in ("status", "error_code"):
                 if isinstance(body.get(field), str):
                     evidence[field] = body[field]
-            signing = body.get("code_signing")
-            if isinstance(signing, dict):
-                for field in ("status", "error_code"):
-                    value = cast(dict[str, JsonValue], signing).get(field)
-                    if isinstance(value, str):
-                        evidence[f"code_signing_{field}"] = value
         steps[name] = evidence
         return code, body
 
@@ -717,14 +693,6 @@ def run_product_lifecycle(
         and remove_body.get("data_preserved") is True
         and remove_body.get("secret_store_preserved") is True
     )
-    code_signing_verified = (
-        _signing_status(steps, "runtime-start")
-        in {
-            "signed",
-            "already_signed",
-        }
-        and _signing_status(steps, "runtime-start-repeat") == "already_signed"
-    )
     node_available = shutil.which("node", path=environment["PATH"]) is not None
     source_environment_present = any(
         name in environment for name in ("CONDA_PREFIX", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV")
@@ -746,7 +714,6 @@ def run_product_lifecycle(
         and not secret_leak_detected
         and not node_available
         and not source_environment_present
-        and (code_signing_verified or not require_code_signing)
     )
     return {
         "component": "public-runtime",
@@ -766,8 +733,6 @@ def run_product_lifecycle(
         "secret_store_evidence": {"before": secrets_before, "after": secrets_after},
         "process_cleanup_confirmed": process_cleanup_confirmed,
         "secret_leak_detected": secret_leak_detected,
-        "code_signing_required": require_code_signing,
-        "code_signing_verified": code_signing_verified,
         "commands": steps,
         "passed": passed,
     }

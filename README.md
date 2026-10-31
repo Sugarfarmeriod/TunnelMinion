@@ -72,7 +72,7 @@ flowchart LR
 - **后端**：Python 3.11、FastAPI、LangChain v1（`create_agent` 加自定义中间件）、pydantic、psutil、OpenTelemetry、MCP SDK。
 - **前端**：React 19、TypeScript、Vite、zod 严格校验接口数据、Playwright 端到端测试。
 - **质量门禁**：pyright strict、ruff，Python 测试 3500 多个、行和分支覆盖率要求 100%；CI 有 8 项检查，覆盖 Windows 和 macOS，并做双平台运行包的一致性检查。
-- **安全默认值**：本机网页只监听 `127.0.0.1`；网关只监听私有组网地址；令牌只存摘要，API 密钥存系统钥匙串；委派、借用模型、代批准默认都是关的。
+- **安全默认值**：本机网页只监听 `127.0.0.1`；网关只监听私有组网地址；令牌只存摘要，API 密钥存本机秘密存储（Windows 凭据管理器，Mac 上只有本账户能读的文件）；委派、借用模型、代批准默认都是关的。
 
 ## 快速开始
 

@@ -21,7 +21,7 @@ flowchart LR
         toolsA[工具注册表与执行通道]
         platformA[Windows 或 macOS 只读适配器]
         repairA[修复工作流]
-        storeA[(SQLite 与系统钥匙串)]
+        storeA[(SQLite 与本机秘密存储)]
         modelA[模型配置]
         clientA[网关客户端]
     end
@@ -74,8 +74,9 @@ uv run python scripts/validate_mermaid_docs.py docs/architecture.md --svg-dir do
 | 链路追踪 | `telemetry.py` | OpenTelemetry，默认关闭；跨电脑请求用 W3C `traceparent` 接到同一条链路上 |
 | 运行管理 | `runtime/` | 运行包的 `runtime configure/start/status/stop`、后台进程管理和启动前检查 |
 
-数据都存在本机数据目录里：SQLite 存对话、调查、修复记录、委派记录和用量；模型 API 密钥和配对令牌存在系统钥匙串里，
-没有图形界面的会话可以改存到只有本人可读的文件。
+数据都存在本机数据目录里：SQLite 存对话、调查、修复记录、委派记录和用量；模型 API 密钥和配对令牌存在本机秘密存储里：
+Windows 存在凭据管理器，Mac 存在只有本账户能读的 `~/.tunnelminion/secrets/secrets.json`（`model/secrets.py`
+的 `FileSecretVault`）；Windows 上没有图形界面的会话可以改存到数据目录里只有本人可读的文件。
 
 ## 一次提问到修好
 
