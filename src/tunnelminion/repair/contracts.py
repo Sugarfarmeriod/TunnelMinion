@@ -854,6 +854,8 @@ class LaunchRecordStore(Protocol):
 
     def list_all(self) -> tuple[AnyLaunchRecord, ...]: ...
 
+    def delete(self, service_key: str) -> None: ...
+
 
 class PortOwner(BaseModel):
     """当前在某个 TCP 端口上监听的进程。"""

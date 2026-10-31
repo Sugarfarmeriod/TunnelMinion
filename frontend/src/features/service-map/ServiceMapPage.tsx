@@ -45,6 +45,7 @@ import { DelegationActivity, delegationStatus } from "./DelegationActivity";
 import { WelcomeGate } from "../people/WelcomeGate";
 import {
   acknowledgeDown,
+  forgetService,
   patrolQueryKey,
   setAutoRepair,
   setWindowsServiceGrant,
@@ -78,6 +79,15 @@ export function ServiceMapPage() {
     ) =>
       "ack" in change ? acknowledgeDown(change.key) : setAutoRepair(change),
     onSuccess: (data) => client.setQueryData(patrolQueryKey, data),
+  });
+  // 移除已停止的服务会清掉它的记录、作废它的待批准修复，所以地图和待处理的修复都要重新读。
+  const forget = useMutation({
+    mutationFn: forgetService,
+    onSuccess: (data) => {
+      client.setQueryData(patrolQueryKey, data);
+      void client.invalidateQueries({ queryKey: localServicesQueryKey });
+      void client.invalidateQueries({ queryKey: repairsQueryKey });
+    },
   });
   // 改 Windows 服务权限要等主人在本机的管理员确认框里点“是”，单独跟踪进行中和失败说明。
   const windowsService = useMutation({
@@ -676,6 +686,21 @@ export function ServiceMapPage() {
               }
               windowsServiceError={selectedPeer ? null : windowsServiceError}
               onAcknowledge={(key) => patrolChange.mutate({ key, ack: true })}
+              onForget={
+                selectedPeer || isReadOnlyPreview()
+                  ? undefined
+                  : (key) => forget.mutate(key)
+              }
+              forgetPending={
+                forget.isPending ? (forget.variables ?? null) : null
+              }
+              forgetError={
+                !selectedPeer && forget.isError
+                  ? forget.error instanceof ApiError && forget.error.detail
+                    ? forget.error.detail
+                    : "没有移除成功，请再试一次。"
+                  : null
+              }
               onOpenThread={(threadId) => openChat({ threadId })}
               onRepair={(id) => {
                 if (selectedPeer) {

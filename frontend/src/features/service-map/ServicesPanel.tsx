@@ -47,6 +47,10 @@ interface ServicesPanelProps {
   windowsServicePending?: string | null;
   windowsServiceError?: { key: string; message: string } | null;
   onAcknowledge?: (key: string) => void;
+  /** 只给本机、非预览模式；已停止且不是 Docker 容器的服务才显示入口。 */
+  onForget?: (key: string) => void;
+  forgetPending?: string | null;
+  forgetError?: string | null;
   onOpenThread?: (threadId: string) => void;
 }
 
@@ -88,9 +92,14 @@ export function ServicesPanel({
   windowsServicePending = null,
   windowsServiceError = null,
   onAcknowledge,
+  onForget,
+  forgetPending = null,
+  forgetError = null,
   onOpenThread,
 }: ServicesPanelProps) {
   const preview = isReadOnlyPreview();
+  // 移除要先确认一次：记下正在确认的是哪个服务。
+  const [confirmForget, setConfirmForget] = useState<string | null>(null);
   const name = peer?.display_name ?? "这台电脑";
   const message = peer?.auth_rejected
     ? "对方不认这台电脑，请检查两边是否还在同一份名单里。"
@@ -346,6 +355,11 @@ export function ServicesPanel({
           巡检设置没有保存，请再试一次。
         </p>
       ) : null}
+      {forgetError ? (
+        <p className="map-error" role="alert">
+          {forgetError}
+        </p>
+      ) : null}
       <div
         className="map-scroll"
         ref={scrollRef}
@@ -396,6 +410,10 @@ export function ServicesPanel({
               const confirmedAt =
                 watch?.confirmed_at ?? reported?.confirmed_at ?? null;
               const auto = watch?.auto_repair;
+              const forgettable =
+                onForget !== undefined &&
+                service.state === "stopped" &&
+                service.kind !== "docker";
               const groupStart =
                 index === 0 || shown[index - 1]!.tier !== service.tier;
               return (
@@ -538,6 +556,50 @@ export function ServicesPanel({
                       )}
                     </div>
                   </div>
+                  {forgettable && confirmForget !== service.key ? (
+                    <div className="map-forget">
+                      <button
+                        type="button"
+                        className="map-button"
+                        disabled={forgetPending !== null}
+                        aria-label={`从地图上移除 ${service.name}`}
+                        onClick={() => setConfirmForget(service.key)}
+                      >
+                        从地图上移除
+                      </button>
+                    </div>
+                  ) : null}
+                  {forgettable && confirmForget === service.key ? (
+                    <div
+                      className="map-forget"
+                      role="group"
+                      aria-label={`确认移除 ${service.name}`}
+                    >
+                      <p>
+                        不再追踪 {service.name}
+                        ：清掉它的启动记录、巡检记录和标记，还在等批准的修复一并作废。
+                        巡检对话和修复记录保留。以后它再运行，会重新出现在地图上。
+                      </p>
+                      <button
+                        type="button"
+                        className="map-button map-go"
+                        disabled={forgetPending !== null}
+                        onClick={() => {
+                          setConfirmForget(null);
+                          onForget?.(service.key);
+                        }}
+                      >
+                        确定移除
+                      </button>
+                      <button
+                        type="button"
+                        className="map-button"
+                        onClick={() => setConfirmForget(null)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : null}
                   {service.tier === "show" && auto?.available ? (
                     <div className="map-auto-repair">
                       <label>

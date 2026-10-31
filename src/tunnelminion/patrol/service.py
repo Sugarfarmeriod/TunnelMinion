@@ -124,6 +124,10 @@ class PatrolRepairs(Protocol):
         self, operation_id: OperationId, *, preapproval: OwnerPreapproval
     ) -> RepairRecord: ...
 
+    def reject(
+        self, operation_id: OperationId, *, operator: str, reason: str | None
+    ) -> RepairRecord: ...
+
     async def execute(self, operation_id: OperationId) -> RepairRecord: ...
 
 
@@ -214,6 +218,7 @@ class PatrolService:
         talks_first: Callable[[int], Awaitable[bool | None]] | None = None,
         windows_services: WindowsServiceRuntime | None = None,
         marks: Callable[[], Mapping[str, ServiceMark]] = dict,
+        forget_records: Callable[[str], None] | None = None,
         clock: Callable[[], datetime] | None = None,
         interval_seconds: float = PATROL_INTERVAL_SECONDS,
         investigation_wait_seconds: float = PATROL_INVESTIGATION_WAIT_SECONDS,
@@ -228,6 +233,7 @@ class PatrolService:
         self._talks_first = talks_first
         self._windows_services = windows_services
         self._marks = marks
+        self._forget_records = forget_records
         self._clock = clock or (lambda: datetime.now(UTC))
         self._interval_seconds = interval_seconds
         self._investigation_wait_seconds = investigation_wait_seconds
@@ -751,6 +757,47 @@ class PatrolService:
         self._store.put(record.model_copy(update={"status": PatrolStatus.ACKNOWLEDGED}))
         self._streaks.pop(key, None)
         self._note(record, f"主人说这次是有意停的；{record.name} 再次正常运行之前不再提醒。")
+        return self.view()
+
+    async def forget(self, key: str) -> PatrolView:
+        """把已停止的服务从地图上移除，不再追踪它。只由本机网页调用。
+
+        清掉它的启动记录、标记和巡检记录，把它还在等批准的修复作废（审计里记为主人不修），
+        停掉还在进行的“挂了”处理。巡检对话和修复审计历史保留。同一个服务以后又跑起来时，
+        观察照常重新记录它，地图上照常出现。
+
+        地图和巡检里都没有它抛 `KeyError`；还在运行抛 `ValueError`；Docker 容器抛
+        `LookupError`（容器还留在 Docker 里，移除记录也会马上重新出现，要在 Docker 里删）。
+        """
+        entry = next((item for item in self._services().services if item.key == key), None)
+        record = self._store.get(key)
+        if entry is None and record is None:
+            # 只剩启动记录、地图上却没有的服务可能正在运行（只是不像服务），不在这里删。
+            raise KeyError(key)
+        if entry is not None and entry.state == "running":
+            raise ValueError(key)
+        if entry is not None and entry.kind == "docker":
+            raise LookupError(key)
+        task = self._tasks.pop(key, None)
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        name = entry.name if entry is not None else record.name if record is not None else key
+        reason = f"主人把已停止的 {name} 从地图上移除了，这条修复不再需要。"
+        for pending in self._repairs.list():
+            if (
+                pending.plan.service_key == key
+                and pending.status is OperationStatus.AWAITING_AUTHORIZATION
+            ):
+                self._repairs.reject(pending.plan.operation_id, operator="local-web", reason=reason)
+        record = self._store.get(key) or record
+        if record is not None:
+            self._note(record, f"主人把 {name} 从地图上移除了，巡检不再跟踪它。")
+        self._store.delete(key)
+        self._streaks.pop(key, None)
+        if self._forget_records is not None:
+            self._forget_records(key)
+        logger.info("巡检：主人把已停止的 %s 从地图上移除", key)
         return self.view()
 
     # ---- 运行 ----

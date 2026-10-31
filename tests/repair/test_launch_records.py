@@ -256,6 +256,9 @@ class MemoryLaunchStore:
     def list_all(self) -> tuple[AnyLaunchRecord, ...]:
         return tuple(self.records.values())
 
+    def delete(self, service_key: str) -> None:
+        self.records.pop(service_key, None)
+
 
 class FakeLaunchReader:
     def __init__(self, values: dict[int, ProcessLaunchFacts | Exception | None]) -> None:

@@ -80,6 +80,8 @@ class SQLitePatrolStore:
         return tuple(PatrolRecord.model_validate_json(row[0]) for row in rows)
 
     def delete(self, key: str) -> None:
+        if not self._exists():
+            return
         with self._connect() as connection:
             connection.execute("DELETE FROM patrol_services WHERE service_key=?", (key,))
 

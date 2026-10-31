@@ -92,6 +92,10 @@ def test_launch_records_upsert_persist_and_stay_out_of_export(tmp_path: Path) ->
     assert reopened.launch_records.get(first.service_key) == updated
     assert reopened.launch_records.get(agent.service_key) == agent
     assert reopened.launch_records.list_all() == (agent, updated, second)
+    # 移除已停止的服务时删掉它的启动记录；删不存在的记录什么也不做。
+    reopened.launch_records.delete(second.service_key)
+    reopened.launch_records.delete("python:missing@9000")
+    assert stores.launch_records.list_all() == (agent, updated)
     stores.repairs.put(RepairRecord.planned(plan(), actor="local-cli"))
     exported = build_safe_export(tmp_path)
     assert "repairs" not in exported and "launch_records" not in exported

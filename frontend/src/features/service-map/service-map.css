@@ -395,6 +395,18 @@
   display: block;
   color: var(--map-red);
 }
+.map-forget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  margin: 2px 0 6px;
+}
+.map-forget p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .map-auto-repair {
   display: flex;
   flex-wrap: wrap;

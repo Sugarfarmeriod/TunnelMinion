@@ -754,6 +754,11 @@ class SQLiteLaunchRecordStore:
             ).fetchall()
         return tuple(_ANY_LAUNCH_RECORD.validate_json(row[0]) for row in rows)
 
+    def delete(self, service_key: str) -> None:
+        """主人把已停止的服务从地图上移除时删掉它的启动记录；没有记录时什么也不做。"""
+        with self._database.connect() as connection:
+            connection.execute("DELETE FROM launch_records WHERE service_key=?", (service_key,))
+
 
 class SQLiteRequesterOperationStore:
     """请求端计划和脱敏远端摘要的 SQLite 适配器。"""

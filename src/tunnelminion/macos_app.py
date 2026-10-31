@@ -547,6 +547,8 @@ def build_macos_local_application(
         conversations=conversations,
         repairs=node.repair_service,
         launch_records=stores.launch_records,
+        marks=stores.service_marks.all,
+        clear_mark=stores.service_marks.clear,
     )
     peer_poller = PeerServicePoller(
         GatewayConfigurationService(
