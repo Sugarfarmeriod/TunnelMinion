@@ -22,6 +22,11 @@ from pydantic import BaseModel, ConfigDict
 from tunnelminion.agent.managed_node import FileManagedNodeConfigRepository
 from tunnelminion.gateway.configuration import FileGatewayConfigurationRepository
 from tunnelminion.model.configuration import FileModelConfigurationRepository
+from tunnelminion.runtime.code_signing import (
+    CODE_SIGNATURE_RECORD_FILE,
+    accepts_signed_file,
+    load_signature_record,
+)
 from tunnelminion.runtime.profile import (
     FileRuntimeProfileRepository,
     RuntimeComponent,
@@ -229,6 +234,8 @@ def _verify_closed_file_set(
     root = package_root.resolve()
     manifest = manifest_path.resolve()
     embedded_manifest = (root / _EMBEDDED_MANIFEST_FILE).resolve()
+    # 本机重签入口时写下的签名记录不在清单里，内容由逐文件校验核对。
+    signature_record = (root / CODE_SIGNATURE_RECORD_FILE).resolve()
     actual: set[str] = set()
     for path in root.rglob("*"):
         if path.is_symlink():
@@ -240,6 +247,8 @@ def _verify_closed_file_set(
                     and path.read_bytes() != manifest_path.read_bytes()
                 ):
                     raise ValueError("包内清单与外部清单不一致")
+                continue
+            if path.resolve() == signature_record:
                 continue
             actual.add(path.relative_to(root).as_posix())
         elif not path.is_dir():
@@ -269,6 +278,7 @@ def verify_runtime_package(
     files = cast(list[object], raw_files)
     records: list[dict[str, object]] = []
     seen: set[str] = set()
+    signatures = load_signature_record(package_root)
     for item in files:
         if not isinstance(item, dict):
             raise ValueError("运行包文件记录无效")
@@ -281,10 +291,11 @@ def verify_runtime_package(
             raise ValueError("运行包文件路径无效或重复")
         seen.add(relative)
         path = _safe_package_path(package_root, relative)
-        if (
-            not path.is_file()
-            or path.stat().st_size != expected_size
-            or _file_sha256(path) != expected_hash
+        if not path.is_file():
+            raise ValueError("运行包文件校验失败")
+        size, digest = path.stat().st_size, _file_sha256(path)
+        if (size != expected_size or digest != expected_hash) and not accepts_signed_file(
+            signatures, relative, expected_hash, digest, size
         ):
             raise ValueError("运行包文件校验失败")
     entrypoint = manifest.get("entrypoint")

@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import json
 import os
+import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from concurrent.futures import Future
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from queue import SimpleQueue
 from time import monotonic
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import keyring
 from keyring.errors import KeyringError
@@ -23,7 +26,7 @@ class SecretStoreError(RuntimeError):
 
 KEYCHAIN_APPROVAL_HINT = (
     "系统钥匙串在等你授权：请在 Mac 屏幕上的钥匙串弹框点“始终允许”"
-    "（可能连着弹几个，每个都点），点完马上就能用。"
+    "（第一次用这个版本时旧条目可能连着弹几个，每个都点），点完马上就能用。"
 )
 
 
@@ -69,11 +72,15 @@ class KeyringAccess:
       覆盖。写入只在主人主动操作时发生；在事件循环里调用的地方用 `asyncio.to_thread`，网页不会
       因此卡住。
 
-    授权框按条目计，换包后每个条目仍各弹一次。线程是守护线程，进程退出不等它。
+    给了 `vault` 时，所有条目合存在钥匙串的一条里（见 `KeychainVault`），授权框只为这一条弹；
+    否则每个条目各占钥匙串的一条。线程是守护线程，进程退出不等它。
     """
 
-    def __init__(self, *, wait_seconds: float | None = None) -> None:
+    def __init__(
+        self, *, wait_seconds: float | None = None, vault: KeychainVault | None = None
+    ) -> None:
         self._wait_seconds = wait_seconds
+        self._vault = vault
         self._lock = threading.Lock()
         self._jobs: SimpleQueue[_Job] = SimpleQueue()
         self._worker: threading.Thread | None = None
@@ -95,23 +102,28 @@ class KeyringAccess:
 
     def set(self, service: str, name: str, value: str) -> None:
         """写入条目，等到完成。"""
-        self._submit(lambda: keyring.set_password(service, name, value)).result()
+        vault = self._vault
+        if vault is None:
+            self._submit(lambda: keyring.set_password(service, name, value)).result()
+        else:
+            self._submit(lambda: vault.set(service, name, value)).result()
 
     def delete(self, service: str, name: str) -> None:
         """删除条目，等到完成；条目原本不存在时同样视为成功。"""
-        self._submit(lambda: self._remove(service, name)).result()
+        vault = self._vault
+        if vault is None:
+            self._submit(lambda: _remove_item(service, name)).result()
+        else:
+            self._submit(lambda: vault.delete(service, name)).result()
 
     def _read(self, key: tuple[str, str]) -> str | None:
         try:
-            return keyring.get_password(*key)
+            if self._vault is None:
+                return keyring.get_password(*key)
+            return self._vault.get(*key)
         finally:
             with self._lock:
                 self._reads.pop(key, None)
-
-    @staticmethod
-    def _remove(service: str, name: str) -> None:
-        if keyring.get_password(service, name) is not None:
-            keyring.delete_password(service, name)
 
     def _result(self, started: float, future: Future[object]) -> object:
         remaining = (
@@ -144,7 +156,165 @@ class KeyringAccess:
                 future.set_exception(exc)
 
 
-_shared_access = KeyringAccess()
+def _remove_item(service: str, name: str) -> None:
+    if keyring.get_password(service, name) is not None:
+        keyring.delete_password(service, name)
+
+
+VAULT_ACCOUNT = "all-secrets"
+_VAULT_VERSION = 1
+
+
+class KeychainVaultError(KeyringError):
+    """合并条目的内容读不懂；不覆盖它，以免丢掉里面的秘密。"""
+
+
+class KeychainVault:
+    """把所有秘密合存成钥匙串里的一条 JSON（服务名 `TunnelMinion`，账户 `all-secrets`）。
+
+    macOS 钥匙串按条目询问授权：分开存时每换一次运行包，模型密钥、身份密钥、配对令牌各弹一次框；
+    合成一条后最多弹一次。
+
+    更早的版本每个秘密各占一条（`服务名, 条目名`）。读到合并条目里还没有记录的名字时，去对应的旧条目
+    读一次：有值就搬进合并条目，没有也记下“已经查过”（`settled`），以后只读合并条目，不再碰旧条目。
+    旧条目原样留在钥匙串里：删除它们同样要过授权框，留着不影响使用，主人可以在“钥匙串访问”里自己删。
+    读旧条目时在等授权框，就和其他读取一样抛出 `SecretStoreApprovalPendingError`，合并条目不改动。
+
+    改动合并条目要先读后写，同一用户的网页、网关和命令行可能同时在改，所以改动时持有 `lock_path`
+    上的文件锁，读写之间不会互相覆盖。
+    """
+
+    def __init__(
+        self,
+        lock_path: Path,
+        *,
+        service: str = KEYRING_SERVICE_NAME,
+        account: str = VAULT_ACCOUNT,
+    ) -> None:
+        self._lock_path = lock_path
+        self._service = service
+        self._account = account
+
+    def get(self, service: str, name: str) -> str | None:
+        data = self._load()
+        if _known(data, service, name):
+            return _items(data, service).get(name)
+        legacy = keyring.get_password(service, name)
+        with self._locked():
+            data = self._load()
+            if not _known(data, service, name):
+                if legacy is not None:
+                    _items(data, service)[name] = legacy
+                _settle(data, service, name)
+                self._save(data)
+            return _items(data, service).get(name)
+
+    def set(self, service: str, name: str, value: str) -> None:
+        with self._locked():
+            data = self._load()
+            _items(data, service)[name] = value
+            _settle(data, service, name)
+            self._save(data)
+
+    def delete(self, service: str, name: str) -> None:
+        with self._locked():
+            data = self._load()
+            _items(data, service).pop(name, None)
+            _settle(data, service, name)
+            self._save(data)
+
+    def _load(self) -> dict[str, Any]:
+        raw = keyring.get_password(self._service, self._account)
+        if raw is None:
+            return {"version": _VAULT_VERSION, "items": {}, "settled": {}}
+        try:
+            data = json.loads(raw)
+        except ValueError as exc:
+            raise KeychainVaultError("合并的钥匙串条目无法解析") from exc
+        if not isinstance(data, dict) or not _valid_vault(cast(dict[str, Any], data)):
+            raise KeychainVaultError("合并的钥匙串条目格式不受支持")
+        return cast(dict[str, Any], data)
+
+    def _save(self, data: dict[str, Any]) -> None:
+        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        keyring.set_password(self._service, self._account, text)
+
+    @contextmanager
+    def _locked(self) -> Generator[None, None, None]:
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(self._lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            with _exclusive(descriptor):
+                yield
+        finally:
+            os.close(descriptor)
+
+
+def _valid_vault(data: dict[str, Any]) -> bool:
+    items, settled = data.get("items"), data.get("settled")
+    if data.get("version") != _VAULT_VERSION:
+        return False
+    if not isinstance(items, dict) or not isinstance(settled, dict):
+        return False
+    items_ok = all(
+        isinstance(values, dict)
+        and all(isinstance(value, str) for value in cast(dict[str, Any], values).values())
+        for values in cast(dict[str, Any], items).values()
+    )
+    settled_ok = all(
+        isinstance(names, list) and all(isinstance(name, str) for name in cast(list[Any], names))
+        for names in cast(dict[str, Any], settled).values()
+    )
+    return items_ok and settled_ok
+
+
+def _items(data: dict[str, Any], service: str) -> dict[str, str]:
+    return cast(dict[str, str], data["items"].setdefault(service, {}))
+
+
+def _known(data: dict[str, Any], service: str, name: str) -> bool:
+    return name in _items(data, service) or name in data["settled"].get(service, ())
+
+
+def _settle(data: dict[str, Any], service: str, name: str) -> None:
+    names = cast(list[str], data["settled"].setdefault(service, []))
+    if name not in names:
+        names.append(name)
+        names.sort()
+
+
+@contextmanager
+def _exclusive(descriptor: int) -> Generator[None, None, None]:
+    """跨进程独占锁：Windows 用 `msvcrt.locking`，其他系统用 `fcntl.flock`。"""
+    if os.name == "nt":
+        msvcrt = cast(Any, importlib.import_module("msvcrt"))
+        msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl = cast(Any, importlib.import_module("fcntl"))
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+def default_keychain_vault(platform: str = sys.platform) -> KeychainVault | None:
+    """只在 macOS 上合并条目。
+
+    Windows 凭据管理器不按条目弹框，单条凭据还有 2560 字节的上限，装不下身份密钥和备份，所以
+    仍然每个秘密各存一条。
+    """
+    if platform != "darwin":
+        return None
+    return KeychainVault(Path.home() / ".tunnelminion" / "keychain-vault.lock")
+
+
+_shared_access = KeyringAccess(vault=default_keychain_vault())
 
 
 def shared_keyring_access() -> KeyringAccess:
