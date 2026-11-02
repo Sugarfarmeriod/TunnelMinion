@@ -17,6 +17,7 @@ import {
   validateModelConfiguration,
 } from "./api";
 import type { ModelConfiguration, ModelConfigurationInput } from "./api";
+import { UpdatePanel } from "./UpdatePanel";
 import "./settings.css";
 
 const statusLabels: Record<ModelConfiguration["status"], string> = {
@@ -771,6 +772,8 @@ export function SettingsPage() {
           或网络路径不可用时，本机资源、记忆和已有操作清理仍应继续工作；总览页提供更完整的来源与新鲜度说明。
         </p>
       </article>
+
+      <UpdatePanel />
 
       <article
         aria-labelledby="diagnostics-export-title"

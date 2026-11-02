@@ -127,6 +127,8 @@ class RuntimeCommandFactory:
             str(self._profile.local_port),
             "--runtime-log-file",
             str(self._paths.log_dir / f"{component.value}.log"),
+            "--runtime-profile",
+            str(self._paths.profile_file),
             *(("--read-only-preview",) if self._read_only_preview else ()),
         )
 

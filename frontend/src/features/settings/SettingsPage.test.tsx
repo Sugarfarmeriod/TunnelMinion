@@ -105,6 +105,25 @@ function makeOverview() {
   };
 }
 
+// 版本区由 UpdatePanel 的测试覆盖；这里固定为不支持更新，不影响其他请求的顺序
+const unsupportedUpdate = {
+  supported: false,
+  unsupported_reason: "source_run",
+  current: { package_id: null, source_revision: null, release_tag: null },
+  latest: null,
+  availability: null,
+  checked_at: null,
+  check_error: null,
+  job: {
+    phase: "idle",
+    release_tag: null,
+    downloaded_bytes: 0,
+    total_bytes: 0,
+    error_code: null,
+  },
+  last_result: null,
+};
+
 function renderSettings() {
   const client = new QueryClient({
     defaultOptions: {
@@ -129,7 +148,9 @@ describe("SettingsPage", () => {
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
       String(input) === "/api/peers"
         ? Promise.resolve(jsonResponse({ peers }))
-        : fetchMock(input, init),
+        : String(input).startsWith("/api/update")
+          ? Promise.resolve(jsonResponse(unsupportedUpdate))
+          : fetchMock(input, init),
     );
   });
 

@@ -210,6 +210,12 @@ def _runtime_command(values: list[str]) -> int:
     if args.read_only_preview and profile.enabled_components != frozenset({RuntimeComponent.LOCAL}):
         print(json.dumps({"status": "failed", "error_code": "preview_requires_local"}))
         return 2
+    if args.action == "start":
+        from tunnelminion.update.redirect import forward_to_current_version
+
+        forwarded = forward_to_current_version(profile.data_dir, values)
+        if forwarded is not None:
+            return forwarded
     manager = build_lifecycle_manager(profile, paths, read_only_preview=args.read_only_preview)
     preflight_report = None
     try:
@@ -379,6 +385,7 @@ def _runtime_child(values: list[str]) -> int:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--local-port", type=int, required=True, choices=range(1024, 65536))
     parser.add_argument("--runtime-log-file", type=Path, required=True)
+    parser.add_argument("--runtime-profile", type=Path)
     parser.add_argument("--read-only-preview", action="store_true")
     args = parser.parse_args(values)
 
@@ -409,13 +416,17 @@ def _runtime_child(values: list[str]) -> int:
                 from tunnelminion.macos_app import build_macos_local_application
 
                 bundle = build_macos_local_application(
-                    args.data_dir, read_only_preview=args.read_only_preview
+                    args.data_dir,
+                    read_only_preview=args.read_only_preview,
+                    runtime_profile=args.runtime_profile,
                 )
             else:
                 from tunnelminion.app import build_windows_application
 
                 bundle = build_windows_application(
-                    args.data_dir, read_only_preview=args.read_only_preview
+                    args.data_dir,
+                    read_only_preview=args.read_only_preview,
+                    runtime_profile=args.runtime_profile,
                 )
             application = bundle.app
             _retain_local_application_owner(application, bundle)
@@ -1051,6 +1062,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _runtime_package_command(values)
     if values and values[0] == "runtime-child":
         return _runtime_child(values)
+    if values and values[0] == "update":
+        from tunnelminion.update.cli import update_command
+
+        return update_command(values[1:])
+    if values and values[0] == "update-apply":
+        from tunnelminion.update.cli import update_apply_command
+
+        return update_apply_command(values[1:])
     if values and values[0] == "export":
         return _export_data(values)
     if values and values[0] == "uninstall":

@@ -353,3 +353,65 @@ jobs:
           name: runtime-package-matrix-summary
           path: build/runtime-package-matrix-summary.json
           if-no-files-found: error
+
+  release:
+    name: 发布 / GitHub Release
+    needs: [frontend-quality, frontend-browser, quality, runtime-package, runtime-package-matrix]
+    # 只有合并到 main 且上面全部检查通过才发布；Pull Request 不发布
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: github-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: build-${{ github.run_number }}
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: 下载 Windows 运行包
+        uses: actions/download-artifact@v8
+        with:
+          name: runtime-package-windows-amd64
+          path: build/release-artifacts/runtime-package-windows-amd64
+
+      - name: 下载 macOS 运行包
+        uses: actions/download-artifact@v8
+        with:
+          name: runtime-package-macos-arm64
+          path: build/release-artifacts/runtime-package-macos-arm64
+
+      - name: 生成发布附件和 sha256 清单
+        run: >-
+          python scripts/build_release_assets.py
+          --artifacts-root build/release-artifacts
+          --output-dir build/release
+          --tag "$RELEASE_TAG"
+          --source-revision "$GITHUB_SHA"
+
+      - name: 创建 GitHub Release
+        run: >-
+          gh release create "$RELEASE_TAG"
+          build/release/tunnelminion-windows-amd64.tar.gz
+          build/release/tunnelminion-macos-arm64.tar.gz
+          build/release/release.json
+          --target "$GITHUB_SHA"
+          --title "$RELEASE_TAG"
+          --notes "自动发布，对应提交 ${GITHUB_SHA}。在本机网页的设置页点“更新”，或运行 tunnelminion update。"
+          --latest
+
+      - name: 只保留最近 10 个自动发布
+        run: |
+          gh release list --limit 200 --json tagName,createdAt --jq 'map(select(.tagName | startswith("build-"))) | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          while read -r tag; do
+            gh release delete "$tag" --cleanup-tag --yes
+          done

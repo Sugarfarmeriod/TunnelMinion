@@ -117,6 +117,7 @@ from tunnelminion.telemetry import tracing_lifespan
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.tools.registry import ToolRegistry
 from tunnelminion.tools.runtime import ToolRuntime
+from tunnelminion.update.service import UpdateService
 from tunnelminion.web.application_views import (
     NetworkPathViewBindings,
     build_application_view_bindings,
@@ -135,6 +136,7 @@ from tunnelminion.web.request_guard import install_local_request_guard
 from tunnelminion.web.resources import create_resource_router
 from tunnelminion.web.service_map import build_local_service_map, create_service_map_router
 from tunnelminion.web.spa import create_spa_router
+from tunnelminion.web.update import create_update_router
 
 
 @dataclass(frozen=True)
@@ -374,6 +376,7 @@ def build_macos_local_application(
     interface_name: str | None = None,
     network_path: NetworkPathViewBindings | None = None,
     read_only_preview: bool = False,
+    runtime_profile: Path | None = None,
 ) -> MacOSLocalApplication:
     """组装即使没有模型也能使用资源页的 macOS 本地应用。"""
     # 网页要先起来，才能告诉主人去点钥匙串授权框，所以组装时就不再干等。
@@ -637,6 +640,15 @@ def build_macos_local_application(
     app.include_router(create_repair_router(repair_service))
     if not read_only_preview:
         app.include_router(create_patrol_router(patrol))
+    app.include_router(
+        create_update_router(
+            UpdateService(
+                node.root,
+                profile_path=runtime_profile,
+                read_only_preview=read_only_preview,
+            )
+        )
+    )
     app.include_router(create_spa_router(read_only_preview=read_only_preview))
     return MacOSLocalApplication(
         app,
