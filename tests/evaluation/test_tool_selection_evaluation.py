@@ -148,7 +148,7 @@ def test_score_and_summarize_two_variants() -> None:
     assert summaries[1].first_tool_hits == 1 and summaries[1].mean_total_tokens == 15
     markdown = summary_markdown("qwen", summaries)
     assert markdown.startswith("# 挑工具前后对比：qwen\n")
-    assert "| B | 1 | 1/1 | 1/1 | 0 | 1 | 2.0 | 15.0 |" in markdown
+    assert "| B | 1 | 1/1 | 1/1 | 0 | 1 | 0 | 2.0 | 15.0 |" in markdown
 
 
 def test_offline_script_writes_report(tmp_path: Path) -> None:

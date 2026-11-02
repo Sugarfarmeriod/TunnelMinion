@@ -19,6 +19,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from tunnelminion.agent.follow_through import FOLLOW_THROUGH_MARK
 from tunnelminion.agent.tool_selection import ToolSelectionSettings
 from tunnelminion.evaluation.tool_selection import (
     RealCaseRun,
@@ -47,11 +48,12 @@ DEFAULT_DATASET = Path("evaluations/datasets/tool-selection-v1.json")
 
 
 class RecordingProvider:
-    """转发给真实模型，同时记下模型请求过的工具名（含 request_more_tools）。"""
+    """转发给真实模型，记下模型请求过的工具名（含 request_more_tools）和是否收到过查漏提醒。"""
 
     def __init__(self, inner: ModelProvider) -> None:
         self._inner = inner
         self.requested: list[str] = []
+        self.reminded = False
 
     @property
     def capabilities(self) -> ModelCapabilities:
@@ -60,6 +62,10 @@ class RecordingProvider:
     async def complete(
         self, request: ModelRequest, cancellation: CancellationToken | None = None
     ) -> ModelResponse:
+        self.reminded = self.reminded or any(
+            message.role == "user" and message.content.startswith(FOLLOW_THROUGH_MARK)
+            for message in request.messages
+        )
         response = await self._inner.complete(request, cancellation)
         self.requested.extend(call.name for call in response.tool_calls)
         return response
@@ -100,12 +106,20 @@ async def _run(args: argparse.Namespace) -> tuple[RealCaseRun, ...]:
                     runs.append(failed_run(case, variant, round_index, exc.code.value))
                     print(f"[{round_index}] {variant} {case.case_id}: 模型调用失败 {exc.code}")
                     continue
-                run = score_run(case, variant, round_index, result, tuple(provider.requested))
+                run = score_run(
+                    case,
+                    variant,
+                    round_index,
+                    result,
+                    tuple(provider.requested),
+                    reminded=provider.reminded,
+                )
                 runs.append(run)
                 print(
                     f"[{round_index}] {variant} {case.case_id}: "
                     f"first={run.first_tool} ok={run.first_tool_ok} "
-                    f"missing_claim={run.claimed_missing_tool}"
+                    f"covered={run.expected_covered} reminded={run.reminded}",
+                    flush=True,
                 )
     return tuple(runs)
 
