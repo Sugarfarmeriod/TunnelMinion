@@ -164,6 +164,9 @@ def apply_switch(
     """停掉当前组件，换到目标版本；目标起不来就停掉它、退回 fallback 版本再启动。"""
     target_executable = installer.executable(target_package_id)
     fallback_executable = installer.executable(fallback_package_id)
+    if release_tag is None:
+        # 退回上一版时记下那一版的发布名（手动装的初始版本没有）
+        release_tag = cast(InstalledPackage, installer.find(target_package_id)).release_tag
 
     def finish(outcome: UpdateOutcome, error_code: str | None = None) -> UpdateRecord:
         record = UpdateRecord(

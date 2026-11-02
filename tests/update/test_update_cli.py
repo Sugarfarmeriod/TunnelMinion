@@ -186,6 +186,7 @@ def test_rollback_command(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
     assert "已取消" in capsys.readouterr().out
     env.answers.append("y")
     assert env.run("--rollback") == 0
+    assert "已退回上一个版本" in capsys.readouterr().out
     state = env.installer().load()
     assert (state.current_package_id, state.previous_package_id) == ("pkg-old", "pkg-new")
 
@@ -276,6 +277,19 @@ def test_defaults_use_real_feed_and_control(
     )
     assert env.run("--check", feed=None, control=None) == 0
     assert "build-2" in capsys.readouterr().out
+
+
+def test_update_is_forwarded_to_current_version(env: Env) -> None:
+    seen: list[tuple[Path, list[str], Path]] = []
+
+    def forward(data_dir: Path, argv: list[str], *, install_root: Path) -> int:
+        seen.append((data_dir, argv, install_root))
+        return 3
+
+    assert env.run("--check", forward=forward) == 3
+    assert seen[0][1][:2] == ["update", "--profile"]
+    assert seen[0][1][-1] == "--check"
+    assert seen[0][2] == env.install_root.resolve()
 
 
 def test_ssh_detection(monkeypatch: pytest.MonkeyPatch) -> None:

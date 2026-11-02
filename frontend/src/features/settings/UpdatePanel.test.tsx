@@ -227,6 +227,21 @@ describe("UpdatePanel", () => {
       ),
     );
     fetchMock.mockRejectedValueOnce(new TypeError("connection refused"));
+    // 新进程先起来、换包结果还没写：仍是上一次的旧记录，不能当作这次已结束
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makeView({
+          last_result: {
+            outcome: "updated",
+            from_package_id: "pkg-older",
+            to_package_id: "pkg-old",
+            release_tag: null,
+            error_code: null,
+            finished_at: "2026-10-01T08:00:00Z",
+          },
+        }),
+      ),
+    );
     fetchMock.mockResolvedValue(
       jsonResponse(
         makeView({
@@ -242,7 +257,7 @@ describe("UpdatePanel", () => {
             to_package_id: "pkg-new",
             release_tag: "build-12",
             error_code: null,
-            finished_at: "2026-11-02T08:05:00Z",
+            finished_at: new Date(Date.now() + 60_000).toISOString(),
           },
         }),
       ),
@@ -262,6 +277,7 @@ describe("UpdatePanel", () => {
     expect(
       screen.getByRole("button", { name: "刷新页面" }),
     ).toBeInTheDocument();
+    expect(screen.queryByText("上次换包已完成。")).not.toBeInTheDocument();
   }, 10000);
 
   it("检查失败和请求被拒时给出可读说明", async () => {
@@ -300,6 +316,25 @@ describe("UpdatePanel", () => {
     await waitFor(() =>
       expect(screen.getByText("现在不能更新，请稍后重试")).toBeInTheDocument(),
     );
+  });
+
+  it("退回到没有发布名的版本时显示换包已完成", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makeView({
+          last_result: {
+            outcome: "updated",
+            from_package_id: "pkg-new",
+            to_package_id: "pkg-old",
+            release_tag: null,
+            error_code: null,
+            finished_at: "2026-11-02T08:05:00Z",
+          },
+        }),
+      ),
+    );
+    renderPanel();
+    expect(await screen.findByText("上次换包已完成。")).toBeInTheDocument();
   });
 
   it("读不到版本信息时提示", async () => {

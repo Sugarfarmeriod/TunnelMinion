@@ -96,6 +96,8 @@ def test_unhealthy_new_version_rolls_back_to_old(tmp_path: Path) -> None:
     record = apply_switch(installer, control, new, old, tmp_path / "update.json")
     assert record.outcome is UpdateOutcome.ROLLED_BACK
     assert record.error_code == "new_version_unhealthy"
+    # 没传发布名时记下目标版本自己的发布名
+    assert record.release_tag == "build-2"
     assert control.calls == ["stop", f"start:{new_dir}", "stop", f"start:{old_dir}"]
     state = installer.load()
     assert (state.current_package_id, state.previous_package_id) == (old, new)

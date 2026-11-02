@@ -29,6 +29,7 @@ from tunnelminion.update.apply import (
     update_record_path,
 )
 from tunnelminion.update.package import UpdatePackageError, download_asset, stage_archive
+from tunnelminion.update.redirect import forward_to_current_version
 from tunnelminion.update.release import (
     Availability,
     GitHubReleaseFeed,
@@ -68,9 +69,12 @@ def _confirmed(confirm: Callable[[str], str], prompt: str) -> bool:
         return False
 
 
-def _print_record(record: UpdateRecord) -> int:
+def _print_record(record: UpdateRecord, *, rollback: bool = False) -> int:
     suffix = f"（{record.error_code}）" if record.error_code else ""
-    print(f"{_RESULT_TEXT[record.outcome]}{suffix}")
+    text = _RESULT_TEXT[record.outcome]
+    if rollback and record.outcome is UpdateOutcome.UPDATED:
+        text = "已退回上一个版本"
+    print(f"{text}{suffix}")
     return 0 if record.outcome is UpdateOutcome.UPDATED else 1
 
 
@@ -82,6 +86,7 @@ def update_command(
     confirm: Callable[[str], str] = input,
     frozen: bool | None = None,
     program_dir: Path | None = None,
+    forward: Callable[..., int | None] = forward_to_current_version,
 ) -> int:
     """查看、更新到最新发布版，或退回上一版。"""
     parser = argparse.ArgumentParser(
@@ -114,6 +119,10 @@ def update_command(
         print("Windows 上请回到这台电脑的桌面上运行：通过 ssh 起来的新版本读不到凭据管理器。")
         return 2
     install_root = (args.install_root or node_install_root(profile.data_dir)).resolve()
+    # 从旧的解包目录运行时，交给当前版本来查和换，显示的"当前版本"才是真正在用的那个
+    forwarded = forward(profile.data_dir, ["update", *argv], install_root=install_root)
+    if forwarded is not None:
+        return forwarded
     installer = RuntimePackageInstaller(install_root, profile.data_dir)
     runtime = control or ProfileRuntimeControl(profile_path)
 
@@ -137,7 +146,7 @@ def update_command(
         except UpdateBusy:
             print("已经有一次更新在进行。")
             return 2
-        return _print_record(record)
+        return _print_record(record, rollback=True)
 
     source = feed or GitHubReleaseFeed.from_environment()
     try:

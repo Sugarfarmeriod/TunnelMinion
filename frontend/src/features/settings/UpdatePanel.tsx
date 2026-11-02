@@ -87,9 +87,10 @@ function lastResultText(view: UpdateView): string | null {
   if (result === null) {
     return null;
   }
-  const target = result.release_tag ?? "新版本";
   if (result.outcome === "updated") {
-    return `上次更新：已更新到 ${target}。`;
+    return result.release_tag === null
+      ? "上次换包已完成。"
+      : `上次更新：已更新到 ${result.release_tag}。`;
   }
   return `上次更新：${explain(result.error_code)}`;
 }
@@ -164,7 +165,9 @@ function UpdateConfirmDialog({
 export function UpdatePanel() {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-  const [restarting, setRestarting] = useState(false);
+  // 点"确认更新"的时间；换包结果比它新，才说明这次换包已经结束
+  const [restartingSince, setRestartingSince] = useState<number | null>(null);
+  const restarting = restartingSince !== null;
   const [restarted, setRestarted] = useState(false);
   const autoChecked = useRef(false);
 
@@ -187,7 +190,7 @@ export function UpdatePanel() {
     onSuccess: (view) => {
       queryClient.setQueryData(updateQueryKey, view);
       setConfirming(false);
-      setRestarting(true);
+      setRestartingSince(Date.now());
     },
   });
 
@@ -205,13 +208,21 @@ export function UpdatePanel() {
     }
   }, [view, runCheck]);
 
-  // 新版本起来后，本机网页是一个新进程，任务回到 idle：说明换包已经结束
+  // 新版本起来后本机网页是新进程，任务回到 idle；还要等换包进程写下这次的结果
   useEffect(() => {
-    if (restarting && view !== undefined && view.job.phase === "idle") {
-      setRestarting(false);
+    if (
+      restartingSince !== null &&
+      view !== undefined &&
+      view.job.phase === "idle" &&
+      view.last_result !== null &&
+      Date.parse(view.last_result.finished_at) >= restartingSince - 5000
+    ) {
+      setRestartingSince(null);
       setRestarted(true);
+      // 新进程还没查过最新版本，让它自动查一次
+      autoChecked.current = false;
     }
-  }, [restarting, view]);
+  }, [restartingSince, view]);
 
   const job = view?.job;
   const active = restarting || activePhases.has(job?.phase ?? "idle");
