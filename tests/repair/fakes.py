@@ -422,6 +422,7 @@ class RepairHarness:
             self.clock.sleep,
             container_verify_seconds=2,
             python_verify_seconds=2,
+            starting_verify_seconds=5,
             launch_agents=self.launch_agents,
             windows_services=self.windows_services,
             is_stuck=self.stuck.__contains__,
