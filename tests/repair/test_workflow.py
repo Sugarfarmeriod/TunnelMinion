@@ -316,17 +316,21 @@ def test_containers_without_ports_need_no_web_probe(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("status", [None, 200, 499, 500, 503])
-def test_http_status_is_probed_once_per_port(tmp_path: Path, status: int | None) -> None:
+def test_http_status_is_probed_until_the_page_opens(tmp_path: Path, status: int | None) -> None:
+    """首页打开以后不再探测；一直返回服务器错误时每轮重新探测，直到“还在启动”的上限。"""
     h = RepairHarness(tmp_path)
     h.verifier.status = status
     record = h.authorized()
     result = asyncio.run(h.workflow.execute(record.plan.operation_id))
     assert (result.status is OperationStatus.SUCCEEDED) == (status is None or status < 500)
-    assert h.verifier.web_ports == [8080]
     assert result.verification is not None
     assert result.verification.checks[-1].name is RepairCheckName.WEB_PAGE
     if status is not None and status >= 500:
+        assert h.verifier.web_ports == [8080] * 6
         assert result.verification.checks[-1].detail == f"首页返回错误（HTTP {status}）。"
+        assert result.verification.waited_seconds == 5
+    else:
+        assert h.verifier.web_ports == [8080]
 
 
 def test_all_ports_must_listen_before_web_probe(tmp_path: Path) -> None:
@@ -389,7 +393,13 @@ def test_python_verification_failure_stops_only_spawned_process(
     assert len(h.launcher.calls) == 1
     assert result.verification is not None and result.verification.log_excerpt == "startup failed"
     assert h.launcher.log_calls[0][1] == 40
-    assert result.error is not None and result.error.message == "程序拉起来了，但端口一直没起来。"
+    # 进程自己退出了就照实说退出了；进程还在、端口一直没在听才说端口没起来。
+    expected = (
+        "程序拉起来以后自己退出了。"
+        if cleanup in {"exited", "exit_during_wait"}
+        else "程序拉起来了，但端口一直没起来。"
+    )
+    assert result.error is not None and result.error.message == expected
 
 
 def test_python_exited_process_cannot_pass_due_to_another_listener(tmp_path: Path) -> None:

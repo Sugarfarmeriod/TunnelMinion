@@ -77,6 +77,35 @@ _SERVICE_CHANGED = RepairError(
 )
 
 
+# 程序活着、端口在听、只有首页返回服务器错误时（多半还在加载），验证最多等这么久。大模型服务从外接盘
+# 加载几十 GB 的模型要一两分钟以上；比“修复中断”的判定（15 分钟）短得多，修复不会被当成中断。
+STARTING_VERIFY_SECONDS = 300
+
+
+def _only_web_errors(checks: list[RepairCheck]) -> bool:
+    """没过的检查只有首页，而且首页确实回了服务器错误（不是打不开）。"""
+    failed = [item for item in checks if not item.passed]
+    return bool(failed) and all(item.name is RepairCheckName.WEB_PAGE for item in failed)
+
+
+def _failure_message(done: str, verification: RepairVerification) -> str:
+    """按没过的那一项如实写：服务没在运行、端口没在听，还是端口在听但首页一直报错。"""
+    failed = [item for item in verification.checks if not item.passed]
+    names = {item.name for item in failed}
+    if names & {
+        RepairCheckName.CONTAINER_RUNNING,
+        RepairCheckName.LAUNCH_AGENT_RUNNING,
+        RepairCheckName.WINDOWS_SERVICE_RUNNING,
+    }:
+        return f"{done}，但服务还是没起来。"
+    if RepairCheckName.PORT_LISTENING in names:
+        return f"{done}，但端口一直没起来。"
+    web = next(item for item in failed if item.name is RepairCheckName.WEB_PAGE)
+    waited = verification.waited_seconds
+    within = f"等了 {waited} 秒，" if waited else ""
+    return f"{done}，端口也在听，但{within}{web.detail.removesuffix('。')}，一直没好。"
+
+
 class RepairWorkflow:
     def __init__(
         self,
@@ -91,6 +120,7 @@ class RepairWorkflow:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         container_verify_seconds: float = 60,
         python_verify_seconds: float = 30,
+        starting_verify_seconds: float = STARTING_VERIFY_SECONDS,
         interrupted_after_seconds: float = 900,
         launch_agents: LaunchAgentRuntime | None = None,
         windows_services: WindowsServiceRuntime | None = None,
@@ -116,6 +146,7 @@ class RepairWorkflow:
         self._sleep = sleep
         self._container_verify_seconds = container_verify_seconds
         self._python_verify_seconds = python_verify_seconds
+        self._starting_verify_seconds = starting_verify_seconds
         self._interrupted_after_seconds = interrupted_after_seconds
 
     def _event(self, record: RepairRecord, action: RepairAuditAction, detail: str) -> RepairRecord:
@@ -456,7 +487,7 @@ class RepairWorkflow:
                     record,
                     RepairError(
                         code=RepairErrorCode.VERIFICATION_FAILED,
-                        message="容器重启了，但服务还是没起来。",
+                        message=_failure_message("容器重启了", verification),
                         next_step=_FAILURE_NEXT_STEP,
                     ),
                     RepairCleanupResult.NOTHING_TO_UNDO,
@@ -467,7 +498,7 @@ class RepairWorkflow:
                     record,
                     RepairError(
                         code=RepairErrorCode.VERIFICATION_FAILED,
-                        message="后台服务重新启动了，但服务还是没起来。",
+                        message=_failure_message("后台服务重新启动了", verification),
                         next_step=_FAILURE_NEXT_STEP,
                     ),
                     RepairCleanupResult.NOTHING_TO_UNDO,
@@ -478,15 +509,20 @@ class RepairWorkflow:
                     record,
                     RepairError(
                         code=RepairErrorCode.VERIFICATION_FAILED,
-                        message="Windows 服务启动了，但服务还是没起来。",
+                        message=_failure_message("Windows 服务启动了", verification),
                         next_step=_FAILURE_NEXT_STEP,
                     ),
                     RepairCleanupResult.NOTHING_TO_UNDO,
                     _WINDOWS_SERVICE_LEFT_ALONE,
                 )
+            assert execution.spawned is not None
             error = RepairError(
                 code=RepairErrorCode.VERIFICATION_FAILED,
-                message="程序拉起来了，但端口一直没起来。",
+                message=(
+                    _failure_message("程序拉起来了", verification)
+                    if self._launcher.is_alive(execution.spawned)
+                    else "程序拉起来以后自己退出了。"
+                ),
                 next_step=_FAILURE_NEXT_STEP,
             )
             record = self._transition(
@@ -617,6 +653,7 @@ class RepairWorkflow:
         )
         started = self._clock()
         elapsed = 0.0
+        # 只缓存已经打开的首页；返回错误的首页每轮都重新探测，程序加载完以后就能看到。
         web_checks: dict[int, RepairCheck] = {}
         items: tuple[ContainerSnapshot, ...] = ()
         job: LaunchAgentJob | None = None
@@ -677,7 +714,7 @@ class RepairWorkflow:
             checks.extend(port_checks)
             if all(item.passed for item in port_checks):
                 for port in target.ports:
-                    if port not in web_checks:
+                    if port not in web_checks or not web_checks[port].passed:
                         code = await self._verifier.web_status(port)
                         detail = (
                             "这个端口不是网页，只确认了端口在听。"
@@ -703,9 +740,13 @@ class RepairWorkflow:
                         update={"passed": False, "detail": f"端口 {target.ports[0]} 没在听。"}
                     )
             passed = all(item.passed for item in checks)
-            if passed or not alive or elapsed >= limit:
+            # 程序活着、端口在听，只有首页返回服务器错误：大多是还在加载（例如大模型服务加载模型时
+            # 一直回 503），按“还在启动”多等一会儿，到更长的上限才算失败。
+            starting = alive and _only_web_errors(checks)
+            deadline = max(limit, self._starting_verify_seconds) if starting else limit
+            if passed or not alive or elapsed >= deadline:
                 break
-            delay = min(1, limit - elapsed)
+            delay = min(1, deadline - elapsed)
             await self._sleep(delay)
             elapsed = max(elapsed + delay, (self._clock() - started).total_seconds())
         excerpt: str | None = None
@@ -731,6 +772,7 @@ class RepairWorkflow:
             checks=tuple(checks),
             log_excerpt=excerpt[:4_000] if excerpt is not None else None,
             verified_at=self._clock(),
+            waited_seconds=round(elapsed),
         )
 
     def _rollback(
