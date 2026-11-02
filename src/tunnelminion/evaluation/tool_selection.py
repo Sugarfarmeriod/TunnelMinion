@@ -276,6 +276,8 @@ class RealCaseRun(BaseModel):
     model_rounds: int = Field(ge=0)
     tool_calls: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
+    elapsed_ms: float = Field(default=0, ge=0)
+    reminded: bool = Field(default=False, description="这次是否收到过收尾前查漏提醒")
     stop_reason: str
 
 
@@ -290,8 +292,10 @@ class VariantSummary(BaseModel):
     expected_covered: int
     missing_tool_claims: int
     asked_for_more: int
+    reminders: int
     mean_model_rounds: float
     mean_total_tokens: float
+    mean_elapsed_seconds: float
 
 
 def score_run(
@@ -300,6 +304,7 @@ def score_run(
     round_index: int,
     result: AgentTurnResult,
     requested_tools: tuple[str, ...],
+    reminded: bool = False,
 ) -> RealCaseRun:
     """按实际执行过的诊断工具打分；查阅方法和请求更多工具不算诊断。"""
     called = tuple(item.tool_name for item in result.evidence_answer.evidence)
@@ -317,6 +322,8 @@ def score_run(
         model_rounds=result.model_rounds,
         tool_calls=result.tool_calls,
         total_tokens=result.usage.total_tokens,
+        elapsed_ms=result.elapsed_ms,
+        reminded=reminded,
         stop_reason=result.stop_reason.value,
     )
 
@@ -356,8 +363,10 @@ def summarize(runs: tuple[RealCaseRun, ...]) -> tuple[VariantSummary, ...]:
                 expected_covered=sum(item.expected_covered for item in group),
                 missing_tool_claims=sum(item.claimed_missing_tool for item in group),
                 asked_for_more=sum(item.asked_for_more for item in group),
+                reminders=sum(item.reminded for item in group),
                 mean_model_rounds=round(fmean(item.model_rounds for item in group), 2),
                 mean_total_tokens=round(fmean(item.total_tokens for item in group), 1),
+                mean_elapsed_seconds=round(fmean(item.elapsed_ms for item in group) / 1000, 1),
             )
         )
     return tuple(summaries)
@@ -369,13 +378,14 @@ def summary_markdown(label: str, summaries: tuple[VariantSummary, ...]) -> str:
         f"# 挑工具前后对比：{label}",
         "",
         "| 配置 | 次数 | 先调对工具 | 调齐期望工具 | 说“没有工具” "
-        "| 请求更多工具 | 平均轮数 | 平均 token |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 请求更多工具 | 收尾前提醒 | 平均轮数 | 平均 token | 平均耗时（秒） |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for item in summaries:
         lines.append(
             f"| {item.variant} | {item.runs} | {item.first_tool_hits}/{item.runs} "
             f"| {item.expected_covered}/{item.runs} | {item.missing_tool_claims} "
-            f"| {item.asked_for_more} | {item.mean_model_rounds} | {item.mean_total_tokens} |"
+            f"| {item.asked_for_more} | {item.reminders} | {item.mean_model_rounds} "
+            f"| {item.mean_total_tokens} | {item.mean_elapsed_seconds} |"
         )
     return "\n".join(lines) + "\n"
