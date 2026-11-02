@@ -256,7 +256,7 @@ flowchart TD
 
 上面的对比里，两个模型偶尔"查到一半就收尾"：用户要修、容器或脚本也确实停了，却没有用 `propose_repair`
 提出修法；或者第一次查工作台里选中的服务，却没调 `list_network_listeners` 核对入口，回答只能说
-"还没有取得能核对所选程序连接入口的完整记录"。本机 Qwen 每组 63 次里约 7～8 次，DeepSeek 偶尔 1 次。
+"还没有取得能核对所选程序连接入口的完整记录"。本机 Qwen 每组 63 次里约 10 次，DeepSeek 偶尔 1 次。
 
 现在模型准备收尾（这一轮没有再调工具）时，程序做一次确定性检查，代码在
 `agent/follow_through.py`，由 `agent/runtime.py` 的 `follow_through` 中间件调用：
@@ -294,14 +294,24 @@ flowchart TD
 
 | 模型 | 配置 | 前：调齐期望工具 | 后：调齐期望工具 | 后：收到提醒 | 平均轮数 前→后 | 平均 token 前→后 | 平均耗时（秒）前→后 |
 |---|---|---|---|---|---|---|---|
+| 本机 Qwen（上限 5） | A | 53/63 | 61/63 | 11 | 3.06→3.25 | 9462→10088 | 17.2→16.5 |
+| 本机 Qwen（上限 5） | B | 52/63（另 1 次回答过长被截断） | 63/63 | 14 | 2.90→3.44 | 7861→9612 | 17.3→19.5 |
 | DeepSeek（不设上限） | A | 62/63 | 63/63 | 1 | 3.40→3.43 | 11681→11790 | 6.4→6.4 |
 | DeepSeek（不设上限） | B | 62/63 | 62/63（另 1 次是网络错误） | 2 | 3.54→3.43 | 11159→10694 | 6.6→6.0 |
 
 - DeepSeek 前一组漏的两次正好是这两类：巡检脚本没提出修法、工作台服务没核对入口。后一组除 1 次模型接口
   网络错误外全部调齐；3 次提醒都是工作台没核对入口，提醒后都补调了 `list_network_listeners`。
   先调对工具的比例、轮数、token 和耗时没有变差（B 组 62/63 的那一次同样是网络错误）。
-- 本机 Qwen 的前后对比**待补**：评测当天 Mac mini 上的 llama-server 意外退出，恢复后按同一口径各跑 3 轮再追加。
+- 本机 Qwen 前一组漏步 20 次，都是这两类：要修却没提出修法（容器修复、脚本巡检、容器巡检）和工作台服务没核对入口。
+  后一组只剩 A 组 2 次：一次提醒后仍没提出修法，一次提醒后去查了启动记录而没提修法。两次都收到过提醒，
+  模型没照做，程序就照常结束，没有替它补修法。
+- 提醒的代价：Qwen 收到提醒的那次平均多用约 7000 token、多花约 10 秒；平摊到整组，token 增加约 7%（A）
+  和 22%（B），平均耗时 A 组没有变长、B 组多 2 秒左右。
+- Qwen 后一组"先调对工具"各有 1 次没对（A 组先查了电脑概况，B 组"帮我看看有什么问题"没查就回答）。
+  提醒只在模型准备收尾时出现，影响不到第一个工具；改前 A 组 63/63、B 组 62/63（那 1 次是回答过长被截断）。
 
-报告在
+报告在 `evaluations/reports/` 下的
+[`tool-selection-qwen-before-follow-through-2026-11-02`](../../evaluations/reports/tool-selection-qwen-before-follow-through-2026-11-02/summary.md)、
+[`tool-selection-qwen-follow-through-2026-11-02`](../../evaluations/reports/tool-selection-qwen-follow-through-2026-11-02/summary.md)、
 [`tool-selection-deepseek-before-follow-through-2026-11-02`](../../evaluations/reports/tool-selection-deepseek-before-follow-through-2026-11-02/summary.md)
 和 [`tool-selection-deepseek-follow-through-2026-11-02`](../../evaluations/reports/tool-selection-deepseek-follow-through-2026-11-02/summary.md)。
