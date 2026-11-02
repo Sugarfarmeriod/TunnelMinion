@@ -113,9 +113,11 @@ flowchart TD
   B 的主人可以为 A 打开"允许替我批准修复"（默认关闭），之后 A 的地图上点感叹号即可批准：批准经 B 的网关
   `/v1/repairs/{编号}:approve` 交给 B，只带修复编号；B 照常做过期检查和执行前核对，记录里写明由 A 代为批准。
   见 [`design/agent-fix.md`](design/agent-fix.md)。
-- **模型只参与诊断和提出修法。** 修法只有三种（重启 Docker 容器或 compose 组、按启动记录重新拉起退出的 Python 脚本、
-  在 macOS 上重新启动当前用户已退出的后台服务），实际命令由本机代码根据服务身份、启动记录和 launchd 状态拼出来，
-  模型写的文字不会进入命令。后台服务的规则见 [`design/launchagent-repair.md`](design/launchagent-repair.md)。
+- **模型只参与诊断和提出修法。** 修法是固定的几种：重启 Docker 容器、compose 组按依赖顺序启动、按启动记录重新运行
+  退出的 Python 脚本或命令行程序、结束卡住的程序再运行、在 macOS 上重新启动当前用户的后台服务、启停主人单独授权过的
+  Windows 服务；修不了时给出可复制的手动步骤。实际命令由本机代码根据服务身份、启动记录和 launchd 或服务管理器的状态
+  拼出来，模型写的文字不会进入命令。规则见 [`design/more-repair-kinds.md`](design/more-repair-kinds.md) 和
+  [`design/launchagent-repair.md`](design/launchagent-repair.md)。
 - **自动调查有频率限制。** 服务出现或消失照常记录，但只对显示在地图上的服务和标成"是我的服务"的服务自动调查，
   同一个服务 1 小时内最多自动调查一次。
 

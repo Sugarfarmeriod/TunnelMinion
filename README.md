@@ -50,7 +50,7 @@ flowchart LR
 |---|---|---|
 | **有证据的调查** | 模型只能调用只读工具；回答末尾附上程序生成的证据索引，没有工具证据支撑的推断会标明"尚未逐条核对"。排查剧本做成按需读取的调查方法目录，而不是塞进系统提示 | [`node-agents.md`](docs/design/node-agents.md) |
 | **跨电脑委派** | A 电脑的 Agent 把问题交给 B 电脑的 Agent；B 用本机工具查完，把结论和证据带回来。两台电脑上的模型调用、工具调用和委派串成同一条 OpenTelemetry 链路 | [`delegation.md`](docs/design/delegation.md)、[`tracing.md`](docs/design/tracing.md) |
-| **人在回路的动手修** | 模型只能"提出"修法，不能执行。修法只有三种：重启容器、按原样重新拉起 Python 脚本、重新启动 macOS 用户后台服务。命令由本机代码按服务身份拼出，模型的文字进不了命令。批准后动手前再核对一遍，修完验证进程、端口和首页，失败不重试 | [`agent-fix.md`](docs/design/agent-fix.md)、[`launchagent-repair.md`](docs/design/launchagent-repair.md) |
+| **人在回路的动手修** | 模型只能"提出"修法，不能执行。修法是固定的几种：重启容器、compose 组按依赖顺序启动、按上次的启动方式重新运行退出的脚本或命令行程序、结束卡住的程序再运行、重新启动 macOS 用户后台服务、启停主人单独授权过的 Windows 服务；修不了时给出不含密钥、可复制的步骤。命令由本机代码按服务身份拼出，模型的文字进不了命令。批准后动手前再核对一遍，修完验证进程、端口和首页，失败不重试 | [`agent-fix.md`](docs/design/agent-fix.md)、[`more-repair-kinds.md`](docs/design/more-repair-kinds.md)、[`launchagent-repair.md`](docs/design/launchagent-repair.md) |
 | **主动巡检** | 确定性检测，不调模型：连续 3 轮异常才算挂了，只对见过它正常运行的服务报警。确认挂了才让 Agent 调查一次（每个服务每小时最多 1 次）。主人可以按服务"预先允许"，之后挂了自动修，批准人和依据都留痕 | [`proactive-patrol.md`](docs/design/proactive-patrol.md) |
 | **让小模型也能用** | 按问题只把相关的几样工具给模型，不够时它可以要回全部工具；每个工具写清"什么时候用"；可以关闭思考模式（本机 Qwen 同一问题约 30 秒 → 约 1 秒）；提问前用一道轻量判断拦下要秘密、要写操作、和服务无关的请求 | [`tool-selection.md`](docs/design/tool-selection.md) |
 | **信任和权限** | 同一主人的电脑用机主密钥签名，自动互信；朋友按人配对，只能提问和看结论，永远不能替你批准修复；借用模型有每日额度，提供方只记用量、不存内容 | [`owner-identity.md`](docs/design/owner-identity.md)、[`model-borrowing.md`](docs/design/model-borrowing.md) |
@@ -63,7 +63,7 @@ flowchart LR
 | 固定口径 A/B：15 个故障场景，同一个 DeepSeek 模型和评分器，每侧 3 轮，只切换"调查方法目录" | 任务完成 40/45 → 44/45；跨电脑任务 3/6 → 6/6；根因成功 9/12 → 12/12；安全违规两侧都是 0 | [`incident-ab-deepseek-2026-09-30`](evaluations/reports/incident-ab-deepseek-2026-09-30/summary.md) |
 | 按问题挑工具：21 个问题，挑与不挑各 63 次 | DeepSeek 选对率不变、token 少约 10%；本机 Qwen 两组都 63/63 先调对工具，token 少约 6% | [Qwen](evaluations/reports/tool-selection-qwen-2026-10-29/summary.md)、[DeepSeek](evaluations/reports/tool-selection-deepseek-2026-10-29/summary.md) |
 | 提问前把关：31 条请求（本机 Qwen） | 误拦 0 条，漏拦 1 条；每次提问约多花 380 个 token、0.66 秒 | [`roadmap.md`](docs/project/roadmap.md) |
-| 真机验收：一台 Windows 台式机 + 一台 Mac mini | 委派、模型借用、邀请码、机主身份、网页加入、主动巡检、三种修法，都按设计文档里的步骤真机走通，过程中发现的问题已修复 | 各设计文档末尾的"真机验收"一节 |
+| 真机验收：一台 Windows 台式机 + 一台 Mac mini | 委派、模型借用、邀请码、机主身份、网页加入、主动巡检和大部分修法，都按设计文档里的步骤真机走通，过程中发现的问题已修复；还没验收的几项修法列在路线图"下一步" | 各设计文档末尾的"真机验收"一节 |
 
 评测报告都写明了口径和限制，例如 A/B 用的是固定返回值的工具环境，不能等同于真实网络里的成功率。
 
@@ -71,7 +71,7 @@ flowchart LR
 
 - **后端**：Python 3.11、FastAPI、LangChain v1（`create_agent` 加自定义中间件）、pydantic、psutil、OpenTelemetry、MCP SDK。
 - **前端**：React 19、TypeScript、Vite、zod 严格校验接口数据、Playwright 端到端测试。
-- **质量门禁**：pyright strict、ruff，Python 测试 3500 多个、行和分支覆盖率要求 100%；CI 有 8 项检查，覆盖 Windows 和 macOS，并做双平台运行包的一致性检查。
+- **质量门禁**：pyright strict、ruff，Python 测试 3800 多个、行和分支覆盖率要求 100%；CI 有 8 项检查，覆盖 Windows 和 macOS，并做双平台运行包的一致性检查。
 - **安全默认值**：本机网页只监听 `127.0.0.1`；网关只监听私有组网地址；令牌只存摘要，API 密钥存本机秘密存储（Windows 凭据管理器，Mac 上只有本账户能读的文件）；委派、借用模型、代批准默认都是关的。
 
 ## 快速开始

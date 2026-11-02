@@ -608,6 +608,8 @@ class RepairVerification(BaseModel):
     checks: tuple[RepairCheck, ...] = Field(min_length=1)
     log_excerpt: str | None = Field(default=None, max_length=4_000)
     verified_at: datetime
+    # 从开始验证到得出结论等了多少秒；更早版本的记录没有这一项，按 0 读。
+    waited_seconds: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_result(self) -> Self:
