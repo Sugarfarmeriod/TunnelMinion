@@ -52,7 +52,7 @@ flowchart LR
 | **跨电脑委派** | A 电脑的 Agent 把问题交给 B 电脑的 Agent；B 用本机工具查完，把结论和证据带回来。两台电脑上的模型调用、工具调用和委派串成同一条 OpenTelemetry 链路 | [`delegation.md`](docs/design/delegation.md)、[`tracing.md`](docs/design/tracing.md) |
 | **人在回路的动手修** | 模型只能"提出"修法，不能执行。修法是固定的几种：重启容器、compose 组按依赖顺序启动、按上次的启动方式重新运行退出的脚本或命令行程序、结束卡住的程序再运行、重新启动 macOS 用户后台服务、启停主人单独授权过的 Windows 服务；修不了时给出不含密钥、可复制的步骤。命令由本机代码按服务身份拼出，模型的文字进不了命令。批准后动手前再核对一遍，修完验证进程、端口和首页，失败不重试 | [`agent-fix.md`](docs/design/agent-fix.md)、[`more-repair-kinds.md`](docs/design/more-repair-kinds.md)、[`launchagent-repair.md`](docs/design/launchagent-repair.md) |
 | **主动巡检** | 确定性检测，不调模型：连续 3 轮异常才算挂了，只对见过它正常运行的服务报警。确认挂了才让 Agent 调查一次（每个服务每小时最多 1 次）。主人可以按服务"预先允许"，之后挂了自动修，批准人和依据都留痕 | [`proactive-patrol.md`](docs/design/proactive-patrol.md) |
-| **让小模型也能用** | 按问题只把相关的几样工具给模型，不够时它可以要回全部工具；每个工具写清"什么时候用"；可以关闭思考模式（本机 Qwen 同一问题约 30 秒 → 约 1 秒）；提问前用一道轻量判断拦下要秘密、要写操作、和服务无关的请求 | [`tool-selection.md`](docs/design/tool-selection.md) |
+| **让小模型也能用** | 按问题只把相关的几样工具给模型，不够时它可以要回全部工具；每个工具写清"什么时候用"；可以关闭思考模式（本机 Qwen 同一问题约 30 秒 → 约 1 秒）；提问前用一道轻量判断拦下要秘密、要写操作、和服务无关的请求；模型准备收尾却漏了关键一步（要修却没提修法）时，程序提醒它一次，本机 Qwen 漏步从每组约 10 次降到 0～2 次 | [`tool-selection.md`](docs/design/tool-selection.md) |
 | **信任和权限** | 同一主人的电脑用机主密钥签名，自动互信；朋友按人配对，只能提问和看结论，永远不能替你批准修复；借用模型有每日额度，提供方只记用量、不存内容 | [`owner-identity.md`](docs/design/owner-identity.md)、[`model-borrowing.md`](docs/design/model-borrowing.md) |
 | **对外开放** | `tunnelminion mcp` 把只读诊断工具通过 MCP 提供给 Claude Code 等外部 Agent，委派和修复不开放 | [`mcp.md`](docs/design/mcp.md) |
 
