@@ -266,6 +266,7 @@ describe("WelcomeGate", () => {
     await user.click(
       await screen.findByRole("button", { name: "加入我的电脑" }),
     );
+    expect(screen.getByText(/点“加一台我的电脑”/)).toBeVisible();
     const code = screen.getByLabelText("加入码（tmo1_ 开头）");
     await user.type(code, "tmo1_code");
     await user.click(screen.getByRole("button", { name: "下一步" }));
@@ -318,6 +319,7 @@ describe("WelcomeGate", () => {
     await user.click(
       await screen.findByRole("button", { name: "我是朋友，粘贴配对码" }),
     );
+    expect(screen.getByText(/点“邀请朋友”/)).toBeVisible();
     await user.type(screen.getByLabelText("配对码（tmf1_ 开头）"), "tmf1_x");
     await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.type(

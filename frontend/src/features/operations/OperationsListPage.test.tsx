@@ -74,9 +74,9 @@ describe("OperationsListPage", () => {
 
     renderList();
 
-    expect(screen.getByRole("status")).toHaveTextContent("正在读取操作记录");
+    expect(screen.getByRole("status")).toHaveTextContent("正在读取请求记录");
     expect(
-      await screen.findByRole("heading", { name: "当前没有操作记录" }),
+      await screen.findByRole("heading", { name: "当前没有请求记录" }),
     ).toBeVisible();
     expect(
       screen.getByText("想使用另一台电脑的服务？展开上方的新申请。"),
@@ -182,7 +182,7 @@ describe("OperationsListPage", () => {
     renderList();
 
     expect(
-      await screen.findByRole("heading", { name: "现在读不到操作记录" }),
+      await screen.findByRole("heading", { name: "现在读不到请求记录" }),
     ).toBeVisible();
     const retry = screen.getByRole("button", { name: "重新读取" });
     await user.tab();

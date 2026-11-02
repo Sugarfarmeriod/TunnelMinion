@@ -401,7 +401,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
   if (operationId === undefined || operationId.length === 0) {
     return (
       <section className="operations-page surface">
-        <h2>操作详情</h2>
+        <h2>请求详情</h2>
         <div
           className="operations-callout operations-callout--danger"
           role="alert"
@@ -418,7 +418,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
         aria-labelledby="operation-detail-title"
         className="operations-page surface"
       >
-        <h2 id="operation-detail-title">操作详情</h2>
+        <h2 id="operation-detail-title">请求详情</h2>
         <p aria-live="polite" role="status">
           正在读取这条请求……
         </p>
@@ -433,7 +433,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
         className="operations-page surface"
       >
         <Link to="/app/operations">返回操作列表</Link>
-        <h2 id="operation-detail-title">操作详情</h2>
+        <h2 id="operation-detail-title">请求详情</h2>
         <div
           className="operations-callout operations-callout--danger"
           role="alert"

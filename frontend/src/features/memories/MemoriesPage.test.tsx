@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { longTermMemorySchema, nodeIdSchema, type LongTermMemory } from "./api";
 import { MemoriesPage } from "./MemoriesPage";
+import { peersQueryKey } from "../service-map/api";
+import { makePeer } from "../service-map/testFixtures";
 
 const nodeA = "node_6fcf3484754b46c6bc3ef4571e76495e";
 const nodeB = "node_3b95993ebb664991887d195ae40b9b34";
@@ -46,12 +48,13 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function renderMemories() {
+function renderMemories(prepare?: (client: QueryClient) => void) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
     },
   });
+  prepare?.(client);
   function Wrapper({ children }: PropsWithChildren) {
     return (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -110,6 +113,19 @@ describe("MemoriesPage", () => {
       expect.stringContaining(`node_id=${encodeURIComponent(nodeA)}`),
       expect.objectContaining({ credentials: "same-origin" }),
     );
+  });
+
+  it("从地图进来时节点 ID 已填好这台电脑", () => {
+    renderMemories((client) =>
+      client.setQueryData(peersQueryKey, {
+        peers: [
+          makePeer(1, { node_id: nodeA, is_local: true }),
+          makePeer(2, { node_id: nodeB }),
+        ],
+      }),
+    );
+    expect(screen.getByLabelText("节点 ID")).toHaveValue(nodeA);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("在请求前拒绝错误 node_id，并拒绝错误 memory_id 与默认作用域格式", async () => {

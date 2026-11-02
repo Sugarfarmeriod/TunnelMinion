@@ -235,6 +235,10 @@
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+.map-node-summary.is-alert {
+  color: var(--map-red);
+  font-weight: bold;
+}
 
 .map-links {
   position: absolute;
@@ -366,9 +370,11 @@
   margin: 6px 0;
 }
 .map-service-state {
+  flex: none;
   font-size: 12px;
   color: var(--map-lime);
   margin-left: 6px;
+  white-space: nowrap;
 }
 .map-service-state.state-stopped {
   color: var(--map-gold);
@@ -376,6 +382,8 @@
 .map-service-state.state-down {
   color: var(--map-red);
   font-weight: bold;
+  /* 挂了的原因可能很长，允许换行，不撑出服务框。 */
+  white-space: normal;
 }
 .map-service.is-down {
   border-left: 4px solid var(--map-red);
@@ -715,6 +723,13 @@
   .map-canvas {
     height: 280px;
   }
+  /* 手机宽度下提问框占满一行，示例文字不被按钮截断，按钮换到下一行。 */
+  .map-global-ask > div {
+    flex-wrap: wrap;
+  }
+  .map-global-ask input {
+    flex-basis: 100%;
+  }
   .map-node-position {
     left: 50%;
   }
@@ -738,7 +753,17 @@
     padding-inline: 3px;
   }
   .map-panel.is-compact .map-service-meta {
-    max-width: 78px;
+    max-width: none;
+  }
+  /* 手机宽度放不下名字和三个按钮并排：名字、状态占一整行，按钮换到下一行。 */
+  .map-panel.is-inline .map-service-row {
+    flex-wrap: wrap;
+  }
+  .map-panel.is-inline .map-service-info {
+    flex-basis: 100%;
+  }
+  .map-panel.is-inline .map-service-actions {
+    flex-wrap: wrap;
   }
 }
 

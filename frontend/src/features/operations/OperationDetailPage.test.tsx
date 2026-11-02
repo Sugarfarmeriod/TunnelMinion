@@ -325,7 +325,7 @@ describe("OperationDetailPage", () => {
     await user.click(screen.getByRole("button", { name: "确认拒绝" }));
 
     expect(
-      await screen.findByText(/invalid_origin：请求来源不受信任/),
+      await screen.findByText(/请求来源不受信任.*（invalid_origin）/),
     ).toBeVisible();
     expect(postCalls(fetchMock)).toHaveLength(1);
   });

@@ -29,7 +29,7 @@ test("FastAPI 交付深链、严格缓存和同源 CSP", async ({ page, request 
   expect(csp).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "操作详情" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "请求详情" })).toBeVisible();
 
   const assetPaths = await page
     .locator("script[src], link[rel=stylesheet][href]")

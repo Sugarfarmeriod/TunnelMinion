@@ -437,6 +437,51 @@ describe("服务地图页面", () => {
     await screen.findByRole("button", { name: "这台电脑，在线，1 个服务" });
   });
 
+  it("读不到服务时电脑和标题说清楚，提示紧挨地图、在提问框前面", async () => {
+    renderMap(makeLocalServices(), "windows", 503);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("暂时无法查看这台电脑上的服务");
+    expect(
+      screen.getByRole("button", { name: "这台电脑，在线，暂时读不到服务" }),
+    ).toHaveTextContent("在线 · 暂时读不到服务");
+    expect(screen.getByText(/1 台在线 · 暂时读不到服务 ·/)).toBeVisible();
+    const ask = screen.getByLabelText("想问点什么？");
+    expect(
+      alert.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("对话按钮指向的抽屉在打开后存在", async () => {
+    renderMap();
+    const toggle = await screen.findByRole("button", { name: "对话" });
+    await userEvent.click(toggle);
+    const drawer = document.getElementById(
+      toggle.getAttribute("aria-controls")!,
+    );
+    expect(drawer).toHaveAttribute("role", "dialog");
+  });
+
+  it("要人处理的事用告警样式，平常的在线状态不用", () => {
+    const node = (props: { pendingCount?: number; downCount?: number }) => (
+      <ComputerNode
+        name="这台电脑"
+        platform="windows"
+        online
+        serviceCount={2}
+        selected={false}
+        buttonRef={() => {}}
+        onClick={() => {}}
+        {...props}
+      />
+    );
+    const { rerender } = render(node({}));
+    expect(screen.getByText("在线 · 2 个服务")).not.toHaveClass("is-alert");
+    rerender(node({ pendingCount: 1 }));
+    expect(screen.getByText("! 有 1 件事要你批准")).toHaveClass("is-alert");
+    rerender(node({ downCount: 2 }));
+    expect(screen.getByText("! 2 个服务挂了")).toHaveClass("is-alert");
+  });
+
   it("电脑组件支持离线状态，停止光标闪烁", () => {
     render(
       <ComputerNode

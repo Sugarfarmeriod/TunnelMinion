@@ -4,7 +4,7 @@ const pages = [
   ["/app/map", "我的服务网络"],
   ["/app/overview", "我的服务网络"],
   ["/app/chat", "我的服务网络"],
-  ["/app/operations", "操作"],
+  ["/app/operations", "请求记录"],
   ["/app/memories", "长期记忆"],
   ["/app/settings", "模型设置"],
 ] as const;

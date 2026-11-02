@@ -346,8 +346,13 @@ export function ServiceMapPage() {
             <h2 id="service-map-title">我的服务网络</h2>
             <p>
               {1 + remotePeers.filter((peer) => peer.reachable === true).length}{" "}
-              台在线 · {count === null ? "正在查看服务" : `${count} 个服务`} ·
-              点电脑查看服务
+              台在线 ·{" "}
+              {count !== null
+                ? `${count} 个服务`
+                : services.isError
+                  ? "暂时读不到服务"
+                  : "正在查看服务"}{" "}
+              · 点电脑查看服务
             </p>
           </div>
           <div className="map-heading-actions">
@@ -359,7 +364,7 @@ export function ServiceMapPage() {
               ref={toggleRef}
               className="map-button"
               aria-expanded={drawerOpen}
-              aria-controls="drawer-title"
+              aria-controls="conversation-drawer"
               onClick={() => {
                 if (drawerOpen) setDrawerOpen(false);
                 else {
@@ -524,6 +529,7 @@ export function ServiceMapPage() {
                 platform={platform}
                 online
                 serviceCount={count}
+                serviceError={services.isError}
                 selected={selectedId === "local"}
                 buttonRef={(element) => {
                   if (!selectedPeer) nodeRef.current = element;
@@ -610,7 +616,13 @@ export function ServiceMapPage() {
               style={tipPosition}
             >
               <strong>这台电脑 · {platformName(platform)}</strong>
-              <span>{count === null ? "正在查看服务" : `${count} 个服务`}</span>
+              <span>
+                {count !== null
+                  ? `${count} 个服务`
+                  : services.isError
+                    ? "暂时读不到服务"
+                    : "正在查看服务"}
+              </span>
               <span>点一下查看</span>
             </div>
           ) : null}
@@ -718,6 +730,18 @@ export function ServiceMapPage() {
             正在查看这台电脑上的程序……
           </p>
         ) : null}
+        {!open && services.isError ? (
+          <p className="map-status" role="alert">
+            {keychainHint(services.error) ?? "暂时无法查看这台电脑上的服务。"}{" "}
+            <button
+              type="button"
+              className="map-button"
+              onClick={() => void services.refetch()}
+            >
+              重试
+            </button>
+          </p>
+        ) : null}
         {peers.isError ? (
           <p className="map-status" role="alert">
             {keychainHint(peers.error) ?? "暂时无法读取其他电脑。"}
@@ -816,18 +840,6 @@ export function ServiceMapPage() {
           name={remoteRepair.peer.display_name}
           onClose={() => setRemoteRepair(null)}
         />
-      ) : null}
-      {!open && services.isError ? (
-        <p className="map-status" role="alert">
-          {keychainHint(services.error) ?? "暂时无法查看这台电脑上的服务。"}{" "}
-          <button
-            type="button"
-            className="map-button"
-            onClick={() => void services.refetch()}
-          >
-            重试
-          </button>
-        </p>
       ) : null}
     </section>
   );
