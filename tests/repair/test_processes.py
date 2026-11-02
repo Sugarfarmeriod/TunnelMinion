@@ -685,6 +685,49 @@ def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
         asyncio.run(verifier.patrol_web_status(port))
 
 
+class _BrokenConnection:
+    """连上以后一发送就被对方重置的连接，不依赖真实网络时序。"""
+
+    def __enter__(self) -> _BrokenConnection:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        pass
+
+    def settimeout(self, _seconds: float) -> None:
+        pass
+
+    def sendall(self, _data: bytes) -> None:
+        raise ConnectionResetError("reset by peer")
+
+
+@pytest.mark.parametrize(
+    ("https", "expected"),
+    [
+        (200, 200),
+        (OSError("handshake"), ConnectionError),
+        (http.client.BadStatusLine("x"), ConnectionError),
+    ],
+)
+def test_patrol_web_probe_falls_back_to_https_when_the_connection_is_reset(
+    monkeypatch: pytest.MonkeyPatch, https: int | Exception, expected: int | type[Exception]
+) -> None:
+    """HTTP 一发就被重置时改试 HTTPS；HTTPS 也失败就报“这一轮看不清”。两段都确定会走到。"""
+
+    def broken(_port: int) -> _BrokenConnection:
+        return _BrokenConnection()
+
+    monkeypatch.setattr("tunnelminion.repair.processes._connect_loopback", broken)
+    monkeypatch.setattr("tunnelminion.repair.processes.http.client.HTTPSConnection", FakeHttps)
+    monkeypatch.setattr(FakeHttps, "status", https)
+    verifier = SocketLocalVerifier()
+    if isinstance(expected, int):
+        assert asyncio.run(verifier.patrol_web_status(8080)) == expected
+    else:
+        with pytest.raises(expected):
+            asyncio.run(verifier.patrol_web_status(8080))
+
+
 def test_talks_first_treats_reset_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     class Reset:
         def __enter__(self) -> Reset:
