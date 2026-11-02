@@ -83,7 +83,8 @@ export function formatOperationTime(value: string | null): string {
 
 export function readableOperationError(error: Error): string {
   if (error instanceof ApiError) {
-    return `${error.code}：${error.message}`;
+    // 先给人看得懂的说明，错误代码放在括号里，方便反馈问题时对照。
+    return `${error.message}（${error.code}）`;
   }
   if (error.name === "ZodError") {
     return "服务返回的数据不符合操作契约，页面不会猜测状态。";

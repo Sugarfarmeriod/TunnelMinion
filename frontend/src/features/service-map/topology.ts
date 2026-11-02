@@ -1,13 +1,14 @@
 export function mapLayout(count: number, narrow: boolean) {
   const list = narrow || count > 8;
   const height =
-    count === 0 ? 420 : list ? (count + 1) * 240 : count > 3 ? 900 : 800;
-  const local = { x: 50, y: list && count > 0 ? 120 : height / 2 };
+    count === 0 ? 420 : list ? (count + 1) * 240 + 40 : count > 3 ? 900 : 800;
+  // 列表布局里本机排在最上面，头上还要留出感叹号的位置，不能顶出地图上沿。
+  const local = { x: 50, y: list && count > 0 ? 160 : height / 2 };
   const peers = Array.from({ length: count }, (_, index) => {
     // 从正上方偏 30 度起排，避免对端正好压在本机头上的感叹号上。
     const angle = -Math.PI / 3 + (index * Math.PI * 2) / count;
     return list
-      ? { x: 55, y: 360 + index * 240 }
+      ? { x: 55, y: 400 + index * 240 }
       : {
           x: 50 + 36 * Math.cos(angle),
           y: height / 2 + (height / 2 - 168) * Math.sin(angle),

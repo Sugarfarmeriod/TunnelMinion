@@ -222,9 +222,9 @@ export function OperationsListPage() {
         aria-labelledby="operations-title"
         className="operations-page surface"
       >
-        <h2 id="operations-title">操作</h2>
+        <h2 id="operations-title">请求记录</h2>
         <p aria-live="polite" role="status">
-          正在读取操作记录……
+          正在读取请求记录……
         </p>
       </section>
     );
@@ -236,12 +236,12 @@ export function OperationsListPage() {
         aria-labelledby="operations-title"
         className="operations-page surface"
       >
-        <h2 id="operations-title">操作</h2>
+        <h2 id="operations-title">请求记录</h2>
         <div
           className="operations-callout operations-callout--danger"
           role="alert"
         >
-          <h3>现在读不到操作记录</h3>
+          <h3>现在读不到请求记录</h3>
           <p>{readableOperationError(query.error)}</p>
           <button type="button" onClick={() => void query.refetch()}>
             重新读取
@@ -260,7 +260,7 @@ export function OperationsListPage() {
     >
       <header className="operations-page__header">
         <div>
-          <h2 id="operations-title">操作</h2>
+          <h2 id="operations-title">请求记录</h2>
           <p>先处理已有请求。想使用另一台电脑的服务时，再发起新申请。</p>
         </div>
 
@@ -492,11 +492,11 @@ export function OperationsListPage() {
 
       {operations.length === 0 ? (
         <div className="operations-empty">
-          <h3>当前没有操作记录</h3>
+          <h3>当前没有请求记录</h3>
           <p>想使用另一台电脑的服务？展开上方的新申请。</p>
         </div>
       ) : (
-        <ul aria-label="操作记录" className="operations-list">
+        <ul aria-label="请求记录" className="operations-list">
           {operations.map((operation) => (
             <li key={`${operation.role}-${operation.operation_id}`}>
               <article className="operation-summary-card">

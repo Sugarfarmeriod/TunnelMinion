@@ -241,7 +241,11 @@ export function OnboardingDialog({
           ))}
         </div>
         <div className="people-dialog__actions">
-          <button type="button" onClick={() => void close()}>
+          <button
+            type="button"
+            className="people-secondary"
+            onClick={() => void close()}
+          >
             以后再说
           </button>
         </div>
@@ -251,6 +255,11 @@ export function OnboardingDialog({
     title = pairOnly ? title : routeTitles[route];
     body = (
       <form onSubmit={submitCode} className="people-form">
+        <p className="people-note">
+          {route === "join"
+            ? "加入码在你已经设置好的那台电脑上拿：打开它的“电脑与朋友”，点“加一台我的电脑”。"
+            : "配对码由朋友给你：朋友在自己的“电脑与朋友”里点“邀请朋友”，把那串码发给你。"}
+        </p>
         <label>
           {route === "join" ? "加入码（tmo1_ 开头）" : "配对码（tmf1_ 开头）"}
           <textarea
@@ -274,6 +283,7 @@ export function OnboardingDialog({
         <div className="people-dialog__actions">
           <button
             type="button"
+            className="people-secondary"
             onClick={() =>
               pairOnly ? void close() : setStep({ name: "choose" })
             }
@@ -360,6 +370,7 @@ export function OnboardingDialog({
         <div className="people-dialog__actions">
           <button
             type="button"
+            className="people-secondary"
             onClick={() =>
               setStep({ name: route === "first" ? "choose" : "paste" })
             }
@@ -404,7 +415,11 @@ export function OnboardingDialog({
           我已经把恢复码存好了
         </label>
         <div className="people-dialog__actions">
-          <button type="button" onClick={() => void close()}>
+          <button
+            type="button"
+            className="people-secondary"
+            onClick={() => void close()}
+          >
             放弃
           </button>
           <button type="submit" disabled={busy || !saved} ref={firstRef}>
@@ -422,7 +437,11 @@ export function OnboardingDialog({
           {shortFingerprint(inspection?.owner_fingerprint ?? null)}）
         </p>
         <div className="people-dialog__actions">
-          <button type="button" onClick={() => void close()}>
+          <button
+            type="button"
+            className="people-secondary"
+            onClick={() => void close()}
+          >
             取消
           </button>
           <button
