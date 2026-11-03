@@ -118,10 +118,15 @@ export const eligibleOperationPeerSchema = z
     node_id: nodeIdSchema,
     relationship: z.enum(["mine", "friend", "legacy"]).optional(),
     platform: z.enum(["windows", "macos", "linux"]).nullable().optional(),
+    display_name: z.string().nullable().optional(),
     host: z.string(),
     port: z.number().int().min(1024).max(65_535),
     allowed_tools: z.array(z.string()),
     allowed_operations: z.array(z.string()),
+    allow_delegation: z.boolean().optional(),
+    allow_model_borrowing: z.boolean().optional(),
+    allow_proxy_repair_approval: z.boolean().optional(),
+    daily_quota: z.number().int().optional(),
     credential_configured: z.boolean(),
   })
   .strict();
