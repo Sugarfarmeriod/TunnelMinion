@@ -128,12 +128,16 @@ def test_check_only_prints_versions(env: Env, capsys: pytest.CaptureFixture[str]
     assert env.run("--check") == 0
     assert "无法确认" in capsys.readouterr().out
 
+    env.feed.availability = Availability.DIVERGED
+    assert env.run("--check") == 0
+    assert "不在发布线上" in capsys.readouterr().out
+
 
 @pytest.mark.parametrize(
     ("availability", "text"),
     [
         (Availability.UP_TO_DATE, "已是最新版本"),
-        (Availability.UNRELEASED_BUILD, "未发布的构建"),
+        (Availability.UNRELEASED_BUILD, "比最新发布版还新"),
     ],
 )
 def test_nothing_to_update(

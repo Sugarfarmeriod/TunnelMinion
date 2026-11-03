@@ -74,7 +74,9 @@ function availabilityText(view: UpdateView): string {
     case "up_to_date":
       return "已是最新";
     case "unreleased_build":
-      return "当前是未发布的构建";
+      return "当前比最新发布版还新";
+    case "diverged":
+      return "当前构建不在发布线上";
     case "unknown":
       return "无法确认是否比当前新";
     default:
@@ -140,6 +142,12 @@ function UpdateConfirmDialog({
             从 {currentLabel(view)} 换到 {latest?.tag}（提交{" "}
             {shortRevision(latest?.source_revision ?? null)}）。
           </p>
+          {view.availability === "diverged" ? (
+            <p>
+              当前版本不在发布线上（例如测试构建），换到发布版后它独有的改动不会保留；需要时可以用命令行
+              update --rollback 退回。
+            </p>
+          ) : null}
           <p>
             先下载并校验，再停掉旧版、启动新版，网页会断开一到两分钟。新版起不来会自动退回现在的版本；数据和密钥不受影响。
           </p>
@@ -231,6 +239,7 @@ export function UpdatePanel() {
     view.supported &&
     view.latest !== null &&
     (view.availability === "update_available" ||
+      view.availability === "diverged" ||
       view.availability === "unknown") &&
     !active;
 

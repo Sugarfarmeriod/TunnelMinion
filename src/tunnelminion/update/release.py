@@ -33,7 +33,10 @@ class Availability(StrEnum):
 
     UPDATE_AVAILABLE = "update_available"
     UP_TO_DATE = "up_to_date"
+    # 当前提交比最新发布还新（发布线上更靠后的构建），不需要更新
     UNRELEASED_BUILD = "unreleased_build"
+    # 当前构建不在发布线上（例如 Pull Request 的测试构建），可以确认后换到发布版
+    DIVERGED = "diverged"
     UNKNOWN = "unknown"
 
 
@@ -216,8 +219,10 @@ class GitHubReleaseFeed:
             return Availability.UPDATE_AVAILABLE
         if status == "identical":
             return Availability.UP_TO_DATE
-        if status in {"behind", "diverged"}:
+        if status == "behind":
             return Availability.UNRELEASED_BUILD
+        if status == "diverged":
+            return Availability.DIVERGED
         return Availability.UNKNOWN
 
     def _client(self) -> httpx.Client:
