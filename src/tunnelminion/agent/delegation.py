@@ -35,6 +35,7 @@ from tunnelminion.domain.delegation import (
 )
 from tunnelminion.domain.identifiers import DelegationId, NodeId, RunId, ThreadId
 from tunnelminion.model.contracts import ProviderError, ProviderErrorCode
+from tunnelminion.runtime.logging import AUDIT_LOGGER_NAME
 from tunnelminion.tools.contracts import ToolCallContext
 
 _LIMITS = AgentRunLimits(
@@ -60,6 +61,7 @@ class DelegationStore(Protocol):
 
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
 
 # 自动借了委派方的模型时，写在回答最前面，如实说明这次用的是谁的模型。
 BORROWED_FROM_CALLER_NOTE = "（这台电脑没有配置模型，这次借用了发起委派那台电脑的模型来回答。）"
@@ -196,7 +198,9 @@ class DelegationService:
                         error=DelegationErrorCode.MODEL_NOT_CONFIGURED,
                     )
                     return
-                logger.info("为委派自动借用：本机没有模型，借用 %s 的模型", record.caller_node_id)
+                audit_logger.info(
+                    "为委派自动借用：本机没有模型，借用 %s 的模型", record.caller_node_id
+                )
                 agent = caller_agent
             else:
                 agent = self._agent_factory()
