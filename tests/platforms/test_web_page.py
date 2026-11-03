@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import socket
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -148,7 +149,10 @@ def test_plain_http_rejected_by_https_port_tries_https(site: Site) -> None:
 
 
 def test_closed_ports_and_public_addresses_are_not_probed() -> None:
-    assert probe_web_page("127.0.0.1", 1, timeout=0.2) is None
+    # 占住一个端口但不监听，保证它是关着的，不依赖本机某个固定端口恰好没人用。
+    with socket.socket() as closed:
+        closed.bind(("127.0.0.1", 0))
+        assert probe_web_page("127.0.0.1", closed.getsockname()[1], timeout=0.2) is None
     assert probe_web_page("8.8.8.8", 80) is None
 
 

@@ -290,7 +290,7 @@ def test_success_preserves_the_wire_contract_and_records_usage(
         )
     )
     store = InMemoryModelUsageStore()
-    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store))
+    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store, clock=lambda: TODAY))
 
     async def scenario() -> None:
         async with httpx.AsyncClient(
@@ -306,8 +306,8 @@ def test_success_preserves_the_wire_contract_and_records_usage(
     assert provider.requests == [
         original.model_copy(update={"max_output_tokens": MAX_BORROWED_OUTPUT_TOKENS})
     ]
-    assert store.get(PEER, date.today()) == ModelUsageRecord(
-        peer_node_id=PEER, day=date.today(), calls=1, tokens=tokens
+    assert store.get(PEER, TODAY) == ModelUsageRecord(
+        peer_node_id=PEER, day=TODAY, calls=1, tokens=tokens
     )
 
 
@@ -578,7 +578,9 @@ def test_sqlite_and_audit_never_store_messages_tools_or_model_output(
     )
     provider = StubProvider(ModelResponse(content=marker + "-output", reasoning_content=marker))
     audit = InMemoryGatewaySecurityAuditSink()
-    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store), audit=audit)
+    app = gateway(
+        ModelLendingService(PROVIDER, lambda: provider, store, clock=lambda: TODAY), audit=audit
+    )
 
     async def scenario() -> None:
         async with httpx.AsyncClient(
@@ -589,7 +591,7 @@ def test_sqlite_and_audit_never_store_messages_tools_or_model_output(
             ).status_code == 200
 
     asyncio.run(scenario())
-    assert store.get(PEER, date.today()).calls == 1
+    assert store.get(PEER, TODAY).calls == 1
     for file in tmp_path.glob("runtime.sqlite3*"):
         assert marker.encode() not in file.read_bytes()
     assert marker not in caplog.text
@@ -631,7 +633,7 @@ def test_borrowing_for_a_delegation_is_logged_and_counted_like_any_borrowing(
     """对方为处理委派自动借用时照常记用量，并在日志里写明“为委派自动借用”。"""
     provider = StubProvider(ModelResponse(content="好", usage=ModelUsage(input_tokens=3)))
     store = InMemoryModelUsageStore()
-    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store))
+    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store, clock=lambda: TODAY))
     headers = dict(AUTH)
     if purpose is not None:
         headers["X-TunnelMinion-Model-Purpose"] = purpose
@@ -644,5 +646,5 @@ def test_borrowing_for_a_delegation_is_logged_and_counted_like_any_borrowing(
         return response.status_code
 
     assert asyncio.run(scenario()) == 200
-    assert store.get(PEER, date.today()).calls == 1
+    assert store.get(PEER, TODAY).calls == 1
     assert any("为委派自动借用" in message for message in audit_log) is (purpose == "delegation")

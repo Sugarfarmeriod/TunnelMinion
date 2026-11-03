@@ -31,23 +31,34 @@ def test_runtime_log_config_uses_bounded_file_handler_without_access_output(
 
 def test_runtime_log_config_keeps_audit_info_but_not_other_app_info(tmp_path: Path) -> None:
     path = tmp_path / "gateway.log"
-    root = logging.getLogger()
-    saved = (root.level, list(root.handlers))
+    config = runtime_log_config(path)
     audit = logging.getLogger(runtime_logging.AUDIT_LOGGER_NAME)
+    # 配置会改动 root 和 uvicorn、审计这几个全局日志器；测完原样恢复，不影响后面的测试。
+    touched = [
+        logging.getLogger(),
+        *(logging.getLogger(name) for name in cast(dict[str, object], config["loggers"])),
+    ]
+    saved = [
+        (logger, logger.level, list(logger.handlers), logger.propagate, logger.disabled)
+        for logger in touched
+    ]
     try:
-        logging.config.dictConfig(runtime_log_config(path))
+        logging.config.dictConfig(config)
         audit.info("为委派自动借用：测试")
         logging.getLogger("tunnelminion.gateway.api").info("普通信息")
-        for handler in (*audit.handlers, *root.handlers):
-            handler.flush()
+        for logger in touched:
+            for handler in logger.handlers:
+                handler.flush()
         text = path.read_text(encoding="utf-8")
     finally:
-        for handler in (*audit.handlers, *root.handlers):
-            handler.close()
-        audit.handlers.clear()
-        audit.propagate = True
-        root.handlers[:] = saved[1]
-        root.setLevel(saved[0])
+        for logger, level, handlers, propagate, disabled in saved:
+            for handler in logger.handlers:
+                if handler not in handlers:
+                    handler.close()
+            logger.handlers[:] = handlers
+            logger.setLevel(level)
+            logger.propagate = propagate
+            logger.disabled = disabled
     assert "为委派自动借用：测试" in text
     assert "普通信息" not in text
 

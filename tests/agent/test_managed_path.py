@@ -522,7 +522,13 @@ def test_managed_application_attaches_one_shared_lifecycle_to_three_domains(
 
 def test_platform_factories_share_capability_shape_without_running_commands(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # 全局夹具 `unprivileged_host` 按普通账户运行：本机装没装 WireGuard，结果都只能是只读观察。
+    def no_command(*args: object, **kwargs: object) -> None:
+        raise AssertionError("工厂不应执行命令")
+
+    monkeypatch.setattr("subprocess.Popen", no_command)
     envelope, _ = signed()
     policy = PathProbePolicy(
         approved_networks=("10.203.0.2/32",),
