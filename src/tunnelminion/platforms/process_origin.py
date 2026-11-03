@@ -32,7 +32,8 @@ class ProcessFacts:
     """判断来历所需的本机事实；`ancestors` 从直接父进程开始向上排列。
 
     `windowed` 表示本进程或某个非系统祖先是 Windows 图形界面程序（有窗口的桌面应用），
-    只在 Windows 上采集；旧的事实数据没有这个字段时按 False 处理。
+    `gui` 只看本进程自己是不是；两者只在 Windows 上采集，旧的事实数据没有这两个字段时按
+    False 处理。
     """
 
     platform: str
@@ -41,6 +42,7 @@ class ProcessFacts:
     ancestors: tuple[str, ...]
     home: str
     windowed: bool = False
+    gui: bool = False
 
 
 # 交互式 shell、终端程序和终端复用器：在这些进程下面启动的程序视为用户亲手启动。
@@ -125,6 +127,9 @@ def classify_origin(facts: ProcessFacts) -> ProcessOrigin:
     # Lima（以及基于它的 Colima）替虚拟机转发端口：limactl 自己监听，或由它拉起的 ssh 监听。
     if name in _CONTAINER_RUNTIMES or any(item in _VM_PORT_FORWARDERS for item in ancestors):
         return ProcessOrigin.CONTAINER_RUNTIME
+    if windows and facts.gui:
+        # 程序本身就有窗口（例如 MATLAB）：从终端打开也只是换了个启动方式，仍是桌面应用。
+        return ProcessOrigin.DESKTOP_APP
     if any(item in _TERMINALS for item in ancestors):
         return ProcessOrigin.TERMINAL
     if facts.exe is None:
@@ -254,13 +259,16 @@ def read_process_facts(pid: int, expected_name: str | None = None) -> ProcessFac
     except (psutil.Error, OSError):
         return None
     platform = current_platform()
+    windows = platform == "windows"
+    gui = windows and _has_windowed_program(programs[:1])
     return ProcessFacts(
         platform=platform,
         name=name,
         exe=exe,
         ancestors=tuple(ancestors),
         home=str(Path.home()),
-        windowed=platform == "windows" and _has_windowed_program(programs),
+        windowed=gui or (windows and _has_windowed_program(programs[1:])),
+        gui=gui,
     )
 
 
