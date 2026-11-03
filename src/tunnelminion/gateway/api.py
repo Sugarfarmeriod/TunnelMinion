@@ -55,6 +55,7 @@ from tunnelminion.operation.contracts import OperationSummary
 from tunnelminion.repair.contracts import RepairRecord
 from tunnelminion.repair.peer_view import peer_repair_view
 from tunnelminion.repair.service import ProxyRepairApprover, RepairService
+from tunnelminion.runtime.logging import AUDIT_LOGGER_NAME
 from tunnelminion.telemetry import extract_context, set_status, span
 from tunnelminion.tools.contracts import (
     ToolCallContext,
@@ -174,6 +175,7 @@ class _TracedGatewayRoute(APIRoute):
 
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
 
 
 async def _startup_push(owner_devices: OwnDevicesService) -> None:
@@ -830,7 +832,7 @@ def create_gateway_router(
             )
         if http_request.headers.get(MODEL_PURPOSE_HEADER) == DELEGATION_MODEL_PURPOSE:
             # 对方没有模型，为处理本机交给它的委派自动借用；用量照常记在它的每日额度里。
-            logger.info("为委派自动借用：%s 借用本机模型完成一轮调用", peer.node_id)
+            audit_logger.info("为委派自动借用：%s 借用本机模型完成一轮调用", peer.node_id)
         return result
 
     def delegation_peer(

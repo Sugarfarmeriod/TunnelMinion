@@ -10,6 +10,8 @@ from tunnelminion.runtime.profile import prepare_private_directory, restrict_fil
 
 MAX_RUNTIME_LOG_BYTES = 5_000_000
 RUNTIME_LOG_BACKUPS = 3
+# 需要留在运行日志里的审计留痕；其余应用日志仍只记 WARNING 以上
+AUDIT_LOGGER_NAME = "tunnelminion.audit"
 
 
 def runtime_log_config(path: Path) -> dict[str, object]:
@@ -45,6 +47,7 @@ def runtime_log_config(path: Path) -> dict[str, object]:
                 "level": "WARNING",
                 "propagate": False,
             },
+            AUDIT_LOGGER_NAME: {"handlers": ["runtime"], "level": "INFO", "propagate": False},
         },
         "root": {"handlers": ["runtime"], "level": "WARNING"},
     }
