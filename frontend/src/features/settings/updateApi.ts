@@ -32,7 +32,13 @@ export const updateViewSchema = z
       .strict()
       .nullable(),
     availability: z
-      .enum(["update_available", "up_to_date", "unreleased_build", "unknown"])
+      .enum([
+        "update_available",
+        "up_to_date",
+        "unreleased_build",
+        "diverged",
+        "unknown",
+      ])
       .nullable(),
     checked_at: dateTime.nullable(),
     check_error: z.string().nullable(),

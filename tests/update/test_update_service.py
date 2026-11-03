@@ -220,6 +220,13 @@ def test_start_update_feed_error_and_unknown_availability(setup: Setup) -> None:
     assert setup.service().start_update("build-2").job.phase is UpdatePhase.RESTARTING
 
 
+def test_build_off_the_release_line_can_switch_to_release(setup: Setup) -> None:
+    # 例如 Pull Request 的测试构建：和发布版分叉，确认后可以换到发布版
+    setup.feed.availability = Availability.DIVERGED
+    assert setup.service().start_update("build-2").job.phase is UpdatePhase.RESTARTING
+    assert len(setup.launched) == 1
+
+
 def test_only_one_update_at_a_time(setup: Setup, monkeypatch: pytest.MonkeyPatch) -> None:
     service = setup.service()
     service._job = service._job.model_copy(  # pyright: ignore[reportPrivateUsage]

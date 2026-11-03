@@ -162,10 +162,14 @@ def update_command(
         print("已是最新版本。")
         return 0
     if availability is Availability.UNRELEASED_BUILD:
-        print("当前是未发布的构建，比最新发布版还新或不在同一条线上，不更新。")
+        print("当前版本比最新发布版还新，不更新。")
         return 0
     print(
-        "无法确认最新版本是否比当前新。" if availability is Availability.UNKNOWN else "有新版本。"
+        {
+            Availability.UNKNOWN: "无法确认最新版本是否比当前新。",
+            Availability.DIVERGED: "当前构建不在发布线上（例如测试构建），"
+            "换到最新发布版后它独有的改动不会保留。",
+        }.get(availability, "有新版本。")
     )
     if args.check:
         return 0
