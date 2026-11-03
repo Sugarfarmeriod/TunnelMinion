@@ -786,6 +786,8 @@ def test_stop_borrowing_leaves_profiles_and_secrets_for_switching_back(tmp_path:
     # 没有在借用时停止借用不改动本地配置。
     assert service.stop_borrowing().model == local.model
     assert repository.load() == local.provider_config()
+    repository.clear_borrowed()
+    assert repository.load() == local.provider_config()
 
     asyncio.run(service.borrow(peer))
     view = service.stop_borrowing()
