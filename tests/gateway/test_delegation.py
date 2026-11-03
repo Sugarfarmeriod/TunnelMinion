@@ -842,7 +842,7 @@ def _finished(value: DelegationService) -> DelegationRecord:
 
 
 def test_without_a_model_the_callers_model_answers_and_the_answer_says_so(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, audit_log: list[str]
 ) -> None:
     asked: list[NodeId] = []
 
@@ -853,14 +853,13 @@ def test_without_a_model_the_callers_model_answers_and_the_answer_says_so(
     def local() -> TaskAgent:
         raise AssertionError("没有模型时不该建本机 Agent")
 
-    with caplog.at_level("INFO", logger="tunnelminion.agent.delegation"):
-        record = _finished(
-            _borrowing_service(tmp_path, configured=False, caller_agent=caller_agent, local=local)
-        )
+    record = _finished(
+        _borrowing_service(tmp_path, configured=False, caller_agent=caller_agent, local=local)
+    )
     assert record.status is DelegationStatus.COMPLETED and record.result is not None
     assert asked == [A]
     assert record.result.summary.startswith(BORROWED_FROM_CALLER_NOTE)
-    assert "为委派自动借用" in caplog.text
+    assert any("为委派自动借用" in message for message in audit_log)
 
 
 def test_with_its_own_model_the_executor_never_borrows(tmp_path: Path) -> None:

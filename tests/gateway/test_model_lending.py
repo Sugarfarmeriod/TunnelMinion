@@ -626,7 +626,7 @@ def test_truncated_output_is_still_charged_to_the_borrower(
 
 @pytest.mark.parametrize("purpose", [None, "delegation", "other"])
 def test_borrowing_for_a_delegation_is_logged_and_counted_like_any_borrowing(
-    caplog: pytest.LogCaptureFixture, purpose: str | None
+    audit_log: list[str], purpose: str | None
 ) -> None:
     """对方为处理委派自动借用时照常记用量，并在日志里写明“为委派自动借用”。"""
     provider = StubProvider(ModelResponse(content="好", usage=ModelUsage(input_tokens=3)))
@@ -643,7 +643,6 @@ def test_borrowing_for_a_delegation_is_logged_and_counted_like_any_borrowing(
             response = await client.post(URL, json=call().model_dump(mode="json"), headers=headers)
         return response.status_code
 
-    with caplog.at_level("INFO", logger="tunnelminion.gateway.api"):
-        assert asyncio.run(scenario()) == 200
+    assert asyncio.run(scenario()) == 200
     assert store.get(PEER, date.today()).calls == 1
-    assert ("为委派自动借用" in caplog.text) is (purpose == "delegation")
+    assert any("为委派自动借用" in message for message in audit_log) is (purpose == "delegation")
