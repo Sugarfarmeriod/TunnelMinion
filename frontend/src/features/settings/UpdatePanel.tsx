@@ -178,6 +178,8 @@ export function UpdatePanel() {
   const restarting = restartingSince !== null;
   const [restarted, setRestarted] = useState(false);
   const autoChecked = useRef(false);
+  const preparing = (phase: string | undefined): boolean =>
+    phase === "downloading" || phase === "installing";
 
   const query = useQuery({
     queryKey: updateQueryKey,
@@ -218,19 +220,27 @@ export function UpdatePanel() {
 
   // 新版本起来后本机网页是新进程，任务回到 idle；还要等换包进程写下这次的结果
   useEffect(() => {
+    if (restartingSince === null || view === undefined) {
+      return;
+    }
+    if (view.job.phase === "failed") {
+      // 下载或校验没通过：旧版没动，回到可以重试的状态
+      setRestartingSince(null);
+      return;
+    }
     if (
-      restartingSince !== null &&
-      view !== undefined &&
       view.job.phase === "idle" &&
       view.last_result !== null &&
       Date.parse(view.last_result.finished_at) >= restartingSince - 5000
     ) {
       setRestartingSince(null);
       setRestarted(true);
-      // 新进程还没查过最新版本，让它自动查一次
-      autoChecked.current = false;
+      // 新进程还没查过最新版本，自动查一次
+      if (view.supported) {
+        runCheck();
+      }
     }
-  }, [restartingSince, view]);
+  }, [restartingSince, view, runCheck]);
 
   const job = view?.job;
   const active = restarting || activePhases.has(job?.phase ?? "idle");
@@ -289,7 +299,8 @@ export function UpdatePanel() {
           {job?.phase === "installing" ? (
             <p role="status">正在校验并安装新版本……旧版照常可用。</p>
           ) : null}
-          {restarting || job?.phase === "restarting" ? (
+          {job?.phase === "restarting" ||
+          (restarting && !preparing(job?.phase)) ? (
             <p role="status">
               正在停止旧版、启动新版，页面会断开一会儿，好了会自动显示结果。
             </p>
