@@ -288,3 +288,21 @@ def test_old_suspect_record_of_a_long_running_service_is_still_confirmed(tmp_pat
 
     asyncio.run(h.rounds(3))
     assert h.view_of(SCRIPT).status is PatrolStatus.DOWN
+
+
+def test_stopped_script_without_record_cleanup_only_forgets_the_patrol_record(
+    tmp_path: Path,
+) -> None:
+    """没有配置清理启动记录的函数时，只清巡检记录。"""
+    h = _harness(tmp_path)
+    h.patrol._forget_records = None  # pyright: ignore[reportPrivateUsage]
+    h.repairs.launch_records.put(local_launch(tmp_path))
+
+    async def scenario() -> None:
+        await h.rounds(1)
+        h.entries = (entry(SCRIPT, state="stopped"),)
+        await h.rounds(3)
+
+    asyncio.run(scenario())
+    assert h.store.get(SCRIPT) is None
+    assert h.repairs.launch_records.get(SCRIPT) is not None
