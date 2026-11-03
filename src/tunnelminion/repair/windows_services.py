@@ -60,10 +60,22 @@ def grant_ace(sid: str) -> str:
     return f"(A;;{_GRANT_RIGHTS};;;{sid})"
 
 
+def _same_trustee(trustee: str, sid: str) -> bool:
+    """SDDL 里的账户是不是这个 SID。
+
+    Windows 读回时把本机内置管理员（RID 500）和来宾（RID 501）写成简称 `LA`、`LG`，
+    不写完整 SID。
+    """
+    if trustee == sid:
+        return True
+    alias = {"500": "LA", "501": "LG"}.get(sid.rsplit("-", 1)[-1])
+    return alias is not None and sid.startswith("S-1-5-21-") and trustee == alias
+
+
 def _allow_rights(ace: str, sid: str) -> frozenset[str] | None:
     """这一条是给这个账户的允许条目时返回它的权限集合，否则返回 None。"""
     fields = ace.split(";")
-    if len(fields) != 6 or fields[0] != "A" or fields[5] != sid:
+    if len(fields) != 6 or fields[0] != "A" or not _same_trustee(fields[5], sid):
         return None
     rights = fields[2]
     return frozenset(rights[index : index + 2] for index in range(0, len(rights), 2))
@@ -255,7 +267,8 @@ class WindowsServiceManager:
             return False
         updated = with_grant(sddl, sid, granted=granted)
         self._granted.pop(name, None)
-        if updated == sddl:
+        # 已经能启停时不再写：读回的条目可能写的是简称，重新拼出来的字符串和原来不一样。
+        if updated == sddl or (granted and has_grant(sddl, sid)):
             # 不用改：只有现状本来就和要的一样才算成功（比如权限是主人自己另外加的，撤不掉）。
             return has_grant(sddl, sid) is granted
         if _SDDL.fullmatch(updated) is None:
