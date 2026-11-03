@@ -73,6 +73,7 @@ uv run python scripts/validate_mermaid_docs.py docs/architecture.md --svg-dir do
 | MCP | `mcp_server.py` | 通过标准输入输出把只读工具提供给外部 Agent，和 Agent 共用同一条工具执行通道 |
 | 链路追踪 | `telemetry.py` | OpenTelemetry，默认关闭；跨电脑请求用 W3C `traceparent` 接到同一条链路上 |
 | 运行管理 | `runtime/` | 运行包的 `runtime configure/start/status/stop`、后台进程管理和启动前检查 |
+| 一键更新 | `update/`、`web/update.py` | 从 GitHub Releases 查最新版本，下载并核对 sha256 和逐文件摘要后放进版本目录，由独立进程停旧版、启新版，失败自动退回；只有本机网页和命令行能触发。见 [`design/one-click-update.md`](design/one-click-update.md) |
 
 数据都存在本机数据目录里：SQLite 存对话、调查、修复记录、委派记录和用量；模型 API 密钥和配对令牌存在本机秘密存储里：
 Windows 存在凭据管理器，Mac 存在只有本账户能读的 `~/.tunnelminion/secrets/secrets.json`（`model/secrets.py`

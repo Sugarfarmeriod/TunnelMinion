@@ -416,7 +416,13 @@ def test_preview_child_only_builds_local_application(
     application = FastAPI()
     calls: list[str] = []
 
-    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+    def build_local(
+        data_dir: Path,
+        *,
+        read_only_preview: bool = False,
+        runtime_profile: Path | None = None,
+    ) -> SimpleNamespace:
+        del runtime_profile
         assert data_dir == tmp_path and read_only_preview
         calls.append("build")
         return SimpleNamespace(app=application)
@@ -458,7 +464,13 @@ def test_runtime_child_builds_local_and_gateway_without_access_logs(
     monkeypatch.setattr("uvicorn.run", run)
     local_app = FastAPI()
 
-    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+    def build_local(
+        data_dir: Path,
+        *,
+        read_only_preview: bool = False,
+        runtime_profile: Path | None = None,
+    ) -> SimpleNamespace:
+        del runtime_profile
         assert not read_only_preview
         del data_dir
         return SimpleNamespace(app=local_app)
@@ -616,7 +628,13 @@ def test_cli_local_entries_retain_owner_after_bundle_is_collected(
     captured: list[FastAPI] = []
     managed_roots: list[Path] = []
 
-    def build_local(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+    def build_local(
+        data_dir: Path,
+        *,
+        read_only_preview: bool = False,
+        runtime_profile: Path | None = None,
+    ) -> SimpleNamespace:
+        del runtime_profile
         assert not read_only_preview
         node_id = NodeId.new()
         status = ManagedPathStatus(
@@ -731,7 +749,13 @@ def test_runtime_child_sanitizes_invalid_identity_and_builder_failure(
 ) -> None:
     secret = "https://user:password@model.invalid/private"
 
-    def fail(data_dir: Path, *, read_only_preview: bool = False) -> SimpleNamespace:
+    def fail(
+        data_dir: Path,
+        *,
+        read_only_preview: bool = False,
+        runtime_profile: Path | None = None,
+    ) -> SimpleNamespace:
+        del runtime_profile
         assert not read_only_preview
         del data_dir
         raise RuntimeError(secret)

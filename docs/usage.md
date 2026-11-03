@@ -8,14 +8,15 @@
 
 **方式一：直接用运行包（不用装 Python 和 Node.js）**
 
-在 GitHub Actions 里找一次成功的 CI，下载对应平台的产物：`runtime-package-windows-amd64` 或
-`runtime-package-macos-arm64`。先解开下载的压缩包，再解开里面的 `runtime-package.tar`，会得到一个
-`package/` 目录，里面有可执行文件和 `runtime-package-manifest.json`。
+到仓库的 GitHub Releases 页面，在最新版本里下载对应平台的 `tunnelminion-windows-amd64.tar.gz` 或
+`tunnelminion-macos-arm64.tar.gz`（每次合并到 `main`、CI 全部通过后自动发布，名字是 `build-<序号>`）。
+解开后得到一个 `package/` 目录，里面有可执行文件和 `runtime-package-manifest.json`。只有第一次安装要这样
+手动做，以后用下面的"一键更新"。
 
 Windows PowerShell：
 
 ```powershell
-tar -xf .\runtime-package.tar
+tar -xzf .\tunnelminion-windows-amd64.tar.gz
 $Profile = Join-Path $HOME ".tunnelminion\runtime-profile.json"
 $Data = Join-Path $HOME ".tunnelminion\data"
 $Exe = ".\package\tunnelminion.exe"
@@ -28,7 +29,7 @@ $Exe = ".\package\tunnelminion.exe"
 macOS：
 
 ```bash
-tar -xf ./runtime-package.tar
+tar -xzf ./tunnelminion-macos-arm64.tar.gz
 PROFILE="$HOME/.tunnelminion/runtime-profile.json"
 DATA="$HOME/.tunnelminion/data"
 EXE="./package/tunnelminion"
@@ -40,7 +41,26 @@ EXE="./package/tunnelminion"
 
 `start` 返回以后，程序会继续在后台运行。用浏览器打开 `http://127.0.0.1:8765/` 就是服务地图。
 停止用 `runtime stop --profile <同一个 profile>`。目前不会开机自启，电脑重启后要再运行一次 `start`。
-如果提示 `package_invalid`，请重新下载同一次 CI 的完整运行包，不要手工拼文件。
+如果提示 `package_invalid`，请重新下载完整的运行包，不要手工拼文件。
+
+**一键更新。** 打开网页"设置"里的"版本与更新"，能看到当前版本和 GitHub 上的最新版本；有新版本时点
+"更新到 build-…"，确认一次即可。它先下载并核对整包 sha256 和每个文件的摘要（这期间旧版照常可用），再停掉
+旧版、启动新版，网页断开一两分钟后自己回来并显示结果。新版起不来会自动退回原来的版本，数据和密钥不受影响。
+也可以用命令行：
+
+| 命令 | 作用 |
+|---|---|
+| `tunnelminion update --profile <profile>` | 查最新版本，问一次 `y/N` 后更新 |
+| `tunnelminion update --profile <profile> --check` | 只查，不更新 |
+| `tunnelminion update --profile <profile> --rollback` | 退回上一个版本 |
+
+- 只有本机网页能点更新；别的电脑、朋友、Agent 和 MCP 都触发不了。预览模式和从源码运行时不能更新。
+- 只在你打开设置页或点"检查更新"时联网查，不会在后台自动下载或自动更新。
+- 新版本放在本账户程序目录下、按数据目录区分的版本目录里，保留当前版和上一版两份。更新以后照旧运行原来
+  解包目录里的 `runtime start` 也行，它会自动转交给新版本启动。第一次用上带一键更新的版本仍要手动换一次。
+- Windows 上用命令行更新要在这台电脑的桌面上运行（ssh 里起来的新版读不到凭据管理器）；网页上点不受影响。
+  Mac 上从 ssh 运行也可以。
+- 查询走 GitHub 的匿名接口，沿用系统的 `HTTPS_PROXY` 等代理设置；短时间内查太多次会被 GitHub 限流，过一会儿再试。
 
 Windows 上 `start` 要在这台电脑自己的桌面上运行（PowerShell 窗口）。通过 ssh 远程启动的进程用不了
 Windows 凭据管理器，建机主身份、保存模型密钥时会提示"系统钥匙串打不开"；这时回到那台电脑的桌面上

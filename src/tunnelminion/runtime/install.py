@@ -40,6 +40,8 @@ class InstalledPackage(BaseModel):
     source_tree_sha256: str = Field(pattern="^[0-9a-f]{64}$")
     manifest_sha256: str = Field(pattern="^[0-9a-f]{64}$")
     program_directory: str
+    entrypoint: str | None = Field(default=None, min_length=1, max_length=160)
+    release_tag: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,80}$")
 
 
 class RuntimeInstallState(BaseModel):
@@ -101,6 +103,12 @@ def default_runtime_install_root() -> Path:
     return Path(user_data_path("TunnelMinionRuntime", "TunnelMinion")).resolve()
 
 
+def node_install_root(data_dir: Path, base: Path | None = None) -> Path:
+    """按数据目录区分的程序安装根目录，同一台电脑上的不同实例各管各的版本。"""
+    digest = hashlib.sha256(str(data_dir.expanduser().resolve()).encode()).hexdigest()
+    return (base or default_runtime_install_root()) / f"node-{digest[:12]}"
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -136,7 +144,13 @@ class RuntimePackageInstaller:
             raise ValueError("安装状态属于另一个数据目录")
         return state
 
-    def stage(self, package_root: Path, manifest_path: Path) -> InstalledPackage:
+    def stage(
+        self,
+        package_root: Path,
+        manifest_path: Path,
+        *,
+        release_tag: str | None = None,
+    ) -> InstalledPackage:
         """验证并并行复制一个新版本，不改变当前版本指针。"""
         source = package_root.resolve()
         manifest_source = manifest_path.resolve()
@@ -183,6 +197,8 @@ class RuntimePackageInstaller:
                 source_tree_sha256=cast(str, build["source_tree_sha256"]),
                 manifest_sha256=manifest_sha256,
                 program_directory=program_directory,
+                entrypoint=cast(str, manifest["entrypoint"]),
+                release_tag=release_tag,
             )
             state = self.load()
             self._save(state.model_copy(update={"packages": (*state.packages, record)}))
@@ -194,17 +210,32 @@ class RuntimePackageInstaller:
             raise
         return record
 
-    def activate(self, package_id: str, stopped: StoppedGuard) -> RuntimeInstallState:
-        """仅在组件已手工停止时原子切换当前程序指针。"""
+    def activate(
+        self,
+        package_id: str,
+        stopped: StoppedGuard,
+        *,
+        previous_package_id: str | None = None,
+    ) -> RuntimeInstallState:
+        """仅在组件已手工停止时原子切换当前程序指针。
+
+        `previous_package_id` 指定切换后的"上一版"；不指定时取切换前的当前版本。
+        """
         if not stopped():
             raise RuntimeError("切换前必须先手工停止所有组件")
         state = self.load()
         self._require_package(state, package_id)
-        previous = (
-            state.current_package_id
-            if state.current_package_id != package_id
-            else state.previous_package_id
-        )
+        if previous_package_id is not None:
+            if previous_package_id == package_id:
+                raise ValueError("上一版本不能等于当前版本")
+            self._require_package(state, previous_package_id)
+            previous: str | None = previous_package_id
+        else:
+            previous = (
+                state.current_package_id
+                if state.current_package_id != package_id
+                else state.previous_package_id
+            )
         updated = state.model_copy(
             update={
                 "current_package_id": package_id,
@@ -239,6 +270,59 @@ class RuntimePackageInstaller:
             current_package_id=cast(str, rolled_back.current_package_id),
             attempted_package_id=package_id,
         )
+
+    def find(self, package_id: str) -> InstalledPackage | None:
+        """按 ID 查找已安装版本，不校验文件。"""
+        return next((item for item in self.load().packages if item.package_id == package_id), None)
+
+    def program_dir(self, package_id: str) -> Path:
+        """返回某个已安装版本的程序目录。"""
+        state = self.load()
+        if self.find(package_id) is None:
+            raise KeyError("runtime_package_not_installed")
+        return self._program_dir(state, package_id)
+
+    def executable(self, package_id: str) -> Path:
+        """返回某个已安装版本的入口程序路径。"""
+        package = self.find(package_id)
+        if package is None:
+            raise KeyError("runtime_package_not_installed")
+        program = self.program_dir(package_id)
+        entrypoint = package.entrypoint
+        if entrypoint is None:
+            manifest = cast(
+                dict[str, JsonValue],
+                json.loads((program / PACKAGE_MANIFEST_FILE).read_text(encoding="utf-8")),
+            )
+            entrypoint = cast(str, manifest["entrypoint"])
+        path = (program / entrypoint).resolve()
+        if program not in path.parents:
+            raise ValueError("入口程序越界")
+        return path
+
+    def prune(self) -> tuple[str, ...]:
+        """删掉当前版和上一版以外的版本；文件被占用时保留记录，下次再删。"""
+        state = self.load()
+        keep = {state.current_package_id, state.previous_package_id}
+        removed: list[str] = []
+        remaining: list[InstalledPackage] = []
+        for package in state.packages:
+            if package.package_id in keep:
+                remaining.append(package)
+                continue
+            target = (self._install_root / package.program_directory).resolve()
+            if self._versions.resolve() not in target.parents:
+                raise ValueError("安装状态中的程序目录越界")
+            try:
+                if target.exists():
+                    shutil.rmtree(target)
+            except OSError:
+                remaining.append(package)
+                continue
+            removed.append(package.package_id)
+        if removed:
+            self._save(state.model_copy(update={"packages": tuple(remaining)}))
+        return tuple(removed)
 
     def current_program_dir(self) -> Path | None:
         """返回当前版本目录，不解析或执行其中的命令。"""
