@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import psutil
 import pytest
 from pydantic import ValidationError
+from tests.process_identity import OWN_PID
 
 from tunnelminion.platforms.python_entrypoint import (
     parse_python_entrypoint,
@@ -74,7 +74,7 @@ def test_listener_summary_rejects_paths_and_unbounded_entry_names(entry: str) ->
     [
         ("udp", 101, "python"),
         ("tcp", None, "python"),
-        ("tcp", os.getpid(), "python"),
+        ("tcp", OWN_PID, "python"),
         ("tcp", 101, "node"),
         ("tcp", 101, "python-helper"),
         ("tcp", 101, None),

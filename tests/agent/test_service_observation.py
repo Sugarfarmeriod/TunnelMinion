@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -11,6 +10,7 @@ from typing import cast
 
 import pytest
 from pydantic import BaseModel, JsonValue
+from tests.process_identity import OWN_PID
 
 from tunnelminion.agent.managed_node import ServiceObservationConfig
 from tunnelminion.agent.service_marks import ServiceMark
@@ -258,7 +258,7 @@ def test_automatic_names_select_python_without_system_ports_or_own_runtime() -> 
                 protocol="tcp",
                 address="127.0.0.1",
                 port=4174,
-                pid=os.getpid(),
+                pid=OWN_PID,
                 process_name="python",
             ),
             NetworkListener(

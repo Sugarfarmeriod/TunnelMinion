@@ -603,7 +603,7 @@ def test_talks_first_probe_on_real_loopback(monkeypatch: pytest.MonkeyPatch) -> 
         def silent() -> None:
             connection, _ = server.accept()
             with connection:
-                time.sleep(1)
+                wait_until_peer_closes(connection)
 
         thread = threading.Thread(target=silent)
         thread.start()
@@ -621,6 +621,12 @@ def serve_once(server: socket.socket, reply: Callable[[socket.socket], None]) ->
     thread = threading.Thread(target=handle)
     thread.start()
     return thread
+
+
+def wait_until_peer_closes(connection: socket.socket) -> None:
+    """一直不回话，直到对方等到超时自己断开；结果不取决于两边线程谁先被调度。"""
+    while connection.recv(1024):
+        pass
 
 
 class FakeHttps:
@@ -643,7 +649,6 @@ class FakeHttps:
 def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("tunnelminion.repair.processes.PROBE_REPLY_SECONDS", 0.5)
     monkeypatch.setattr("tunnelminion.repair.processes.http.client.HTTPSConnection", FakeHttps)
     verifier = SocketLocalVerifier()
     with socket.socket() as server:
@@ -656,14 +661,13 @@ def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
             time.sleep(0.2)
             connection.sendall(b"HTTP/1.1 503 Busy\r\n\r\n")
 
+        # 慢但在 10 秒内回话的服务按正常时限判断，不和缩短后的时限抢时间。
         thread = serve_once(server, answer)
         assert asyncio.run(verifier.patrol_web_status(port)) == 503
         thread.join()
 
-        def silent(connection: socket.socket) -> None:
-            time.sleep(1)
-
-        thread = serve_once(server, silent)
+        monkeypatch.setattr("tunnelminion.repair.processes.PROBE_REPLY_SECONDS", 0.5)
+        thread = serve_once(server, wait_until_peer_closes)
         assert asyncio.run(verifier.patrol_web_status(port)) is None
         thread.join()
 
@@ -675,12 +679,11 @@ def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
         def reset(connection: socket.socket) -> None:
             connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
 
-        FakeHttps.status = OSError("handshake")
+        monkeypatch.setattr(FakeHttps, "status", OSError("handshake"))
         thread = serve_once(server, reset)
         with pytest.raises(ConnectionError):
             asyncio.run(verifier.patrol_web_status(port))
         thread.join()
-        FakeHttps.status = 200
     with pytest.raises(ConnectionError):
         asyncio.run(verifier.patrol_web_status(port))
 

@@ -6,12 +6,14 @@ import asyncio
 import os
 import threading
 from collections.abc import Coroutine
+from concurrent.futures import Future, wait
 from threading import get_ident
 from typing import Any, TypeVar, cast
 
 import psutil
 import pytest
 from pydantic import JsonValue
+from tests.process_identity import OWN_PID
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.process_origin import ProcessOrigin
@@ -400,7 +402,7 @@ def test_web_pages_are_opt_in_and_skip_system_desktop_udp_own_and_public_ports(
                 listener("tcp", "0.0.0.0", 445, 4, "System"),
                 listener("tcp", "0.0.0.0", 27036, 5, "steam"),
                 listener("udp", "0.0.0.0", 5353, 101, "python"),
-                listener("tcp", "127.0.0.1", 7000, os.getpid(), "me"),
+                listener("tcp", "127.0.0.1", 7000, OWN_PID, "me"),
                 listener("tcp", "8.8.8.8", 80, 103, "odd"),
             )
 
@@ -453,18 +455,32 @@ def test_web_probing_respects_count_and_time_limits(monkeypatch: pytest.MonkeyPa
             )
 
     release = threading.Event()
+    timeouts: list[float | None] = []
 
     def probe(address: str, port: int) -> WebPage | None:
         if port == 2000:
-            release.wait(2)
+            release.wait()
         return WebPage(title=None)
 
+    def deadline_reached(
+        futures: dict[Future[WebPage | None], tuple[str, int]], timeout: float | None = None
+    ) -> tuple[set[Future[WebPage | None]], set[Future[WebPage | None]]]:
+        # 不靠真实计时：等其余端口全部完成后，把卡住的端口当作超过总时限返回。
+        timeouts.append(timeout)
+        stuck = {future for future, key in futures.items() if key[1] == 2000}
+        finished = set(futures) - stuck
+        wait(finished)
+        return finished, stuck
+
     monkeypatch.setattr("tunnelminion.platforms.windows.adapters.probe_web_page", probe)
-    monkeypatch.setattr("tunnelminion.platforms.windows.adapters._WEB_PROBE_DEADLINE_SECONDS", 0.5)
-    result = CollectionResult.model_validate(
-        run(NetworkListenersAdapter(Reader()).execute({"include_web_title": True}, token()))
-    )
-    release.set()
+    monkeypatch.setattr("tunnelminion.platforms.windows.adapters.wait", deadline_reached)
+    try:
+        result = CollectionResult.model_validate(
+            run(NetworkListenersAdapter(Reader()).execute({"include_web_title": True}, token()))
+        )
+    finally:
+        release.set()
+    assert timeouts == [4.0]
     probed = {item["port"] for item in result.items if "has_web_page" in item}
     # 只探前 32 个；卡住的那个超过总时限，不给出结论。
     assert 2000 not in probed and probed == set(range(2001, 2032))

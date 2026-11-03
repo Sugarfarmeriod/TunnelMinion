@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from contextlib import nullcontext
 from dataclasses import dataclass
 from importlib.metadata import version
@@ -25,6 +24,7 @@ from mcp.shared.memory import (
 from mcp.types import CallToolResult, TextContent
 from pydantic import JsonValue
 from tests.agent.test_service_observation import FakeAdapter, collection
+from tests.process_identity import OWN_PID
 from tests.tools.test_registry import definition
 from tests.web.test_service_map import ApiClient
 
@@ -121,7 +121,7 @@ def harness(
                 protocol="tcp",
                 address="127.0.0.1",
                 port=8765,
-                pid=os.getpid(),
+                pid=OWN_PID,
                 process_name="python",
                 origin=ProcessOrigin.TERMINAL,
             ),
