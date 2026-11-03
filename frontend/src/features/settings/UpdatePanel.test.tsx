@@ -110,6 +110,76 @@ describe("UpdatePanel", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("不在发布线上的测试构建可以确认后换到发布版", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(makeView({ availability: "diverged" })),
+    );
+    renderPanel();
+    expect(await screen.findByText("当前构建不在发布线上")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "更新到 build-12" }));
+    expect(screen.getByRole("dialog", { name: "确认更新" })).toHaveTextContent(
+      "它独有的改动不会保留",
+    );
+  });
+
+  it("当前比最新发布版还新时不提供更新", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(makeView({ availability: "unreleased_build" })),
+    );
+    renderPanel();
+    expect(await screen.findByText("当前比最新发布版还新")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /更新到/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("下载期间不提示重启，下载失败后可以重试", async () => {
+    const user = userEvent.setup();
+    const downloading = {
+      phase: "downloading" as const,
+      release_tag: "build-12",
+      downloaded_bytes: 100,
+      total_bytes: 1000,
+      error_code: null,
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(makeView()));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(makeView({ job: downloading }), 202),
+    );
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        makeView({
+          job: {
+            ...downloading,
+            phase: "failed",
+            error_code: "download_failed",
+          },
+        }),
+      ),
+    );
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: "更新到 build-12" }),
+    );
+    await user.click(screen.getByRole("button", { name: "确认更新" }));
+    expect(await screen.findByText(/正在下载 10%/)).toBeInTheDocument();
+    expect(screen.queryByText(/正在停止旧版/)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "下载中断了，已删掉下载的文件，可以重试。",
+        {},
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "检查更新" })).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "更新到 build-12" }),
+    ).toBeInTheDocument();
+  });
+
   it("取消确认框不会发起更新", async () => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValueOnce(jsonResponse(makeView()));
@@ -278,6 +348,12 @@ describe("UpdatePanel", () => {
       screen.getByRole("button", { name: "刷新页面" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("上次换包已完成。")).not.toBeInTheDocument();
+    // 新进程还没查过最新版本，结束后自动查一次
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => url === "/api/update/check"),
+      ).toBe(true),
+    );
   }, 10000);
 
   it("检查失败和请求被拒时给出可读说明", async () => {

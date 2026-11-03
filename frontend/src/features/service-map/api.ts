@@ -20,6 +20,7 @@ export const serviceEntrySchema = z
     tier: z.enum(["show", "review", "hidden"]),
     state: z.enum(["running", "stopped"]).optional(),
     launch_agent: z.boolean().optional(),
+    windows_service: z.boolean().optional(),
     mark: z.enum(["mine", "hidden"]).nullable(),
     web_title: z.string().nullable(),
     endpoints: z.array(serviceEndpointSchema),

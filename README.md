@@ -71,7 +71,7 @@ flowchart LR
 
 - **后端**：Python 3.11、FastAPI、LangChain v1（`create_agent` 加自定义中间件）、pydantic、psutil、OpenTelemetry、MCP SDK。
 - **前端**：React 19、TypeScript、Vite、zod 严格校验接口数据、Playwright 端到端测试。
-- **质量门禁**：pyright strict、ruff，Python 测试 3800 多个、行和分支覆盖率要求 100%；CI 有 8 项检查，覆盖 Windows 和 macOS，并做双平台运行包的一致性检查。
+- **质量门禁**：pyright strict、ruff，Python 测试 3800 多个、行和分支覆盖率要求 100%；CI 有 8 项检查，覆盖 Windows 和 macOS，并做双平台运行包的一致性检查；全部通过后自动发布带 sha256 清单的 Release。
 - **安全默认值**：本机网页只监听 `127.0.0.1`；网关只监听私有组网地址；令牌只存摘要，API 密钥存本机秘密存储（Windows 凭据管理器，Mac 上只有本账户能读的文件）；委派、借用模型、代批准默认都是关的。
 
 ## 快速开始
@@ -85,7 +85,7 @@ uv run tunnelminion --data-dir .data/a --port 8765
 ```
 
 打开 `http://127.0.0.1:8765/`，在"更多 → 设置"里填一个兼容 OpenAI 接口的模型（DeepSeek，或者 llama.cpp 跑的本机模型），
-就能在地图上提问了。不装 Python 也可以直接下载 CI 产出的运行包。
+就能在地图上提问了。不装 Python 也可以到 GitHub Releases 下载运行包（每次合并到 `main` 自动发布），装好以后在设置页点一下就能更新到最新版，新版起不来会自动退回。
 
 运行包、加入第二台电脑、MCP、链路追踪和完整的安全边界见 [**使用说明**](docs/usage.md)。
 

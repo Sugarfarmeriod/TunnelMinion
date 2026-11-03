@@ -66,6 +66,19 @@ describe("服务地图严格契约", () => {
     );
   });
 
+  it("接受后端带全部可选字段的服务项", () => {
+    const data = makeLocalServices([
+      makeService({
+        key: "program:sunshine.exe",
+        kind: "program",
+        state: "stopped",
+        launch_agent: false,
+        windows_service: true,
+      }),
+    ]);
+    expect(localServicesSchema.parse(data)).toEqual(data);
+  });
+
   it.each(["清单", "服务", "入口"])(
     "拒绝%s中的多字段和每一个缺失字段",
     (level) => {
