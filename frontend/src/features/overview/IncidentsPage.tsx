@@ -30,29 +30,96 @@ const incidentEventLabels: Record<
   ResourceOverview["incidents"]["items"][number]["event_type"],
   string
 > = {
-  service_added: "发现新增服务",
-  service_removed: "服务已经消失",
-  node_offline: "节点已经离线",
-  state_stale: "状态证据已经陈旧",
-  local_only: "服务只能从本机访问",
-  remote_unreachable: "远端无法访问服务",
+  service_added: "新出现了一个服务",
+  service_removed: "服务不见了",
+  node_offline: "电脑离线了",
+  state_stale: "很久没收到它的最新状态",
+  local_only: "只能在它自己那台电脑上打开",
+  remote_unreachable: "从别的电脑打不开",
 };
 
 const incidentStatusLabels: Record<
   ResourceOverview["incidents"]["items"][number]["status"],
   string
 > = {
-  pending: "等待调查",
+  pending: "等着调查",
   investigating: "正在调查",
-  confirmed: "已查明原因",
-  insufficient_evidence: "证据不足",
-  budget_exhausted: "调查预算已用完",
-  cancelled: "调查已取消",
-  failed: "调查失败",
-  interrupted: "调查被中断",
-  investigation_unavailable: "模型调查不可用",
-  closed: "已关闭",
+  confirmed: "查清楚了",
+  insufficient_evidence: "线索不够，没查清",
+  budget_exhausted: "查到次数上限，没查清",
+  cancelled: "调查取消了",
+  failed: "调查出错了",
+  interrupted: "调查被打断了",
+  investigation_unavailable: "模型用不了，没法自动调查",
+  closed: "已结束",
 };
+
+type IncidentItem = ResourceOverview["incidents"]["items"][number];
+
+interface IncidentGroup {
+  key: string;
+  latest: IncidentItem;
+  count: number;
+  firstObservedAt: string;
+}
+
+/** 同一个对象上的同一类事件合并成一行，代表项取最近一次。 */
+export function groupIncidents(
+  items: readonly IncidentItem[],
+): IncidentGroup[] {
+  const groups = new Map<string, IncidentGroup>();
+  for (const item of items) {
+    const key = `${item.event_type}|${item.object_kind}|${item.object_id}`;
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, {
+        key,
+        latest: item,
+        count: 1,
+        firstObservedAt: item.first_observed_at,
+      });
+      continue;
+    }
+    group.count += 1;
+    if (item.last_observed_at > group.latest.last_observed_at) {
+      group.latest = item;
+    }
+    if (item.first_observed_at < group.firstObservedAt) {
+      group.firstObservedAt = item.first_observed_at;
+    }
+  }
+  return [...groups.values()].sort((a, b) =>
+    b.latest.last_observed_at.localeCompare(a.latest.last_observed_at),
+  );
+}
+
+/** 事件说的是哪台电脑、哪个服务；名字拿不准时如实说不知道，不凭端口猜用途。 */
+export function incidentSubject(
+  item: Pick<IncidentItem, "object_kind" | "object_id">,
+  nodes: ResourceOverview["nodes"]["items"],
+  services: ResourceOverview["services"]["items"],
+): string {
+  const nodeName = (nodeId: string | undefined) => {
+    const matches = nodes.filter((node) => node.node_id === nodeId);
+    return matches.length === 1 && matches[0]?.display_name.trim()
+      ? matches[0].display_name.trim()
+      : undefined;
+  };
+  if (item.object_kind === "node") {
+    return nodeName(item.object_id) ?? "一台电脑";
+  }
+  const matches = services.filter(
+    (service) => service.service_id === item.object_id,
+  );
+  const service = matches.length === 1 ? matches[0] : undefined;
+  const name =
+    serviceDisplayName(service) ??
+    (service?.port === null || service?.port === undefined
+      ? "一个已不在清单里的服务"
+      : `端口 ${service.port} 上的服务`);
+  const computer = nodeName(service?.node_id);
+  return computer === undefined ? name : `${computer} · ${name}`;
+}
 
 export function IncidentList({
   data,
@@ -116,6 +183,7 @@ export function IncidentList({
     }
   }
 
+  const groups = groupIncidents(data.items);
   const handoff =
     detail.data === undefined
       ? null
@@ -153,10 +221,10 @@ export function IncidentList({
       meta={data}
       summary={
         data.items.length === 0
-          ? "没有检测到重要变化"
-          : `${data.items.length} 个近期事件`
+          ? "最近一切平静"
+          : `${groups.length} 件事${groups.length === data.items.length ? "" : `（共 ${data.items.length} 次）`}`
       }
-      title="事件与自主调查"
+      title="发生了什么"
       tone={collectionTone(
         data,
         data.items.map((item) =>
@@ -169,13 +237,18 @@ export function IncidentList({
       )}
     >
       {data.items.length === 0 ? (
-        <p className="overview-empty">暂无需要调查的异常或重要变化。</p>
+        <p className="overview-empty">
+          最近没有服务或电脑出状况。有变化时会记在这里。
+        </p>
       ) : (
         <ul className="overview-resource-list" hidden={selectedId !== null}>
-          {data.items.map((incident) => (
-            <li key={incident.incident_id}>
+          {groups.map(({ key, latest: incident, count, firstObservedAt }) => (
+            <li key={key}>
               <div className="overview-resource-list__heading">
-                <strong>{incidentEventLabels[incident.event_type]}</strong>
+                <strong>
+                  {incidentSubject(incident, nodes, services)}：
+                  {incidentEventLabels[incident.event_type]}
+                </strong>
                 <StatusBadge
                   tone={
                     incident.severity === "critical"
@@ -188,8 +261,12 @@ export function IncidentList({
                   {incidentStatusLabels[incident.status]}
                 </StatusBadge>
               </div>
-              <p>{incident.conclusion ?? "尚无证据充分的结论"}</p>
-              <p>最后观测：{formatTimestamp(incident.last_observed_at)}</p>
+              <p>{incident.conclusion ?? "还没查出原因。"}</p>
+              <p className="incident-when">
+                {count > 1
+                  ? `出现 ${count} 次 · 第一次 ${formatTimestamp(firstObservedAt)} · 最近 ${formatTimestamp(incident.last_observed_at)}`
+                  : `最近一次：${formatTimestamp(incident.last_observed_at)}`}
+              </p>
               <button
                 id={incident.incident_id}
                 aria-expanded={selectedId === incident.incident_id}
@@ -210,7 +287,7 @@ export function IncidentList({
             type="button"
             onClick={() => navigate(`/app/incidents#${selectedId}`)}
           >
-            返回最近变化
+            ← 返回最近事件
           </button>
           <h4 ref={titleRef} tabIndex={-1}>
             调查结果
@@ -222,11 +299,11 @@ export function IncidentList({
               <p className="incident-context" aria-label="正在查看的服务">
                 {node && ["live", "fresh"].includes(node.freshness)
                   ? node.display_name
-                  : "设备名称待确认"}{" "}
+                  : "电脑名称待确认"}{" "}
                 ·{" "}
                 {event?.object_kind === "service"
                   ? serviceDisplayName(service) || "服务名称待确认"
-                  : "设备变化"}
+                  : "电脑本身的变化"}
               </p>
               {service?.application &&
               serviceDisplayName(service) &&
@@ -272,7 +349,7 @@ export function IncidentList({
                 </p>
               )}
               <details className="incident-technical">
-                <summary>查看技术过程与证据</summary>
+                <summary>高级：调查过程与证据</summary>
                 <p>
                   <strong>原始报告结论：</strong>
                   {detail.data.incident.report?.conclusion ?? "未记录"}
@@ -312,17 +389,17 @@ export function IncidentList({
                       }
                       type="submit"
                     >
-                      {followUp.isPending ? "正在开始追问……" : "开始只读追问"}
+                      {followUp.isPending
+                        ? "正在开始追问……"
+                        : "开始追问（只查看，不改动）"}
                     </button>
                   </form>
                   {followUp.isError ? (
-                    <p role="alert">
-                      追问当前不可用；原 incident 证据没有改变。
-                    </p>
+                    <p role="alert">现在没法追问；原来的调查记录没有变。</p>
                   ) : null}
                   {followUp.data !== undefined ? (
                     <p role="status">
-                      追问已在原有聊天能力中开始。{" "}
+                      已经开始追问。{" "}
                       <Link to={`/app/map?thread=${followUp.data.thread_id}`}>
                         打开对应聊天线程
                       </Link>
@@ -349,6 +426,10 @@ export function IncidentsPage() {
       aria-labelledby="incidents-title"
     >
       <h2 id="incidents-title">最近事件</h2>
+      <p className="page-lead">
+        服务或电脑有了变化（不见了、打不开、新出现），TunnelMinion
+        会记在这里并自动调查原因。同一件事反复出现只算一行，点开看查到了什么。
+      </p>
       {query.isPending ? <p role="status">正在读取最近事件……</p> : null}
       {query.isError ? (
         <p role="alert">

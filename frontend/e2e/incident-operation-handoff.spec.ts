@@ -292,7 +292,7 @@ test("从最近事件 进入预填计划并只创建一次 Operation", async ({
     path: testInfo.outputPath("service-result-narrow.png"),
   });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await detail.getByText("查看技术过程与证据").click();
+  await detail.getByText("高级：调查过程与证据").click();
   await expect(detail).toContainText("service.local-only@1");
   await expect(detail).toContainText("调查已停止");
   await expect(detail).toContainText("get_process_summary");
@@ -407,18 +407,20 @@ test("事件列表与调查详情独立展示，追问转入地图线程", async
   await expect(
     detail.getByRole("heading", { name: "调查结果", exact: true }),
   ).toBeFocused();
-  await detail.getByText("查看技术过程与证据").click();
+  await detail.getByText("高级：调查过程与证据").click();
   await expect(detail.getByText("service.local-only@1")).toBeVisible();
   await detail.getByText("继续问一下（会使用模型额度）").click();
   const input = page.getByRole("textbox", { name: "针对这个事件追问" });
   await expect(input).toHaveAttribute("maxlength", "2000");
   await input.fill("接下来该看什么？");
-  await page.getByRole("button", { name: "开始只读追问" }).click();
+  await page
+    .getByRole("button", { name: "开始追问（只查看，不改动）" })
+    .click();
   await expect(
     page.getByRole("link", { name: "打开对应聊天线程" }),
   ).toHaveAttribute("href", `/app/map?thread=${run.thread_id}`);
   expect(followups).toEqual([{ question: "接下来该看什么？" }]);
-  await page.getByRole("button", { name: "返回最近变化" }).click();
+  await page.getByRole("button", { name: "← 返回最近事件" }).click();
   await expect(
     page.getByRole("button", { name: "查看调查详情" }),
   ).toBeVisible();

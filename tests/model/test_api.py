@@ -68,6 +68,9 @@ class Repository:
         self.borrowed = config
         self.value = None
 
+    def clear_borrowed(self) -> None:
+        self.borrowed = None
+
     def delete(self) -> None:
         self.value = None
         self.saved = ()
@@ -238,3 +241,29 @@ def test_borrowed_model_api_rejects_invalid_input(payload: dict[str, object]) ->
     service = ModelConfigurationService(Repository(), Secrets())
     client = cast(ApiClient, TestClient(create_local_app(service)))
     assert client.put("/api/model/borrowed", json=payload).status_code == 422
+
+
+def test_stop_borrowing_keeps_local_profiles_and_is_idempotent() -> None:
+    peer = NodeId.new()
+    repository = Repository()
+    service = ModelConfigurationService(
+        repository,
+        Secrets(),
+        lambda _config, _key: Provider(),
+        borrowed_provider_factory=lambda _node: Provider(),
+    )
+    client = cast(ApiClient, TestClient(create_local_app(service)))
+    local = client.put(
+        "/api/model-config", json={"endpoint": "http://model.test/v1", "model": "qwen"}
+    )
+    assert local.status_code == 200
+    unchanged = client.delete("/api/model/borrowed")
+    assert unchanged.status_code == 200
+    assert unchanged.json()["model"] == "qwen"
+    assert client.put("/api/model/borrowed", json={"peer_node_id": str(peer)}).status_code == 200
+    stopped = client.delete("/api/model/borrowed")
+    assert stopped.status_code == 200
+    assert stopped.json()["borrowed_from"] is None
+    assert stopped.json()["status"] == "unconfigured"
+    assert [item["model"] for item in stopped.json()["profiles"]] == ["qwen"]
+    assert client.post("/api/ai/runs/availability").status_code == 503

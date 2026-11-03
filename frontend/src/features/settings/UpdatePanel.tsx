@@ -261,6 +261,9 @@ export function UpdatePanel() {
           <span className="settings-status">{availabilityText(view)}</span>
         )}
       </div>
+      <p className="page-lead">
+        看看有没有新版本；有的话点一下就能换上，换失败会自动退回旧版。
+      </p>
       {view === undefined ? (
         <p role={query.isPending ? "status" : "alert"}>
           {query.isPending ? "正在读取版本信息……" : readable(query.error)}

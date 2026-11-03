@@ -10,7 +10,9 @@ test("窄窗口仍能找到脱敏诊断与恢复说明", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto("/app/settings");
 
-  await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "设置", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "返回刚才的问题" })).toHaveCount(
     0,
   );
@@ -18,9 +20,8 @@ test("窄窗口仍能找到脱敏诊断与恢复说明", async ({ page }) => {
   const download = page.getByRole("link", { name: "下载脱敏诊断包" });
   await expect(download).toBeVisible();
   await expect(download).toHaveAttribute("href", "/api/diagnostics/export");
-  await expect(
-    page.getByText(/没有 Murus、防火墙日志权限或厂商 VPN 工具时/),
-  ).toBeVisible();
+  await page.getByText("自己先排查：按这个顺序看").click();
+  await expect(page.getByText(/Murus 防火墙日志/)).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
   const blocking = results.violations.filter(

@@ -74,3 +74,19 @@ export function validateModelConfiguration(): Promise<ModelConfiguration> {
 export function deleteModelConfiguration(): Promise<void> {
   return requestNoContent("/api/model-config", { method: "DELETE" });
 }
+
+/** 改用另一台电脑的模型；后端会先真的调一次对方的模型，借不到就报错且不改配置。 */
+export function borrowModel(peerNodeId: string): Promise<ModelConfiguration> {
+  return requestJson("/api/model/borrowed", modelConfigurationSchema, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ peer_node_id: peerNodeId }),
+  });
+}
+
+/** 停止借用；以前用过的本机模型和密钥都保留，可以再选回来。 */
+export function stopBorrowingModel(): Promise<ModelConfiguration> {
+  return requestJson("/api/model/borrowed", modelConfigurationSchema, {
+    method: "DELETE",
+  });
+}

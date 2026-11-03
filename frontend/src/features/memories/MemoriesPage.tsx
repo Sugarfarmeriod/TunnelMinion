@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -14,14 +14,14 @@ import {
   reviseMemory,
 } from "./api";
 import type { LongTermMemory, MemoryScope, ReviseMemoryInput } from "./api";
-import { peersQueryKey, type Peer } from "../service-map/api";
+import { loadPeers, peersQueryKey } from "../service-map/api";
 import "./memories.css";
 
 const kindLabels: Record<LongTermMemory["kind"], string> = {
-  "node-alias": "节点别名",
-  preference: "偏好",
-  "security-constraint": "安全约束",
-  "stable-service-fact": "稳定服务事实",
+  "node-alias": "电脑的别名",
+  preference: "你的习惯和偏好",
+  "security-constraint": "不许做的事",
+  "stable-service-fact": "服务的固定信息",
 };
 
 interface Notice {
@@ -56,7 +56,7 @@ type Confirmation =
 
 function formatTimestamp(value: string | null): string {
   if (value === null) {
-    return "没有期限";
+    return "一直有效";
   }
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
@@ -64,13 +64,17 @@ function formatTimestamp(value: string | null): string {
   }).format(new Date(value));
 }
 
+// 本机 Agent 默认把记忆记在这个用户、这个网络、这台电脑下。
+const defaultUser = "local-user";
+const defaultNetwork = "home";
+
 function scopeLabel(scope: MemoryScope): string {
-  return `用户“${scope.user}” / 网络“${scope.network}” / 节点“${scope.nodeId}”`;
+  return `用户“${scope.user}” / 网络“${scope.network}” / 电脑“${scope.nodeId}”`;
 }
 
 function returnedScopeLabel(memory: LongTermMemory): string {
   const scope = memory.namespace;
-  return `用户“${scope.user}” / 网络“${scope.network}” / 节点“${scope.node_id}” / 任务“${scope.task_type}” / 安全域“${scope.security_scope}”`;
+  return `用户“${scope.user}” / 网络“${scope.network}” / 电脑“${scope.node_id}” / 任务“${scope.task_type}” / 安全范围“${scope.security_scope}”`;
 }
 
 function readableError(error: unknown): string {
@@ -78,9 +82,9 @@ function readableError(error: unknown): string {
     return `${error.message}（${error.code}）`;
   }
   if (error instanceof Error && error.name === "ZodError") {
-    return "服务返回的记忆数据不符合契约，页面不会猜测或跨作用域展示。";
+    return "本机程序返回的记忆格式不对，页面没有显示它。";
   }
-  return "无法读取长期记忆，请确认本机 TunnelMinion 仍在运行。";
+  return "读不到记忆，请确认这台电脑上的 TunnelMinion 还开着。";
 }
 
 function ConfirmationDialog({
@@ -173,7 +177,7 @@ function MemoryEditor({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (state.content.trim() === "" || state.source.trim() === "") {
-      setValidationError("内容和来源都不能为空。请修正后再检查。 ");
+      setValidationError("内容和来源都要填。");
       contentRef.current?.focus();
       return;
     }
@@ -184,7 +188,7 @@ function MemoryEditor({
   return (
     <form className="memory-editor" onSubmit={submit}>
       <p className="memory-editor__scope">
-        修正只会留在原作用域：{returnedScopeLabel(state.memory)}
+        改完还记在原来的范围里，不会挪到别处。
       </p>
       <label>
         记忆内容
@@ -219,7 +223,7 @@ function MemoryEditor({
       )}
       <div className="memory-actions">
         <button disabled={disabled} ref={reviewButtonRef} type="submit">
-          检查并确认修正
+          检查并确认修改
         </button>
         <button disabled={disabled} onClick={onCancel} type="button">
           取消编辑
@@ -230,17 +234,39 @@ function MemoryEditor({
 }
 
 export function MemoriesPage() {
-  const client = useQueryClient();
-  // 本机 Agent 的记忆存在这台电脑的节点下；从地图进来时已经读过电脑列表，直接填上，不用手抄 32 位编号。
-  const [scopeDraft, setScopeDraft] = useState<MemoryScope>(() => ({
-    user: "local-user",
-    network: "home",
-    nodeId:
-      client
-        .getQueryData<{ peers: Peer[] }>(peersQueryKey)
-        ?.peers.find((peer) => peer.is_local)?.node_id ?? "",
-  }));
-  const [activeScope, setActiveScope] = useState<MemoryScope | null>(null);
+  // 本机 Agent 的记忆存在这台电脑下；打开页面就直接看这台电脑的记忆，不用手抄 32 位编号。
+  const peersQuery = useQuery({
+    queryKey: peersQueryKey,
+    queryFn: loadPeers,
+    retry: false,
+  });
+  const localNodeId =
+    peersQuery.data?.peers.find((peer) => peer.is_local)?.node_id ?? null;
+  const defaultScope: MemoryScope | null =
+    localNodeId === null
+      ? null
+      : { user: defaultUser, network: defaultNetwork, nodeId: localNodeId };
+  const [scopeDraft, setScopeDraft] = useState<MemoryScope>({
+    user: defaultUser,
+    network: defaultNetwork,
+    nodeId: "",
+  });
+  // 主人在“高级”里手动选过范围后才有值；没选过就看这台电脑。
+  const [chosenScope, setChosenScope] = useState<MemoryScope | null>(null);
+  const activeScope = chosenScope ?? defaultScope;
+  const viewingDefault =
+    activeScope !== null &&
+    defaultScope !== null &&
+    activeScope.user === defaultScope.user &&
+    activeScope.network === defaultScope.network &&
+    activeScope.nodeId === defaultScope.nodeId;
+  useEffect(() => {
+    if (localNodeId !== null) {
+      setScopeDraft((draft) =>
+        draft.nodeId === "" ? { ...draft, nodeId: localNodeId } : draft,
+      );
+    }
+  }, [localNodeId]);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
@@ -274,17 +300,17 @@ export function MemoriesPage() {
       nodeId: scopeDraft.nodeId.trim(),
     };
     if (next.user === "" || next.network === "" || next.nodeId === "") {
-      setScopeError("用户、网络和节点 ID 都必须填写，才能精确读取作用域。 ");
+      setScopeError("用户、网络和电脑编号都要填。");
       return;
     }
     if (!nodeIdSchema.safeParse(next.nodeId).success) {
-      setScopeError("节点 ID 必须是 node_ 加 32 位小写十六进制字符。 ");
+      setScopeError("电脑编号是 node_ 开头、后面跟 32 位数字和小写字母。");
       return;
     }
     setScopeError(null);
     setNotice(null);
     setEditState(null);
-    setActiveScope(next);
+    setChosenScope(next);
   }
 
   function cancelEditing() {
@@ -323,7 +349,7 @@ export function MemoriesPage() {
       if (confirmed) {
         setNotice({
           kind: "success",
-          message: "服务端已确认修正，并返回了新的更新时间。",
+          message: "已修改。",
         });
         setEditState(null);
       } else if (requestError instanceof ApiError) {
@@ -332,7 +358,7 @@ export function MemoriesPage() {
         setNotice({
           kind: "warning",
           message:
-            "修正请求的结果无法确认。页面只重新读取了作用域，没有重放写请求；请先核对当前记录再决定下一步。",
+            "不确定刚才有没有改成功。页面只重新读了一次，没有再改一遍；请先看看下面的记录对不对。",
         });
       }
     } else if (confirmation.kind === "delete") {
@@ -345,7 +371,7 @@ export function MemoriesPage() {
       if (requestError === undefined) {
         setNotice({
           kind: "success",
-          message: "服务端已用 204 明确确认：这条长期记忆已删除。",
+          message: "已删除这条记忆。",
         });
         if (editState?.memory.memory_id === confirmation.memory.memory_id) {
           setEditState(null);
@@ -355,14 +381,14 @@ export function MemoriesPage() {
         await query.refetch();
         setNotice({
           kind: "error",
-          message: `${readableError(requestError)} 页面只重新读取了一次，没有自动重放删除；请按最新记录决定下一步。`,
+          message: `删除失败：${readableError(requestError)} 页面只重新读了一次，没有自动再删。`,
         });
       } else {
         await query.refetch();
         setNotice({
           kind: "warning",
           message:
-            "删除请求的结果未知。页面只重新读取了一次，没有自动重放删除；当前记录仍在，请稍后再次刷新。",
+            "不确定刚才有没有删成功。页面只重新读了一次，没有自动再删；过一会儿再点“重新读取”看看。",
         });
       }
     } else {
@@ -375,7 +401,7 @@ export function MemoriesPage() {
       if (requestError === undefined) {
         setNotice({
           kind: "success",
-          message: "服务端已用 204 明确确认：这个精确作用域已经清空。",
+          message: "已清空这里的全部记忆。",
         });
         setEditState(null);
         await query.refetch();
@@ -386,7 +412,7 @@ export function MemoriesPage() {
         setNotice({
           kind: "warning",
           message:
-            "清空请求的结果未知。页面只重新读取了一次，没有自动重放；其他作用域和聊天线程未被触碰。",
+            "不确定刚才有没有清空成功。页面只重新读了一次，没有自动再清；别的范围和聊天记录都没动。",
         });
       }
     }
@@ -401,12 +427,12 @@ export function MemoriesPage() {
     <section aria-labelledby="memories-title" className="memories-page surface">
       <header className="memories-page__header">
         <div>
-          <p className="eyebrow">独立于聊天记录</p>
           <h2 id="memories-title" ref={headingRef} tabIndex={-1}>
             长期记忆
           </h2>
-          <p>
-            这里只管理用户确认过的稳定事实和偏好。删除聊天不会删除这些记录，清空记忆也不会删除聊天线程。
+          <p className="page-lead">
+            Agent
+            记住的、经你确认过的事，比如电脑的别名、你的习惯、哪些事不许做。以后提问时它会参考这些。删聊天不会删这些记忆，清空记忆也不会删聊天。
           </p>
         </div>
         {activeScope === null ? null : (
@@ -421,71 +447,18 @@ export function MemoriesPage() {
         )}
       </header>
 
-      <form className="memory-scope-form" onSubmit={chooseScope}>
-        <fieldset disabled={writing}>
-          <legend>选择精确作用域</legend>
-          <label>
-            用户
-            <input
-              maxLength={128}
-              onChange={(event) =>
-                setScopeDraft({
-                  ...scopeDraft,
-                  user: event.currentTarget.value,
-                })
-              }
-              required
-              value={scopeDraft.user}
-            />
-          </label>
-          <label>
-            网络
-            <input
-              maxLength={128}
-              onChange={(event) =>
-                setScopeDraft({
-                  ...scopeDraft,
-                  network: event.currentTarget.value,
-                })
-              }
-              required
-              value={scopeDraft.network}
-            />
-          </label>
-          <label>
-            节点 ID
-            <input
-              autoComplete="off"
-              onChange={(event) =>
-                setScopeDraft({
-                  ...scopeDraft,
-                  nodeId: event.currentTarget.value,
-                })
-              }
-              placeholder="填写完整节点 ID"
-              required
-              value={scopeDraft.nodeId}
-            />
-          </label>
-          <button type="submit">查看这个作用域</button>
-        </fieldset>
-        {scopeError === null ? null : (
-          <p className="memory-inline-error" role="alert">
-            {scopeError}
-          </p>
-        )}
-      </form>
-
       {activeScope === null ? (
         <p className="memory-prompt" role="status">
-          填写完整作用域后再读取；页面不会把一个作用域的缓存显示到另一个作用域。
+          {peersQuery.isPending
+            ? "正在找这台电脑……"
+            : "找不到这台电脑的编号。可以在下面“高级”里手动填写范围再看。"}
         </p>
       ) : (
         <div className="memory-results">
           <div className="memory-results__heading">
             <div>
-              <h3>当前作用域</h3>
-              <p>{scopeLabel(activeScope)}</p>
+              <h3>{viewingDefault ? "这台电脑的记忆" : "这个范围里的记忆"}</h3>
+              {viewingDefault ? null : <p>{scopeLabel(activeScope)}</p>}
             </div>
             <button
               className="memory-button--danger-outline"
@@ -505,7 +478,7 @@ export function MemoriesPage() {
               }
               type="button"
             >
-              清空这个精确作用域
+              清空这里的全部记忆
             </button>
           </div>
 
@@ -520,7 +493,7 @@ export function MemoriesPage() {
 
           {query.isPending ? (
             <p aria-live="polite" role="status">
-              正在读取这个精确作用域的长期记忆……
+              正在读取记忆……
             </p>
           ) : memories === undefined ? (
             <div className="memory-query-error" role="alert">
@@ -542,7 +515,8 @@ export function MemoriesPage() {
               ) : null}
               {memories.length === 0 ? (
                 <p className="memory-empty" role="status">
-                  这个精确作用域还没有长期记忆。
+                  这里还没有记忆。你在对话里让 Agent
+                  记住某件事并确认后，就会出现在这里。
                 </p>
               ) : (
                 <ul className="memory-list">
@@ -556,7 +530,7 @@ export function MemoriesPage() {
                           <h4 id={`memory-${memory.memory_id}`}>
                             {kindLabels[memory.kind]}
                           </h4>
-                          <span>已由用户确认</span>
+                          <span>你确认过</span>
                         </div>
                         {editState?.memory.memory_id === memory.memory_id ? (
                           <MemoryEditor
@@ -589,14 +563,14 @@ export function MemoriesPage() {
                                 <dd>{formatTimestamp(memory.updated_at)}</dd>
                               </div>
                               <div>
-                                <dt>有效期</dt>
+                                <dt>有效到</dt>
                                 <dd>{formatTimestamp(memory.valid_until)}</dd>
                               </div>
-                              <div>
-                                <dt>完整作用域</dt>
-                                <dd>{returnedScopeLabel(memory)}</dd>
-                              </div>
                             </dl>
+                            <details className="memory-scope-detail">
+                              <summary>记在哪个范围</summary>
+                              <p>{returnedScopeLabel(memory)}</p>
+                            </details>
                             <div className="memory-actions">
                               <button
                                 disabled={isReadOnlyPreview() || writing}
@@ -610,7 +584,7 @@ export function MemoriesPage() {
                                 }
                                 type="button"
                               >
-                                修正这条记忆
+                                修改这条记忆
                               </button>
                               <button
                                 className="memory-button--danger-outline"
@@ -639,32 +613,96 @@ export function MemoriesPage() {
         </div>
       )}
 
+      <details className="advanced memory-scope">
+        <summary>高级：看别的范围</summary>
+        <p className="advanced-hint">
+          记忆按“用户 / 网络 /
+          电脑”分开存。平时只用这台电脑的；想看别的电脑或旧数据时，在这里填好再看。
+        </p>
+        <form className="memory-scope-form" onSubmit={chooseScope}>
+          <fieldset disabled={writing}>
+            <label>
+              用户
+              <input
+                maxLength={128}
+                onChange={(event) =>
+                  setScopeDraft({
+                    ...scopeDraft,
+                    user: event.currentTarget.value,
+                  })
+                }
+                required
+                value={scopeDraft.user}
+              />
+            </label>
+            <label>
+              网络
+              <input
+                maxLength={128}
+                onChange={(event) =>
+                  setScopeDraft({
+                    ...scopeDraft,
+                    network: event.currentTarget.value,
+                  })
+                }
+                required
+                value={scopeDraft.network}
+              />
+            </label>
+            <label>
+              电脑编号
+              <input
+                autoComplete="off"
+                onChange={(event) =>
+                  setScopeDraft({
+                    ...scopeDraft,
+                    nodeId: event.currentTarget.value,
+                  })
+                }
+                placeholder="node_ 开头的完整编号"
+                required
+                value={scopeDraft.nodeId}
+              />
+            </label>
+            <button type="submit">看这个范围</button>
+          </fieldset>
+          {scopeError === null ? null : (
+            <p className="memory-inline-error" role="alert">
+              {scopeError}
+            </p>
+          )}
+        </form>
+      </details>
+
       {confirmation === null ? null : (
         <ConfirmationDialog
           busy={writing}
           confirmLabel={
             confirmation.kind === "revise"
-              ? "确认修正一次"
+              ? "确认修改"
               : confirmation.kind === "delete"
-                ? "确认删除一次"
-                : "确认清空一次"
+                ? "确认删除"
+                : "确认清空"
           }
           description={
             confirmation.kind === "revise" ? (
               <>
-                <p>原作用域：{returnedScopeLabel(confirmation.memory)}</p>
-                <p>修正后内容：{confirmation.input.content}</p>
-                <p>修正后来源：{confirmation.input.source}</p>
+                <p>改成：{confirmation.input.content}</p>
+                <p>来源：{confirmation.input.source}</p>
               </>
             ) : confirmation.kind === "delete" ? (
               <>
                 <p>将删除：{confirmation.memory.content}</p>
-                <p>作用域：{returnedScopeLabel(confirmation.memory)}</p>
               </>
             ) : (
               <>
-                <p>将清空：{scopeLabel(confirmation.scope)}</p>
-                <p>其他作用域和聊天线程不会被删除。</p>
+                <p>
+                  将清空：
+                  {viewingDefault
+                    ? "这台电脑的全部记忆"
+                    : scopeLabel(confirmation.scope)}
+                </p>
+                <p>别的范围和聊天记录都不会动。</p>
               </>
             )
           }
@@ -675,10 +713,10 @@ export function MemoriesPage() {
           safeFallbackFocus={headingRef.current}
           title={
             confirmation.kind === "revise"
-              ? "确认修正长期记忆"
+              ? "确认修改这条记忆"
               : confirmation.kind === "delete"
-                ? "确认删除长期记忆"
-                : "确认清空精确作用域"
+                ? "确认删除这条记忆"
+                : "确认清空这里的全部记忆"
           }
         />
       )}

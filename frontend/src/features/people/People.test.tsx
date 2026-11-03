@@ -465,7 +465,7 @@ describe("PeoplePage", () => {
       checked: true,
     });
     expect(
-      screen.getAllByRole("checkbox", { name: "允许借模型" })[0],
+      screen.getAllByRole("checkbox", { name: "允许借我的模型" })[0],
     ).toBeDisabled();
     await user.click(proxy);
     const confirm = screen.getByRole("dialog");
@@ -497,7 +497,11 @@ describe("PeoplePage", () => {
       }),
     );
 
-    await user.click(screen.getByRole("checkbox", { name: "允许借我的模型" }));
+    await user.click(
+      within(
+        screen.getByRole("heading", { name: /^朋友/ }).closest("article")!,
+      ).getByRole("checkbox", { name: "允许借我的模型" }),
+    );
     await waitFor(() =>
       expect(
         requests.find(

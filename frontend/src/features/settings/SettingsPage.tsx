@@ -1,19 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ApiError } from "../../api/client";
 import { requestJson } from "../../api/client";
 import { resourceOverviewSchema } from "../../api/schemas/overview";
+import type { ResourceOverview } from "../../api/schemas/overview";
 import { RuntimeOverview } from "../overview/OverviewCards";
 import { loadPeers, peersQueryKey } from "../service-map/api";
 import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 
 import {
+  borrowModel,
   deleteModelConfiguration,
   getModelConfiguration,
   saveModelConfiguration,
+  stopBorrowingModel,
   validateModelConfiguration,
 } from "./api";
 import type { ModelConfiguration, ModelConfigurationInput } from "./api";
@@ -24,6 +28,24 @@ const statusLabels: Record<ModelConfiguration["status"], string> = {
   unconfigured: "尚未配置",
   available: "模型可用",
   unavailable: "模型当前不可用",
+};
+
+const runtimeSummary: Record<ResourceOverview["local"]["runtime"], string> = {
+  running: "TunnelMinion 在运行，但有些功能暂时用不了",
+  starting: "TunnelMinion 正在启动",
+  stopping: "TunnelMinion 正在停止",
+  stopped: "TunnelMinion 已经停了",
+  degraded: "TunnelMinion 在运行，但有些功能暂时用不了",
+  unknown: "暂时不知道 TunnelMinion 是否正常",
+};
+
+const platformNames: Record<
+  NonNullable<ResourceOverview["local"]["platform"]>,
+  string
+> = {
+  windows: "Windows",
+  macos: "macOS",
+  linux: "Linux",
 };
 
 interface Notice {
@@ -48,9 +70,9 @@ function readableError(error: unknown): string {
     return `${error.message}（${error.code}）`;
   }
   if (error instanceof Error && error.name === "ZodError") {
-    return "服务返回的模型配置包含未允许的字段或不符合脱敏契约，页面已拒绝显示。";
+    return "本机程序返回的模型设置格式不对，页面没有显示它。";
   }
-  return "无法读取模型配置，请确认本机 TunnelMinion 仍在运行。";
+  return "读不到模型设置，请确认这台电脑上的 TunnelMinion 还开着。";
 }
 
 function SettingsConfirmationDialog({
@@ -180,7 +202,9 @@ export function SettingsPage() {
       timeout < 0.1 ||
       timeout > 600
     ) {
-      setFormError("请填写 endpoint、模型名称，以及 0.1–600 秒的超时时间。 ");
+      setFormError(
+        "请填好模型服务地址和模型名称；超时要在 0.1–600 秒之间（在“高级”里）。",
+      );
       return;
     }
     const toolLimit = maxTools.trim() === "" ? null : Number(maxTools);
@@ -198,13 +222,13 @@ export function SettingsPage() {
       disable_thinking: disableThinking,
       max_tools: toolLimit,
     };
-    let secretAction = "保留该 endpoint 已保存的密钥";
+    let secretAction = "沿用这个地址已保存的密钥";
     if (clearApiKey) {
       input.api_key = "";
-      secretAction = "清除当前已保存的密钥";
+      secretAction = "删掉已保存的密钥";
     } else if (apiKey !== "") {
       input.api_key = apiKey;
-      secretAction = "替换密钥（值不会显示在确认页或服务端响应中）";
+      secretAction = "换成新填的密钥（确认页不会显示密钥内容）";
     }
     setFormError(null);
     setConfirmation({
@@ -244,7 +268,7 @@ export function SettingsPage() {
         setDeleteUncertain(false);
         setNotice({
           kind: "success",
-          message: "服务端已验证、保存并重新返回脱敏模型配置。",
+          message: "已保存。可以点“测试模型能不能用”确认一下。",
         });
       } else if (requestError instanceof ApiError) {
         setNotice({ kind: "error", message: readableError(requestError) });
@@ -252,7 +276,7 @@ export function SettingsPage() {
         setNotice({
           kind: "warning",
           message:
-            "保存请求的结果无法确认。页面只重新读取了配置，没有自动重放写请求；请先核对当前状态。",
+            "不确定刚才有没有保存成功。页面只重新读了一次设置，没有再保存一遍；请先看看下面的设置对不对。",
         });
       }
     } else {
@@ -268,7 +292,7 @@ export function SettingsPage() {
         setDeleteUncertain(false);
         setNotice({
           kind: "success",
-          message: "服务端已用 204 明确确认：模型配置和已保存密钥均已清除。",
+          message: "已清除模型设置和保存的密钥。",
         });
         await query.refetch();
       } else {
@@ -276,11 +300,11 @@ export function SettingsPage() {
         setDeleteUncertain(true);
         const detail =
           requestError instanceof ApiError
-            ? `服务端报告 ${readableError(requestError)}。`
-            : "请求响应丢失或无法读取。";
+            ? `清除失败：${readableError(requestError)}。`
+            : "不确定刚才有没有清除成功。";
         setNotice({
           kind: "warning",
-          message: `${detail} 即使重读显示“未配置”，也无法确认操作系统秘密存储中的密钥是否已清除。页面没有自动重放；请只使用重新读取，或在明确确认后手动重试清除。`,
+          message: `${detail} 即使下面显示“尚未配置”，系统凭据库里的密钥也可能还在。页面没有自动重试；确认后可以点“重试清除配置与密钥”。`,
         });
       }
     }
@@ -312,18 +336,60 @@ export function SettingsPage() {
         kind: response.status === "available" ? "success" : "warning",
         message:
           response.status === "available"
-            ? "服务端已重新验证：模型现在可用。"
-            : "服务端已完成验证，模型仍不可用；资源与记忆功能不受影响。",
+            ? "测试通过：模型现在能用。"
+            : "测试做完了，模型还是用不了；地图、服务清单和记忆不受影响。",
       });
     } else if (requestError instanceof ApiError) {
       setNotice({ kind: "error", message: readableError(requestError) });
     } else {
       setNotice({
         kind: "warning",
-        message:
-          "验证请求的结果无法确认。页面没有自动重放验证，只重新读取了当前配置。",
+        message: "不确定测试结果。页面没有自动重测，只重新读了一次设置。",
       });
     }
+    setWriting(false);
+  }
+
+  /** 借用或停止借用都只发一次请求；失败时原配置不变，页面只重新读一次。 */
+  async function changeBorrowing(
+    target: { kind: "borrow"; nodeId: string; name: string } | { kind: "stop" },
+  ) {
+    if (writing) {
+      return;
+    }
+    setWriting(true);
+    setNotice(null);
+    try {
+      if (target.kind === "borrow") {
+        await borrowModel(target.nodeId);
+        setNotice({
+          kind: "success",
+          message: `已改为借用 ${target.name} 的模型，可以去地图上提问了。`,
+        });
+      } else {
+        const view = await stopBorrowingModel();
+        setNotice({
+          kind: "success",
+          message:
+            view.profiles.length > 0
+              ? "已停止借用。这台电脑现在没有模型：可以再借一台，或在下面“以前用过的模型”里选回自己的模型。"
+              : "已停止借用。这台电脑现在没有模型：可以再借一台，或在下面填好自己的模型。",
+        });
+      }
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message:
+          target.kind === "borrow"
+            ? `没借到 ${target.name} 的模型：${
+                error instanceof ApiError && error.status === 404
+                  ? "这台电脑找不到它的连接，确认它在“电脑与朋友”里并且开着。"
+                  : readableError(error)
+              }`
+            : `没能停止借用：${readableError(error)}`,
+      });
+    }
+    await query.refetch();
     setWriting(false);
   }
 
@@ -337,51 +403,118 @@ export function SettingsPage() {
       ? data.api_key_configured
       : false);
 
+  const borrowedFrom =
+    data?.borrowed_from === null || data?.borrowed_from === undefined
+      ? null
+      : (peersQuery.data?.peers.find(
+          (peer) => peer.node_id === data.borrowed_from,
+        )?.display_name ?? `另一台电脑（${data.borrowed_from.slice(-8)}）`);
+  const system = systemQuery.data;
+  // 能借模型的只有已经加进来的电脑：先列我自己的，再列朋友的；对方要在它那边允许这台电脑借。
+  const lenders = (peersQuery.data?.peers ?? [])
+    .filter(
+      (peer) =>
+        !peer.is_local &&
+        (peer.relationship === "mine" || peer.relationship === "friend") &&
+        peer.node_id !== data?.borrowed_from,
+    )
+    .sort(
+      (a, b) =>
+        Number(a.relationship !== "mine") - Number(b.relationship !== "mine"),
+    );
+
   return (
     <section aria-labelledby="settings-title" className="settings-page surface">
       <header className="settings-page__header">
         <div>
-          <p className="eyebrow">脱敏的本机配置</p>
           <h2 id="settings-title" ref={headingRef} tabIndex={-1}>
-            模型设置
+            设置
           </h2>
-          <p>
-            页面只显示非秘密字段和“是否已保存密钥”。密钥不会从服务端返回，也不会写入浏览器存储。
+          <p className="page-lead">
+            TunnelMinion 自己的几样设置：用哪个 AI
+            模型、这台电脑是否正常、版本更新，以及出问题时导出求助用的诊断包。
           </p>
         </div>
         <button
           disabled={query.isFetching || writing}
-          onClick={() => void query.refetch()}
+          onClick={() => {
+            void query.refetch();
+            void systemQuery.refetch();
+          }}
           ref={refreshRef}
           type="button"
         >
-          {query.isFetching ? "正在重新读取……" : "重新读取状态"}
+          {query.isFetching ? "正在重新读取……" : "重新读取"}
         </button>
       </header>
 
-      {systemQuery.data ? (
-        <>
-          <button
-            type="button"
-            disabled={systemQuery.isFetching}
-            onClick={() => void systemQuery.refetch()}
+      <article
+        aria-labelledby="system-status-title"
+        className="settings-status-card"
+      >
+        <div className="settings-status-card__heading">
+          <h3 id="system-status-title">这台电脑现在怎么样</h3>
+          <span
+            className={`settings-status settings-status--${
+              system === undefined
+                ? "unconfigured"
+                : system.local.readiness === "ready"
+                  ? "available"
+                  : "unavailable"
+            }`}
           >
-            刷新运行基础
-          </button>
-          {systemQuery.isRefetchError ? (
-            <p role="alert">运行基础刷新失败，下面保留上一次读取的记录。</p>
-          ) : null}
-          <RuntimeOverview data={systemQuery.data} />
-        </>
-      ) : null}
-      {systemQuery.isError && !systemQuery.data ? (
-        <p role="alert">
-          运行基础暂时无法读取。
-          <button type="button" onClick={() => void systemQuery.refetch()}>
-            重新读取运行基础
-          </button>
+            {system === undefined
+              ? systemQuery.isPending
+                ? "正在读取"
+                : "暂时不知道"
+              : system.local.readiness === "ready"
+                ? "正常"
+                : "需要留意"}
+          </span>
+        </div>
+        <p className="page-lead">
+          TunnelMinion 在这台电脑上有没有正常运行。不正常时，先看这里。
         </p>
-      ) : null}
+        {system === undefined ? (
+          <div role={systemQuery.isPending ? "status" : "alert"}>
+            <p>
+              {systemQuery.isPending
+                ? "正在读取这台电脑的运行状态……"
+                : "暂时读不到运行状态；模型设置和诊断包仍可单独使用。"}
+            </p>
+            {systemQuery.isPending ? null : (
+              <button onClick={() => void systemQuery.refetch()} type="button">
+                重新读取运行状态
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <p>
+              {system.local.readiness === "ready" &&
+              system.local.runtime === "running"
+                ? "一切正常：TunnelMinion 正在运行。"
+                : `${runtimeSummary[system.local.runtime]}。先确认这台电脑上的 TunnelMinion 还开着，再点“重新读取”。`}
+            </p>
+            <p className="settings-facts">
+              {system.local.platform === null
+                ? "系统未知"
+                : platformNames[system.local.platform]}{" "}
+              · 版本 {system.local.version ?? "未知"}
+            </p>
+            {systemQuery.isRefetchError ? (
+              <p role="alert">刷新失败，上面是上一次读到的状态。</p>
+            ) : null}
+            <details className="advanced">
+              <summary>高级：运行细节</summary>
+              <p className="advanced-hint">
+                排查问题时才用得上的内部状态。“Coordinator”是可选的多电脑目录服务，没配置也不影响使用；“网络路径”是这台电脑和其他电脑之间走哪条线。
+              </p>
+              <RuntimeOverview data={system} />
+            </details>
+          </>
+        )}
+      </article>
 
       {notice === null ? null : (
         <p
@@ -394,95 +527,138 @@ export function SettingsPage() {
 
       {query.isPending ? (
         <p aria-live="polite" role="status">
-          正在读取脱敏模型配置……
+          正在读取模型设置……
         </p>
       ) : data === undefined ? (
         <div className="settings-query-error" role="alert">
-          <h3>现在读不到模型配置</h3>
+          <h3>现在读不到模型设置</h3>
           <p>{readableError(query.error)}</p>
           <button onClick={() => void query.refetch()} type="button">
             重新读取
           </button>
         </div>
       ) : (
-        <>
+        <article
+          aria-labelledby="model-status-title"
+          className="settings-status-card"
+        >
           {query.isRefetchError ? (
             <p
               className="settings-notice settings-notice--warning"
               role="alert"
             >
-              重新读取失败。下面是上一次成功读取的缓存，不能视为当前事实。
+              重新读取失败。下面是上一次读到的设置，可能已经变了。
+            </p>
+          ) : null}
+          <div className="settings-status-card__heading">
+            <h3 id="model-status-title">AI 模型</h3>
+            <span className={`settings-status settings-status--${data.status}`}>
+              {statusLabels[data.status]}
+            </span>
+          </div>
+          <p className="page-lead">
+            Agent
+            用这个模型回答你的问题、调查服务为什么出问题。没设置时，地图和服务清单照样能用，只是不能提问。
+          </p>
+          {data.status === "unconfigured" ? (
+            <p role="status">
+              还没设置模型。在下面填好模型服务地址和名称就能用。
+            </p>
+          ) : borrowedFrom !== null ? (
+            <div className="settings-borrowing">
+              <p>正在借用 {borrowedFrom} 的模型，这台电脑不用自己配置。</p>
+              <button
+                disabled={isReadOnlyPreview() || writing}
+                onClick={() => void changeBorrowing({ kind: "stop" })}
+                type="button"
+              >
+                停止借用
+              </button>
+            </div>
+          ) : (
+            <dl className="settings-metadata">
+              <div>
+                <dt>模型服务地址</dt>
+                <dd>{data.endpoint ?? "未返回"}</dd>
+              </div>
+              <div>
+                <dt>模型名称</dt>
+                <dd>{data.model ?? "未返回"}</dd>
+              </div>
+              <div>
+                <dt>API 密钥</dt>
+                <dd>{data.api_key_configured ? "已安全保存" : "未保存"}</dd>
+              </div>
+            </dl>
+          )}
+          {data.error_code === null && data.error_message === null ? null : (
+            <div className="settings-provider-error" role="alert">
+              <strong>模型报错</strong>
+              <p>{data.error_message ?? "模型没有给出错误说明。"}</p>
+              <span>{data.error_code ?? "unknown_provider_error"}</span>
+            </div>
+          )}
+          {data.borrowed_from === null && data.status === "unavailable" ? (
+            <p className="settings-recovery">
+              先确认模型服务开着，再核对下面的地址、模型名称和密钥。模型不可用时，地图、服务清单和记忆照常能用。
             </p>
           ) : null}
 
-          <article
-            aria-labelledby="model-status-title"
-            className="settings-status-card"
+          <section
+            aria-labelledby="settings-borrow-title"
+            className="settings-borrow"
           >
-            <div className="settings-status-card__heading">
-              <h3 id="model-status-title">当前状态</h3>
-              <span
-                className={`settings-status settings-status--${data.status}`}
-              >
-                {statusLabels[data.status]}
-              </span>
-            </div>
-            {data.status === "unconfigured" ? (
-              <p role="status">
-                还没有模型配置。聊天的新 AI run
-                暂不可用，但长期记忆和确定性资源仍可管理。
+            <h4 id="settings-borrow-title">
+              {data.borrowed_from === null
+                ? "借用别的电脑的模型"
+                : "改借另一台电脑的模型"}
+            </h4>
+            <p className="advanced-hint">
+              这台电脑不用自己装模型，可以借另一台电脑已经配好的。你自己的电脑默认允许互相借；朋友的电脑要对方在“电脑与朋友”里打开“允许借我的模型”。点了之后会先试着调用一次，借不到会告诉你原因。
+            </p>
+            {peersQuery.isPending ? (
+              <p role="status">正在读取可以借的电脑……</p>
+            ) : lenders.length === 0 ? (
+              <p>
+                {data.borrowed_from === null
+                  ? "还没有可以借的电脑。先在“电脑与朋友”里加上你的其他电脑。"
+                  : "没有别的电脑可以改借。"}
               </p>
-            ) : data.borrowed_from !== null ? (
-              <p>正在使用 {data.borrowed_from.slice(0, 12)} 的模型</p>
             ) : (
-              <dl className="settings-metadata">
-                <div>
-                  <dt>Endpoint</dt>
-                  <dd>{data.endpoint ?? "未返回"}</dd>
-                </div>
-                <div>
-                  <dt>模型</dt>
-                  <dd>{data.model ?? "未返回"}</dd>
-                </div>
-                <div>
-                  <dt>超时</dt>
-                  <dd>
-                    {data.timeout_seconds === null
-                      ? "未返回"
-                      : `${data.timeout_seconds} 秒`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>API 密钥</dt>
-                  <dd>{data.api_key_configured ? "已安全保存" : "未保存"}</dd>
-                </div>
-              </dl>
-            )}
-            {data.error_code === null && data.error_message === null ? null : (
-              <div className="settings-provider-error" role="alert">
-                <strong>模型验证错误</strong>
-                <span>{data.error_code ?? "unknown_provider_error"}</span>
-                <p>{data.error_message ?? "服务没有返回错误说明。"}</p>
+              <div className="settings-actions">
+                {lenders.map((peer) => (
+                  <button
+                    disabled={isReadOnlyPreview() || writing}
+                    key={peer.node_id}
+                    onClick={() =>
+                      void changeBorrowing({
+                        kind: "borrow",
+                        nodeId: peer.node_id,
+                        name: peer.display_name,
+                      })
+                    }
+                    type="button"
+                  >
+                    借用 {peer.display_name} 的模型
+                    {peer.relationship === "friend" ? "（朋友）" : ""}
+                  </button>
+                ))}
               </div>
             )}
-            {data.borrowed_from === null ? (
-              <p className="settings-recovery">
-                {data.status === "available"
-                  ? "模型可用，无需处理。"
-                  : "先确认模型服务正在运行，再核对 endpoint、模型名称和密钥。即使模型不可用，长期记忆与确定性资源仍可使用。"}
-              </p>
-            ) : null}
-          </article>
+          </section>
 
           <form className="settings-form" onSubmit={reviewSave}>
             <fieldset
               disabled={isReadOnlyPreview() || writing || deleteUncertain}
             >
-              <legend>受限模型配置入口</legend>
-              {data.profiles.length > 1 ? (
+              <legend>
+                {data.status === "unconfigured" ? "设置模型" : "换一个模型"}
+              </legend>
+              {/* 正在用某个本机模型时，只有一份档案就不必再选；没在用时（未配置或在借用）有一份也给出来。 */}
+              {data.profiles.length > (data.endpoint === null ? 0 : 1) ? (
                 <>
                   <label>
-                    已保存模型配置
+                    以前用过的模型
                     <select
                       onChange={(event) => {
                         const profile =
@@ -505,7 +681,7 @@ export function SettingsPage() {
                       }}
                       value=""
                     >
-                      <option value="">选择后填入下方表单</option>
+                      <option value="">选一个，自动填到下面</option>
                       {data.profiles.map((profile, index) => (
                         <option
                           key={`${profile.endpoint}\n${profile.model}`}
@@ -517,16 +693,17 @@ export function SettingsPage() {
                     </select>
                   </label>
                   <p className="settings-secret-note">
-                    选择只会填表，确认保存后才切换；
+                    选了只是填表，点“检查并确认保存”后才切换；
                     {selectedApiKeyConfigured
-                      ? "该 endpoint 已保存密钥，留空会复用。"
-                      : "该 endpoint 未保存密钥。"}
+                      ? "这个地址已经存过密钥，密钥框留空就沿用。"
+                      : "这个地址还没存过密钥。"}
                   </p>
                 </>
               ) : null}
               <label>
-                OpenAI-compatible endpoint
+                模型服务地址
                 <input
+                  aria-describedby="settings-endpoint-hint"
                   autoComplete="url"
                   onChange={(event) => setEndpoint(event.currentTarget.value)}
                   placeholder="http://127.0.0.1:8080/v1"
@@ -535,69 +712,45 @@ export function SettingsPage() {
                   value={endpoint}
                 />
               </label>
+              <p className="settings-field-hint" id="settings-endpoint-hint">
+                兼容 OpenAI 接口的地址，比如本机 llama-server 一般是
+                http://127.0.0.1:8080/v1
+              </p>
               <label>
                 模型名称
                 <input
+                  aria-describedby="settings-model-hint"
                   autoComplete="off"
                   onChange={(event) => setModel(event.currentTarget.value)}
                   required
                   value={model}
                 />
               </label>
-              <label>
-                超时（秒）
-                <input
-                  max={600}
-                  min={0.1}
-                  onChange={(event) =>
-                    setTimeoutSeconds(event.currentTarget.value)
-                  }
-                  required
-                  step={0.1}
-                  type="number"
-                  value={timeoutSeconds}
-                />
-              </label>
-              <label className="settings-checkbox">
-                <input
-                  checked={disableThinking}
-                  onChange={(event) =>
-                    setDisableThinking(event.currentTarget.checked)
-                  }
-                  type="checkbox"
-                />
-                关闭思考模式（更快，适合本机 Qwen）
-              </label>
-              <label>
-                工具上限（本机小模型建议 5，留空不限制）
-                <input
-                  max={12}
-                  min={3}
-                  onChange={(event) => setMaxTools(event.currentTarget.value)}
-                  placeholder="不限制"
-                  step={1}
-                  type="number"
-                  value={maxTools}
-                />
-              </label>
+              <p className="settings-field-hint" id="settings-model-hint">
+                模型服务里这个模型的名字，比如 deepseek-chat、qwen3-8b
+              </p>
               {data.borrowed_from === null ? (
                 <>
                   <label>
                     新 API 密钥（可选）
                     <input
+                      aria-describedby="settings-key-hint"
                       autoComplete="new-password"
                       disabled={clearApiKey || writing}
                       maxLength={4096}
                       onChange={(event) => setApiKey(event.currentTarget.value)}
                       placeholder={
                         selectedApiKeyConfigured
-                          ? "留空会保留该 endpoint 的已保存密钥"
-                          : "无密钥 Provider 可留空"
+                          ? "留空就沿用已保存的密钥"
+                          : "不需要密钥就留空"
                       }
                       type="password"
                       value={apiKey}
                     />
                   </label>
+                  <p className="settings-field-hint" id="settings-key-hint">
+                    云端模型才需要，本机模型一般留空。密钥存在这台电脑的系统凭据库里，之后页面不会再显示它。
+                  </p>
                   {selectedApiKeyConfigured ? (
                     <label className="settings-checkbox">
                       <input
@@ -611,14 +764,72 @@ export function SettingsPage() {
                         }}
                         type="checkbox"
                       />
-                      保存配置时清除已保存密钥
+                      保存时顺便删掉已保存的密钥
                     </label>
                   ) : null}
-                  <p className="settings-secret-note">
-                    密钥只随这一次同源保存请求进入现有受限配置流程；页面不会读回、记录或导出它。
-                  </p>
                 </>
               ) : null}
+              <details className="advanced">
+                <summary>高级：速度与工具</summary>
+                <p className="advanced-hint">
+                  一般不用动。本机跑的小模型比较慢、容易乱时，再按下面的说明调。
+                </p>
+                <div className="settings-advanced-fields">
+                  <label>
+                    超时（秒）
+                    <input
+                      aria-describedby="settings-timeout-hint"
+                      max={600}
+                      min={0.1}
+                      onChange={(event) =>
+                        setTimeoutSeconds(event.currentTarget.value)
+                      }
+                      required
+                      step={0.1}
+                      type="number"
+                      value={timeoutSeconds}
+                    />
+                  </label>
+                  <p className="settings-field-hint" id="settings-timeout-hint">
+                    模型多久没回话就算失败。本机模型慢，可以调大。
+                  </p>
+                  <label className="settings-checkbox">
+                    <input
+                      aria-describedby="settings-thinking-hint"
+                      checked={disableThinking}
+                      onChange={(event) =>
+                        setDisableThinking(event.currentTarget.checked)
+                      }
+                      type="checkbox"
+                    />
+                    关闭思考模式（更快，适合本机 Qwen）
+                  </label>
+                  <p
+                    className="settings-field-hint"
+                    id="settings-thinking-hint"
+                  >
+                    让模型跳过“先想一遍”直接回答。本机小模型建议勾上。
+                  </p>
+                  <label>
+                    工具上限（本机小模型建议 5，留空不限制）
+                    <input
+                      aria-describedby="settings-tools-hint"
+                      max={12}
+                      min={3}
+                      onChange={(event) =>
+                        setMaxTools(event.currentTarget.value)
+                      }
+                      placeholder="不限制"
+                      step={1}
+                      type="number"
+                      value={maxTools}
+                    />
+                  </label>
+                  <p className="settings-field-hint" id="settings-tools-hint">
+                    一次最多给模型几样工具。小模型拿到的工具太多容易选错。
+                  </p>
+                </div>
+              </details>
             </fieldset>
             {formError === null ? null : (
               <p className="settings-inline-error" role="alert">
@@ -643,7 +854,7 @@ export function SettingsPage() {
                 onClick={() => void validateOnce()}
                 type="button"
               >
-                重新验证一次
+                测试模型能不能用
               </button>
               <button
                 className="settings-button--danger-outline"
@@ -664,149 +875,53 @@ export function SettingsPage() {
               </button>
             </div>
           </form>
-        </>
+        </article>
       )}
 
       <article
         className="settings-status-card"
         aria-labelledby="peer-settings-title"
       >
-        <h3 id="peer-settings-title">对端电脑</h3>
-        <a href="/app/people">在“电脑与朋友”里加电脑、邀请朋友</a>
-        {peersQuery.data ? (
-          <ul>
-            {peersQuery.data.peers
-              .filter((peer) => !peer.is_local)
-              .map((peer) => (
-                <li key={peer.node_id}>
-                  {peer.display_name} ·{" "}
-                  {
-                    { mine: "我的电脑", friend: "朋友", legacy: "旧式配对" }[
-                      peer.relationship ?? "legacy"
-                    ]
-                  }
-                </li>
-              ))}
-          </ul>
-        ) : (
-          <p>
-            {peersQuery.isPending ? "正在读取对端……" : "暂时读不到对端列表。"}
-          </p>
-        )}
-      </article>
-
-      <article
-        aria-labelledby="system-status-title"
-        className="settings-status-card"
-      >
-        <div className="settings-status-card__heading">
-          <h3 id="system-status-title">Runtime、Coordinator 与网络路径</h3>
-          <span className="settings-status">
-            {systemQuery.data === undefined
-              ? systemQuery.isPending
-                ? "正在读取"
-                : "当前未知"
-              : systemQuery.data.local.readiness === "ready"
-                ? "本机就绪"
-                : "需要留意"}
-          </span>
-        </div>
-        {systemQuery.data === undefined ? (
-          <div role={systemQuery.isPending ? "status" : "alert"}>
-            <p>
-              {systemQuery.isPending
-                ? "正在读取本机运行状态……"
-                : "暂时读不到本机总览；模型设置和诊断下载仍可独立使用。"}
-            </p>
-            {systemQuery.isPending ? null : (
-              <button onClick={() => void systemQuery.refetch()} type="button">
-                重试读取运行状态
-              </button>
-            )}
-          </div>
-        ) : (
-          <dl className="settings-metadata">
-            <div>
-              <dt>Runtime</dt>
-              <dd>{systemQuery.data.local.runtime}</dd>
-            </div>
-            <div>
-              <dt>平台 / 版本</dt>
-              <dd>
-                {systemQuery.data.local.platform ?? "unknown"} /{" "}
-                {systemQuery.data.local.version ?? "unknown"}
-              </dd>
-            </div>
-            <div>
-              <dt>Package</dt>
-              <dd>
-                {systemQuery.data.local.package.kind} /{" "}
-                {systemQuery.data.local.package.version ?? "unknown"}
-              </dd>
-            </div>
-            <div>
-              <dt>Coordinator</dt>
-              <dd>
-                {systemQuery.data.coordinator.state}（
-                {systemQuery.data.coordinator.freshness}）
-              </dd>
-            </div>
-            <div>
-              <dt>网络路径</dt>
-              <dd>
-                {systemQuery.data.network_path.state}（probe:{" "}
-                {systemQuery.data.network_path.probe.status}）
-              </dd>
-            </div>
-            <div>
-              <dt>证据时间</dt>
-              <dd>
-                {systemQuery.data.network_path.evidence_at ??
-                  "尚无网络路径证据"}
-              </dd>
-            </div>
-          </dl>
-        )}
-        <p className="settings-recovery">
-          Coordinator
-          或网络路径不可用时，本机资源、记忆和已有操作清理仍应继续工作；总览页提供更完整的来源与新鲜度说明。
+        <h3 id="peer-settings-title">其他电脑和朋友</h3>
+        <p className="page-lead">
+          加电脑、邀请朋友、决定谁能用你的服务，都在“电脑与朋友”页。
         </p>
+        <Link className="pixel-button settings-link-button" to="/app/people">
+          去“电脑与朋友”
+        </Link>
       </article>
 
       <UpdatePanel />
 
       <article
         aria-labelledby="diagnostics-export-title"
-        className="settings-diagnostics-card"
+        className="settings-status-card"
       >
-        <div>
-          <p className="eyebrow">只读、脱敏</p>
-          <h3 id="diagnostics-export-title">导出诊断包</h3>
-          <p>
-            下载当前本机状态、可选诊断来源和恢复建议。诊断包不会包含模型密钥、Gateway
-            token、认证头、私钥或完整聊天内容，也不会保存到浏览器存储。
-          </p>
-        </div>
+        <h3 id="diagnostics-export-title">出问题时：导出诊断包</h3>
+        <p className="page-lead">
+          想请别人帮忙查问题时，下载这个文件发给对方。里面只有运行状态和排查线索，不含模型密钥、登录凭据和聊天内容。
+        </p>
         <a
-          className="settings-download-link"
+          className="pixel-button settings-link-button"
           download
           href="/api/diagnostics/export"
         >
           下载脱敏诊断包
         </a>
-        <div className="settings-recovery-guide">
-          <h4>看不懂状态时，按这个顺序来</h4>
+        <details className="advanced settings-recovery-guide">
+          <summary>自己先排查：按这个顺序看</summary>
           <ol>
-            <li>先看总览里的本机 Runtime 是否正在运行。</li>
-            <li>再看真实 probe 结果；不可达不等于一定是防火墙。</li>
+            <li>先看上面“这台电脑现在怎么样”是不是正常。</li>
             <li>
-              没有 Murus、防火墙日志权限或厂商 VPN
-              工具时，相关来源只会显示“不可用”，不会阻止 TunnelMinion
-              的其他功能。
+              别的电脑连不上时，回服务地图看两台电脑之间的连线；连不上不一定是防火墙挡了。
             </li>
-            <li>需要协助时，把刚下载的脱敏 JSON 发给维护者。</li>
+            <li>
+              有些检查要额外的工具或权限（比如 Mac 的 Murus 防火墙日志、厂商 VPN
+              工具），没有时只会显示“不可用”，不影响其他功能。
+            </li>
+            <li>还是不行，就把刚下载的诊断包发给帮你的人。</li>
           </ol>
-        </div>
+        </details>
       </article>
 
       {confirmation === null ? null : (
@@ -818,7 +933,7 @@ export function SettingsPage() {
           description={
             confirmation.kind === "save" ? (
               <>
-                <p>Endpoint：{confirmation.input.endpoint}</p>
+                <p>模型服务地址：{confirmation.input.endpoint}</p>
                 <p>模型：{confirmation.input.model}</p>
                 <p>超时：{confirmation.input.timeout_seconds} 秒</p>
                 <p>
@@ -835,7 +950,7 @@ export function SettingsPage() {
               </>
             ) : (
               <p>
-                将同时清除非秘密模型配置和操作系统秘密存储中的模型密钥；长期记忆与确定性资源不会被删除。
+                会同时清除模型设置和系统凭据库里保存的模型密钥；记忆、服务清单和电脑名单都不会动。
               </p>
             )
           }

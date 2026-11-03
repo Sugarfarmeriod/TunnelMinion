@@ -183,3 +183,71 @@ describe("钥匙串等授权", () => {
     expect(document.querySelector(".keychain-notice")).toBeNull();
   });
 });
+describe("非地图页的外壳", () => {
+  it("顶部列出更多里的各页，并标出当前页", async () => {
+    mount("/app/memories");
+    const tabs = await screen.findByRole("navigation", { name: "更多页面" });
+    expect(
+      within(tabs)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["请求记录", "最近事件", "记忆", "电脑与朋友", "设置"]);
+    expect(within(tabs).getByRole("link", { name: "记忆" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(
+      screen
+        .getByRole("navigation", { name: "主要导航" })
+        .querySelectorAll("a"),
+    ).toHaveLength(1);
+  });
+  it("请求详情页里“请求记录”标签仍算当前页", async () => {
+    mount(`/app/operations/operation_${"1".repeat(32)}`);
+    const tabs = await screen.findByRole("navigation", { name: "更多页面" });
+    expect(
+      within(tabs).getByRole("link", { name: "请求记录" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+  it("地图页不显示页面标签", async () => {
+    mount("/app/map");
+    await screen.findByRole("heading", { name: "我的服务网络" });
+    expect(screen.queryByRole("navigation", { name: "更多页面" })).toBeNull();
+  });
+});
+describe("本机程序连不上", () => {
+  it("任何页面读取连不上时顶部统一提示，重试成功后提示消失", async () => {
+    let online = false;
+    server.use(
+      http.get("/api/model/configuration", () =>
+        online ? new HttpResponse(null, { status: 503 }) : HttpResponse.error(),
+      ),
+      http.get("/api/*", () =>
+        online ? new HttpResponse(null, { status: 503 }) : HttpResponse.error(),
+      ),
+    );
+    mount("/app/settings");
+    const banner = await screen.findByText(
+      "连不上这台电脑上的 TunnelMinion 程序",
+      { exact: false },
+    );
+    expect(banner.closest("[role='alert']")).toHaveClass("offline-banner");
+    online = true;
+    await userEvent
+      .setup()
+      .click(
+        within(banner.closest(".offline-banner") as HTMLElement).getByRole(
+          "button",
+          { name: "重试" },
+        ),
+      );
+    await waitFor(() =>
+      expect(document.querySelector(".offline-banner")).toBeNull(),
+    );
+  });
+  it("后端返回错误不算连不上", async () => {
+    mount("/app/settings");
+    await screen.findByRole("heading", { name: "现在读不到模型设置" });
+    expect(document.querySelector(".offline-banner")).toBeNull();
+  });
+});

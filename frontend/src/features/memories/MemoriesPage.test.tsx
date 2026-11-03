@@ -48,11 +48,20 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+const empty = /^这里还没有记忆。/;
+
+/** 默认从地图进来：电脑列表已读过，这台电脑是 nodeA。 */
 function renderMemories(prepare?: (client: QueryClient) => void) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
     },
+  });
+  client.setQueryData(peersQueryKey, {
+    peers: [
+      makePeer(1, { node_id: nodeA, is_local: true }),
+      makePeer(2, { node_id: nodeB }),
+    ],
   });
   prepare?.(client);
   function Wrapper({ children }: PropsWithChildren) {
@@ -67,10 +76,14 @@ async function chooseScope(
   user: ReturnType<typeof userEvent.setup>,
   nodeId = nodeA,
 ) {
-  const nodeInput = screen.getByLabelText("节点 ID");
+  const details = screen.getByText("高级：看别的范围").closest("details");
+  if (details?.open !== true) {
+    await user.click(screen.getByText("高级：看别的范围"));
+  }
+  const nodeInput = screen.getByLabelText("电脑编号");
   await user.clear(nodeInput);
   await user.type(nodeInput, nodeId);
-  await user.click(screen.getByRole("button", { name: "查看这个作用域" }));
+  await user.click(screen.getByRole("button", { name: "看这个范围" }));
 }
 
 describe("MemoriesPage", () => {
@@ -86,57 +99,59 @@ describe("MemoriesPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("先显示精确作用域提示，再覆盖 loading 与 empty", async () => {
+  it("打开就读这台电脑的记忆，覆盖 loading 与 empty", async () => {
     let resolveRequest: ((response: Response) => void) | undefined;
     fetchMock.mockReturnValueOnce(
       new Promise<Response>((resolve) => {
         resolveRequest = resolve;
       }),
     );
-    const user = userEvent.setup();
 
     renderMemories();
+    expect(screen.getByText("正在读取记忆……")).toBeVisible();
     expect(
-      screen.getByText(/不会把一个作用域的缓存显示到另一个作用域/),
-    ).toBeVisible();
-
-    await chooseScope(user);
-    expect(
-      screen.getByText("正在读取这个精确作用域的长期记忆……"),
+      screen.getByRole("heading", { name: "这台电脑的记忆" }),
     ).toBeVisible();
     resolveRequest?.(jsonResponse([]));
 
-    expect(
-      await screen.findByText("这个精确作用域还没有长期记忆。"),
-    ).toBeVisible();
+    expect(await screen.findByText(empty)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`node_id=${encodeURIComponent(nodeA)}`),
       expect.objectContaining({ credentials: "same-origin" }),
     );
   });
 
-  it("从地图进来时节点 ID 已填好这台电脑", () => {
+  it("高级里的电脑编号已填好这台电脑", () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    renderMemories();
+    expect(screen.getByLabelText("电脑编号")).toHaveValue(nodeA);
+  });
+
+  it("找不到这台电脑时提示去高级里手动填写，不读取记忆", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: "boom" }, 500));
     renderMemories((client) =>
-      client.setQueryData(peersQueryKey, {
-        peers: [
-          makePeer(1, { node_id: nodeA, is_local: true }),
-          makePeer(2, { node_id: nodeB }),
-        ],
-      }),
+      client.removeQueries({ queryKey: peersQueryKey }),
     );
-    expect(screen.getByLabelText("节点 ID")).toHaveValue(nodeA);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await screen.findByText(/找不到这台电脑的编号/)).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/api/memories"),
+      ),
+    ).toHaveLength(0);
   });
 
   it("在请求前拒绝错误 node_id，并拒绝错误 memory_id 与默认作用域格式", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
     const user = userEvent.setup();
     renderMemories();
+    await screen.findByText(empty);
+    const calls = fetchMock.mock.calls.length;
 
     await chooseScope(user, "6fcf3484-754b-46c6-bc3e-f4571e76495e");
     expect(
-      screen.getByText("节点 ID 必须是 node_ 加 32 位小写十六进制字符。"),
+      screen.getByText("电脑编号是 node_ 开头、后面跟 32 位数字和小写字母。"),
     ).toBeVisible();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls).toHaveLength(calls);
     expect(nodeIdSchema.safeParse(nodeA).success).toBe(true);
     expect(
       longTermMemorySchema.safeParse({
@@ -178,15 +193,13 @@ describe("MemoriesPage", () => {
         },
       });
       fetchMock.mockResolvedValueOnce(jsonResponse([outOfScope]));
-      const user = userEvent.setup();
 
       renderMemories();
-      await chooseScope(user);
 
       expect(
         await screen.findByRole("heading", { name: "现在读不到长期记忆" }),
       ).toBeVisible();
-      expect(screen.getByText(/不会猜测或跨作用域展示/)).toBeVisible();
+      expect(screen.getByText(/返回的记忆格式不对/)).toBeVisible();
       expect(screen.queryByText(outOfScope.content)).not.toBeInTheDocument();
     },
   );
@@ -198,7 +211,6 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     renderMemories();
-    await chooseScope(user);
 
     const errorHeading = await screen.findByRole("heading", {
       name: "现在读不到长期记忆",
@@ -211,9 +223,7 @@ describe("MemoriesPage", () => {
         name: "重新读取",
       }),
     );
-    expect(
-      await screen.findByText("这个精确作用域还没有长期记忆。"),
-    ).toBeVisible();
+    expect(await screen.findByText(empty)).toBeVisible();
   });
 
   it("把恶意内容当作文本，并在切换节点时隔离缓存", async () => {
@@ -237,7 +247,6 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     const { container } = renderMemories();
-    await chooseScope(user);
 
     expect(await screen.findByText(maliciousContent)).toBeVisible();
     expect(screen.getByText(maliciousSource)).toBeVisible();
@@ -245,9 +254,7 @@ describe("MemoriesPage", () => {
     expect(container.querySelector("script")).toBeNull();
 
     await chooseScope(user, nodeB);
-    expect(
-      await screen.findByText("这个精确作用域还没有长期记忆。"),
-    ).toBeVisible();
+    expect(await screen.findByText(empty)).toBeVisible();
     expect(screen.queryByText(maliciousContent)).not.toBeInTheDocument();
   });
 
@@ -279,9 +286,8 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     renderMemories();
-    await chooseScope(user);
     await screen.findByText("优先使用本机工具");
-    await user.click(screen.getByRole("button", { name: "修正这条记忆" }));
+    await user.click(screen.getByRole("button", { name: "修改这条记忆" }));
 
     const content = screen.getByLabelText("记忆内容");
     await waitFor(() => expect(content).toHaveFocus());
@@ -290,18 +296,16 @@ describe("MemoriesPage", () => {
     const source = screen.getByLabelText("来源说明");
     await user.clear(source);
     await user.type(source, "用户再次确认");
-    await user.click(screen.getByRole("button", { name: "检查并确认修正" }));
+    await user.click(screen.getByRole("button", { name: "检查并确认修改" }));
 
     const cancel = screen.getByRole("button", { name: "取消" });
     await waitFor(() => expect(cancel).toHaveFocus());
     await user.tab();
-    const confirm = screen.getByRole("button", { name: "确认修正一次" });
+    const confirm = screen.getByRole("button", { name: "确认修改" });
     expect(confirm).toHaveFocus();
     await user.keyboard("{Enter}");
 
-    expect(
-      await screen.findByText("服务端已确认修正，并返回了新的更新时间。"),
-    ).toBeVisible();
+    expect(await screen.findByText("已修改。")).toBeVisible();
     expect(await screen.findByText("只使用经过确认的本机工具")).toBeVisible();
     expect(capturedBody).toEqual({
       content: "只使用经过确认的本机工具",
@@ -310,9 +314,9 @@ describe("MemoriesPage", () => {
     expect(capturedBody).not.toHaveProperty("namespace");
     expect(
       screen.getByText(
-        /用户“local-user”.*网络“home”.*任务“local-conversation”.*安全域“read-only-agent”/,
+        /用户“local-user”.*网络“home”.*任务“local-conversation”.*安全范围“read-only-agent”/,
       ),
-    ).toBeVisible();
+    ).toBeInTheDocument();
     expect(screen.getByText("用户再次确认")).toBeVisible();
     const putCalls = fetchMock.mock.calls.filter(
       ([, init]) => init?.method === "PUT",
@@ -337,14 +341,13 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     renderMemories();
-    await chooseScope(user);
     await screen.findByText(value.content);
     await user.click(screen.getByRole("button", { name: "删除这条记忆" }));
     expect(screen.getByRole("button", { name: "取消" })).toHaveFocus();
-    await user.click(screen.getByRole("button", { name: "确认删除一次" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
 
     expect(
-      await screen.findByText(/删除请求的结果未知.*没有自动重放删除/),
+      await screen.findByText(/不确定刚才有没有删成功.*没有自动再删/),
     ).toBeVisible();
     expect(screen.getByText(value.content)).toBeVisible();
     const deleteCalls = fetchMock.mock.calls.filter(
@@ -355,7 +358,7 @@ describe("MemoriesPage", () => {
       new Headers(deleteCalls[0]?.[1]?.headers).get("X-TunnelMinion-Request"),
     ).toBe("same-origin");
     expect(
-      screen.getByText(/删除请求的结果未知.*没有自动重放删除/),
+      screen.getByText(/不确定刚才有没有删成功.*没有自动再删/),
     ).toHaveAttribute("role", "alert");
   });
 
@@ -382,16 +385,15 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     renderMemories();
-    await chooseScope(user);
     await screen.findByText(value.content);
     await user.click(screen.getByRole("button", { name: "删除这条记忆" }));
-    await user.click(screen.getByRole("button", { name: "确认删除一次" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
 
     const notice = await screen.findByText(
-      /这条记忆已被另一个请求删除.*只重新读取了一次.*没有自动重放删除/,
+      /删除失败：这条记忆已被另一个请求删除.*只重新读了一次.*没有自动再删/,
     );
     expect(notice).toHaveAttribute("role", "alert");
-    expect(screen.getByText("这个精确作用域还没有长期记忆。")).toBeVisible();
+    expect(screen.getByText(empty)).toBeVisible();
     expect(screen.queryByText(value.content)).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
@@ -415,25 +417,20 @@ describe("MemoriesPage", () => {
     const user = userEvent.setup();
 
     renderMemories();
-    await chooseScope(user);
     await screen.findByText("优先使用本机工具");
     await user.click(
-      screen.getByRole("button", { name: "清空这个精确作用域" }),
+      screen.getByRole("button", { name: "清空这里的全部记忆" }),
     );
     const dialog = screen.getByRole("dialog", {
-      name: "确认清空精确作用域",
+      name: "确认清空这里的全部记忆",
     });
     expect(
-      within(dialog).getByText(/^将清空：用户“local-user”.*节点/),
+      within(dialog).getByText(/^将清空：这台电脑的全部记忆/),
     ).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "确认清空一次" }));
+    await user.click(screen.getByRole("button", { name: "确认清空" }));
 
-    expect(
-      await screen.findByText(
-        "服务端已用 204 明确确认：这个精确作用域已经清空。",
-      ),
-    ).toBeVisible();
-    expect(screen.getByText("这个精确作用域还没有长期记忆。")).toBeVisible();
+    expect(await screen.findByText("已清空这里的全部记忆。")).toBeVisible();
+    expect(screen.getByText(empty)).toBeVisible();
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
     ).toHaveLength(1);

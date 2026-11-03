@@ -6,7 +6,7 @@ const pages = [
   ["/app/chat", "我的服务网络"],
   ["/app/operations", "请求记录"],
   ["/app/memories", "长期记忆"],
-  ["/app/settings", "模型设置"],
+  ["/app/settings", "设置"],
 ] as const;
 
 async function expectOperable(page: import("@playwright/test").Page) {

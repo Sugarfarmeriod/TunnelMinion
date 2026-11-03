@@ -107,7 +107,7 @@ for (const width of [1280, 320]) {
       page.getByRole("button", { name: "检查并确认保存" }),
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "重新验证一次" }),
+      page.getByRole("button", { name: "测试模型能不能用" }),
     ).toBeDisabled();
     await page.getByRole("link", { name: "← 回到地图" }).click();
     await page.getByRole("button", { name: "更多 ▾" }).click();

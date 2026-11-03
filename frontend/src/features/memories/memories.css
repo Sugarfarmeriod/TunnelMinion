@@ -33,39 +33,19 @@
   font: inherit;
 }
 
-.memories-page button {
-  background: var(--color-accent-strong);
-  border: 1px solid var(--color-accent-strong);
-  border-radius: var(--radius-pill);
-  color: var(--color-surface);
-  cursor: pointer;
-  font-weight: 700;
-  min-height: 2.75rem;
-  padding: var(--space-2) var(--space-4);
-}
-
-.memories-page button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.memories-page .memory-button--danger,
 .memories-page .memory-button--danger-outline {
-  border-color: #b42318;
+  background: transparent;
+  border-color: var(--px-red);
+  color: var(--px-red);
 }
 
 .memories-page .memory-button--danger {
-  background: #b42318;
-  color: #fff;
-}
-
-.memories-page .memory-button--danger-outline {
-  background: transparent;
-  color: var(--color-danger-text);
+  background: var(--px-crimson);
+  color: var(--px-white);
 }
 
 .memory-scope-form {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 3px dashed var(--px-deep);
   margin: var(--space-5) 0;
   padding-bottom: var(--space-5);
 }
@@ -99,7 +79,7 @@
 .memory-editor input,
 .memory-editor textarea {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) / 2);
   color: var(--color-text);
   max-width: 100%;
@@ -117,7 +97,7 @@
 .memory-empty,
 .memory-query-error,
 .memory-notice {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) / 2);
   overflow-wrap: anywhere;
   padding: var(--space-3);
@@ -125,7 +105,7 @@
 
 .memory-prompt,
 .memory-empty {
-  background: color-mix(in srgb, var(--color-muted) 6%, var(--color-surface));
+  background: var(--px-ink);
   color: var(--color-muted);
 }
 
@@ -135,8 +115,8 @@
 }
 
 .memory-notice--warning {
-  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  border-color: color-mix(in srgb, #b26a00 55%, var(--color-border));
+  background: var(--px-night);
+  border-color: var(--px-gold);
 }
 
 .memory-notice--error,
@@ -147,8 +127,8 @@
 
 .memory-notice--error,
 .memory-query-error {
-  background: color-mix(in srgb, #b42318 10%, var(--color-surface));
-  border-color: color-mix(in srgb, #b42318 55%, var(--color-border));
+  background: var(--px-night);
+  border-color: var(--px-red);
 }
 
 .memory-inline-error {
@@ -176,7 +156,7 @@
 }
 
 .memory-card {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) * 0.75);
   display: grid;
   gap: var(--space-4);
@@ -186,7 +166,7 @@
 }
 
 .memory-card__heading span {
-  border: 1px solid var(--color-accent-strong);
+  border: 3px solid var(--px-steel);
   border-radius: var(--radius-pill);
   font-size: 0.8125rem;
   font-weight: 700;
@@ -242,7 +222,7 @@
 
 .memory-dialog {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
   display: grid;
@@ -289,4 +269,23 @@
   .memory-dialog {
     padding: var(--space-4);
   }
+}
+
+.memory-scope-detail summary {
+  font-size: 0.8125rem;
+}
+
+.memory-scope-detail p {
+  color: var(--px-fog);
+  font-size: 0.8125rem;
+  margin: var(--space-1) 0 0;
+}
+
+.memory-scope {
+  margin-top: var(--space-5);
+}
+
+.memories-page__header > div {
+  flex: 1 1 20rem;
+  min-width: 0;
 }

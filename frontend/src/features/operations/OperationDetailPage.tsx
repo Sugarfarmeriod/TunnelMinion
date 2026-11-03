@@ -432,7 +432,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
         aria-labelledby="operation-detail-title"
         className="operations-page surface"
       >
-        <Link to="/app/operations">返回操作列表</Link>
+        <Link to="/app/operations">返回请求记录</Link>
         <h2 id="operation-detail-title">请求详情</h2>
         <div
           className="operations-callout operations-callout--danger"
@@ -469,7 +469,7 @@ function OperationDetailContent({ operationId }: { operationId?: string }) {
     >
       <nav className="operation-back-links" aria-label="返回相关页面">
         <Link className="operation-back-link" to="/app/operations">
-          ← 返回操作列表
+          ← 返回请求记录
         </Link>
         {detail.source_incident_id !== null ? (
           <Link

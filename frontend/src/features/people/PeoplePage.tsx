@@ -30,7 +30,7 @@ import "./people.css";
 
 const permissionLabels: Record<DevicePermissionName, string> = {
   allow_delegation: "允许提问",
-  allow_model_borrowing: "允许借模型",
+  allow_model_borrowing: "允许借我的模型",
   allow_proxy_repair_approval: "允许替我批准修复",
 };
 
@@ -298,8 +298,10 @@ export function PeoplePage() {
     <section className="people-page surface" aria-labelledby="people-title">
       <header className="people-header">
         <div>
-          <p className="eyebrow">只在这台电脑上操作</p>
           <h2 id="people-title">电脑与朋友</h2>
+          <p className="page-lead">
+            把你自己的几台电脑连成一张网，再邀请朋友来用你开放的服务。谁能看、谁能用，都在这里管。
+          </p>
         </div>
         <button
           type="button"
@@ -330,6 +332,7 @@ export function PeoplePage() {
           <h3>这台电脑还没有机主身份</h3>
           <p>建立自己的身份、加入你已有的电脑，或者用朋友给的配对码加入。</p>
           <button
+            className="pixel-button--go"
             type="button"
             disabled={preview}
             onClick={() => setOnboarding("welcome")}
@@ -411,7 +414,8 @@ export function PeoplePage() {
               我的电脑（{identity.devices.length} 台）
             </h3>
             <p className="people-note">
-              三个开关是这台电脑对那台电脑的限制，只能关掉，不能再打开。
+              三个开关管的是那台电脑能对这台电脑做什么。“允许借我的模型”是让它用这台电脑的模型，不是这台去借它的；想让这台电脑借别的电脑的模型，去“设置
+              → AI 模型”。开关只能关掉，不能再打开。
             </p>
             <ul className="people-list">{identity.devices.map(deviceRow)}</ul>
           </article>

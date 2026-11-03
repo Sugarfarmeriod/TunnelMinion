@@ -88,6 +88,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   ).toBeVisible();
   await page.getByRole("button", { name: "更多 ▾" }).click();
   await page.getByRole("link", { name: "设置", exact: true }).click();
+  await page.getByText("高级：运行细节").click();
   await expect(page.getByText(/standalone ·/)).toBeVisible();
   await expect(page.getByText("还没有配置模型", { exact: true })).toBeVisible();
   await expect(
@@ -105,7 +106,7 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   ).toBeHidden();
   await page
     .locator(".incident-detail")
-    .getByText("查看技术过程与证据")
+    .getByText("高级：调查过程与证据")
     .click();
   await expect(
     page.locator(".incident-detail").getByText("证据充分"),
@@ -147,34 +148,35 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   await expect(operationDialog).toBeHidden();
 
   await page.goto("/app/memories");
+  await page.getByText("高级：看别的范围").click();
   await page.getByLabel("用户").fill("acceptance-user");
   await page.getByLabel("网络").fill("home");
-  await page.getByLabel("节点 ID").fill(fixture.node_id);
-  await page.getByRole("button", { name: "查看这个作用域" }).click();
+  await page.getByLabel("电脑编号").fill(fixture.node_id);
+  await page.getByRole("button", { name: "看这个范围" }).click();
   await expect(
     page.getByText("总览优先显示家庭网络中的本机服务"),
   ).toBeVisible();
   await expect(page.getByText("实验网络只允许只读诊断")).toBeHidden();
 
-  await page.getByRole("button", { name: "修正这条记忆" }).click();
+  await page.getByRole("button", { name: "修改这条记忆" }).click();
   await page
     .getByLabel("记忆内容")
     .fill("总览优先显示家庭网络中的本机服务与证据时间");
-  await page.getByRole("button", { name: "检查并确认修正" }).click();
-  const memoryDialog = page.getByRole("dialog", { name: "确认修正长期记忆" });
-  await expectDialogTabCycle(page, memoryDialog, "取消", "确认修正一次");
+  await page.getByRole("button", { name: "检查并确认修改" }).click();
+  const memoryDialog = page.getByRole("dialog", { name: "确认修改这条记忆" });
+  await expectDialogTabCycle(page, memoryDialog, "取消", "确认修改");
   await page.keyboard.press("Escape");
   await expect(memoryDialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: "检查并确认修正" }),
+    page.getByRole("button", { name: "检查并确认修改" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "检查并确认修正" }).click();
+  await page.getByRole("button", { name: "检查并确认修改" }).click();
   const reviseResponse = page.waitForResponse(
     (response) =>
       response.url().includes("/api/memories/") &&
       response.request().method() === "PUT",
   );
-  await memoryDialog.getByRole("button", { name: "确认修正一次" }).click();
+  await memoryDialog.getByRole("button", { name: "确认修改" }).click();
   expect((await reviseResponse).status()).toBe(200);
   await expect(memoryDialog).toBeHidden();
   await expect(
@@ -184,17 +186,17 @@ test("正式包完整走通总览、聊天、审批、记忆与确定性降级",
   ).toBeVisible();
 
   await page.getByLabel("网络").fill("lab");
-  await page.getByRole("button", { name: "查看这个作用域" }).click();
+  await page.getByRole("button", { name: "看这个范围" }).click();
   await expect(page.getByText("实验网络只允许只读诊断")).toBeVisible();
   await expect(
     page.getByText("总览优先显示家庭网络中的本机服务与证据时间"),
   ).toBeHidden();
 
   await page.goto("/app/settings");
-  await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
-  await page
-    .getByLabel("OpenAI-compatible endpoint")
-    .fill("http://127.0.0.1:8080/v1");
+  await expect(
+    page.getByRole("heading", { name: "设置", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("模型服务地址").fill("http://127.0.0.1:8080/v1");
   await page.getByLabel("模型名称").fill("focus-trap-model");
   await page.getByRole("button", { name: "检查并确认保存" }).click();
   const settingsDialog = page.getByRole("dialog", {

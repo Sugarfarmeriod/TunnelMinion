@@ -37,20 +37,8 @@
   padding: var(--space-2) var(--space-4);
 }
 
-.operations-page button {
-  background: var(--color-accent-strong);
-  border: 1px solid var(--color-accent-strong);
-  color: var(--color-surface);
-  cursor: pointer;
-}
-
-.operations-page button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
 .operations-callout {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) / 2);
   display: grid;
   gap: var(--space-1);
@@ -69,20 +57,20 @@
 }
 
 .operations-callout--warning {
-  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
-  border-color: color-mix(in srgb, #b26a00 45%, var(--color-border));
+  background: var(--px-night);
+  border-color: var(--px-gold);
 }
 
 .operations-callout--danger,
 .operation-detail-card--danger,
 .operation-manual-action,
 .operation-summary-card__error {
-  background: color-mix(in srgb, #b42318 10%, var(--color-surface));
-  border-color: color-mix(in srgb, #b42318 50%, var(--color-border));
+  background: var(--px-night);
+  border-color: var(--px-red);
 }
 
 .operations-callout--neutral {
-  background: color-mix(in srgb, var(--color-muted) 8%, var(--color-surface));
+  background: var(--px-ink);
 }
 
 .operations-empty {
@@ -99,7 +87,7 @@
 }
 
 .operation-request-card {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) * 0.75);
   margin-top: var(--space-5);
   padding: var(--space-4);
@@ -138,7 +126,7 @@
 .operation-request-form input,
 .operation-request-form select {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) / 2);
   color: var(--color-text);
   font: inherit;
@@ -177,7 +165,7 @@
 }
 
 .operation-request-form__risk {
-  border-top: 1px solid var(--color-border);
+  border-top: 3px dashed var(--px-deep);
   padding-top: var(--space-3);
 }
 
@@ -192,7 +180,7 @@
 
 .operation-summary-card,
 .operation-detail-card {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) * 0.75);
   min-width: 0;
   padding: var(--space-4);
@@ -214,7 +202,7 @@
 }
 
 .operation-status {
-  border: 1px solid currentColor;
+  border: 3px solid currentColor;
   border-radius: var(--radius-pill);
   display: inline-flex;
   font-size: 0.8125rem;
@@ -230,17 +218,17 @@
 }
 
 .operation-status--warning {
-  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
+  background: var(--px-night);
   color: var(--color-warning-text);
 }
 
 .operation-status--danger {
-  background: color-mix(in srgb, #b42318 12%, var(--color-surface));
+  background: var(--px-night);
   color: var(--color-danger-text);
 }
 
 .operation-status--neutral {
-  background: color-mix(in srgb, var(--color-muted) 10%, var(--color-surface));
+  background: var(--px-ink);
   color: var(--color-text);
 }
 
@@ -274,14 +262,16 @@
 }
 
 .operation-summary-card__error {
-  border: 1px solid;
+  border: 3px solid;
   border-radius: calc(var(--radius-panel) / 2);
   padding: var(--space-3);
 }
 
 .operation-link {
-  border: 1px solid var(--color-accent-strong);
-  color: var(--color-accent-strong);
+  background: var(--px-deep);
+  border: 3px solid var(--px-white);
+  box-shadow: 3px 3px 0 var(--px-shadow);
+  color: var(--px-white);
   display: inline-flex;
   margin-top: var(--space-2);
   text-decoration: none;
@@ -320,11 +310,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   gap: var(--space-4);
-  background: color-mix(
-    in srgb,
-    var(--color-accent-soft) 45%,
-    var(--color-surface)
-  );
+  background: var(--px-ink);
   border-radius: var(--radius-panel);
   padding: var(--space-4);
   margin: var(--space-4) 0;
@@ -346,7 +332,7 @@
 }
 
 .operation-request-risk {
-  border-left: 3px solid #b26a00;
+  border-left: 4px solid var(--px-gold);
   padding-left: var(--space-4);
   line-height: 1.6;
 }
@@ -356,7 +342,7 @@
 }
 
 .operation-technical-details {
-  border-top: 1px solid var(--color-border);
+  border-top: 3px dashed var(--px-deep);
   padding: var(--space-4) 0;
 }
 
@@ -378,14 +364,13 @@
 }
 
 .operations-page .operation-button--secondary {
-  background: var(--color-surface);
-  color: var(--color-accent-strong);
+  background: transparent;
 }
 
 .operation-dialog__actions {
   position: sticky;
   bottom: calc(-1 * var(--space-5));
-  background: var(--color-surface);
+  background: var(--px-ink);
   padding: var(--space-3) 0;
 }
 
@@ -396,7 +381,7 @@
 
 .operation-detail-list li,
 .operation-history li {
-  background: color-mix(in srgb, var(--color-muted) 7%, var(--color-surface));
+  background: var(--px-ink);
   border-radius: calc(var(--radius-panel) / 2);
   display: grid;
   gap: var(--space-1);
@@ -430,7 +415,7 @@
 }
 
 .operation-actions {
-  border-top: 1px solid var(--color-border);
+  border-top: 3px dashed var(--px-deep);
   margin-top: var(--space-4);
   padding-top: var(--space-4);
 }
@@ -463,7 +448,7 @@
 
 .operation-dialog {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
   max-height: calc(100vh - 2 * var(--space-3));
@@ -489,7 +474,7 @@
 .operation-dialog__field input,
 .operation-dialog__field textarea {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: calc(var(--radius-panel) / 2);
   color: var(--color-text);
   font: inherit;
@@ -499,7 +484,7 @@
 }
 
 .operation-dialog__warning {
-  background: color-mix(in srgb, #b26a00 12%, var(--color-surface));
+  background: var(--px-night);
   border-radius: calc(var(--radius-panel) / 2);
   padding: var(--space-3);
 }
@@ -510,14 +495,13 @@
 }
 
 .operation-dialog__actions button:first-child {
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: transparent;
+  color: var(--px-white);
 }
 
 .operations-page .operation-button--danger {
-  background: #8d1b14;
-  border-color: #8d1b14;
-  color: #ffffff;
+  background: var(--px-crimson);
+  color: var(--px-white);
 }
 
 @media (max-width: 32rem) {
@@ -584,7 +568,7 @@
   .operation-actions {
     position: sticky;
     bottom: 0;
-    background: var(--color-surface);
+    background: var(--px-ink);
     padding: var(--space-3) 0;
     z-index: 1;
   }
