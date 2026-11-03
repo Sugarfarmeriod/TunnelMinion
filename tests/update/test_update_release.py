@@ -221,7 +221,7 @@ def test_latest_network_error() -> None:
         ("ahead", Availability.UPDATE_AVAILABLE),
         ("identical", Availability.UP_TO_DATE),
         ("behind", Availability.UNRELEASED_BUILD),
-        ("diverged", Availability.UNRELEASED_BUILD),
+        ("diverged", Availability.DIVERGED),
         ("something-new", Availability.UNKNOWN),
     ],
 )
