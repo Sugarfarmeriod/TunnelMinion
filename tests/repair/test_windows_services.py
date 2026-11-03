@@ -322,6 +322,40 @@ def test_set_granted_runs_one_elevated_sdset_and_rereads() -> None:
     assert asyncio.run(h.manager.set_granted("bad name!", granted=True)) is False
 
 
+def test_builtin_administrator_and_guest_are_read_back_as_aliases() -> None:
+    """内置管理员（RID 500）和来宾（RID 501）在读回的 SDDL 里写成 LA、LG。"""
+    admin = "S-1-5-21-1-2-3-500"
+    guest = "S-1-5-21-1-2-3-501"
+    granted = BASE + "(A;;LCRPWPRC;;;LA)" + AUDIT
+    assert has_grant(granted, admin) and not has_grant(granted, SID)
+    assert with_grant(granted, admin, granted=False) == BASE + AUDIT
+    assert with_grant(granted, admin, granted=True) == BASE + grant_ace(admin) + AUDIT
+    assert has_grant(BASE + "(A;;LCRPWPRC;;;LG)", guest)
+    # 不是本机账户的 SID 不按简称认。
+    assert not has_grant(BASE + "(A;;LCRPWPRC;;;LA)", "S-1-5-32-500")
+
+
+def test_grant_and_revoke_work_for_the_builtin_administrator() -> None:
+    h = Harness()
+    admin = "S-1-5-21-1-2-3-500"
+    h.whoami = f'"pc\\\\administrator","{admin}"'
+
+    async def run(command: tuple[str, ...], timeout_seconds: float) -> CommandResult:
+        h.runner.commands.append(command)
+        # Windows 写入后读回时把内置管理员的 SID 换成简称 LA。
+        h.sddl = command[4].split("'")[5].replace(admin, "LA")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    h.runner.run = run  # type: ignore[method-assign]
+    assert asyncio.run(h.manager.set_granted("Sunshine", granted=True)) is True
+    assert "(A;;LCRPWPRC;;;LA)" in h.sddl
+    # 已经授权时再打开不再弹确认框。
+    assert asyncio.run(h.manager.set_granted("Sunshine", granted=True)) is True
+    assert len(h.runner.commands) == 1
+    assert asyncio.run(h.manager.set_granted("Sunshine", granted=False)) is True
+    assert h.sddl == BASE + AUDIT and len(h.runner.commands) == 2
+
+
 def test_revoke_fails_when_the_grant_is_not_ours() -> None:
     h = Harness()
     h.sddl = BASE + f"(A;;RPWPDT;;;{SID})" + AUDIT
