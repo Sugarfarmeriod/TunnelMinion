@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +12,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from tests.agent.test_service_observation import FakeAdapter, collection
+from tests.process_identity import OWN_PID
 from tests.repair.factories import NOW, launch_record, plan
 from tests.repair.fakes import RepairHarness
 
@@ -109,7 +109,7 @@ def reader(
                 protocol="tcp",
                 address="127.0.0.1",
                 port=8085,
-                pid=os.getpid(),
+                pid=OWN_PID,
                 process_name="self-only-marker",
                 origin=ProcessOrigin.TERMINAL,
             ),

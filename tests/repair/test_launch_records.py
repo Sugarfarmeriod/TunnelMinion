@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -11,6 +10,7 @@ from typing import cast
 import psutil
 import pytest
 from pydantic import ValidationError
+from tests.process_identity import OWN_PID
 
 from tunnelminion.agent.service_marks import ServiceMark
 from tunnelminion.agent.services import (
@@ -425,9 +425,7 @@ def test_same_pid_can_have_distinct_service_keys_but_is_read_once() -> None:
 
 def test_default_own_pid_is_never_read() -> None:
     reader = FakeLaunchReader({})
-    assert (
-        LaunchRecorder(MemoryLaunchStore(), reader=reader).record((service(os.getpid()),), {}) == 0
-    )
+    assert LaunchRecorder(MemoryLaunchStore(), reader=reader).record((service(OWN_PID),), {}) == 0
     assert not reader.calls
 
 

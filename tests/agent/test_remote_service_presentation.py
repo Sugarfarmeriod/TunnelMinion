@@ -1,7 +1,6 @@
 """远端服务精选的身份、授权、预算和过期边界。"""
 
 import asyncio
-import os
 from datetime import timedelta
 from typing import cast
 
@@ -9,6 +8,7 @@ import pytest
 from pydantic import JsonValue
 from tests.agent.test_coordinator import key_set
 from tests.coordinator.test_registry import NETWORK, NOW, identity
+from tests.process_identity import OWN_PID
 
 from tunnelminion.agent.coordinator import CoordinatorAuthorizationView, CoordinatorCache
 from tunnelminion.agent.remote import (
@@ -109,7 +109,7 @@ class Remote:
                         "protocol": "tcp",
                         "address": "127.0.0.1",
                         "port": 43123,
-                        "pid": os.getpid(),
+                        "pid": OWN_PID,
                         "process_name": "python3.13",
                     },
                     {

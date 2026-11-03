@@ -13,6 +13,7 @@ from typing import Any, TypeVar, cast
 import psutil
 import pytest
 from pydantic import JsonValue
+from tests.process_identity import OWN_PID
 
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.platforms.process_origin import ProcessOrigin
@@ -401,7 +402,7 @@ def test_web_pages_are_opt_in_and_skip_system_desktop_udp_own_and_public_ports(
                 listener("tcp", "0.0.0.0", 445, 4, "System"),
                 listener("tcp", "0.0.0.0", 27036, 5, "steam"),
                 listener("udp", "0.0.0.0", 5353, 101, "python"),
-                listener("tcp", "127.0.0.1", 7000, os.getpid(), "me"),
+                listener("tcp", "127.0.0.1", 7000, OWN_PID, "me"),
                 listener("tcp", "8.8.8.8", 80, 103, "odd"),
             )
 

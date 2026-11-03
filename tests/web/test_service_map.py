@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.process_identity import OWN_PID
 
 from tunnelminion.agent.service_marks import InMemoryServiceMarkStore, ServiceMark
 from tunnelminion.agent.service_observation import (
@@ -118,7 +118,7 @@ INVENTORY = (
         origin=ProcessOrigin.TERMINAL,
     ),
     # TunnelMinion 自己
-    item(port=8765, process_pid=os.getpid(), process_name="python", origin=ProcessOrigin.TERMINAL),
+    item(port=8765, process_pid=OWN_PID, process_name="python", origin=ProcessOrigin.TERMINAL),
 )
 
 
@@ -152,7 +152,7 @@ def snapshot() -> ServiceObservationSnapshot:
         NODE,
         ServiceObservationSnapshot(observed_at=NOW, services=(), inventory=INVENTORY),
         {},
-        excluded_pid=os.getpid(),
+        excluded_pid=OWN_PID,
     )
 
 

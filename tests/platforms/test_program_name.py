@@ -1,10 +1,10 @@
 """自行安装程序的本机名称投影，不读取参数或保存路径。"""
 
-import os
 from pathlib import Path
 
 import psutil
 import pytest
+from tests.process_identity import OWN_PID
 
 from tunnelminion.platforms.program_name import read_program_name
 from tunnelminion.platforms.windows.models import NetworkListener
@@ -79,7 +79,7 @@ def test_pid_reuse_does_not_attribute_the_previous_program(monkeypatch: pytest.M
     )
 
 
-@pytest.mark.parametrize("pid", [None, os.getpid()])
+@pytest.mark.parametrize("pid", [None, OWN_PID])
 def test_unknown_owner_and_current_process_are_not_selected(pid: int | None) -> None:
     assert (
         read_program_name(NetworkListener(protocol="tcp", address="0.0.0.0", port=805, pid=pid))

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Generator, Iterator
 
 import pytest
+from tests.process_identity import OWN_PID_MODULES, OsWithFixedPid
 
 from tunnelminion.model import secrets
 from tunnelminion.runtime.logging import AUDIT_LOGGER_NAME
@@ -73,6 +75,14 @@ def unprivileged_host(monkeypatch: pytest.MonkeyPatch) -> None:
         "tunnelminion.platforms.macos.managed_system.macos_effective_uid",
         lambda: 501,
     )
+
+
+@pytest.fixture(autouse=True)
+def fixed_own_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """产品代码判断“本进程”时看到固定的 `OWN_PID`，测试里的假进程号不会碰巧等于测试进程号。"""
+    shim = OsWithFixedPid()
+    for name in OWN_PID_MODULES:
+        monkeypatch.setattr(importlib.import_module(name), "os", shim)
 
 
 @pytest.fixture
