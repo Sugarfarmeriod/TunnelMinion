@@ -153,6 +153,10 @@ class ModelConfigurationRepository(Protocol):
         """保存借用配置并停用本地模型。"""
         ...
 
+    def clear_borrowed(self) -> None:
+        """停止借用并保留本地档案；没有在借用时不改动任何配置。"""
+        ...
+
     def profiles(self) -> tuple[OpenAICompatibleConfig, ...]:
         """列出可切回的非秘密配置。"""
         ...
@@ -198,6 +202,13 @@ class FileModelConfigurationRepository:
         self._write_state(
             _StoredModelConfigurations(borrowed=config, profiles=self._load_state().profiles)
         )
+
+    def clear_borrowed(self) -> None:
+        """停止借用后只留下可切回的本地档案，由主人自己选一份再启用。"""
+        current = self._load_state()
+        if current.borrowed is None:
+            return
+        self._write_state(_StoredModelConfigurations(profiles=current.profiles))
 
     def _load_state(self) -> _StoredModelConfigurations:
         if not self._path.exists():
@@ -296,6 +307,13 @@ class ModelConfigurationService:
         await self._validate_provider(config, None)
         self._repository.save_borrowed(config)
         self._last_error = None
+        return self.view()
+
+    def stop_borrowing(self) -> ModelConfigurationView:
+        """停止借用其他电脑的模型；本地档案和密钥都保留，没有在借用时什么也不做。"""
+        if self._repository.load_borrowed() is not None:
+            self._repository.clear_borrowed()
+            self._last_error = None
         return self.view()
 
     async def validate(self) -> ModelConfigurationView:

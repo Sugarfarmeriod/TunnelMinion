@@ -13,9 +13,11 @@ import { useDialogFocusTrap } from "../../shared/useDialogFocusTrap";
 import { isReadOnlyPreview } from "../../shared/previewMode";
 
 import {
+  borrowModel,
   deleteModelConfiguration,
   getModelConfiguration,
   saveModelConfiguration,
+  stopBorrowingModel,
   validateModelConfiguration,
 } from "./api";
 import type { ModelConfiguration, ModelConfigurationInput } from "./api";
@@ -348,6 +350,49 @@ export function SettingsPage() {
     setWriting(false);
   }
 
+  /** 借用或停止借用都只发一次请求；失败时原配置不变，页面只重新读一次。 */
+  async function changeBorrowing(
+    target: { kind: "borrow"; nodeId: string; name: string } | { kind: "stop" },
+  ) {
+    if (writing) {
+      return;
+    }
+    setWriting(true);
+    setNotice(null);
+    try {
+      if (target.kind === "borrow") {
+        await borrowModel(target.nodeId);
+        setNotice({
+          kind: "success",
+          message: `已改为借用 ${target.name} 的模型，可以去地图上提问了。`,
+        });
+      } else {
+        const view = await stopBorrowingModel();
+        setNotice({
+          kind: "success",
+          message:
+            view.profiles.length > 0
+              ? "已停止借用。这台电脑现在没有模型：可以再借一台，或在下面“以前用过的模型”里选回自己的模型。"
+              : "已停止借用。这台电脑现在没有模型：可以再借一台，或在下面填好自己的模型。",
+        });
+      }
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message:
+          target.kind === "borrow"
+            ? `没借到 ${target.name} 的模型：${
+                error instanceof ApiError && error.status === 404
+                  ? "这台电脑找不到它的连接，确认它在“电脑与朋友”里并且开着。"
+                  : readableError(error)
+              }`
+            : `没能停止借用：${readableError(error)}`,
+      });
+    }
+    await query.refetch();
+    setWriting(false);
+  }
+
   const data = query.data;
   const selectedProfile = data?.profiles.find(
     (item) => item.endpoint === endpoint.trim() && item.model === model.trim(),
@@ -365,6 +410,18 @@ export function SettingsPage() {
           (peer) => peer.node_id === data.borrowed_from,
         )?.display_name ?? `另一台电脑（${data.borrowed_from.slice(-8)}）`);
   const system = systemQuery.data;
+  // 能借模型的只有已经加进来的电脑：先列我自己的，再列朋友的；对方要在它那边允许这台电脑借。
+  const lenders = (peersQuery.data?.peers ?? [])
+    .filter(
+      (peer) =>
+        !peer.is_local &&
+        (peer.relationship === "mine" || peer.relationship === "friend") &&
+        peer.node_id !== data?.borrowed_from,
+    )
+    .sort(
+      (a, b) =>
+        Number(a.relationship !== "mine") - Number(b.relationship !== "mine"),
+    );
 
   return (
     <section aria-labelledby="settings-title" className="settings-page surface">
@@ -508,7 +565,16 @@ export function SettingsPage() {
               还没设置模型。在下面填好模型服务地址和名称就能用。
             </p>
           ) : borrowedFrom !== null ? (
-            <p>正在借用 {borrowedFrom} 的模型，这台电脑不用自己配置。</p>
+            <div className="settings-borrowing">
+              <p>正在借用 {borrowedFrom} 的模型，这台电脑不用自己配置。</p>
+              <button
+                disabled={isReadOnlyPreview() || writing}
+                onClick={() => void changeBorrowing({ kind: "stop" })}
+                type="button"
+              >
+                停止借用
+              </button>
+            </div>
           ) : (
             <dl className="settings-metadata">
               <div>
@@ -538,6 +604,49 @@ export function SettingsPage() {
             </p>
           ) : null}
 
+          <section
+            aria-labelledby="settings-borrow-title"
+            className="settings-borrow"
+          >
+            <h4 id="settings-borrow-title">
+              {data.borrowed_from === null
+                ? "借用别的电脑的模型"
+                : "改借另一台电脑的模型"}
+            </h4>
+            <p className="advanced-hint">
+              这台电脑不用自己装模型，可以借另一台电脑已经配好的。你自己的电脑默认允许互相借；朋友的电脑要对方在“电脑与朋友”里打开“允许借我的模型”。点了之后会先试着调用一次，借不到会告诉你原因。
+            </p>
+            {peersQuery.isPending ? (
+              <p role="status">正在读取可以借的电脑……</p>
+            ) : lenders.length === 0 ? (
+              <p>
+                {data.borrowed_from === null
+                  ? "还没有可以借的电脑。先在“电脑与朋友”里加上你的其他电脑。"
+                  : "没有别的电脑可以改借。"}
+              </p>
+            ) : (
+              <div className="settings-actions">
+                {lenders.map((peer) => (
+                  <button
+                    disabled={isReadOnlyPreview() || writing}
+                    key={peer.node_id}
+                    onClick={() =>
+                      void changeBorrowing({
+                        kind: "borrow",
+                        nodeId: peer.node_id,
+                        name: peer.display_name,
+                      })
+                    }
+                    type="button"
+                  >
+                    借用 {peer.display_name} 的模型
+                    {peer.relationship === "friend" ? "（朋友）" : ""}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
           <form className="settings-form" onSubmit={reviewSave}>
             <fieldset
               disabled={isReadOnlyPreview() || writing || deleteUncertain}
@@ -545,7 +654,8 @@ export function SettingsPage() {
               <legend>
                 {data.status === "unconfigured" ? "设置模型" : "换一个模型"}
               </legend>
-              {data.profiles.length > 1 ? (
+              {/* 正在用某个本机模型时，只有一份档案就不必再选；没在用时（未配置或在借用）有一份也给出来。 */}
+              {data.profiles.length > (data.endpoint === null ? 0 : 1) ? (
                 <>
                   <label>
                     以前用过的模型

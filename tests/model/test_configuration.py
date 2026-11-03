@@ -78,6 +78,9 @@ class MemoryRepository:
         self.borrowed = config
         self.value = None
 
+    def clear_borrowed(self) -> None:
+        self.borrowed = None
+
     def delete(self) -> None:
         self.value = None
         self.saved = ()
@@ -766,3 +769,30 @@ def test_saving_the_key_does_not_run_on_the_event_loop_thread() -> None:
     asyncio.run(service.configure(input_config("")))
     assert len(writers) == 2
     assert threading.main_thread() not in writers
+
+
+def test_stop_borrowing_leaves_profiles_and_secrets_for_switching_back(tmp_path: Path) -> None:
+    peer = NodeId.new()
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    secrets = MemorySecrets()
+    service = ModelConfigurationService(
+        repository,
+        secrets,
+        lambda _config, _key: ValidationProvider(),
+        lambda _node: ValidationProvider(),
+    )
+    local = input_config("saved-local-key")
+    asyncio.run(service.configure(local))
+    # 没有在借用时停止借用不改动本地配置。
+    assert service.stop_borrowing().model == local.model
+    assert repository.load() == local.provider_config()
+
+    asyncio.run(service.borrow(peer))
+    view = service.stop_borrowing()
+    assert view.borrowed_from is None
+    assert view.status == "unconfigured"
+    assert repository.load_borrowed() is None
+    assert repository.load() is None
+    assert repository.profiles() == (local.provider_config(),)
+    assert secrets.values == {model_api_key_name(local.endpoint): "saved-local-key"}
+    assert view.profiles[0].api_key_configured

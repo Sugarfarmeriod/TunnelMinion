@@ -219,6 +219,144 @@ describe("SettingsPage", () => {
     },
   );
 
+  it("列出可以借的电脑，点一下借用并只发一次请求", async () => {
+    const mac = `node_${"a".repeat(32)}`;
+    const friend = `node_${"b".repeat(32)}`;
+    peers = [
+      makePeer(0, { node_id: `node_${"c".repeat(32)}`, is_local: true }),
+      makePeer(1, {
+        node_id: friend,
+        display_name: "小林",
+        relationship: "friend",
+      }),
+      makePeer(2, { node_id: mac, display_name: "Mac", relationship: "mine" }),
+      makePeer(3, {
+        node_id: `node_${"d".repeat(32)}`,
+        display_name: "旧电脑",
+        relationship: "legacy",
+      }),
+    ];
+    let current = makeConfiguration({
+      endpoint: null,
+      model: null,
+      timeout_seconds: null,
+      status: "unconfigured",
+    });
+    const bodies: unknown[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === "/api/model/borrowed" && init?.method === "PUT") {
+        bodies.push(JSON.parse(String(init.body)));
+        current = makeConfiguration({
+          endpoint: null,
+          model: null,
+          timeout_seconds: null,
+          borrowed_from: mac,
+        });
+      }
+      return jsonResponse(current);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    const borrow = await screen.findByRole("button", {
+      name: "借用 Mac 的模型",
+    });
+    const buttons = screen
+      .getAllByRole("button", { name: /^借用 / })
+      .map((button) => button.textContent);
+    expect(buttons).toEqual(["借用 Mac 的模型", "借用 小林 的模型（朋友）"]);
+    await user.click(borrow);
+    expect(
+      await screen.findByText("已改为借用 Mac 的模型，可以去地图上提问了。"),
+    ).toBeVisible();
+    expect(bodies).toEqual([{ peer_node_id: mac }]);
+    expect(
+      await screen.findByText("正在借用 Mac 的模型，这台电脑不用自己配置。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "借用 Mac 的模型" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("借不到时说清原因，配置不变", async () => {
+    const mac = `node_${"a".repeat(32)}`;
+    peers = [
+      makePeer(1, { node_id: mac, display_name: "Mac", relationship: "mine" }),
+    ];
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input) === "/api/model/borrowed" && init?.method === "PUT"
+        ? jsonResponse(
+            {
+              detail: {
+                code: "authentication_failed",
+                message: "对方电脑没有允许借用模型",
+                retryable: false,
+              },
+            },
+            422,
+          )
+        : jsonResponse(makeConfiguration()),
+    );
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(
+      await screen.findByRole("button", { name: "借用 Mac 的模型" }),
+    );
+    expect(
+      await screen.findByText(
+        "没借到 Mac 的模型：对方电脑没有允许借用模型（authentication_failed）",
+      ),
+    ).toHaveAttribute("role", "alert");
+    expect(screen.getByText("qwen-local")).toBeVisible();
+  });
+
+  it("正在借用时可以停止借用，以前的本机模型留着可以选回", async () => {
+    const mac = `node_${"a".repeat(32)}`;
+    peers = [
+      makePeer(1, { node_id: mac, display_name: "Mac", relationship: "mine" }),
+    ];
+    const profile = {
+      endpoint: "http://127.0.0.1:8080/v1",
+      model: "qwen-local",
+      timeout_seconds: 30,
+      disable_thinking: false,
+      max_output_tokens: 2048,
+      max_tools: null,
+      api_key_configured: false,
+    };
+    let current = makeConfiguration({
+      endpoint: null,
+      model: null,
+      timeout_seconds: null,
+      borrowed_from: mac,
+      profiles: [profile],
+    });
+    const methods: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === "/api/model/borrowed") {
+        methods.push(init?.method ?? "GET");
+        current = makeConfiguration({
+          endpoint: null,
+          model: null,
+          timeout_seconds: null,
+          status: "unconfigured",
+          profiles: [profile],
+        });
+      }
+      return jsonResponse(current);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "停止借用" }));
+    expect(await screen.findByText(/^已停止借用。/)).toHaveTextContent(
+      "以前用过的模型",
+    );
+    expect(methods).toEqual(["DELETE"]);
+    expect(screen.getByLabelText("以前用过的模型")).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "借用 Mac 的模型" }),
+    ).toBeVisible();
+  });
+
   it("借用配置仍拒绝未知字段和不合法的节点标识", () => {
     expect(
       modelConfigurationSchema.safeParse({

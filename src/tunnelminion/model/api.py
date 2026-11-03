@@ -49,6 +49,9 @@ def create_model_router(service: ModelConfigurationService) -> APIRouter:
         except ProviderError as exc:
             raise _http_error(exc, status.HTTP_422_UNPROCESSABLE_CONTENT) from exc
 
+    def delete_borrowed_model() -> ModelConfigurationView:
+        return service.stop_borrowing()
+
     def delete_model_config() -> Response:
         service.delete()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -85,6 +88,12 @@ def create_model_router(service: ModelConfigurationService) -> APIRouter:
         "/model/borrowed",
         put_borrowed_model,
         methods=["PUT"],
+        response_model=ModelConfigurationView,
+    )
+    router.add_api_route(
+        "/model/borrowed",
+        delete_borrowed_model,
+        methods=["DELETE"],
         response_model=ModelConfigurationView,
     )
     router.add_api_route(
