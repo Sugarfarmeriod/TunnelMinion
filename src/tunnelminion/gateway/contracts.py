@@ -322,3 +322,8 @@ def _known_fields(annotation: object, value: object) -> object:
             if key in fields
         }
     return value
+
+
+# 借用模型时放在请求头里的用途：为处理委派自动借用。旧版本的对端不认识这个头，忽略即可。
+MODEL_PURPOSE_HEADER = "X-TunnelMinion-Model-Purpose"
+DELEGATION_MODEL_PURPOSE = "delegation"

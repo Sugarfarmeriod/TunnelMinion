@@ -177,3 +177,25 @@ def test_model_peer_resolution_rejects_unknown_platform_and_missing_credentials(
     secrets.values.clear()
     with pytest.raises(RuntimeError, match="缺少网关凭据"):
         service.resolve_model_peer(provider.node_id)
+
+
+@pytest.mark.parametrize("purpose", [None, "delegation"])
+def test_model_client_marks_the_purpose_only_when_asked(purpose: str | None) -> None:
+    expected = BorrowedModelResult(provider_node_id=REMOTE, content="好")
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("X-TunnelMinion-Model-Purpose"))
+        return httpx.Response(200, content=expected.model_dump_json())
+
+    client = FixedGatewayClient(
+        "http://10.77.0.2:8787",
+        TOKEN,
+        LOCAL,
+        REMOTE,
+        InMemoryAuditSink(),
+        transport=httpx.MockTransport(handler),
+        model_purpose=purpose,
+    )
+    assert asyncio.run(client.complete_model(CALL)) == expected
+    assert seen == [purpose]

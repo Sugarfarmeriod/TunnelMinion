@@ -622,3 +622,28 @@ def test_truncated_output_is_still_charged_to_the_borrower(
     assert store.get(PEER, TODAY) == ModelUsageRecord(
         peer_node_id=PEER, day=TODAY, calls=1, tokens=expected
     )
+
+
+@pytest.mark.parametrize("purpose", [None, "delegation", "other"])
+def test_borrowing_for_a_delegation_is_logged_and_counted_like_any_borrowing(
+    caplog: pytest.LogCaptureFixture, purpose: str | None
+) -> None:
+    """对方为处理委派自动借用时照常记用量，并在日志里写明“为委派自动借用”。"""
+    provider = StubProvider(ModelResponse(content="好", usage=ModelUsage(input_tokens=3)))
+    store = InMemoryModelUsageStore()
+    app = gateway(ModelLendingService(PROVIDER, lambda: provider, store))
+    headers = dict(AUTH)
+    if purpose is not None:
+        headers["X-TunnelMinion-Model-Purpose"] = purpose
+
+    async def scenario() -> int:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://gateway"
+        ) as client:
+            response = await client.post(URL, json=call().model_dump(mode="json"), headers=headers)
+        return response.status_code
+
+    with caplog.at_level("INFO", logger="tunnelminion.gateway.api"):
+        assert asyncio.run(scenario()) == 200
+    assert store.get(PEER, date.today()).calls == 1
+    assert ("为委派自动借用" in caplog.text) is (purpose == "delegation")

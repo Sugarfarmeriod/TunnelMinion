@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -70,6 +70,8 @@ from tunnelminion.model.configuration import (
     FileModelConfigurationRepository,
     ModelConfigurationService,
 )
+from tunnelminion.model.contracts import ModelProvider
+from tunnelminion.model.delegation_borrowing import caller_model_provider_factory
 from tunnelminion.model.remote import RemoteModelProvider
 from tunnelminion.model.secrets import KeyringSecretStore, stop_waiting_for_keychain_approval
 from tunnelminion.operation.contracts import (
@@ -156,6 +158,8 @@ class MacOSNode:
     artifact_manager: ArtifactContextManager
     stores: SQLiteStores
     repair_service: RepairService
+    # 处理委派时借委派方的模型；不该借或借不了时返回 None。
+    caller_model_provider: Callable[[NodeId], ModelProvider | None] = lambda _caller: None
 
 
 @dataclass(frozen=True)
@@ -262,9 +266,10 @@ def _create_macos_read_only_agent(
     *,
     remote_tools: AgentRemoteToolPreparer | None = None,
     gate_user_requests: bool = False,
+    provider: ModelProvider | None = None,
 ) -> LangChainReadOnlyAgent:
-    """把 macOS 节点依赖组合成受只读策略约束的 Agent。"""
-    provider = node.model_service.create_provider()
+    """把 macOS 节点依赖组合成受只读策略约束的 Agent；不给提供方时用本机的模型配置。"""
+    provider = provider or node.model_service.create_provider()
     model = TunnelMinionChatModel(provider=provider, artifact_manager=node.artifact_manager)
     return LangChainReadOnlyAgent(
         model,
@@ -279,6 +284,11 @@ def _create_macos_read_only_agent(
         else None,
         tool_selection=ToolSelectionSettings(max_tools=node.model_service.tool_limit()),
     )
+
+
+def _caller_agent(node: MacOSNode, caller: NodeId) -> LangChainReadOnlyAgent | None:
+    provider = node.caller_model_provider(caller)
+    return None if provider is None else _create_macos_read_only_agent(node, provider=provider)
 
 
 def _build_macos_node(
@@ -367,6 +377,7 @@ def _build_macos_node(
         artifact_manager,
         stores,
         repair_service,
+        caller_model_provider_factory(gateway, node_id, audit),
     )
 
 
@@ -710,6 +721,7 @@ def build_macos_gateway_application(
             stores.repairs, delegation_id
         ),
         model_configured=node.model_service.is_configured,
+        caller_agent_factory=lambda caller: _caller_agent(node, caller),
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, stores.model_usage

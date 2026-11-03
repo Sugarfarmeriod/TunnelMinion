@@ -40,7 +40,7 @@ TERMINAL_DELEGATION_STATUSES = frozenset(
 class DelegationErrorCode(StrEnum):
     """委派没能给出结论时的原因。"""
 
-    # 那台电脑既没有配置自己的模型，也没有借用别的电脑的模型。
+    # 那台电脑既没有配置自己的模型，也没有借用别的电脑的模型，而且借不到委派方的模型。
     MODEL_NOT_CONFIGURED = "model_not_configured"
     # 配置了模型，但这次调用失败（模型服务没在运行、密钥不对、额度用完等）。
     MODEL_UNAVAILABLE = "model_unavailable"
@@ -51,7 +51,8 @@ class DelegationErrorCode(StrEnum):
 # 委派失败时给发起方 Agent 的说明和下一步；Agent 照这句告诉用户该去哪台电脑处理。
 DELEGATION_ERROR_TEXT = {
     DelegationErrorCode.MODEL_NOT_CONFIGURED: (
-        "那台电脑还没有配置模型，也没有借用别的电脑的模型，所以没法回答。"
+        "那台电脑还没有配置模型，也没有借用别的电脑的模型，也借不到这台电脑的模型"
+        "（不是同一机主的电脑、这台电脑不允许借给它，或者这台电脑的模型也是借来的），所以没法回答。"
         "下一步：到那台电脑的设置里配置模型，或者借用一台已经配好模型的电脑的模型。"
     ),
     DelegationErrorCode.MODEL_UNAVAILABLE: (
