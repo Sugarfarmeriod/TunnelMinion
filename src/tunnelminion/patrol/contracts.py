@@ -19,6 +19,9 @@ from tunnelminion.repair.contracts import ManualStep, RepairKind
 PATROL_CONFIRM_ROUNDS = 3
 PATROL_RECOVER_ROUNDS = 2
 PATROL_INTERVAL_SECONDS = 30.0
+# 规则直接显示的服务要连续正常运行这么久才开始巡检：开发机上跑一两分钟就关掉的测试服务、
+# 脚本不算服务挂了。主人标成"是我的服务"或打开了自动修的，见过正常运行就开始巡检。
+PATROL_STABLE_SECONDS = 1800
 # 同一服务的调查和自动修各自 1 小时最多 1 次。
 PATROL_INVESTIGATION_COOLDOWN_SECONDS = 3600
 PATROL_AUTO_REPAIR_COOLDOWN_SECONDS = 3600
@@ -79,7 +82,7 @@ class AutoRepairResult(StrEnum):
 
 
 class PatrolRecord(BaseModel):
-    """一个服务的巡检记录：见没见过正常、现在的状态、开关和最近一次自动修。"""
+    """一个服务的巡检记录：见没见过正常、盯没盯上、现在的状态、开关和最近一次自动修。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -87,6 +90,10 @@ class PatrolRecord(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     # 巡检见过它正常运行；只有见过正常的服务再出问题才算挂了。
     seen_running: bool = False
+    # 这一次连续正常运行从什么时候开始：巡检第一次见到它正常和它的进程启动时间里较早的那个。
+    running_since: datetime | None = None
+    # 已经连续正常运行满 `PATROL_STABLE_SECONDS`，之后一直巡检；没盯上的服务停了不算挂了。
+    established: bool = False
     status: PatrolStatus = PatrolStatus.OK
     reason: PatrolReason | None = None
     # 第一次看到异常的时间和确认挂了的时间。
