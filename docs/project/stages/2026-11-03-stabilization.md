@@ -19,7 +19,6 @@
 - 缺口：
   - 其他严格校验的网页接口还没有同样的检查，后端加字段、网页没跟上时，仍然只有真用才会发现。
   - 有几个测试的结果取决于运行环境或运行顺序，CI 时不时失败，开发机上也跑不全绿，掩盖了真问题。
-  - 一键更新的下载没有总时长上限；网络很慢时只能等它下完，或失败后重试。
 
 ## 范围
 
@@ -44,7 +43,7 @@
 | 其他严格校验的网页接口没有前后端字段一致性检查 | "这台电脑上的服务"读不到（#259） | 待修 |
 | `tests/platforms/windows/test_adapters.py::test_web_probing_respects_count_and_time_limits` 在 macOS CI 上偶发失败 | #260 的 CI | 待修 |
 | `tests/agent/test_managed_path.py::test_platform_factories_share_capability_shape_without_running_commands` 在装了 WireGuard 的电脑上必然失败，开发机跑不全绿 | 多个会话的本机门禁 | 待修 |
-| 一键更新下载没有总时长上限，下载很慢时只能干等 | 一键更新的真机验收 | 待定：先确认要不要做 |
+| 一键更新下载没有总时长上限，下载很慢时只能干等 | 一键更新的真机验收 | 不修：主人确认慢就等它下完 |
 
 ## 完成标准
 
