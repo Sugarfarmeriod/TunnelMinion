@@ -399,19 +399,25 @@ jobs:
           --source-revision "$GITHUB_SHA"
 
       - name: 创建 GitHub Release
-        run: >-
-          gh release create "$RELEASE_TAG"
-          build/release/tunnelminion-windows-amd64.tar.gz
-          build/release/tunnelminion-macos-arm64.tar.gz
-          build/release/release.json
-          --target "$GITHUB_SHA"
-          --title "$RELEASE_TAG"
-          --notes "自动发布，对应提交 ${GITHUB_SHA}。在本机网页的设置页点“更新”，或运行 tunnelminion update。"
-          --latest
+        # 相邻几次合并的发布可能乱序完成；已有序号更大的发布时不把这次标为最新，免得一键更新拿到旧版本
+        run: |
+          newest=$(gh release list --limit 200 --json tagName --jq '[.[].tagName | select(startswith("build-")) | ltrimstr("build-") | tonumber] | max // 0')
+          latest=true
+          if [ "$newest" -gt "$GITHUB_RUN_NUMBER" ]; then
+            latest=false
+          fi
+          gh release create "$RELEASE_TAG" \
+            build/release/tunnelminion-windows-amd64.tar.gz \
+            build/release/tunnelminion-macos-arm64.tar.gz \
+            build/release/release.json \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes "自动发布，对应提交 ${GITHUB_SHA}。在本机网页的设置页点“更新”，或运行 tunnelminion update。" \
+            --latest="$latest"
 
       - name: 只保留最近 10 个自动发布
         run: |
-          gh release list --limit 200 --json tagName,createdAt --jq 'map(select(.tagName | startswith("build-"))) | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          gh release list --limit 200 --json tagName --jq 'map(select(.tagName | startswith("build-")) | .tagName) | sort_by(ltrimstr("build-") | tonumber) | reverse | .[10:] | .[]' |
           while read -r tag; do
             gh release delete "$tag" --cleanup-tag --yes
           done
