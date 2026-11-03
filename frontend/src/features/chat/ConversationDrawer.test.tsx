@@ -323,7 +323,7 @@ describe("地图对话抽屉", () => {
     await user.click(
       await screen.findByRole("button", { name: /这台电脑，在线，1 个服务/ }),
     );
-    const ask = screen.getByRole("button", { name: "问问 这台电脑 的 Agent" });
+    const ask = screen.getByRole("button", { name: "问问这台电脑的 Agent" });
     await user.click(ask);
     const input = screen.getByRole("textbox", { name: "问题" });
     await user.type(input, "检查内存");
@@ -457,7 +457,7 @@ describe("地图对话抽屉", () => {
         screen.getByRole("button", { name: "问问 WireGuard Panel" }),
       ).toBeDisabled();
       expect(
-        screen.getByRole("button", { name: "问问 这台电脑 的 Agent" }),
+        screen.getByRole("button", { name: "问问这台电脑的 Agent" }),
       ).toBeDisabled();
       await user.click(screen.getByRole("button", { name: "对话" }));
       expect(screen.getByRole("textbox", { name: "问题" })).toBeDisabled();
@@ -480,7 +480,7 @@ describe("地图对话抽屉", () => {
     );
     const panel = screen.getByRole("dialog", { name: "这台电脑上的服务" });
     await user.click(
-      within(panel).getByRole("button", { name: "问问 这台电脑 的 Agent" }),
+      within(panel).getByRole("button", { name: "问问这台电脑的 Agent" }),
     );
     expect(screen.getByRole("textbox", { name: "问题" })).toHaveFocus();
     expect(screen.getByText(/关于：这台电脑/)).toBeVisible();

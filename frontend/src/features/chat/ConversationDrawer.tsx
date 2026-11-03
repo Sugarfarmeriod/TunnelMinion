@@ -117,6 +117,7 @@ function SideDrawer({
   }, [inputRef, toggleRef]);
   return (
     <aside
+      id="conversation-drawer"
       className="conversation-drawer"
       role="dialog"
       aria-modal="false"
@@ -154,6 +155,7 @@ function ModalDrawer({
   return (
     <aside
       ref={dialogRef}
+      id="conversation-drawer"
       className="conversation-drawer"
       role="dialog"
       aria-modal="true"

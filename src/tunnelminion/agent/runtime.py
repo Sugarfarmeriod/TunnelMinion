@@ -32,6 +32,7 @@ from tunnelminion.agent.context_contracts import (
     HistoryContext,
     RedactedContextRecord,
 )
+from tunnelminion.agent.follow_through import missing_steps, reminder
 from tunnelminion.agent.langchain_model import ModelRunMetrics, TunnelMinionChatModel
 from tunnelminion.agent.policy import evaluate_request_policy
 from tunnelminion.agent.prompts import READONLY_AGENT_PROMPT
@@ -540,6 +541,31 @@ class LangChainReadOnlyAgent:
                     "jump_to": "model",
                 }
 
+            reminded = False
+
+            @after_model(can_jump_to=["model"])
+            def follow_through(state: AgentState, runtime: object) -> dict[str, Any] | None:
+                """模型想收尾却漏了关键一步时提醒一次；之后无论做不做都照常结束。"""
+                nonlocal reminded
+                del runtime
+                if reminded or cast(AIMessage, state["messages"][-1]).tool_calls:
+                    return None
+                steps = missing_steps(
+                    question,
+                    results,
+                    # 只管第一次查所选服务；续办是否必须重查由 verify_current_check 决定。
+                    check_listener=target is not None
+                    and not historical_messages
+                    and "list_network_listeners" in selected_tools,
+                    can_propose="propose_repair" in selected_tools
+                    and ("propose_repair" in selection.visible or visibility.expanded),
+                )
+                if not steps:
+                    return None
+                reminded = True
+                current_span.set_attribute("agent.follow_through.steps", len(steps))
+                return {"messages": [HumanMessage(reminder(steps))], "jump_to": "model"}
+
             factory = cast(Callable[..., _AgentGraph], create_agent)
             graph = factory(
                 model=model,
@@ -549,6 +575,7 @@ class LangChainReadOnlyAgent:
                     visibility,
                     # after_model 按逆序运行，必须先计入预算再决定是否继续。
                     verify_current_check,
+                    follow_through,
                     ModelCallLimitMiddleware(
                         run_limit=budget.max_model_rounds, exit_behavior="end"
                     ),

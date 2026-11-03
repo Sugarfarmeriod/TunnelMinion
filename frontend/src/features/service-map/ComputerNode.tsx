@@ -59,6 +59,8 @@ interface ComputerNodeProps {
   platform: string | null;
   online: boolean;
   serviceCount: number | null;
+  /** 服务清单读取失败；没有它时 serviceCount 为空表示还在读 */
+  serviceError?: boolean;
   selected: boolean;
   buttonRef: Ref<HTMLButtonElement>;
   onClick: () => void;
@@ -74,6 +76,7 @@ export function ComputerNode({
   platform,
   online,
   serviceCount,
+  serviceError = false,
   selected,
   buttonRef,
   onClick,
@@ -83,12 +86,26 @@ export function ComputerNode({
   status,
 }: ComputerNodeProps) {
   const kind = platform === "macos" ? "mini" : "desktop";
+  const services =
+    serviceCount !== null
+      ? `${serviceCount} 个服务`
+      : serviceError
+        ? "暂时读不到服务"
+        : "正在查看服务";
+  const summary = repairing
+    ? "正在修……"
+    : (status ??
+      (pendingCount
+        ? `! 有 ${pendingCount} 件事要你批准`
+        : downCount
+          ? `! ${downCount} 个服务挂了`
+          : `${online ? "在线" : "离线"} · ${services}`));
   return (
     <button
       ref={buttonRef}
       type="button"
       className={`map-node${selected ? " is-selected" : ""}${online ? "" : " is-offline"}${repairing ? " is-repairing" : ""}`}
-      aria-label={`${name}，${online ? "在线" : "离线"}，${serviceCount === null ? "正在查看服务" : `${serviceCount} 个服务`}`}
+      aria-label={`${name}，${online ? "在线" : "离线"}，${services}`}
       aria-haspopup="dialog"
       aria-expanded={selected}
       aria-controls={selected ? "local-services-dialog" : undefined}
@@ -135,22 +152,13 @@ export function ComputerNode({
       </svg>
       <span className="map-node-name">{name}</span>
       {alias ? <span className="map-node-alias">{alias}</span> : null}
-      <span className="map-node-summary" aria-live="polite" aria-atomic="true">
-        {repairing
-          ? "正在修……"
-          : (status ??
-            (pendingCount ? (
-              `! 有 ${pendingCount} 件事要你批准`
-            ) : downCount ? (
-              `! ${downCount} 个服务挂了`
-            ) : (
-              <>
-                {online ? "在线" : "离线"}
-                {serviceCount === null
-                  ? " · 正在查看服务"
-                  : ` · ${serviceCount} 个服务`}
-              </>
-            )))}
+      <span
+        // 以“!”开头的是要人处理的事（待批准、挂了），用醒目的红色，不和“在线”的绿色混在一起。
+        className={`map-node-summary${summary.startsWith("!") ? " is-alert" : ""}`}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {summary}
       </span>
     </button>
   );

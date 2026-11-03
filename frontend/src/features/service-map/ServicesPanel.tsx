@@ -727,7 +727,7 @@ export function ServicesPanel({
             disabled={askDisabled}
             onClick={() => onAsk()}
           >
-            问问 {name} 的 Agent
+            {peer ? `问问 ${name} 的 Agent` : "问问这台电脑的 Agent"}
           </button>
         ) : null}
       </footer>

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -14,6 +14,7 @@ import {
   reviseMemory,
 } from "./api";
 import type { LongTermMemory, MemoryScope, ReviseMemoryInput } from "./api";
+import { peersQueryKey, type Peer } from "../service-map/api";
 import "./memories.css";
 
 const kindLabels: Record<LongTermMemory["kind"], string> = {
@@ -229,11 +230,16 @@ function MemoryEditor({
 }
 
 export function MemoriesPage() {
-  const [scopeDraft, setScopeDraft] = useState<MemoryScope>({
+  const client = useQueryClient();
+  // 本机 Agent 的记忆存在这台电脑的节点下；从地图进来时已经读过电脑列表，直接填上，不用手抄 32 位编号。
+  const [scopeDraft, setScopeDraft] = useState<MemoryScope>(() => ({
     user: "local-user",
     network: "home",
-    nodeId: "",
-  });
+    nodeId:
+      client
+        .getQueryData<{ peers: Peer[] }>(peersQueryKey)
+        ?.peers.find((peer) => peer.is_local)?.node_id ?? "",
+  }));
   const [activeScope, setActiveScope] = useState<MemoryScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
