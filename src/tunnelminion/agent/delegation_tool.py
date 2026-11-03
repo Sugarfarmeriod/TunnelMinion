@@ -16,6 +16,7 @@ from tunnelminion.agent.delegation_progress import (
 )
 from tunnelminion.domain.delegation import (
     DELEGATE_TOOL_NAME,
+    DELEGATION_ERROR_TEXT,
     MAX_SECONDS,
     TERMINAL_DELEGATION_STATUSES,
     DelegationProposedRepair,
@@ -179,6 +180,9 @@ class DelegateToNodeAdapter:
                     "answered_by": str(record.executing_node_id),
                     "status": record.status.value,
                     "error_code": record.error_code.value if record.error_code else None,
+                    "error_message": DELEGATION_ERROR_TEXT[record.error_code]
+                    if record.error_code
+                    else None,
                     "result": record.result.model_dump(mode="json") if record.result else None,
                 },
             )

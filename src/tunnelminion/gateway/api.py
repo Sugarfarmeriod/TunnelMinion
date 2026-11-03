@@ -29,7 +29,9 @@ from tunnelminion.domain.tools import Platform, RiskLevel
 from tunnelminion.domain.versioning import ProtocolVersion, VersionCompatibility
 from tunnelminion.gateway.audit import GatewaySecurityAuditSink, security_event
 from tunnelminion.gateway.contracts import (
+    DELEGATION_MODEL_PURPOSE,
     GATEWAY_PROTOCOL,
+    MODEL_PURPOSE_HEADER,
     GatewayCapabilities,
     GatewayError,
     GatewayErrorCode,
@@ -816,7 +818,7 @@ def create_gateway_router(
             )
         complete = model_lending_service.complete
         try:
-            return await complete(peer, call)
+            result = await complete(peer, call)
         except ModelLendingError as exc:
             return reject(
                 exc.status_code,
@@ -826,6 +828,10 @@ def create_gateway_router(
                 peer,
                 retryable=exc.retryable,
             )
+        if http_request.headers.get(MODEL_PURPOSE_HEADER) == DELEGATION_MODEL_PURPOSE:
+            # 对方没有模型，为处理本机交给它的委派自动借用；用量照常记在它的每日额度里。
+            logger.info("为委派自动借用：%s 借用本机模型完成一轮调用", peer.node_id)
+        return result
 
     def delegation_peer(
         http_request: Request, authorization: str | None, action: str

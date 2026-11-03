@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from contextvars import ContextVar, copy_context
 from datetime import UTC, datetime
@@ -33,7 +34,7 @@ from tunnelminion.domain.delegation import (
     DelegationStatus,
 )
 from tunnelminion.domain.identifiers import DelegationId, NodeId, RunId, ThreadId
-from tunnelminion.model.contracts import ProviderError
+from tunnelminion.model.contracts import ProviderError, ProviderErrorCode
 from tunnelminion.tools.contracts import ToolCallContext
 
 _LIMITS = AgentRunLimits(
@@ -56,6 +57,16 @@ class DelegationStore(Protocol):
     def running_for(self, caller_node_id: NodeId) -> tuple[DelegationRecord, ...]: ...
 
     def recent(self, limit: int = 50) -> tuple[DelegationRecord, ...]: ...
+
+
+logger = logging.getLogger(__name__)
+
+# 自动借了委派方的模型时，写在回答最前面，如实说明这次用的是谁的模型。
+BORROWED_FROM_CALLER_NOTE = "（这台电脑没有配置模型，这次借用了发起委派那台电脑的模型来回答。）"
+# 借委派方模型时这些错误说明对方不肯借，而不是模型本身出错。
+_LENDER_REFUSED = frozenset(
+    {ProviderErrorCode.AUTHENTICATION_FAILED, ProviderErrorCode.MODEL_NOT_FOUND}
+)
 
 
 def summarize(result: CheckedAgentTurnResult) -> DelegationResult:
@@ -89,6 +100,8 @@ class DelegationService:
         *,
         clock: Callable[[], datetime] | None = None,
         repair_query: Callable[[DelegationId], tuple[DelegationProposedRepair, ...]] | None = None,
+        model_configured: Callable[[], bool] | None = None,
+        caller_agent_factory: Callable[[NodeId], TaskAgent | None] | None = None,
     ) -> None:
         self._node_id = node_id
         self._store = store
@@ -96,6 +109,8 @@ class DelegationService:
         self._tool_names = tool_names
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repair_query = repair_query
+        self._model_configured = model_configured
+        self._caller_agent_factory = caller_agent_factory
         self._tasks: dict[str, tuple[asyncio.Task[None], AgentCancellationToken]] = {}
         self._fail_interrupted()
 
@@ -164,21 +179,50 @@ class DelegationService:
             execution_node_id=self._node_id,
         )
         tools = tuple(name for name in self._tool_names() if name != DELEGATE_TOOL_NAME)
+        borrowing = self._model_configured is not None and not self._model_configured()
         delegation_token = current_delegation.set(record)
         try:
-            agent = self._agent_factory()
+            if borrowing:
+                # 本机没有模型：同一机主的委派方允许时，这一次借它的模型来回答，不改本机配置。
+                caller_agent = (
+                    self._caller_agent_factory(record.caller_node_id)
+                    if self._caller_agent_factory is not None
+                    else None
+                )
+                if caller_agent is None:
+                    self._finish(
+                        record,
+                        DelegationStatus.FAILED,
+                        error=DelegationErrorCode.MODEL_NOT_CONFIGURED,
+                    )
+                    return
+                logger.info("为委派自动借用：本机没有模型，借用 %s 的模型", record.caller_node_id)
+                agent = caller_agent
+            else:
+                agent = self._agent_factory()
             result = await asyncio.wait_for(
                 agent.run(question, context, tools, _LIMITS, cancellation),
                 timeout=MAX_SECONDS + 5,
             )
             summary = summarize(result)
+            if borrowing:
+                summary = summary.model_copy(
+                    update={"summary": (BORROWED_FROM_CALLER_NOTE + summary.summary)[:4000]}
+                )
             if self._repair_query is not None:
                 summary = summary.model_copy(
                     update={"proposed_repairs": self._repair_query(record.delegation_id)[:3]}
                 )
-        except ProviderError:
+        except ProviderError as exc:
+            # 借委派方的模型时，对方不肯借（不允许、它的模型也是借来的、它也没有模型）就等于
+            # 这台电脑没有模型可用。
+            refused = borrowing and exc.code in _LENDER_REFUSED
             self._finish(
-                record, DelegationStatus.FAILED, error=DelegationErrorCode.MODEL_UNAVAILABLE
+                record,
+                DelegationStatus.FAILED,
+                error=DelegationErrorCode.MODEL_NOT_CONFIGURED
+                if refused
+                else DelegationErrorCode.MODEL_UNAVAILABLE,
             )
             return
         except TimeoutError:

@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from tests.agent.test_langchain_agent import ScriptedProvider, build_agent
 
 from tunnelminion.agent.context_contracts import HistoryContext
-from tunnelminion.agent.delegation import DelegationService, summarize
+from tunnelminion.agent.delegation import BORROWED_FROM_CALLER_NOTE, DelegationService, summarize
 from tunnelminion.agent.delegation_tool import (
     DelegateToNodeAdapter,
     delegate_tool_definition,
@@ -709,3 +709,197 @@ def test_delegation_peer_without_stored_token_is_reported(tmp_path: Path) -> Non
     secrets.values.clear()
     with pytest.raises(RuntimeError):
         configured.resolve_delegation_peer(B)
+
+
+# ---------- 那台电脑没有模型 ----------
+
+
+def test_executor_without_any_model_says_so_instead_of_model_unavailable(tmp_path: Path) -> None:
+    """既没配置模型也没借用时，不去建 Agent，直接如实记为“还没有配置模型”。"""
+    built: list[str] = []
+
+    def agent() -> TaskAgent:
+        built.append("agent")
+        return real_agent()
+
+    store = stores(tmp_path)
+    value = DelegationService(
+        B,
+        store.delegations,
+        agent,
+        lambda: ("probe_service",),
+        model_configured=lambda: False,
+    )
+
+    async def scenario() -> DelegationRecord | None:
+        record = value.submit(DelegationRequest(caller_node_id=A, question="这是什么程序？"))
+        await value.wait(record.delegation_id)
+        return value.get(record.delegation_id, A)
+
+    record = run(scenario())
+    assert record is not None and record.status is DelegationStatus.FAILED
+    assert record.error_code is DelegationErrorCode.MODEL_NOT_CONFIGURED
+    assert built == []
+
+
+def test_configured_executor_still_reports_model_errors_as_model_unavailable(
+    tmp_path: Path,
+) -> None:
+    store = stores(tmp_path)
+    error = ProviderError(ProviderErrorCode.MODEL_NOT_FOUND, "模型名写错了")
+    value = DelegationService(
+        B,
+        store.delegations,
+        lambda: FailingAgent(error),
+        lambda: ("probe_service",),
+        model_configured=lambda: True,
+    )
+
+    async def scenario() -> DelegationRecord | None:
+        record = value.submit(DelegationRequest(caller_node_id=A, question="查一下"))
+        await value.wait(record.delegation_id)
+        return value.get(record.delegation_id, A)
+
+    record = run(scenario())
+    assert record is not None and record.error_code is DelegationErrorCode.MODEL_UNAVAILABLE
+
+
+@pytest.mark.parametrize("code", list(DelegationErrorCode))
+def test_caller_tool_tells_the_agent_what_went_wrong_and_what_to_do(
+    code: DelegationErrorCode,
+) -> None:
+    client = FakeClient([DelegationStatus.FAILED])
+    client.base = client.base.model_copy(update={"error_code": code})
+    output = cast(
+        dict[str, object],
+        run(
+            adapter(client).execute(
+                {"node_id": str(B), "question": "这是什么程序？"}, ToolCancellationToken()
+            )
+        ),
+    )
+    assert output["error_code"] == code.value
+    message = output["error_message"]
+    assert isinstance(message, str) and message
+    if code is DelegationErrorCode.MODEL_NOT_CONFIGURED:
+        assert "还没有配置模型，也没有借用别的电脑的模型" in message
+        assert "设置里配置模型，或者借用" in message
+
+
+def test_answered_delegation_has_no_error_message() -> None:
+    client = FakeClient([DelegationStatus.COMPLETED])
+    output = cast(
+        dict[str, object],
+        run(adapter(client).execute({"node_id": str(B), "question": "q"}, ToolCancellationToken())),
+    )
+    assert output["error_code"] is None and output["error_message"] is None
+
+
+def test_a_reason_from_a_newer_peer_is_read_as_failed() -> None:
+    """对方是更新的版本、回了还不认识的原因时，整条记录照样读得懂，原因按“出错了”处理。"""
+    payload = FakeClient([]).base.model_dump(mode="json")
+    payload.update(status="failed", error_code="something_new")
+    record = DelegationRecord.model_validate(payload)
+    assert record.error_code is DelegationErrorCode.FAILED
+    payload["error_code"] = "model_not_configured"
+    assert (
+        DelegationRecord.model_validate(payload).error_code
+        is DelegationErrorCode.MODEL_NOT_CONFIGURED
+    )
+    payload["error_code"] = None
+    assert DelegationRecord.model_validate(payload).error_code is None
+
+
+# ---------- 没有模型时借委派方的 ----------
+
+
+def _borrowing_service(
+    tmp_path: Path,
+    *,
+    configured: bool,
+    caller_agent: Callable[[NodeId], TaskAgent | None],
+    local: Callable[[], TaskAgent] = real_agent,
+) -> DelegationService:
+    return DelegationService(
+        B,
+        stores(tmp_path).delegations,
+        local,
+        lambda: ("probe_service",),
+        model_configured=lambda: configured,
+        caller_agent_factory=caller_agent,
+    )
+
+
+def _finished(value: DelegationService) -> DelegationRecord:
+    async def scenario() -> DelegationRecord | None:
+        record = value.submit(DelegationRequest(caller_node_id=A, question="这是什么程序？"))
+        await value.wait(record.delegation_id)
+        return value.get(record.delegation_id, A)
+
+    record = run(scenario())
+    assert record is not None
+    return record
+
+
+def test_without_a_model_the_callers_model_answers_and_the_answer_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    asked: list[NodeId] = []
+
+    def caller_agent(caller: NodeId) -> TaskAgent:
+        asked.append(caller)
+        return real_agent()
+
+    def local() -> TaskAgent:
+        raise AssertionError("没有模型时不该建本机 Agent")
+
+    with caplog.at_level("INFO", logger="tunnelminion.agent.delegation"):
+        record = _finished(
+            _borrowing_service(tmp_path, configured=False, caller_agent=caller_agent, local=local)
+        )
+    assert record.status is DelegationStatus.COMPLETED and record.result is not None
+    assert asked == [A]
+    assert record.result.summary.startswith(BORROWED_FROM_CALLER_NOTE)
+    assert "为委派自动借用" in caplog.text
+
+
+def test_with_its_own_model_the_executor_never_borrows(tmp_path: Path) -> None:
+    def caller_agent(_caller: NodeId) -> TaskAgent:
+        raise AssertionError("自己有模型时不该借")
+
+    record = _finished(_borrowing_service(tmp_path, configured=True, caller_agent=caller_agent))
+    assert record.status is DelegationStatus.COMPLETED and record.result is not None
+    assert not record.result.summary.startswith(BORROWED_FROM_CALLER_NOTE)
+
+
+def test_when_the_caller_cannot_lend_the_reason_stays_model_not_configured(
+    tmp_path: Path,
+) -> None:
+    """朋友的电脑、对方不在名单里等情况，工厂不给 Agent，照常报“还没有配置模型”。"""
+    record = _finished(
+        _borrowing_service(tmp_path, configured=False, caller_agent=lambda _caller: None)
+    )
+    assert record.error_code is DelegationErrorCode.MODEL_NOT_CONFIGURED
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        # 对方不允许借，或者它的模型也是借来的（不转借）、它也没有模型。
+        (ProviderErrorCode.AUTHENTICATION_FAILED, DelegationErrorCode.MODEL_NOT_CONFIGURED),
+        (ProviderErrorCode.MODEL_NOT_FOUND, DelegationErrorCode.MODEL_NOT_CONFIGURED),
+        # 借到了，但这次调用失败：照实说模型出错。
+        (ProviderErrorCode.TIMEOUT, DelegationErrorCode.MODEL_UNAVAILABLE),
+        (ProviderErrorCode.QUOTA_EXCEEDED, DelegationErrorCode.MODEL_UNAVAILABLE),
+    ],
+)
+def test_lender_refusals_and_model_failures_are_told_apart(
+    tmp_path: Path, code: ProviderErrorCode, expected: DelegationErrorCode
+) -> None:
+    error = ProviderError(code, "对方")
+    record = _finished(
+        _borrowing_service(
+            tmp_path, configured=False, caller_agent=lambda _caller: FailingAgent(error)
+        )
+    )
+    assert record.error_code is expected

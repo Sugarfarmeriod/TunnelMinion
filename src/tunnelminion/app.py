@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,6 +63,8 @@ from tunnelminion.model.configuration import (
     FileModelConfigurationRepository,
     ModelConfigurationService,
 )
+from tunnelminion.model.contracts import ModelProvider
+from tunnelminion.model.delegation_borrowing import caller_model_provider_factory
 from tunnelminion.model.remote import RemoteModelProvider
 from tunnelminion.model.secrets import KeyringSecretStore, stop_waiting_for_keychain_approval
 from tunnelminion.operation.definitions import register_safe_http_sharing_operation
@@ -230,11 +233,16 @@ class WindowsNode:
     stores: SQLiteStores
     artifact_manager: ArtifactContextManager
     repair_service: RepairService
+    # 处理委派时借委派方的模型；不该借或借不了时返回 None。
+    caller_model_provider: Callable[[NodeId], ModelProvider | None] = lambda _caller: None
 
-    def create_read_only_agent(self) -> LangChainReadOnlyAgent:
-        """只用本机工具的 Agent；处理别的电脑交来的委派时使用。"""
+    def create_read_only_agent(
+        self, provider: ModelProvider | None = None
+    ) -> LangChainReadOnlyAgent:
+        """只用本机工具的 Agent；处理别的电脑交来的委派时使用。不给提供方时用本机的模型配置。"""
         model = TunnelMinionChatModel(
-            provider=self.model_service.create_provider(), artifact_manager=self.artifact_manager
+            provider=provider or self.model_service.create_provider(),
+            artifact_manager=self.artifact_manager,
         )
         return LangChainReadOnlyAgent(
             model,
@@ -319,7 +327,13 @@ def build_windows_node(data_dir: Path | None = None) -> WindowsNode:
         stores=stores,
         artifact_manager=artifact_manager,
         repair_service=repair_service,
+        caller_model_provider=caller_model_provider_factory(gateway, node_id, audit),
     )
+
+
+def _caller_agent(node: WindowsNode, caller: NodeId) -> LangChainReadOnlyAgent | None:
+    provider = node.caller_model_provider(caller)
+    return None if provider is None else node.create_read_only_agent(provider)
 
 
 @dataclass(frozen=True)
@@ -356,6 +370,8 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         repair_query=lambda delegation_id: proposed_repairs_for_delegation(
             node.stores.repairs, delegation_id
         ),
+        model_configured=node.model_service.is_configured,
+        caller_agent_factory=lambda caller: _caller_agent(node, caller),
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, node.stores.model_usage
