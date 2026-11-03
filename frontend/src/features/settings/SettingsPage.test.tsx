@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { modelConfigurationSchema, type ModelConfiguration } from "./api";
@@ -132,7 +133,9 @@ function renderSettings() {
   });
   function Wrapper({ children }: PropsWithChildren) {
     return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{children}</MemoryRouter>
+      </QueryClientProvider>
     );
   }
   return render(<SettingsPage />, { wrapper: Wrapper });
@@ -159,25 +162,27 @@ describe("SettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("对端列表显示我的电脑、朋友和旧式配对", async () => {
-    peers = (["mine", "friend", "legacy"] as const).map((relationship, index) =>
-      makePeer(index + 1, {
-        node_id: `node_${String(index + 1).repeat(32)}`,
-        display_name: ["书房电脑", "小林的电脑", "旧电脑"][index],
-        relationship,
+  it("其他电脑只留去“电脑与朋友”的入口，不重复列名单", async () => {
+    peers = [
+      makePeer(1, {
+        node_id: `node_${"1".repeat(32)}`,
+        display_name: "书房电脑",
+        relationship: "mine",
       }),
-    );
+    ];
     fetchMock.mockResolvedValue(jsonResponse(makeConfiguration()));
     renderSettings();
-    expect(await screen.findByText("书房电脑 · 我的电脑")).toBeInTheDocument();
-    expect(screen.getByText("小林的电脑 · 朋友")).toBeInTheDocument();
-    expect(screen.getByText("旧电脑 · 旧式配对")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "去“电脑与朋友”" }),
+    ).toHaveAttribute("href", "/app/people");
+    expect(screen.queryByText(/书房电脑/)).not.toBeInTheDocument();
   });
 
   it.each(["available", "unavailable"] as const)(
     "借用模型 %s 时显示提供方并隐藏密钥输入",
     async (status) => {
       const peer = "node_0123456789abcdef0123456789abcdef";
+      peers = [makePeer(1, { node_id: peer, display_name: "书房电脑" })];
       fetchMock.mockResolvedValueOnce(
         jsonResponse(
           makeConfiguration({
@@ -194,14 +199,16 @@ describe("SettingsPage", () => {
       );
       renderSettings();
       expect(
-        await screen.findByText(`正在使用 ${peer.slice(0, 12)} 的模型`),
+        await screen.findByText(
+          "正在借用 书房电脑 的模型，这台电脑不用自己配置。",
+        ),
       ).toBeVisible();
       expect(
         screen.queryByLabelText("新 API 密钥（可选）"),
       ).not.toBeInTheDocument();
       expect(screen.queryByText("API 密钥")).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "重新验证一次" }),
+        screen.getByRole("button", { name: "测试模型能不能用" }),
       ).toBeEnabled();
       expect(
         screen.getByRole("button", { name: "清除模型配置与密钥" }),
@@ -277,7 +284,7 @@ describe("SettingsPage", () => {
     );
 
     renderSettings();
-    expect(screen.getByText("正在读取脱敏模型配置……")).toBeVisible();
+    expect(screen.getByText("正在读取模型设置……")).toBeVisible();
     resolveRequest?.(
       jsonResponse(
         makeConfiguration({
@@ -290,7 +297,7 @@ describe("SettingsPage", () => {
     );
 
     expect(await screen.findByText("尚未配置")).toBeVisible();
-    expect(screen.getByText(/聊天的新 AI run 暂不可用/)).toBeVisible();
+    expect(screen.getByText(/还没设置模型/)).toBeVisible();
     expect(screen.getByLabelText("新 API 密钥（可选）")).toHaveValue("");
     expect(
       screen.getByRole("checkbox", {
@@ -332,7 +339,7 @@ describe("SettingsPage", () => {
       await user.click(screen.getByRole("button", { name: "确认保存一次" }));
 
       expect(
-        await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。"),
+        await screen.findByText("已保存。可以点“测试模型能不能用”确认一下。"),
       ).toBeVisible();
       expect(capturedBody).toEqual({
         endpoint: "http://127.0.0.1:8080/v1",
@@ -379,7 +386,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText("工具上限：5 个")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "确认保存一次" }));
     expect(
-      await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。"),
+      await screen.findByText("已保存。可以点“测试模型能不能用”确认一下。"),
     ).toBeVisible();
     expect(capturedBody?.max_tools).toBe(5);
     expect(input).toHaveValue(5);
@@ -388,7 +395,7 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
     expect(screen.getByText("工具上限：不限制")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "确认保存一次" }));
-    await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。");
+    await screen.findByText("已保存。可以点“测试模型能不能用”确认一下。");
     expect(capturedBody?.max_tools).toBeNull();
   });
 
@@ -401,9 +408,9 @@ describe("SettingsPage", () => {
     renderSettings();
 
     expect(
-      await screen.findByRole("heading", { name: "现在读不到模型配置" }),
+      await screen.findByRole("heading", { name: "现在读不到模型设置" }),
     ).toBeVisible();
-    expect(screen.getByText(/不符合脱敏契约/)).toBeVisible();
+    expect(screen.getByText(/返回的模型设置格式不对/)).toBeVisible();
     expect(screen.queryByText(leakedSecret)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(leakedSecret);
   });
@@ -457,7 +464,7 @@ describe("SettingsPage", () => {
 
     renderSettings();
     await screen.findByText("模型可用");
-    const endpoint = screen.getByLabelText("OpenAI-compatible endpoint");
+    const endpoint = screen.getByLabelText("模型服务地址");
     await user.clear(endpoint);
     await user.type(endpoint, "http://127.0.0.1:9090/v1");
     const model = screen.getByLabelText("模型名称");
@@ -475,7 +482,7 @@ describe("SettingsPage", () => {
     await user.keyboard("{Enter}");
 
     expect(
-      await screen.findByText("服务端已验证、保存并重新返回脱敏模型配置。"),
+      await screen.findByText("已保存。可以点“测试模型能不能用”确认一下。"),
     ).toBeVisible();
     expect(screen.getByText("已安全保存")).toBeVisible();
     expect(screen.getByLabelText("新 API 密钥（可选）")).toHaveValue("");
@@ -538,16 +545,16 @@ describe("SettingsPage", () => {
       name: "关闭思考模式（更快，适合本机 Qwen）",
     });
     expect(checkbox).toBeChecked();
-    await user.selectOptions(screen.getByLabelText("已保存模型配置"), "1");
+    await user.selectOptions(screen.getByLabelText("以前用过的模型"), "1");
 
-    expect(screen.getByLabelText("OpenAI-compatible endpoint")).toHaveValue(
+    expect(screen.getByLabelText("模型服务地址")).toHaveValue(
       "https://api.deepseek.com/v1",
     );
     expect(screen.getByLabelText("模型名称")).toHaveValue("deepseek-chat");
     expect(screen.getByLabelText("超时（秒）")).toHaveValue(60);
     expect(checkbox).not.toBeChecked();
     expect(screen.getByLabelText(/工具上限/)).toHaveValue(null);
-    expect(screen.getByText(/该 endpoint 已保存密钥/)).toBeVisible();
+    expect(screen.getByText(/这个地址已经存过密钥/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "检查并确认保存" }));
     await user.click(screen.getByRole("button", { name: "确认保存一次" }));
@@ -581,7 +588,7 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "确认保存一次" }));
 
     expect(
-      await screen.findByText(/保存请求的结果无法确认.*没有自动重放写请求/),
+      await screen.findByText(/不确定刚才有没有保存成功.*没有再保存一遍/),
     ).toBeVisible();
     expect(screen.getByLabelText("新 API 密钥（可选）")).toHaveValue("");
     expect(
@@ -615,24 +622,19 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "确认清除一次" }));
 
     expect(
-      await screen.findByText(
-        "服务端已用 204 明确确认：模型配置和已保存密钥均已清除。",
-      ),
+      await screen.findByText("已清除模型设置和保存的密钥。"),
     ).toBeVisible();
     expect(screen.getByText("尚未配置")).toBeVisible();
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
     ).toHaveLength(1);
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "重新读取状态" }),
-      ).toHaveFocus(),
+      expect(screen.getByRole("button", { name: "重新读取" })).toHaveFocus(),
     );
-    expect(
-      screen.getByText(
-        "服务端已用 204 明确确认：模型配置和已保存密钥均已清除。",
-      ),
-    ).toHaveAttribute("role", "status");
+    expect(screen.getByText("已清除模型设置和保存的密钥。")).toHaveAttribute(
+      "role",
+      "status",
+    );
   });
 
   it("模型不可用时仍允许清除配置与密钥，且只提交一次", async () => {
@@ -707,7 +709,7 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "确认清除一次" }));
 
     expect(
-      await screen.findByText(/无法确认操作系统秘密存储中的密钥是否已清除/),
+      await screen.findByText(/系统凭据库里的密钥也可能还在/),
     ).toBeVisible();
     expect(screen.getByText("尚未配置")).toBeVisible();
     expect(
@@ -737,10 +739,9 @@ describe("SettingsPage", () => {
     });
     expect(download).toHaveAttribute("href", "/api/diagnostics/export");
     expect(download).toHaveAttribute("download");
-    expect(
-      screen.getByText(/没有 Murus、防火墙日志权限或厂商 VPN 工具时/),
-    ).toBeVisible();
-    expect(screen.getByText(/不可达不等于一定是防火墙/)).toBeVisible();
+    await userEvent.setup().click(screen.getByText("自己先排查：按这个顺序看"));
+    expect(screen.getByText(/Murus 防火墙日志/)).toBeVisible();
+    expect(screen.getByText(/连不上不一定是防火墙挡了/)).toBeVisible();
     expect(localStorageSpy).not.toHaveBeenCalled();
   });
 
@@ -761,7 +762,7 @@ describe("SettingsPage", () => {
 
     expect(
       await screen.findByText(
-        "暂时读不到本机总览；模型设置和诊断下载仍可独立使用。",
+        "暂时读不到运行状态；模型设置和诊断包仍可单独使用。",
       ),
     ).toBeVisible();
     expect(document.body.textContent).not.toContain(leakedSecret);
@@ -770,7 +771,7 @@ describe("SettingsPage", () => {
     ).toHaveAttribute("href", "/api/diagnostics/export");
   });
 
-  it("在设置页展示强类型 runtime、版本、Coordinator 与路径状态", async () => {
+  it("运行状态先给一句结论，Coordinator 与路径细节收在高级里", async () => {
     fetchMock.mockImplementation((input) => {
       const path = String(input);
       return Promise.resolve(
@@ -784,10 +785,17 @@ describe("SettingsPage", () => {
 
     renderSettings();
 
-    expect(await screen.findByText("本机就绪")).toBeVisible();
-    expect(screen.getByText("macos / 0.1.0")).toBeVisible();
-    expect(screen.getByText("standalone / 0.1.0")).toBeVisible();
-    expect(screen.getByText("ready（live）")).toBeVisible();
-    expect(screen.getByText("direct（probe: passed）")).toBeVisible();
+    expect(
+      await screen.findByText("一切正常：TunnelMinion 正在运行。"),
+    ).toBeVisible();
+    expect(screen.getByText("正常")).toBeVisible();
+    expect(screen.getByText("macOS · 版本 0.1.0")).toBeVisible();
+    const advanced = screen.getByText("高级：运行细节").closest("details");
+    expect(advanced).not.toHaveAttribute("open");
+    expect(screen.getByText("Coordinator 目录已同步")).not.toBeVisible();
+    expect(screen.getByText("当前选择了直连路径")).not.toBeVisible();
+    await userEvent.setup().click(screen.getByText("高级：运行细节"));
+    expect(screen.getByText("Coordinator 目录已同步")).toBeVisible();
+    expect(screen.getByText("standalone · 0.1.0")).toBeVisible();
   });
 });

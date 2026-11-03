@@ -94,7 +94,11 @@ async function serveOverview(page: Page, payload: ResourceOverview) {
     },
   );
   await page.goto("/app/settings");
-  await expect(page.getByRole("heading", { name: "模型设置" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "设置", exact: true }),
+  ).toBeVisible();
+  // 运行细节默认收在“高级”里，展开后才看得到各张状态卡。
+  await page.getByText("高级：运行细节").click();
 }
 
 function modelUnavailableOverview(): ResourceOverview {
@@ -253,19 +257,21 @@ test("设置运行基础刷新失败保留记录，重新读取后恢复", async
     ),
   );
   await page.goto("/app/settings");
-  const button = page.getByRole("button", { name: "刷新运行基础" });
-  await expect(button).toBeVisible();
+  const button = page.getByRole("button", { name: "重新读取", exact: true });
+  await expect(
+    page.getByText("一切正常：TunnelMinion 正在运行。"),
+  ).toBeVisible();
   failed = true;
   await button.click();
   await expect(
-    page.getByText("运行基础刷新失败，下面保留上一次读取的记录。"),
+    page.getByText("刷新失败，上面是上一次读到的状态。"),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "本机运行", exact: true }),
+    page.getByText("一切正常：TunnelMinion 正在运行。"),
   ).toBeVisible();
   failed = false;
   await button.click();
   await expect(
-    page.getByText("运行基础刷新失败，下面保留上一次读取的记录。"),
+    page.getByText("刷新失败，上面是上一次读到的状态。"),
   ).toHaveCount(0);
 });

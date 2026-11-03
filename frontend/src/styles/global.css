@@ -25,47 +25,40 @@ a {
   outline-offset: 3px;
 }
 
+code,
+kbd {
+  font-family: var(--font-mono);
+}
+
 .product-shell {
+  background: var(--px-ink);
   min-height: 100vh;
-}
-
-.product-shell--map {
-  background: #1a1c2c;
-}
-.product-shell.product-shell--map > main {
-  max-width: none;
-}
-.product-shell--map .product-chrome {
-  background: #262b44;
-  border-bottom: 4px solid #333c57;
-  padding: 10px 20px;
-}
-
-.product-chrome {
-  align-items: center;
-  background: var(--color-chrome);
-  color: var(--color-chrome-text);
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-  padding: var(--space-4) max(var(--space-5), calc((100vw - 72rem) / 2));
-}
-
-.product-chrome .eyebrow,
-.product-chrome .privacy-note {
-  color: var(--color-chrome-muted);
-}
-
-.product-header h1 {
-  font-size: 1.375rem;
-  font-weight: 650;
-  letter-spacing: -0.025em;
 }
 
 .product-shell > main {
   margin: 0 auto;
   max-width: 75rem;
-  padding: var(--space-5);
+  padding: 20px;
+}
+
+.product-shell.product-shell--map > main {
+  max-width: none;
+}
+
+.product-chrome {
+  align-items: center;
+  background: var(--px-night);
+  border-bottom: 4px solid var(--px-deep);
+  color: var(--px-white);
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  padding: 10px 20px;
+}
+
+.product-chrome .eyebrow,
+.product-chrome .privacy-note {
+  color: var(--px-fog);
 }
 
 .product-header {
@@ -75,8 +68,9 @@ a {
   gap: var(--space-1);
 }
 
-.product-header h1,
-.surface h2 {
+.product-header h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
   margin: 0;
 }
 
@@ -87,14 +81,35 @@ a {
   margin: 0 0 var(--space-1);
 }
 
-.keychain-notice {
-  background: var(--color-surface);
-  border: 1px solid var(--color-warning-text);
-  border-radius: var(--radius-panel);
-  color: var(--color-warning-text);
-  font-weight: 600;
+.keychain-notice,
+.offline-banner {
+  background: var(--px-night);
+  border: 3px solid var(--px-gold);
+  box-shadow: 4px 4px 0 var(--px-shadow);
+  color: var(--px-gold);
+  font-weight: 700;
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
+}
+
+.offline-banner {
+  align-items: center;
+  border-color: var(--px-red);
+  color: var(--px-red);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  justify-content: space-between;
+}
+
+.offline-banner p {
+  margin: 0;
+}
+
+.offline-banner span {
+  color: var(--px-white);
+  display: block;
+  font-weight: 400;
 }
 
 .primary-navigation {
@@ -102,36 +117,192 @@ a {
   gap: var(--space-1);
 }
 
+/* 顶栏唯一的导航按钮沿用地图里的像素按钮样子。 */
 .primary-navigation a {
   align-content: center;
-  border-radius: var(--radius-pill);
+  background: var(--px-deep);
+  border: 3px solid var(--px-white);
+  box-shadow: 3px 3px 0 var(--px-shadow);
   min-height: 2.75rem;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
   text-align: center;
   text-decoration: none;
 }
 
 .primary-navigation a[aria-current="page"] {
-  background: #35445d;
-  color: var(--color-chrome-text);
+  color: var(--px-gold);
   font-weight: 700;
-  box-shadow: inset 0 -2px #9cbaff;
 }
 
 .primary-navigation a:hover {
-  background: #35445d;
+  background: var(--px-steel);
 }
 
-.primary-navigation a:focus-visible {
-  outline-color: #9cbaff;
+/* 非地图页顶部的页面标签：一眼看到"更多"里有哪些页、自己在哪一页。 */
+.page-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
 }
 
+.page-tabs a {
+  border: 3px solid var(--px-deep);
+  color: var(--px-fog);
+  padding: 4px 12px;
+  text-decoration: none;
+}
+
+.page-tabs a:hover {
+  border-color: var(--px-steel);
+  color: var(--px-white);
+}
+
+.page-tabs a[aria-current="page"] {
+  background: var(--px-deep);
+  border-color: var(--px-gold);
+  color: var(--px-gold);
+  font-weight: 700;
+}
+
+/* 各页外框：和服务地图外框同样的深色底、4px 粗边。 */
 .surface {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
+  background: var(--px-ink);
+  border: 4px solid var(--px-deep);
+  color: var(--px-white);
   padding: clamp(var(--space-4), 3vw, var(--space-5));
+}
+
+.product-header h1,
+.surface h2 {
+  margin: 0;
+}
+
+.surface h2 {
+  color: var(--px-gold);
+  font-size: 1.5rem;
+}
+
+.surface h3,
+.surface h4,
+.surface legend {
+  color: var(--px-gold);
+}
+
+/* 页面开头的一句话：告诉主人这页能帮他做什么。 */
+.page-lead {
+  color: var(--px-fog);
+  margin: var(--space-1) 0 0;
+}
+
+/* ===== 像素控件：非地图页里的按钮、输入框、折叠区统一长这样 ===== */
+.pixel-page button,
+.pixel-page .pixel-button,
+.offline-banner button {
+  align-items: center;
+  background: var(--px-deep);
+  border: 3px solid var(--px-white);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--px-shadow);
+  color: var(--px-white);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 2px 12px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.pixel-page button:hover:not(:disabled),
+.pixel-page .pixel-button:hover,
+.offline-banner button:hover {
+  background: var(--px-steel);
+}
+
+.pixel-page button:active:not(:disabled),
+.pixel-page .pixel-button:active {
+  box-shadow: 1px 1px 0 var(--px-shadow);
+  transform: translate(2px, 2px);
+}
+
+.pixel-page button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* 主要动作（保存、发送、批准）用地图里"打开"按钮的绿色。 */
+.pixel-page button[type="submit"],
+.pixel-page .pixel-button--go {
+  background: var(--px-green);
+  color: var(--px-ink);
+  font-weight: 700;
+}
+
+.pixel-page button[type="submit"]:hover:not(:disabled),
+.pixel-page .pixel-button--go:hover {
+  background: var(--px-lime);
+}
+
+.pixel-page input:not([type="checkbox"], [type="radio"]),
+.pixel-page select,
+.pixel-page textarea {
+  background: var(--px-night);
+  border: 3px solid var(--px-steel);
+  border-radius: 0;
+  color: var(--px-white);
+  font: inherit;
+  font-weight: 400;
+}
+
+.pixel-page input::placeholder,
+.pixel-page textarea::placeholder {
+  color: var(--px-fog);
+  opacity: 0.8;
+}
+
+.pixel-page input[type="checkbox"] {
+  accent-color: var(--px-green);
+}
+
+.pixel-page summary {
+  color: var(--px-fog);
+  cursor: pointer;
+}
+
+.pixel-page summary:hover {
+  color: var(--px-white);
+}
+
+/* 正文里的普通链接用青色；用 :where 压低优先级，各页按钮样式的链接不受影响。 */
+:where(.surface) a:where(:not(.pixel-button)) {
+  color: var(--px-cyan);
+}
+
+.pixel-page code {
+  background: var(--px-night);
+  padding: 0 4px;
+}
+
+/* "高级"折叠区：技术细节默认收起，展开后有一句话说明它是什么。 */
+.advanced {
+  border-top: 3px dashed var(--px-deep);
+  padding-top: var(--space-2);
+}
+
+.advanced > summary {
+  font-weight: 700;
+}
+
+.advanced[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
+.advanced-hint {
+  color: var(--px-fog);
+  font-size: 0.875rem;
+  margin: 0 0 var(--space-3);
 }
 
 @media (max-width: 40rem) {
@@ -157,5 +328,10 @@ a {
     flex: 1;
     padding-inline: var(--space-1);
     white-space: nowrap;
+  }
+
+  .page-tabs a {
+    font-size: 0.875rem;
+    padding: 2px 8px;
   }
 }

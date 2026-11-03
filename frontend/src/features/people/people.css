@@ -25,7 +25,7 @@
 }
 
 .people-card {
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--px-deep);
   border-radius: var(--radius-panel);
   display: grid;
   gap: var(--space-3);
@@ -33,45 +33,45 @@
   padding: var(--space-4);
 }
 
-.people-page button,
+/* 弹窗也会出现在地图上，所以弹窗里的按钮自带像素样式；主按钮用地图的绿色。 */
 .people-dialog button {
-  background: var(--color-accent-strong);
-  border: 1px solid var(--color-accent-strong);
-  border-radius: var(--radius-pill);
-  color: var(--color-surface);
+  background: var(--px-green);
+  border: 3px solid var(--px-white);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--px-shadow);
+  color: var(--px-ink);
   cursor: pointer;
   font: inherit;
   font-weight: 700;
   min-height: 2.75rem;
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-1) var(--space-3);
 }
 
 /* 返回、取消这类次要按钮用描边样式，和“下一步”“完成”区分开。 */
 .people-page .people-secondary,
 .people-dialog .people-secondary {
   background: transparent;
-  color: var(--color-accent-strong);
+  color: var(--px-white);
 }
 
-.people-page button:disabled,
 .people-dialog button:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .people-page .people-danger,
 .people-dialog .people-danger {
-  background: #b42318;
-  border-color: #b42318;
+  background: var(--px-crimson);
+  color: var(--px-white);
 }
 
 .people-page input,
 .people-dialog input,
 .people-dialog textarea {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  border-radius: 0.5rem;
+  background: var(--px-ink);
+  border: 3px solid var(--px-steel);
+  color: var(--px-white);
+  border-radius: 0;
   font: inherit;
   min-height: 2.5rem;
   padding: var(--space-2);
@@ -116,7 +116,7 @@
 }
 
 .people-row {
-  border-top: 1px solid var(--color-border);
+  border-top: 3px dashed var(--px-deep);
   padding-top: var(--space-3);
 }
 
@@ -204,9 +204,9 @@
 }
 
 .people-dialog {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
+  background: var(--px-ink);
+  border: 4px solid var(--px-white);
+  border-radius: 0;
   box-shadow: var(--shadow-panel);
   color: var(--color-text);
   display: grid;
@@ -230,10 +230,10 @@
 }
 
 .people-dialog .people-choice {
-  background: var(--color-surface);
-  border: 2px solid var(--color-accent-strong);
-  border-radius: var(--radius-panel);
-  color: var(--color-text);
+  background: var(--px-night);
+  border: 3px solid var(--px-steel);
+  border-radius: 0;
+  color: var(--px-white);
   display: grid;
   font-weight: 400;
   gap: var(--space-1);
@@ -242,7 +242,7 @@
 }
 
 .people-dialog .people-choice strong {
-  color: var(--color-accent-strong);
+  color: var(--px-gold);
   font-size: 1.05rem;
 }
 
@@ -253,8 +253,8 @@
 }
 
 .people-welcome {
-  border: 3px solid var(--map-gold, #ffcd75);
-  box-shadow: 3px 3px 0 var(--map-shadow, rgb(0 0 0 / 40%));
+  border: 3px solid var(--px-gold);
+  box-shadow: 3px 3px 0 var(--px-shadow);
   display: grid;
   gap: 8px;
   margin: 12px 0;
@@ -267,7 +267,7 @@
 }
 
 .people-welcome h3 {
-  color: var(--map-gold, #ffcd75);
+  color: var(--px-gold);
 }
 
 .people-welcome__choices {

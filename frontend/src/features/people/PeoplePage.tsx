@@ -298,8 +298,10 @@ export function PeoplePage() {
     <section className="people-page surface" aria-labelledby="people-title">
       <header className="people-header">
         <div>
-          <p className="eyebrow">只在这台电脑上操作</p>
           <h2 id="people-title">电脑与朋友</h2>
+          <p className="page-lead">
+            把你自己的几台电脑连成一张网，再邀请朋友来用你开放的服务。谁能看、谁能用，都在这里管。
+          </p>
         </div>
         <button
           type="button"
@@ -330,6 +332,7 @@ export function PeoplePage() {
           <h3>这台电脑还没有机主身份</h3>
           <p>建立自己的身份、加入你已有的电脑，或者用朋友给的配对码加入。</p>
           <button
+            className="pixel-button--go"
             type="button"
             disabled={preview}
             onClick={() => setOnboarding("welcome")}

@@ -53,7 +53,7 @@ export function WelcomeGate() {
             </button>
             <button
               type="button"
-              className="map-button map-go"
+              className="map-button"
               onClick={() => setOpen({ route: "friend", identity: data })}
             >
               我是朋友，粘贴配对码

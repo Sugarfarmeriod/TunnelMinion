@@ -3,7 +3,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IncidentsPage } from "./IncidentsPage";
+import type { ResourceOverview } from "../../api/schemas/overview";
+import {
+  IncidentsPage,
+  groupIncidents,
+  incidentSubject,
+} from "./IncidentsPage";
 import { makeOverview } from "./testFixtures";
 const generatedAt = "2026-08-08T09:00:00+08:00";
 const evidenceAt = "2026-08-08T08:59:00+08:00";
@@ -220,7 +225,7 @@ describe("最近事件", () => {
       await screen.findByRole("heading", { name: "调查结果" }),
     ).toBeVisible();
     expect(screen.getByText("service.local-only@1")).not.toBeVisible();
-    await user.click(screen.getByText("查看技术过程与证据"));
+    await user.click(screen.getByText("高级：调查过程与证据"));
     expect(screen.getByText(malicious)).toBeVisible();
     expect(screen.getByText("还不知道监听进程")).toBeVisible();
     expect(screen.getByText("service.local-only@1")).toBeVisible();
@@ -248,7 +253,9 @@ describe("最近事件", () => {
     expect(suggestion).toHaveFocus();
     await user.click(suggestion);
     expect(composer).toHaveValue("哪个进程持有这个监听端口？");
-    await user.click(screen.getByRole("button", { name: "开始只读追问" }));
+    await user.click(
+      screen.getByRole("button", { name: "开始追问（只查看，不改动）" }),
+    );
     expect(
       await screen.findByRole("link", { name: "打开对应聊天线程" }),
     ).toHaveAttribute("href", `/app/map?thread=${threadId}`);
@@ -393,7 +400,7 @@ describe("最近事件", () => {
     expect(
       screen.getByText(/只有你发出请求、对方批准并确认执行后/),
     ).toBeVisible();
-    await user.click(screen.getByText("查看技术过程与证据"));
+    await user.click(screen.getByText("高级：调查过程与证据"));
     expect(screen.getByText(/暂未记录结构化调查过程/)).toBeVisible();
     await user.click(handoff);
     expect(
@@ -401,5 +408,96 @@ describe("最近事件", () => {
         ([, init]) => (init?.method ?? "GET").toUpperCase() === "POST",
       ),
     ).toHaveLength(0);
+  });
+});
+
+describe("最近事件的合并与命名", () => {
+  type Item = ResourceOverview["incidents"]["items"][number];
+  const base: Item = {
+    incident_id: `incident_${"a".repeat(32)}`,
+    event_type: "remote_unreachable",
+    object_kind: "service",
+    object_id: serviceA,
+    severity: "warning",
+    status: "confirmed",
+    first_observed_at: "2026-08-08T08:00:00+08:00",
+    last_observed_at: "2026-08-08T08:10:00+08:00",
+    conclusion: "旧结论",
+  };
+  const service = {
+    service_id: serviceA,
+    node_id: nodeB,
+    display_name: "jupyter",
+    application: null,
+    protocol: "http",
+    port: 8888,
+    freshness: "fresh",
+  } as unknown as ResourceOverview["services"]["items"][number];
+  const node = {
+    node_id: nodeB,
+    display_name: "书房电脑",
+  } as unknown as ResourceOverview["nodes"]["items"][number];
+
+  it("同一服务同一类事件合并成一行，代表项取最近一次", () => {
+    const later: Item = {
+      ...base,
+      incident_id: `incident_${"b".repeat(32)}`,
+      first_observed_at: "2026-08-08T09:00:00+08:00",
+      last_observed_at: "2026-08-08T09:30:00+08:00",
+      conclusion: "新结论",
+    };
+    const other: Item = {
+      ...base,
+      incident_id: `incident_${"c".repeat(32)}`,
+      event_type: "local_only",
+    };
+    const groups = groupIncidents([base, later, other]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.latest.conclusion).toBe("新结论");
+    expect(groups[0]?.count).toBe(2);
+    expect(groups[0]?.firstObservedAt).toBe(base.first_observed_at);
+    expect(groups[1]?.count).toBe(1);
+  });
+
+  it("写清是哪台电脑的哪个服务，名字不可靠时不凭端口猜用途", () => {
+    expect(incidentSubject(base, [node], [service])).toBe("书房电脑 · jupyter");
+    expect(
+      incidentSubject(base, [node], [{ ...service, freshness: "stale" }]),
+    ).toBe("书房电脑 · 端口 8888 上的服务");
+    expect(incidentSubject(base, [], [])).toBe("一个已不在清单里的服务");
+    expect(
+      incidentSubject(
+        { object_kind: "node", object_id: nodeB },
+        [node],
+        [service],
+      ),
+    ).toBe("书房电脑");
+  });
+
+  it("列表里重复的事件只显示一行并写出次数", async () => {
+    const payload = makeOverview();
+    payload.incidents = {
+      ...payload.incidents,
+      items: [
+        base,
+        {
+          ...base,
+          incident_id: `incident_${"b".repeat(32)}`,
+          last_observed_at: "2026-08-08T09:30:00+08:00",
+        },
+      ],
+    };
+    const fetchMock = vi.fn<typeof fetch>(() => jsonResponse(payload));
+    vi.stubGlobal("fetch", fetchMock);
+    renderOverview();
+    expect(
+      await screen.findByText("一个已不在清单里的服务：从别的电脑打不开"),
+    ).toBeVisible();
+    expect(
+      screen.getAllByRole("button", { name: "查看调查详情" }),
+    ).toHaveLength(1);
+    expect(screen.getByText(/^出现 2 次/)).toBeVisible();
+    cleanup();
+    vi.unstubAllGlobals();
   });
 });

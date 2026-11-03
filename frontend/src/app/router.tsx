@@ -14,7 +14,37 @@ import { SettingsPage } from "../features/settings";
 import { ServiceMapPage } from "../features/service-map/ServiceMapPage";
 import { RouteErrorPage } from "./RouteErrorPage";
 import { KeychainNotice } from "../shared/keychainNotice";
+import { OfflineBanner } from "../shared/offlineBanner";
 import { isReadOnlyPreview } from "../shared/previewMode";
+
+// "更多"菜单里的各页；非地图页顶部用同一份清单显示页面标签。
+const morePages = [
+  { path: "/app/operations", label: "请求记录" },
+  { path: "/app/incidents", label: "最近事件" },
+  { path: "/app/memories", label: "记忆" },
+  { path: "/app/people", label: "电脑与朋友" },
+  { path: "/app/settings", label: "设置" },
+] as const;
+
+function PageTabs({ pathname }: { pathname: string }) {
+  return (
+    <nav aria-label="更多页面" className="page-tabs">
+      {morePages.map((page) => (
+        <Link
+          key={page.path}
+          to={page.path}
+          aria-current={
+            pathname === page.path || pathname.startsWith(`${page.path}/`)
+              ? "page"
+              : undefined
+          }
+        >
+          {page.label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
 
 function ProductShell() {
   const { pathname } = useLocation();
@@ -37,8 +67,14 @@ function ProductShell() {
           </Link>
         </nav>
       </div>
-      <main id="main-content" tabIndex={-1}>
+      <main
+        className={map ? undefined : "pixel-page"}
+        id="main-content"
+        tabIndex={-1}
+      >
+        <OfflineBanner />
         <KeychainNotice />
+        {map ? null : <PageTabs pathname={pathname} />}
         <Outlet />
       </main>
     </div>

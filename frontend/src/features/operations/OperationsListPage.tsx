@@ -261,7 +261,9 @@ export function OperationsListPage() {
       <header className="operations-page__header">
         <div>
           <h2 id="operations-title">请求记录</h2>
-          <p>先处理已有请求。想使用另一台电脑的服务时，再发起新申请。</p>
+          <p className="page-lead">
+            借用别的电脑上的服务、或别人想用你的服务时，都要先发请求、对方批准，到期自动关闭。这里记着所有请求：先处理等你决定的，想用别的电脑的服务再发新申请。
+          </p>
         </div>
 
         {incidentPrefill.kind === "valid" ? (
