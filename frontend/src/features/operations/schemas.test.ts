@@ -24,6 +24,19 @@ describe("eligibleOperationPeersSchema", () => {
       eligibleOperationPeersSchema.parse([{ ...peer, relationship }]),
     ).toEqual([{ ...peer, relationship }]);
   });
+  it("接受后端对等电脑视图的全部字段", () => {
+    const actual = {
+      ...peer,
+      relationship: "mine",
+      platform: "windows",
+      display_name: "书房电脑",
+      allow_delegation: true,
+      allow_model_borrowing: false,
+      allow_proxy_repair_approval: false,
+      daily_quota: 200_000,
+    };
+    expect(eligibleOperationPeersSchema.parse([actual])).toEqual([actual]);
+  });
   it("仍拒绝非法平台与未约定字段，不用平台字段放宽授权", () => {
     expect(
       eligibleOperationPeersSchema.safeParse([{ ...peer, platform: "other" }])

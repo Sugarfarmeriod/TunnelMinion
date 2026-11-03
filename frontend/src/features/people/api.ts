@@ -83,7 +83,7 @@ export const inspectionSchema = z
   })
   .strict();
 
-const setupSchema = z
+export const setupSchema = z
   .object({
     setup_id: z.string().min(1),
     recovery_code: z.string().min(1),
@@ -91,11 +91,11 @@ const setupSchema = z
   })
   .strict();
 
-const issuedSchema = z
+export const issuedSchema = z
   .object({ code: z.string().min(1), expires_at: timestamp })
   .strict();
 
-const pushSchema = z.object({ unreached: z.array(z.string()) }).strict();
+export const pushSchema = z.object({ unreached: z.array(z.string()) }).strict();
 
 export type Identity = z.infer<typeof identitySchema>;
 export type OwnDevice = z.infer<typeof ownDeviceSchema>;

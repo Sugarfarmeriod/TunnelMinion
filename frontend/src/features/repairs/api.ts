@@ -118,15 +118,13 @@ export const repairDetailSchema = repairSchema.extend({
 
 export type Repair = z.infer<typeof repairSchema>;
 export type RepairDetail = z.infer<typeof repairDetailSchema>;
+export const repairListSchema = z.object({ repairs: z.array(repairSchema) });
+
 export const repairsQueryKey = ["repairs"] as const;
 export const repairQueryKey = (id: string) => ["repair", id] as const;
 
 export function loadRepairs({ signal }: { signal?: AbortSignal }) {
-  return requestJson(
-    "/api/repairs",
-    z.object({ repairs: z.array(repairSchema) }),
-    { signal },
-  );
+  return requestJson("/api/repairs", repairListSchema, { signal });
 }
 
 export function loadRepair(id: string, signal?: AbortSignal) {

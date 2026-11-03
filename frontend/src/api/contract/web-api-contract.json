@@ -1,0 +1,3239 @@
+{
+  "schemas": {
+    "eligibleOperationPeersSchema": {
+      "array": {
+        "object": {
+          "allow_delegation": "boolean",
+          "allow_model_borrowing": "boolean",
+          "allow_proxy_repair_approval": "boolean",
+          "allowed_operations": {
+            "array": "string"
+          },
+          "allowed_tools": {
+            "array": "string"
+          },
+          "credential_configured": "boolean",
+          "daily_quota": "number",
+          "display_name": {
+            "nullable": "string"
+          },
+          "host": "string",
+          "node_id": "string",
+          "platform": {
+            "nullable": {
+              "enum": [
+                "windows",
+                "macos",
+                "linux"
+              ]
+            }
+          },
+          "port": "number",
+          "relationship": {
+            "enum": [
+              "mine",
+              "friend",
+              "legacy"
+            ]
+          }
+        },
+        "strict": true,
+        "optional": [
+          "allow_delegation",
+          "allow_model_borrowing",
+          "allow_proxy_repair_approval",
+          "daily_quota",
+          "display_name",
+          "platform",
+          "relationship"
+        ]
+      }
+    },
+    "identitySchema": {
+      "object": {
+        "address_candidates": {
+          "array": "string"
+        },
+        "bind": {
+          "nullable": {
+            "object": {
+              "host": "string",
+              "port": "number"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "devices": {
+          "array": {
+            "object": {
+              "display_name": "string",
+              "host": "string",
+              "is_local": "boolean",
+              "node_id": "string",
+              "permissions": {
+                "object": {
+                  "allow_delegation": "boolean",
+                  "allow_model_borrowing": "boolean",
+                  "allow_proxy_repair_approval": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              },
+              "platform": {
+                "nullable": {
+                  "enum": [
+                    "windows",
+                    "macos",
+                    "linux"
+                  ]
+                }
+              },
+              "port": "number"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "friends": {
+          "array": {
+            "object": {
+              "allow_model_borrowing": "boolean",
+              "conflicting_devices": {
+                "array": "string"
+              },
+              "devices": {
+                "array": {
+                  "object": {
+                    "display_name": "string",
+                    "node_id": "string",
+                    "platform": {
+                      "nullable": {
+                        "enum": [
+                          "windows",
+                          "macos",
+                          "linux"
+                        ]
+                      }
+                    }
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "display_name": "string",
+              "owner_fingerprint": "string"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "has_owner_key": "boolean",
+        "initialized": "boolean",
+        "legacy_peers": {
+          "array": {
+            "object": {
+              "allow_proxy_repair_approval": "boolean",
+              "display_name": "string",
+              "host": "string",
+              "node_id": "string",
+              "platform": {
+                "nullable": {
+                  "enum": [
+                    "windows",
+                    "macos",
+                    "linux"
+                  ]
+                }
+              },
+              "port": "number"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "local_display_name": "string",
+        "owner_fingerprint": {
+          "nullable": "string"
+        },
+        "removed": "boolean",
+        "roster_version": {
+          "nullable": "number"
+        },
+        "trust_list_version": {
+          "nullable": "number"
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "incidentDetailSchema": {
+      "object": {
+        "incident": {
+          "object": {
+            "created_at": "string",
+            "dedup_key": "string",
+            "event": {
+              "object": {
+                "after_state": {
+                  "nullable": "string"
+                },
+                "baseline_revision": "number",
+                "baseline_snapshot_id": "string",
+                "before_state": {
+                  "nullable": "string"
+                },
+                "current_revision": "number",
+                "current_snapshot_id": "string",
+                "dedup_key": "string",
+                "event_type": {
+                  "enum": [
+                    "service_added",
+                    "service_removed",
+                    "node_offline",
+                    "state_stale",
+                    "local_only",
+                    "remote_unreachable"
+                  ]
+                },
+                "object_id": "string",
+                "object_kind": {
+                  "enum": [
+                    "node",
+                    "service"
+                  ]
+                },
+                "observed_at": "string",
+                "source": {
+                  "enum": [
+                    "local_runtime",
+                    "model_configuration",
+                    "coordinator_sync",
+                    "coordinator_directory",
+                    "network_path_evidence",
+                    "local_observation",
+                    "static_peer_observation",
+                    "aggregated",
+                    "unknown"
+                  ]
+                },
+                "target_node_id": "string"
+              },
+              "strict": true,
+              "optional": []
+            },
+            "hypotheses": {
+              "array": {
+                "object": {
+                  "evidence": {
+                    "array": {
+                      "object": {
+                        "observed_at": "string",
+                        "snapshot_id": {
+                          "nullable": "string"
+                        },
+                        "summary": "string",
+                        "tool_run_id": {
+                          "nullable": "string"
+                        }
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "hypothesis_id": "string",
+                  "status": {
+                    "enum": [
+                      "candidate",
+                      "supported",
+                      "rejected",
+                      "unknown"
+                    ]
+                  },
+                  "summary": "string"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "incident_id": "string",
+            "investigation": {
+              "nullable": {
+                "object": {
+                  "facts": {
+                    "array": "string"
+                  },
+                  "model_rounds": "number",
+                  "phase": {
+                    "enum": [
+                      "collecting",
+                      "reporting",
+                      "finished"
+                    ]
+                  },
+                  "schema_version": {
+                    "enum": [
+                      "investigation-state/v1"
+                    ]
+                  },
+                  "skill_id": "string",
+                  "skill_version": "string",
+                  "steps": {
+                    "array": {
+                      "object": {
+                        "attempts": "number",
+                        "evidence": {
+                          "nullable": {
+                            "object": {
+                              "observed_at": "string",
+                              "snapshot_id": {
+                                "nullable": "string"
+                              },
+                              "summary": "string",
+                              "tool_run_id": {
+                                "nullable": "string"
+                              }
+                            },
+                            "strict": true,
+                            "optional": []
+                          }
+                        },
+                        "execution": {
+                          "enum": [
+                            "requester",
+                            "target"
+                          ]
+                        },
+                        "failure_code": {
+                          "nullable": "string"
+                        },
+                        "observations": {
+                          "record": "unknown"
+                        },
+                        "requirement_ids": {
+                          "array": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "pending",
+                            "attempted",
+                            "succeeded",
+                            "failed"
+                          ]
+                        },
+                        "step_id": "string",
+                        "tool_name": "string"
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "stop_reason": {
+                    "nullable": {
+                      "enum": [
+                        "evidence_sufficient",
+                        "insufficient_evidence",
+                        "budget_exhausted",
+                        "cancelled",
+                        "failed",
+                        "interrupted",
+                        "model_unavailable"
+                      ]
+                    }
+                  },
+                  "tool_calls": "number",
+                  "unknowns": {
+                    "array": "string"
+                  },
+                  "updated_at": "string"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "last_observed_at": "string",
+            "report": {
+              "nullable": {
+                "object": {
+                  "candidate_explanations": {
+                    "array": "string"
+                  },
+                  "conclusion": {
+                    "nullable": "string"
+                  },
+                  "evidence": {
+                    "array": {
+                      "object": {
+                        "observed_at": "string",
+                        "snapshot_id": {
+                          "nullable": "string"
+                        },
+                        "summary": "string",
+                        "tool_run_id": {
+                          "nullable": "string"
+                        }
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "facts": {
+                    "array": "string"
+                  },
+                  "stop_reason": {
+                    "enum": [
+                      "evidence_sufficient",
+                      "insufficient_evidence",
+                      "budget_exhausted",
+                      "cancelled",
+                      "failed",
+                      "interrupted",
+                      "model_unavailable"
+                    ]
+                  },
+                  "unknowns": {
+                    "array": "string"
+                  }
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "run_id": {
+              "nullable": "string"
+            },
+            "schema_version": {
+              "enum": [
+                "incident/v1"
+              ]
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "investigating",
+                "confirmed",
+                "insufficient_evidence",
+                "budget_exhausted",
+                "cancelled",
+                "failed",
+                "interrupted",
+                "investigation_unavailable",
+                "closed"
+              ]
+            },
+            "trace": {
+              "array": {
+                "object": {
+                  "evidence": {
+                    "array": {
+                      "object": {
+                        "observed_at": "string",
+                        "snapshot_id": {
+                          "nullable": "string"
+                        },
+                        "summary": "string",
+                        "tool_run_id": {
+                          "nullable": "string"
+                        }
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "kind": {
+                    "enum": [
+                      "status",
+                      "hypothesis",
+                      "tool",
+                      "evidence",
+                      "report"
+                    ]
+                  },
+                  "occurred_at": "string",
+                  "summary": "string",
+                  "tool_name": {
+                    "nullable": "string"
+                  }
+                },
+                "strict": true,
+                "optional": []
+              }
+            }
+          },
+          "strict": true,
+          "optional": [
+            "investigation"
+          ]
+        },
+        "suggested_questions": {
+          "array": "string"
+        },
+        "thread_id": {
+          "nullable": "string"
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "inspectionSchema": {
+      "object": {
+        "bind_locked": "boolean",
+        "expired": "boolean",
+        "expires_at": "string",
+        "inviter_host": "string",
+        "inviter_port": "number",
+        "kind": {
+          "enum": [
+            "owner",
+            "friend"
+          ]
+        },
+        "owner_fingerprint": "string",
+        "suggested_host": {
+          "nullable": "string"
+        },
+        "suggested_port": "number"
+      },
+      "strict": true,
+      "optional": []
+    },
+    "issuedSchema": {
+      "object": {
+        "code": "string",
+        "expires_at": "string"
+      },
+      "strict": true,
+      "optional": []
+    },
+    "localServicesSchema": {
+      "object": {
+        "node_id": "string",
+        "observed_at": {
+          "nullable": "string"
+        },
+        "services": {
+          "array": {
+            "object": {
+              "endpoints": {
+                "array": {
+                  "object": {
+                    "address": "string",
+                    "has_web_page": {
+                      "nullable": "boolean"
+                    },
+                    "port": "number",
+                    "protocol": {
+                      "enum": [
+                        "tcp",
+                        "udp"
+                      ]
+                    }
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "key": "string",
+              "kind": {
+                "enum": [
+                  "docker",
+                  "python",
+                  "program"
+                ]
+              },
+              "launch_agent": "boolean",
+              "mark": {
+                "nullable": {
+                  "enum": [
+                    "mine",
+                    "hidden"
+                  ]
+                }
+              },
+              "name": "string",
+              "state": {
+                "enum": [
+                  "running",
+                  "stopped"
+                ]
+              },
+              "tier": {
+                "enum": [
+                  "show",
+                  "review",
+                  "hidden"
+                ]
+              },
+              "web_title": {
+                "nullable": "string"
+              },
+              "windows_service": "boolean"
+            },
+            "strict": true,
+            "optional": [
+              "launch_agent",
+              "state",
+              "windows_service"
+            ]
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "longTermMemoryListSchema": {
+      "array": {
+        "object": {
+          "content": "string",
+          "deleted_at": {
+            "nullable": "string"
+          },
+          "kind": {
+            "enum": [
+              "node-alias",
+              "preference",
+              "security-constraint",
+              "stable-service-fact"
+            ]
+          },
+          "memory_id": "string",
+          "namespace": {
+            "object": {
+              "network": "string",
+              "node_id": "string",
+              "security_scope": {
+                "enum": [
+                  "read-only-agent"
+                ]
+              },
+              "task_type": {
+                "enum": [
+                  "local-conversation"
+                ]
+              },
+              "user": "string"
+            },
+            "strict": true,
+            "optional": []
+          },
+          "revision_of": {
+            "nullable": "string"
+          },
+          "source": "string",
+          "superseded_by": {
+            "nullable": "string"
+          },
+          "updated_at": "string",
+          "user_confirmed": {
+            "enum": [
+              true
+            ]
+          },
+          "valid_until": {
+            "nullable": "string"
+          }
+        },
+        "strict": true,
+        "optional": []
+      }
+    },
+    "longTermMemorySchema": {
+      "object": {
+        "content": "string",
+        "deleted_at": {
+          "nullable": "string"
+        },
+        "kind": {
+          "enum": [
+            "node-alias",
+            "preference",
+            "security-constraint",
+            "stable-service-fact"
+          ]
+        },
+        "memory_id": "string",
+        "namespace": {
+          "object": {
+            "network": "string",
+            "node_id": "string",
+            "security_scope": {
+              "enum": [
+                "read-only-agent"
+              ]
+            },
+            "task_type": {
+              "enum": [
+                "local-conversation"
+              ]
+            },
+            "user": "string"
+          },
+          "strict": true,
+          "optional": []
+        },
+        "revision_of": {
+          "nullable": "string"
+        },
+        "source": "string",
+        "superseded_by": {
+          "nullable": "string"
+        },
+        "updated_at": "string",
+        "user_confirmed": {
+          "enum": [
+            true
+          ]
+        },
+        "valid_until": {
+          "nullable": "string"
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "modelConfigurationSchema": {
+      "object": {
+        "api_key_configured": "boolean",
+        "borrowed_from": {
+          "nullable": "string"
+        },
+        "disable_thinking": "boolean",
+        "endpoint": {
+          "nullable": "string"
+        },
+        "error_code": {
+          "nullable": "string"
+        },
+        "error_message": {
+          "nullable": "string"
+        },
+        "max_output_tokens": {
+          "nullable": "number"
+        },
+        "max_tools": {
+          "nullable": "number"
+        },
+        "model": {
+          "nullable": "string"
+        },
+        "profiles": {
+          "array": {
+            "object": {
+              "api_key_configured": "boolean",
+              "disable_thinking": "boolean",
+              "endpoint": "string",
+              "max_output_tokens": "number",
+              "max_tools": {
+                "nullable": "number"
+              },
+              "model": "string",
+              "timeout_seconds": "number"
+            },
+            "strict": true,
+            "optional": [
+              "disable_thinking",
+              "max_output_tokens",
+              "max_tools"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "unconfigured",
+            "available",
+            "unavailable"
+          ]
+        },
+        "timeout_seconds": {
+          "nullable": "number"
+        }
+      },
+      "strict": true,
+      "optional": [
+        "disable_thinking",
+        "max_output_tokens",
+        "max_tools"
+      ]
+    },
+    "operationDetailSchema": {
+      "object": {
+        "access_expires_at": {
+          "nullable": "string"
+        },
+        "allowed_actions": {
+          "array": {
+            "enum": [
+              "approve",
+              "reject",
+              "cancel",
+              "revoke",
+              "refresh",
+              "execute",
+              "access"
+            ]
+          }
+        },
+        "cleanup_record": {
+          "nullable": {
+            "object": {
+              "completed_at": "string",
+              "reason": "string",
+              "result": {
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "ownership_mismatch"
+                ]
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "created_at": "string",
+        "duration_seconds": "number",
+        "error_code": {
+          "nullable": "string"
+        },
+        "execution_result_unknown": "boolean",
+        "expected_change": "string",
+        "last_checked_at": {
+          "nullable": "string"
+        },
+        "manual_action": {
+          "nullable": "string"
+        },
+        "owned_resources": {
+          "array": {
+            "object": {
+              "bind_host": "string",
+              "bind_port": "number",
+              "created_at": "string",
+              "kind": "string",
+              "resource_id": "string"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "risk_summary": "string",
+        "role": {
+          "enum": [
+            "target",
+            "requester"
+          ]
+        },
+        "rollback_method": "string",
+        "service_endpoint": "string",
+        "service_fingerprint": "string",
+        "service_id": "string",
+        "service_process_or_container": "string",
+        "source_incident_id": {
+          "nullable": "string"
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "awaiting_authorization",
+            "authorized",
+            "executing",
+            "verifying",
+            "succeeded",
+            "expiring",
+            "expired",
+            "rolling_back",
+            "rolled_back",
+            "cleanup_failed",
+            "rejected",
+            "cancelled",
+            "authorization_expired"
+          ]
+        },
+        "submission_result_unknown": "boolean",
+        "summary": {
+          "object": {
+            "absolute_expires_at": {
+              "nullable": "string"
+            },
+            "authorization_basis": {
+              "nullable": "string"
+            },
+            "authorization_kind": {
+              "nullable": {
+                "enum": [
+                  "one_time",
+                  "preauthorization"
+                ]
+              }
+            },
+            "bind_host": "string",
+            "bind_port": "number",
+            "cleanup_result": {
+              "nullable": {
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "ownership_mismatch"
+                ]
+              }
+            },
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": {
+                    "enum": [
+                      "invalid_plan",
+                      "version_incompatible",
+                      "authorization_required",
+                      "authorization_rejected",
+                      "authorization_expired",
+                      "state_conflict",
+                      "service_changed",
+                      "execution_failed",
+                      "verification_failed",
+                      "cleanup_failed",
+                      "protocol_not_supported"
+                    ]
+                  },
+                  "correlation_id": "string",
+                  "message": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "level": "number",
+            "operation_id": "string",
+            "request_node_id": "string",
+            "resource_ids": {
+              "array": "string"
+            },
+            "run_id": "string",
+            "status": {
+              "enum": [
+                "planned",
+                "awaiting_authorization",
+                "authorized",
+                "executing",
+                "verifying",
+                "succeeded",
+                "expiring",
+                "expired",
+                "rolling_back",
+                "rolled_back",
+                "cleanup_failed",
+                "rejected",
+                "cancelled",
+                "authorization_expired"
+              ]
+            },
+            "target_node_id": "string",
+            "thread_id": "string",
+            "tool_name": "string",
+            "tool_run_ids": {
+              "array": "string"
+            },
+            "updated_at": "string",
+            "verification_results": {
+              "array": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "timeout",
+                  "requester_offline"
+                ]
+              }
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "transitions": {
+          "array": {
+            "object": {
+              "from_status": {
+                "union": [
+                  {
+                    "enum": [
+                      "planned",
+                      "awaiting_authorization",
+                      "authorized",
+                      "executing",
+                      "verifying",
+                      "succeeded",
+                      "expiring",
+                      "expired",
+                      "rolling_back",
+                      "rolled_back",
+                      "cleanup_failed",
+                      "rejected",
+                      "cancelled",
+                      "authorization_expired"
+                    ]
+                  },
+                  {
+                    "enum": [
+                      "none"
+                    ]
+                  }
+                ]
+              },
+              "occurred_at": "string",
+              "reason": "string",
+              "to_status": {
+                "enum": [
+                  "planned",
+                  "awaiting_authorization",
+                  "authorized",
+                  "executing",
+                  "verifying",
+                  "succeeded",
+                  "expiring",
+                  "expired",
+                  "rolling_back",
+                  "rolled_back",
+                  "cleanup_failed",
+                  "rejected",
+                  "cancelled",
+                  "authorization_expired"
+                ]
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "verification_method": "string",
+        "verification_summaries": {
+          "array": {
+            "object": {
+              "evidence_summary": "string",
+              "result": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "timeout",
+                  "requester_offline"
+                ]
+              },
+              "status_code": {
+                "nullable": "number"
+              },
+              "verified_at": "string",
+              "verifier_node_id": "string"
+            },
+            "strict": true,
+            "optional": []
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "operationListSchema": {
+      "array": {
+        "object": {
+          "absolute_expires_at": {
+            "nullable": "string"
+          },
+          "authorization_basis": {
+            "nullable": "string"
+          },
+          "authorization_kind": {
+            "nullable": {
+              "enum": [
+                "one_time",
+                "preauthorization"
+              ]
+            }
+          },
+          "bind_host": "string",
+          "bind_port": "number",
+          "cleanup_result": {
+            "nullable": {
+              "enum": [
+                "succeeded",
+                "failed",
+                "ownership_mismatch"
+              ]
+            }
+          },
+          "error": {
+            "nullable": {
+              "object": {
+                "code": {
+                  "enum": [
+                    "invalid_plan",
+                    "version_incompatible",
+                    "authorization_required",
+                    "authorization_rejected",
+                    "authorization_expired",
+                    "state_conflict",
+                    "service_changed",
+                    "execution_failed",
+                    "verification_failed",
+                    "cleanup_failed",
+                    "protocol_not_supported"
+                  ]
+                },
+                "correlation_id": "string",
+                "message": "string",
+                "retryable": "boolean"
+              },
+              "strict": true,
+              "optional": []
+            }
+          },
+          "error_code": {
+            "nullable": "string"
+          },
+          "execution_result_unknown": "boolean",
+          "last_checked_at": {
+            "nullable": "string"
+          },
+          "level": "number",
+          "operation_id": "string",
+          "request_node_id": "string",
+          "resource_ids": {
+            "array": "string"
+          },
+          "role": {
+            "enum": [
+              "target",
+              "requester"
+            ]
+          },
+          "run_id": "string",
+          "status": {
+            "enum": [
+              "planned",
+              "awaiting_authorization",
+              "authorized",
+              "executing",
+              "verifying",
+              "succeeded",
+              "expiring",
+              "expired",
+              "rolling_back",
+              "rolled_back",
+              "cleanup_failed",
+              "rejected",
+              "cancelled",
+              "authorization_expired"
+            ]
+          },
+          "submission_result_unknown": "boolean",
+          "target_node_id": "string",
+          "thread_id": "string",
+          "tool_name": "string",
+          "tool_run_ids": {
+            "array": "string"
+          },
+          "updated_at": "string",
+          "verification_results": {
+            "array": {
+              "enum": [
+                "passed",
+                "failed",
+                "timeout",
+                "requester_offline"
+              ]
+            }
+          }
+        },
+        "strict": true,
+        "optional": []
+      }
+    },
+    "operationSummarySchema": {
+      "object": {
+        "absolute_expires_at": {
+          "nullable": "string"
+        },
+        "authorization_basis": {
+          "nullable": "string"
+        },
+        "authorization_kind": {
+          "nullable": {
+            "enum": [
+              "one_time",
+              "preauthorization"
+            ]
+          }
+        },
+        "bind_host": "string",
+        "bind_port": "number",
+        "cleanup_result": {
+          "nullable": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "ownership_mismatch"
+            ]
+          }
+        },
+        "error": {
+          "nullable": {
+            "object": {
+              "code": {
+                "enum": [
+                  "invalid_plan",
+                  "version_incompatible",
+                  "authorization_required",
+                  "authorization_rejected",
+                  "authorization_expired",
+                  "state_conflict",
+                  "service_changed",
+                  "execution_failed",
+                  "verification_failed",
+                  "cleanup_failed",
+                  "protocol_not_supported"
+                ]
+              },
+              "correlation_id": "string",
+              "message": "string",
+              "retryable": "boolean"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "level": "number",
+        "operation_id": "string",
+        "request_node_id": "string",
+        "resource_ids": {
+          "array": "string"
+        },
+        "run_id": "string",
+        "status": {
+          "enum": [
+            "planned",
+            "awaiting_authorization",
+            "authorized",
+            "executing",
+            "verifying",
+            "succeeded",
+            "expiring",
+            "expired",
+            "rolling_back",
+            "rolled_back",
+            "cleanup_failed",
+            "rejected",
+            "cancelled",
+            "authorization_expired"
+          ]
+        },
+        "target_node_id": "string",
+        "thread_id": "string",
+        "tool_name": "string",
+        "tool_run_ids": {
+          "array": "string"
+        },
+        "updated_at": "string",
+        "verification_results": {
+          "array": {
+            "enum": [
+              "passed",
+              "failed",
+              "timeout",
+              "requester_offline"
+            ]
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "patrolSchema": {
+      "object": {
+        "checked_at": {
+          "nullable": "string"
+        },
+        "investigations_left_today": "number",
+        "services": {
+          "array": {
+            "object": {
+              "auto_repair": {
+                "object": {
+                  "available": "boolean",
+                  "enabled": "boolean",
+                  "enabled_on": {
+                    "nullable": "string"
+                  },
+                  "kind": {
+                    "nullable": {
+                      "enum": [
+                        "restart_containers",
+                        "relaunch_python",
+                        "restart_launch_agent",
+                        "relaunch_program",
+                        "restart_stuck_program",
+                        "restart_windows_service"
+                      ]
+                    }
+                  },
+                  "last_attempt_at": {
+                    "nullable": "string"
+                  },
+                  "last_result": {
+                    "nullable": {
+                      "enum": [
+                        "succeeded",
+                        "failed"
+                      ]
+                    }
+                  },
+                  "paused": "boolean",
+                  "stuck_available": "boolean",
+                  "stuck_enabled": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              },
+              "confirmed_at": {
+                "nullable": "string"
+              },
+              "down_since": {
+                "nullable": "string"
+              },
+              "key": "string",
+              "manual_steps": {
+                "array": {
+                  "object": {
+                    "command": {
+                      "nullable": "string"
+                    },
+                    "text": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "name": "string",
+              "reason": {
+                "nullable": {
+                  "enum": [
+                    "container_exited",
+                    "script_exited",
+                    "agent_exited",
+                    "program_exited",
+                    "service_stopped",
+                    "port_closed",
+                    "web_failed",
+                    "stuck"
+                  ]
+                }
+              },
+              "reason_text": {
+                "nullable": "string"
+              },
+              "repair_id": {
+                "nullable": "string"
+              },
+              "repair_refusal": {
+                "nullable": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "suspect",
+                  "down",
+                  "acknowledged"
+                ]
+              },
+              "thread_id": {
+                "nullable": "string"
+              },
+              "windows_service": {
+                "nullable": {
+                  "object": {
+                    "allowed": "boolean",
+                    "binary_path": "string",
+                    "display_name": "string",
+                    "granted": "boolean",
+                    "name": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "peerRepairAccessSchema": {
+      "object": {
+        "access": {
+          "enum": [
+            "allowed",
+            "not_allowed",
+            "not_found",
+            "unreachable"
+          ]
+        },
+        "node_id": "string",
+        "repair": {
+          "nullable": {
+            "object": {
+              "action_summary": "string",
+              "approval_expires_at": {
+                "nullable": "string"
+              },
+              "approved_by_peer": {
+                "nullable": "boolean"
+              },
+              "created_at": "string",
+              "error_code": {
+                "nullable": "string"
+              },
+              "error_message": {
+                "nullable": "string"
+              },
+              "failure_summary": "string",
+              "impact_summary": "string",
+              "kind": "string",
+              "node_id": "string",
+              "reason": "string",
+              "repair_id": "string",
+              "service_name": "string",
+              "status": "string",
+              "updated_at": "string",
+              "verification_passed": {
+                "nullable": "boolean"
+              },
+              "verification_summary": "string"
+            },
+            "strict": false,
+            "optional": []
+          }
+        },
+        "repair_id": "string"
+      },
+      "strict": false,
+      "optional": []
+    },
+    "peerServicesSchema": {
+      "object": {
+        "display_name": "string",
+        "fetched_at": {
+          "nullable": "string"
+        },
+        "host": {
+          "nullable": "string"
+        },
+        "node_id": "string",
+        "observed_at": {
+          "nullable": "string"
+        },
+        "outcome": {
+          "nullable": {
+            "enum": [
+              "ok",
+              "unreachable",
+              "rejected",
+              "forbidden",
+              "error"
+            ]
+          }
+        },
+        "services": {
+          "array": {
+            "object": {
+              "key": "string",
+              "kind": {
+                "enum": [
+                  "docker",
+                  "python",
+                  "program"
+                ]
+              },
+              "launch_agent": "boolean",
+              "mark": {
+                "nullable": {
+                  "enum": [
+                    "mine",
+                    "hidden"
+                  ]
+                }
+              },
+              "name": "string",
+              "patrol": {
+                "nullable": {
+                  "object": {
+                    "auto_repair": "boolean",
+                    "confirmed_at": {
+                      "nullable": "string"
+                    },
+                    "reason": {
+                      "nullable": "string"
+                    },
+                    "reason_text": {
+                      "nullable": "string"
+                    },
+                    "status": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "ports": {
+                "array": {
+                  "object": {
+                    "has_web_page": {
+                      "nullable": "boolean"
+                    },
+                    "port": "number",
+                    "protocol": {
+                      "enum": [
+                        "tcp",
+                        "udp"
+                      ]
+                    }
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "state": {
+                "enum": [
+                  "running",
+                  "stopped"
+                ]
+              },
+              "web_title": {
+                "nullable": "string"
+              },
+              "windows_service": "boolean"
+            },
+            "strict": true,
+            "optional": [
+              "launch_agent",
+              "patrol",
+              "state",
+              "windows_service"
+            ]
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "peersSchema": {
+      "object": {
+        "peers": {
+          "array": {
+            "object": {
+              "auth_rejected": "boolean",
+              "display_name": "string",
+              "is_local": "boolean",
+              "last_seen_at": {
+                "nullable": "string"
+              },
+              "network": {
+                "nullable": {
+                  "enum": [
+                    "wireguard",
+                    "n2n",
+                    "other"
+                  ]
+                }
+              },
+              "node_id": "string",
+              "pending_repairs": {
+                "array": {
+                  "object": {
+                    "action": "string",
+                    "expires_at": "string",
+                    "how_to_approve": "string",
+                    "repair_id": "string",
+                    "service_name": "string",
+                    "status": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "platform": {
+                "nullable": {
+                  "enum": [
+                    "windows",
+                    "macos",
+                    "linux"
+                  ]
+                }
+              },
+              "reachable": {
+                "nullable": "boolean"
+              },
+              "relationship": {
+                "enum": [
+                  "mine",
+                  "friend",
+                  "legacy"
+                ]
+              },
+              "service_count": "number",
+              "services_visible": "boolean",
+              "source": {
+                "enum": [
+                  "local",
+                  "gateway",
+                  "coordinator"
+                ]
+              }
+            },
+            "strict": true,
+            "optional": [
+              "auth_rejected",
+              "network",
+              "pending_repairs",
+              "relationship"
+            ]
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "pushSchema": {
+      "object": {
+        "unreached": {
+          "array": "string"
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "repairDetailSchema": {
+      "object": {
+        "action_summary": "string",
+        "advanced": {
+          "union": [
+            {
+              "object": {
+                "binary_path": "string",
+                "commands": {
+                  "array": "string"
+                },
+                "ports": {
+                  "array": "number"
+                }
+              },
+              "strict": false,
+              "optional": []
+            },
+            {
+              "object": {
+                "command": "string",
+                "plist_path": "string",
+                "ports": {
+                  "array": "number"
+                }
+              },
+              "strict": false,
+              "optional": []
+            },
+            {
+              "object": {
+                "command": "string",
+                "end_process_id": {
+                  "nullable": "number"
+                },
+                "ports": {
+                  "array": "number"
+                }
+              },
+              "strict": false,
+              "optional": []
+            },
+            {
+              "object": {
+                "commands": {
+                  "array": "string"
+                }
+              },
+              "strict": false,
+              "optional": []
+            },
+            {
+              "object": {
+                "arguments": {
+                  "array": "string"
+                },
+                "interpreter": "string",
+                "ports": {
+                  "array": "number"
+                },
+                "working_directory": "string"
+              },
+              "strict": false,
+              "optional": []
+            }
+          ]
+        },
+        "approval_expires_at": {
+          "nullable": "string"
+        },
+        "cleanup": {
+          "nullable": {
+            "object": {
+              "detail": "string"
+            },
+            "strict": false,
+            "optional": []
+          }
+        },
+        "created_at": "string",
+        "error": {
+          "nullable": {
+            "object": {
+              "code": "string",
+              "manual_steps": {
+                "array": {
+                  "object": {
+                    "command": {
+                      "nullable": "string"
+                    },
+                    "text": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "message": "string",
+              "next_step": {
+                "nullable": "string"
+              }
+            },
+            "strict": false,
+            "optional": []
+          }
+        },
+        "execution": {
+          "nullable": {
+            "object": {
+              "ended_forcibly": {
+                "nullable": "boolean"
+              },
+              "ended_process_id": {
+                "nullable": "number"
+              }
+            },
+            "strict": false,
+            "optional": [
+              "ended_forcibly",
+              "ended_process_id"
+            ]
+          }
+        },
+        "failure_summary": "string",
+        "impact_summary": "string",
+        "kind": {
+          "enum": [
+            "restart_containers",
+            "relaunch_python",
+            "restart_launch_agent",
+            "relaunch_program",
+            "restart_stuck_program",
+            "restart_windows_service"
+          ]
+        },
+        "node_id": "string",
+        "origin": {
+          "object": {
+            "delegation_id": {
+              "nullable": "string"
+            },
+            "evidence": {
+              "array": "string"
+            },
+            "kind": {
+              "enum": [
+                "conversation",
+                "delegation",
+                "local_cli",
+                "patrol"
+              ]
+            },
+            "run_id": {
+              "nullable": "string"
+            },
+            "thread_id": {
+              "nullable": "string"
+            }
+          },
+          "strict": false,
+          "optional": []
+        },
+        "reason": "string",
+        "repair_id": "string",
+        "service_key": "string",
+        "service_name": "string",
+        "status": {
+          "enum": [
+            "planned",
+            "awaiting_authorization",
+            "authorized",
+            "executing",
+            "verifying",
+            "succeeded",
+            "expiring",
+            "expired",
+            "rolling_back",
+            "rolled_back",
+            "cleanup_failed",
+            "rejected",
+            "cancelled",
+            "authorization_expired"
+          ]
+        },
+        "verification": {
+          "nullable": {
+            "object": {
+              "checks": {
+                "array": {
+                  "object": {
+                    "detail": "string",
+                    "name": "string",
+                    "passed": "boolean"
+                  },
+                  "strict": false,
+                  "optional": []
+                }
+              },
+              "log_excerpt": {
+                "nullable": "string"
+              },
+              "passed": "boolean"
+            },
+            "strict": false,
+            "optional": []
+          }
+        },
+        "verification_passed": {
+          "nullable": "boolean"
+        },
+        "verification_summary": "string"
+      },
+      "strict": false,
+      "optional": [
+        "execution"
+      ]
+    },
+    "repairListSchema": {
+      "object": {
+        "repairs": {
+          "array": {
+            "object": {
+              "action_summary": "string",
+              "approval_expires_at": {
+                "nullable": "string"
+              },
+              "created_at": "string",
+              "error": {
+                "nullable": {
+                  "object": {
+                    "code": "string",
+                    "manual_steps": {
+                      "array": {
+                        "object": {
+                          "command": {
+                            "nullable": "string"
+                          },
+                          "text": "string"
+                        },
+                        "strict": true,
+                        "optional": []
+                      }
+                    },
+                    "message": "string",
+                    "next_step": {
+                      "nullable": "string"
+                    }
+                  },
+                  "strict": false,
+                  "optional": []
+                }
+              },
+              "kind": {
+                "enum": [
+                  "restart_containers",
+                  "relaunch_python",
+                  "restart_launch_agent",
+                  "relaunch_program",
+                  "restart_stuck_program",
+                  "restart_windows_service"
+                ]
+              },
+              "node_id": "string",
+              "origin": {
+                "object": {
+                  "delegation_id": {
+                    "nullable": "string"
+                  },
+                  "evidence": {
+                    "array": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "conversation",
+                      "delegation",
+                      "local_cli",
+                      "patrol"
+                    ]
+                  },
+                  "run_id": {
+                    "nullable": "string"
+                  },
+                  "thread_id": {
+                    "nullable": "string"
+                  }
+                },
+                "strict": false,
+                "optional": []
+              },
+              "reason": "string",
+              "repair_id": "string",
+              "service_key": "string",
+              "service_name": "string",
+              "status": {
+                "enum": [
+                  "planned",
+                  "awaiting_authorization",
+                  "authorized",
+                  "executing",
+                  "verifying",
+                  "succeeded",
+                  "expiring",
+                  "expired",
+                  "rolling_back",
+                  "rolled_back",
+                  "cleanup_failed",
+                  "rejected",
+                  "cancelled",
+                  "authorization_expired"
+                ]
+              },
+              "verification_passed": {
+                "nullable": "boolean"
+              }
+            },
+            "strict": false,
+            "optional": []
+          }
+        }
+      },
+      "strict": false,
+      "optional": []
+    },
+    "resourceOverviewSchema": {
+      "object": {
+        "coordinator": {
+          "object": {
+            "configured": {
+              "nullable": "boolean"
+            },
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "last_success_at": {
+              "nullable": "string"
+            },
+            "revision": {
+              "nullable": "number"
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            },
+            "state": {
+              "enum": [
+                "unconfigured",
+                "config_invalid",
+                "credential_missing",
+                "sync_not_started",
+                "connecting",
+                "ready",
+                "stale",
+                "offline",
+                "incompatible",
+                "managed_auth_expired",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "generated_at": "string",
+        "incidents": {
+          "object": {
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "items": {
+              "array": {
+                "object": {
+                  "conclusion": {
+                    "nullable": "string"
+                  },
+                  "event_type": {
+                    "enum": [
+                      "service_added",
+                      "service_removed",
+                      "node_offline",
+                      "state_stale",
+                      "local_only",
+                      "remote_unreachable"
+                    ]
+                  },
+                  "first_observed_at": "string",
+                  "incident_id": "string",
+                  "last_observed_at": "string",
+                  "object_id": "string",
+                  "object_kind": {
+                    "enum": [
+                      "node",
+                      "service"
+                    ]
+                  },
+                  "severity": {
+                    "enum": [
+                      "info",
+                      "warning",
+                      "critical"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "investigating",
+                      "confirmed",
+                      "insufficient_evidence",
+                      "budget_exhausted",
+                      "cancelled",
+                      "failed",
+                      "interrupted",
+                      "investigation_unavailable",
+                      "closed"
+                    ]
+                  }
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "local": {
+          "object": {
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "package": {
+              "object": {
+                "kind": {
+                  "enum": [
+                    "source",
+                    "wheel",
+                    "standalone",
+                    "unknown"
+                  ]
+                },
+                "manifest_schema": {
+                  "nullable": "string"
+                },
+                "name": {
+                  "enum": [
+                    "tunnelminion"
+                  ]
+                },
+                "version": {
+                  "nullable": "string"
+                }
+              },
+              "strict": true,
+              "optional": []
+            },
+            "platform": {
+              "nullable": {
+                "enum": [
+                  "windows",
+                  "macos",
+                  "linux"
+                ]
+              }
+            },
+            "readiness": {
+              "enum": [
+                "ready",
+                "degraded",
+                "unavailable",
+                "unknown"
+              ]
+            },
+            "runtime": {
+              "enum": [
+                "running",
+                "starting",
+                "stopping",
+                "stopped",
+                "degraded",
+                "unknown"
+              ]
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            },
+            "version": {
+              "nullable": "string"
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "model": {
+          "object": {
+            "configured": {
+              "nullable": "boolean"
+            },
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            },
+            "status": {
+              "enum": [
+                "unconfigured",
+                "available",
+                "unavailable",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "network_path": {
+          "object": {
+            "configured": {
+              "nullable": "boolean"
+            },
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "handshake": {
+              "object": {
+                "observed_at": {
+                  "nullable": "string"
+                },
+                "status": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "missing",
+                    "unknown"
+                  ]
+                }
+              },
+              "strict": true,
+              "optional": []
+            },
+            "probe": {
+              "object": {
+                "observed_at": {
+                  "nullable": "string"
+                },
+                "status": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "missing",
+                    "unknown"
+                  ]
+                }
+              },
+              "strict": true,
+              "optional": []
+            },
+            "provider": {
+              "nullable": {
+                "enum": [
+                  "windows",
+                  "macos"
+                ]
+              }
+            },
+            "revision": {
+              "nullable": "number"
+            },
+            "route": {
+              "object": {
+                "observed_at": {
+                  "nullable": "string"
+                },
+                "status": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "missing",
+                    "unknown"
+                  ]
+                }
+              },
+              "strict": true,
+              "optional": []
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            },
+            "state": {
+              "enum": [
+                "unconfigured",
+                "pending",
+                "direct",
+                "relayed",
+                "static",
+                "offline",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "nodes": {
+          "object": {
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "items": {
+              "array": {
+                "object": {
+                  "display_name": "string",
+                  "evidence_at": {
+                    "nullable": "string"
+                  },
+                  "freshness": {
+                    "enum": [
+                      "live",
+                      "fresh",
+                      "stale",
+                      "expired",
+                      "unavailable",
+                      "not_applicable",
+                      "unknown"
+                    ]
+                  },
+                  "node_id": "string",
+                  "platform": {
+                    "nullable": {
+                      "enum": [
+                        "windows",
+                        "macos",
+                        "linux"
+                      ]
+                    }
+                  },
+                  "service_count": "number",
+                  "source": {
+                    "enum": [
+                      "local_runtime",
+                      "model_configuration",
+                      "coordinator_sync",
+                      "coordinator_directory",
+                      "network_path_evidence",
+                      "local_observation",
+                      "static_peer_observation",
+                      "aggregated",
+                      "unknown"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "local",
+                      "online",
+                      "stale",
+                      "offline",
+                      "revoked",
+                      "incompatible",
+                      "unknown"
+                    ]
+                  }
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "schema_version": {
+          "enum": [
+            "resource-overview/v1",
+            "resource-overview-programs/v1"
+          ]
+        },
+        "services": {
+          "object": {
+            "error": {
+              "nullable": {
+                "object": {
+                  "code": "string",
+                  "retryable": "boolean"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "evidence_at": {
+              "nullable": "string"
+            },
+            "freshness": {
+              "enum": [
+                "live",
+                "fresh",
+                "stale",
+                "expired",
+                "unavailable",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "items": {
+              "array": {
+                "object": {
+                  "access_address": {
+                    "nullable": "string"
+                  },
+                  "accessibility": {
+                    "nullable": {
+                      "enum": [
+                        "loopback",
+                        "network",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "application": {
+                    "nullable": {
+                      "object": {
+                        "group_id": "string",
+                        "kind": {
+                          "enum": [
+                            "python",
+                            "docker",
+                            "model",
+                            "program"
+                          ]
+                        },
+                        "name": "string"
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "display_name": {
+                    "nullable": "string"
+                  },
+                  "evidence_at": {
+                    "nullable": "string"
+                  },
+                  "freshness": {
+                    "enum": [
+                      "live",
+                      "fresh",
+                      "stale",
+                      "expired",
+                      "unavailable",
+                      "not_applicable",
+                      "unknown"
+                    ]
+                  },
+                  "lifecycle": {
+                    "nullable": {
+                      "enum": [
+                        "active",
+                        "stopped"
+                      ]
+                    }
+                  },
+                  "node_id": "string",
+                  "port": {
+                    "nullable": "number"
+                  },
+                  "protocol": {
+                    "nullable": {
+                      "enum": [
+                        "tcp",
+                        "udp",
+                        "http",
+                        "https"
+                      ]
+                    }
+                  },
+                  "service_id": "string",
+                  "source": {
+                    "enum": [
+                      "local_runtime",
+                      "model_configuration",
+                      "coordinator_sync",
+                      "coordinator_directory",
+                      "network_path_evidence",
+                      "local_observation",
+                      "static_peer_observation",
+                      "aggregated",
+                      "unknown"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "available",
+                      "degraded",
+                      "unavailable",
+                      "stopped",
+                      "unknown"
+                    ]
+                  }
+                },
+                "strict": true,
+                "optional": [
+                  "application"
+                ]
+              }
+            },
+            "source": {
+              "enum": [
+                "local_runtime",
+                "model_configuration",
+                "coordinator_sync",
+                "coordinator_directory",
+                "network_path_evidence",
+                "local_observation",
+                "static_peer_observation",
+                "aggregated",
+                "unknown"
+              ]
+            }
+          },
+          "strict": true,
+          "optional": []
+        }
+      },
+      "strict": true,
+      "optional": []
+    },
+    "runEventSchema": {
+      "object": {
+        "created_at": "string",
+        "delegation_id": {
+          "nullable": "string"
+        },
+        "elapsed_ms": {
+          "nullable": "number"
+        },
+        "event_type": {
+          "enum": [
+            "goal",
+            "tool",
+            "delegation",
+            "finished",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "message": {
+          "nullable": "string"
+        },
+        "peer_node_id": {
+          "nullable": "string"
+        },
+        "phase": {
+          "nullable": {
+            "enum": [
+              "submitted",
+              "investigating",
+              "answered",
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "run_id": "string",
+        "sequence": "number",
+        "stop_reason": {
+          "nullable": {
+            "enum": [
+              "completed",
+              "model-limit",
+              "tool-limit",
+              "timeout",
+              "cancelled"
+            ]
+          }
+        },
+        "target_node_id": {
+          "nullable": "string"
+        },
+        "tool_name": {
+          "nullable": "string"
+        },
+        "tool_run_id": {
+          "nullable": "string"
+        },
+        "tool_status": {
+          "nullable": "string"
+        }
+      },
+      "strict": true,
+      "optional": [
+        "delegation_id",
+        "peer_node_id",
+        "phase"
+      ]
+    },
+    "runSchema": {
+      "object": {
+        "created_at": "string",
+        "error_code": {
+          "nullable": "string"
+        },
+        "error_message": {
+          "nullable": "string"
+        },
+        "failure": {
+          "nullable": {
+            "object": {
+              "category": "string",
+              "occurred_at": "string",
+              "phase": "string",
+              "reason": "string",
+              "retryable": "boolean",
+              "source_refs": {
+                "array": "string"
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "finished_at": {
+          "nullable": "string"
+        },
+        "result": {
+          "nullable": {
+            "object": {
+              "answer": "string",
+              "answer_basis": {
+                "enum": [
+                  "checked",
+                  "inferred",
+                  "none"
+                ]
+              },
+              "answer_checked": "boolean",
+              "checked_service_id": {
+                "nullable": "string"
+              },
+              "context_records": {
+                "array": "unknown"
+              },
+              "elapsed_ms": "number",
+              "evidence_answer": {
+                "object": {
+                  "confirmed_facts": {
+                    "array": {
+                      "object": {
+                        "evidence_refs": {
+                          "array": "string"
+                        },
+                        "statement": "string"
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "evidence": {
+                    "array": {
+                      "object": {
+                        "status": "string",
+                        "tool_name": "string",
+                        "tool_run_id": "string"
+                      },
+                      "strict": true,
+                      "optional": []
+                    }
+                  },
+                  "inferences": {
+                    "array": "string"
+                  },
+                  "stop_reason": {
+                    "enum": [
+                      "completed",
+                      "model-limit",
+                      "tool-limit",
+                      "timeout",
+                      "cancelled"
+                    ]
+                  },
+                  "summary": "string",
+                  "unknowns": {
+                    "array": "string"
+                  }
+                },
+                "strict": true,
+                "optional": []
+              },
+              "failures": {
+                "array": {
+                  "object": {
+                    "category": "string",
+                    "occurred_at": "string",
+                    "phase": "string",
+                    "reason": "string",
+                    "retryable": "boolean",
+                    "source_refs": {
+                      "array": "string"
+                    }
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "limits": {
+                "object": {
+                  "max_model_rounds": "number",
+                  "max_tool_calls": "number",
+                  "timeout_seconds": "number"
+                },
+                "strict": true,
+                "optional": []
+              },
+              "model_rounds": "number",
+              "selected_tools": {
+                "array": "string"
+              },
+              "stop_reason": {
+                "enum": [
+                  "completed",
+                  "model-limit",
+                  "tool-limit",
+                  "timeout",
+                  "cancelled"
+                ]
+              },
+              "tool_calls": "number",
+              "tool_run_ids": {
+                "array": "string"
+              },
+              "usage": {
+                "object": {
+                  "estimated_cost": "null",
+                  "input_tokens": "number",
+                  "output_tokens": "number",
+                  "total_tokens": "number"
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "strict": true,
+            "optional": [
+              "answer_basis",
+              "answer_checked",
+              "checked_service_id"
+            ]
+          }
+        },
+        "run_id": "string",
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "cancelled",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "thread_id": "string"
+      },
+      "strict": true,
+      "optional": []
+    },
+    "setupSchema": {
+      "object": {
+        "expires_at": "string",
+        "recovery_code": "string",
+        "setup_id": "string"
+      },
+      "strict": true,
+      "optional": []
+    },
+    "threadDetailSchema": {
+      "object": {
+        "context": {
+          "nullable": {
+            "object": {
+              "node_id": "string",
+              "service_key": {
+                "nullable": "string"
+              },
+              "service_name": {
+                "nullable": "string"
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "messages": {
+          "array": {
+            "object": {
+              "answer_basis": {
+                "enum": [
+                  "checked",
+                  "inferred",
+                  "none"
+                ]
+              },
+              "answer_checked": "boolean",
+              "content": "string",
+              "created_at": "string",
+              "manual_steps": {
+                "array": {
+                  "object": {
+                    "command": {
+                      "nullable": "string"
+                    },
+                    "text": "string"
+                  },
+                  "strict": true,
+                  "optional": []
+                }
+              },
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "run_id": "string"
+            },
+            "strict": true,
+            "optional": [
+              "answer_basis",
+              "answer_checked",
+              "manual_steps"
+            ]
+          }
+        },
+        "service_id": {
+          "nullable": "string"
+        },
+        "thread": {
+          "object": {
+            "context": {
+              "nullable": {
+                "object": {
+                  "node_id": "string",
+                  "service_key": {
+                    "nullable": "string"
+                  },
+                  "service_name": {
+                    "nullable": "string"
+                  }
+                },
+                "strict": true,
+                "optional": []
+              }
+            },
+            "created_at": "string",
+            "message_count": "number",
+            "thread_id": "string",
+            "title": {
+              "nullable": "string"
+            },
+            "updated_at": "string"
+          },
+          "strict": true,
+          "optional": [
+            "context",
+            "title"
+          ]
+        }
+      },
+      "strict": true,
+      "optional": [
+        "context",
+        "service_id"
+      ]
+    },
+    "threadListSchema": {
+      "array": {
+        "object": {
+          "context": {
+            "nullable": {
+              "object": {
+                "node_id": "string",
+                "service_key": {
+                  "nullable": "string"
+                },
+                "service_name": {
+                  "nullable": "string"
+                }
+              },
+              "strict": true,
+              "optional": []
+            }
+          },
+          "created_at": "string",
+          "message_count": "number",
+          "thread_id": "string",
+          "title": {
+            "nullable": "string"
+          },
+          "updated_at": "string"
+        },
+        "strict": true,
+        "optional": [
+          "context",
+          "title"
+        ]
+      }
+    },
+    "threadSchema": {
+      "object": {
+        "context": {
+          "nullable": {
+            "object": {
+              "node_id": "string",
+              "service_key": {
+                "nullable": "string"
+              },
+              "service_name": {
+                "nullable": "string"
+              }
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "created_at": "string",
+        "message_count": "number",
+        "thread_id": "string",
+        "title": {
+          "nullable": "string"
+        },
+        "updated_at": "string"
+      },
+      "strict": true,
+      "optional": [
+        "context",
+        "title"
+      ]
+    },
+    "updateViewSchema": {
+      "object": {
+        "availability": {
+          "nullable": {
+            "enum": [
+              "update_available",
+              "up_to_date",
+              "unreleased_build",
+              "diverged",
+              "unknown"
+            ]
+          }
+        },
+        "check_error": {
+          "nullable": "string"
+        },
+        "checked_at": {
+          "nullable": "string"
+        },
+        "current": {
+          "object": {
+            "package_id": {
+              "nullable": "string"
+            },
+            "release_tag": {
+              "nullable": "string"
+            },
+            "source_revision": {
+              "nullable": "string"
+            }
+          },
+          "strict": true,
+          "optional": []
+        },
+        "job": {
+          "object": {
+            "downloaded_bytes": "number",
+            "error_code": {
+              "nullable": "string"
+            },
+            "phase": {
+              "enum": [
+                "idle",
+                "downloading",
+                "installing",
+                "restarting",
+                "failed"
+              ]
+            },
+            "release_tag": {
+              "nullable": "string"
+            },
+            "total_bytes": "number"
+          },
+          "strict": true,
+          "optional": []
+        },
+        "last_result": {
+          "nullable": {
+            "object": {
+              "error_code": {
+                "nullable": "string"
+              },
+              "finished_at": "string",
+              "from_package_id": "string",
+              "outcome": {
+                "enum": [
+                  "updated",
+                  "rolled_back",
+                  "failed"
+                ]
+              },
+              "release_tag": {
+                "nullable": "string"
+              },
+              "to_package_id": "string"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "latest": {
+          "nullable": {
+            "object": {
+              "published_at": {
+                "nullable": "string"
+              },
+              "size": "number",
+              "source_revision": "string",
+              "tag": "string"
+            },
+            "strict": true,
+            "optional": []
+          }
+        },
+        "supported": "boolean",
+        "unsupported_reason": {
+          "nullable": {
+            "enum": [
+              "read_only_preview",
+              "source_run",
+              "no_runtime_profile",
+              "unsupported_platform"
+            ]
+          }
+        }
+      },
+      "strict": true,
+      "optional": []
+    }
+  },
+  "responses": {
+    "DELETE /api/identity/devices/{device_id}": "pushSchema",
+    "DELETE /api/identity/friends/{fingerprint}": "pushSchema",
+    "DELETE /api/model/borrowed": "modelConfigurationSchema",
+    "DELETE /api/services/marks/{key}": "localServicesSchema",
+    "GET /api/identity": "identitySchema",
+    "GET /api/incidents/{value}": "incidentDetailSchema",
+    "GET /api/memories": "longTermMemoryListSchema",
+    "GET /api/model-config": "modelConfigurationSchema",
+    "GET /api/operations": "operationListSchema",
+    "GET /api/operations/eligible-peers": "eligibleOperationPeersSchema",
+    "GET /api/operations/{value}": "operationDetailSchema",
+    "GET /api/patrol": "patrolSchema",
+    "GET /api/peers": "peersSchema",
+    "GET /api/peers/{node_id}/repairs/{repair_id}": "peerRepairAccessSchema",
+    "GET /api/peers/{value}/services": "peerServicesSchema",
+    "GET /api/repairs": "repairListSchema",
+    "GET /api/repairs/{repair_id}": "repairDetailSchema",
+    "GET /api/resources/overview": "resourceOverviewSchema",
+    "GET /api/runs/{value}": "runSchema",
+    "GET /api/runs/{value}/events": "runEventSchema",
+    "GET /api/services/local": "localServicesSchema",
+    "GET /api/threads": "threadListSchema",
+    "GET /api/threads/{value}": "threadDetailSchema",
+    "GET /api/ui/overview": "resourceOverviewSchema",
+    "GET /api/ui/threads/{value}": "threadDetailSchema",
+    "GET /api/update": "updateViewSchema",
+    "PATCH /api/identity/friends/{fingerprint}": "pushSchema",
+    "POST /api/identity/codes:inspect": "inspectionSchema",
+    "POST /api/identity/friends:invite": "issuedSchema",
+    "POST /api/identity/friends:join": "identitySchema",
+    "POST /api/identity/owner:invite": "issuedSchema",
+    "POST /api/identity/owner:join": "identitySchema",
+    "POST /api/identity/setup": "setupSchema",
+    "POST /api/identity/setup/{setup_id}:confirm": "identitySchema",
+    "POST /api/incidents/{value}/follow-up": "runSchema",
+    "POST /api/model-config/validate": "modelConfigurationSchema",
+    "POST /api/operations": "operationDetailSchema",
+    "POST /api/operations/{value}/approve": "operationSummarySchema",
+    "POST /api/operations/{value}/cancel": "operationSummarySchema",
+    "POST /api/operations/{value}/execute": "operationDetailSchema",
+    "POST /api/operations/{value}/refresh": "operationDetailSchema",
+    "POST /api/operations/{value}/reject": "operationSummarySchema",
+    "POST /api/operations/{value}/revoke": "operationSummarySchema",
+    "POST /api/patrol/services/{key}/acknowledge": "patrolSchema",
+    "POST /api/patrol/services/{key}/forget": "patrolSchema",
+    "POST /api/peers/{node_id}/repairs/{repair_id}/approve": "peerRepairAccessSchema",
+    "POST /api/peers/{node_id}/repairs/{repair_id}/reject": "peerRepairAccessSchema",
+    "POST /api/repairs/{repair_id}/approve": "repairDetailSchema",
+    "POST /api/repairs/{repair_id}/reject": "repairDetailSchema",
+    "POST /api/runs/{value}/cancel": "runSchema",
+    "POST /api/threads": "threadSchema",
+    "POST /api/threads/{value}/runs": "runSchema",
+    "POST /api/ui/threads/{value}/runs": "runSchema",
+    "POST /api/update/apply": "updateViewSchema",
+    "POST /api/update/check": "updateViewSchema",
+    "PUT /api/identity/devices/{value}/permissions": "identitySchema",
+    "PUT /api/identity/friends/{fingerprint}/permissions": "pushSchema",
+    "PUT /api/identity/legacy-peers/{value}/proxy-approval": "identitySchema",
+    "PUT /api/memories/{value}": "longTermMemorySchema",
+    "PUT /api/model-config": "modelConfigurationSchema",
+    "PUT /api/model/borrowed": "modelConfigurationSchema",
+    "PUT /api/patrol/services/{key}/auto-repair": "patrolSchema",
+    "PUT /api/patrol/services/{key}/windows-service": "patrolSchema",
+    "PUT /api/services/marks/{key}": "localServicesSchema"
+  },
+  "unparsed": {
+    "DELETE /api/identity/setup/{setup_id}": "取消后只认 204，不读响应体",
+    "DELETE /api/memories/scope": "清空后只认 204，不读响应体",
+    "DELETE /api/memories/{value}": "删除后只认 204，不读响应体",
+    "DELETE /api/model-config": "删除后只认 204，不读响应体",
+    "DELETE /api/threads/{value}": "删除后不读响应体",
+    "GET /api/diagnostics/export": "网页只把它作为下载链接，不解析",
+    "GET /api/operations/{value}/access": "转发到被授权的远端网页，不是数据接口",
+    "GET /api/operations/{value}/access/{path}": "转发到被授权的远端网页，不是数据接口",
+    "GET /api/preauthorizations": "网页不调用",
+    "GET /api/resources/coordinator": "网页不调用",
+    "GET /api/resources/docker": "网页不调用",
+    "GET /api/resources/health": "网页不调用",
+    "GET /api/resources/listeners": "网页不调用",
+    "GET /api/resources/managed-node": "网页不调用",
+    "GET /api/resources/network-path": "网页不调用",
+    "GET /api/resources/node-summary": "网页不调用",
+    "GET /api/resources/processes": "网页不调用",
+    "GET /api/resources/wireguard": "网页不调用",
+    "POST /api/ai/runs/availability": "网页不调用",
+    "POST /api/memories/confirm": "网页不调用",
+    "POST /api/preauthorizations": "网页不调用",
+    "POST /api/preauthorizations/{value}/revoke": "网页不调用",
+    "POST /api/resources/probe": "网页不调用",
+    "POST /api/ui/runs/{value}/resume": "网页不调用"
+  }
+}

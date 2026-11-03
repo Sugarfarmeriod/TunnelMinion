@@ -3,3 +3,4 @@ node_modules/
 playwright-report/
 test-results/
 coverage/
+src/api/contract/web-api-contract.json
