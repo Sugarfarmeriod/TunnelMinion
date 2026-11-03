@@ -123,7 +123,7 @@ class FakeConversations:
 
 
 class PatrolHarness:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, *, stable_seconds: float = 0) -> None:
         self.repairs = RepairHarness(tmp_path)
         self.repairs.marks[PHOTOS] = ServiceMark.MINE
         self.conversations = FakeConversations()
@@ -148,6 +148,7 @@ class PatrolHarness:
             marks=lambda: self.repairs.marks,
             clock=self.repairs.clock,
             investigation_wait_seconds=0.05,
+            stable_seconds=stable_seconds,
         )
 
     def services(self) -> LocalServiceMap:

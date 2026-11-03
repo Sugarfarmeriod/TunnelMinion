@@ -341,6 +341,10 @@ class ModelConfigurationService:
         self._repository.delete()
         self._last_error = None
 
+    def is_configured(self) -> bool:
+        """有本机模型配置，或者选了借用别的电脑的模型；不检查模型现在能不能用。"""
+        return self._repository.load() is not None or self._repository.load_borrowed() is not None
+
     def require_available(self) -> None:
         """在创建新 AI run 前执行降级门卫。"""
         if self._repository.load() is None and self._repository.load_borrowed() is None:

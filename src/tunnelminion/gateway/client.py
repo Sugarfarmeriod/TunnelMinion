@@ -24,6 +24,7 @@ from tunnelminion.domain.model_borrowing import (
 from tunnelminion.domain.versioning import ProtocolVersion
 from tunnelminion.gateway.contracts import (
     GATEWAY_PROTOCOL,
+    MODEL_PURPOSE_HEADER,
     GatewayCapabilities,
     GatewayErrorCode,
     GatewayErrorResponse,
@@ -158,6 +159,7 @@ class FixedGatewayClient:
         *,
         max_response_bytes: int = 512_000,
         transport: httpx.AsyncBaseTransport | None = None,
+        model_purpose: str | None = None,
     ) -> None:
         if not endpoint.startswith("http://"):
             raise ValueError("MVP 网关 endpoint 必须是 WireGuard 私网 HTTP 地址")
@@ -172,6 +174,7 @@ class FixedGatewayClient:
         self._audit = audit_sink
         self._max_response_bytes = max_response_bytes
         self._transport = transport
+        self._model_purpose = model_purpose
 
     async def get_repair(self, repair_id: OperationId | str) -> PeerRepairView:
         """只读取固定对端的一件修复，不从服务清单推测执行进度。"""
@@ -383,10 +386,13 @@ class FixedGatewayClient:
             raise ValueError("调用上下文 caller 与本地节点不一致")
         async with self._http_client("model_complete") as client:
             try:
+                headers = {"Content-Type": "application/json"}
+                if self._model_purpose is not None:
+                    headers[MODEL_PURPOSE_HEADER] = self._model_purpose
                 response = await client.post(
                     "/v1/model:complete",
                     content=call.model_dump_json(),
-                    headers={"Content-Type": "application/json"},
+                    headers=headers,
                     timeout=MAX_MODEL_CALL_SECONDS + 10,
                 )
             except httpx.TimeoutException as exc:

@@ -29,8 +29,10 @@ def mac(name: str, exe: str | None, *ancestors: str) -> ProcessFacts:
     return ProcessFacts("darwin", name, exe, ancestors, MAC_HOME)
 
 
-def win(name: str, exe: str | None, *ancestors: str, windowed: bool = False) -> ProcessFacts:
-    return ProcessFacts("windows", name, exe, ancestors, WIN_HOME, windowed=windowed)
+def win(
+    name: str, exe: str | None, *ancestors: str, windowed: bool = False, gui: bool = False
+) -> ProcessFacts:
+    return ProcessFacts("windows", name, exe, ancestors, WIN_HOME, windowed=windowed, gui=gui)
 
 
 @pytest.mark.parametrize(
@@ -182,7 +184,18 @@ def test_same_program_name_gets_different_origins() -> None:
             win("chat.exe", "C:\\Users\\me\\chat\\chat.exe", "launcher.exe", windowed=True),
             "desktop_app",
         ),
-        # 下面这些规则排在图形界面判断之前。
+        # 程序自己有窗口：从终端打开也是桌面应用。
+        (
+            win(
+                "MATLAB.exe",
+                "D:\\Project\\Matlab\\bin\\win64\\MATLAB.exe",
+                "pwsh.exe",
+                windowed=True,
+                gui=True,
+            ),
+            "desktop_app",
+        ),
+        # 下面这些规则排在祖先图形界面判断之前。
         (win("tool.exe", "E:\\apps\\tool.exe", "pwsh.exe", windowed=True), "terminal"),
         (
             win(
@@ -213,6 +226,7 @@ def test_old_facts_without_windowed_field_keep_working() -> None:
     }
     facts = ProcessFacts(**raw)  # type: ignore[arg-type]
     assert facts.windowed is False
+    assert facts.gui is False
     assert classify_origin(facts) is ProcessOrigin.UNKNOWN
 
 
@@ -399,9 +413,27 @@ def test_windows_facts_record_a_windowed_ancestor(
     )
     monkeypatch.setattr(process_origin.sys, "platform", "win32")
     facts = read_process_facts(42)
-    assert facts is not None and facts.windowed
+    assert facts is not None and facts.windowed and not facts.gui
     assert facts.ancestors == ("netengine.exe", "netdisk.exe")
     assert classify_origin(facts) is ProcessOrigin.DESKTOP_APP
+
+
+def test_windowed_program_started_from_a_terminal_is_a_desktop_app(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MATLAB 这类窗口程序从终端打开，它自带的端口仍属于桌面应用。"""
+    matlab = write_pe(tmp_path / "MATLAB.exe", 2)
+    shell = write_pe(tmp_path / "pwsh.exe", 3)
+    install(monkeypatch, chain(("MATLAB.exe", str(matlab)), ("pwsh.exe", str(shell))))
+    monkeypatch.setattr(process_origin.sys, "platform", "win32")
+    facts = read_process_facts(42)
+    assert facts is not None and facts.gui and facts.windowed
+    assert classify_origin(facts) is ProcessOrigin.DESKTOP_APP
+
+
+def test_gui_flag_only_counts_on_windows() -> None:
+    facts = ProcessFacts("darwin", "tool", "/Users/mac/bin/tool", ("zsh",), MAC_HOME, gui=True)
+    assert classify_origin(facts) is ProcessOrigin.TERMINAL
 
 
 def test_console_chain_is_not_windowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -446,3 +478,4 @@ def test_windowed_is_only_collected_on_windows(
     install(monkeypatch, chain(("gui", str(gui))))
     facts = read_process_facts(42)
     assert facts is not None and facts.platform == "darwin" and not facts.windowed
+    assert not facts.gui

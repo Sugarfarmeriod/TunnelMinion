@@ -37,6 +37,7 @@ from tunnelminion.patrol.contracts import (
     PATROL_MAX_PROBES,
     PATROL_PROBE_TIMEOUT_SECONDS,
     PATROL_RECOVER_ROUNDS,
+    PATROL_STABLE_SECONDS,
     REASON_TEXT,
     AutoRepairResult,
     AutoRepairView,
@@ -50,7 +51,9 @@ from tunnelminion.patrol.contracts import (
 )
 from tunnelminion.patrol.storage import SQLitePatrolStore
 from tunnelminion.repair.contracts import (
+    REPAIR_TERMINAL_STATUSES,
     AnyLaunchRecord,
+    LaunchRecord,
     ManualStep,
     ProgramLaunchRecord,
     RepairErrorCode,
@@ -162,6 +165,8 @@ class _Round:
 
     confirmed: list[str] = field(default_factory=list[str])
     recovered: list[PatrolRecord] = field(default_factory=list[PatrolRecord])
+    # 没盯上、已经从地图上彻底消失的服务，记录直接清掉。
+    forgotten: list[str] = field(default_factory=list[str])
 
 
 def _ports(entry: ServiceEntry) -> tuple[int, ...]:
@@ -222,6 +227,7 @@ class PatrolService:
         clock: Callable[[], datetime] | None = None,
         interval_seconds: float = PATROL_INTERVAL_SECONDS,
         investigation_wait_seconds: float = PATROL_INVESTIGATION_WAIT_SECONDS,
+        stable_seconds: float = PATROL_STABLE_SECONDS,
     ) -> None:
         self._node_id = node_id
         self._store = store
@@ -237,6 +243,7 @@ class PatrolService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._interval_seconds = interval_seconds
         self._investigation_wait_seconds = investigation_wait_seconds
+        self._stable = timedelta(seconds=stable_seconds)
         self._streaks: dict[str, _Streak] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._investigation_lock = asyncio.Lock()
@@ -324,6 +331,7 @@ class PatrolService:
             self._streaks.pop(key, None)
             records.pop(key)
         checks = await self._checks(shown, records)
+        marks = self._marks()
         outcome = _Round()
         for key in sorted(shown.keys() | (records.keys() - present.keys())):
             entry = shown.get(key)
@@ -331,9 +339,13 @@ class PatrolService:
             if record is None:
                 assert entry is not None
                 record = PatrolRecord(key=key, name=entry.name)
-            updated = self._step(record, entry, checks.get(key), now, outcome)
+            mine = marks.get(key) is ServiceMark.MINE
+            updated = self._step(record, entry, checks.get(key), now, outcome, mine=mine)
             if updated is not None:
                 self._store.put(updated)
+        for key in outcome.forgotten:
+            self._store.delete(key)
+            self._streaks.pop(key, None)
         for record in outcome.recovered:
             if record.thread_id is not None:
                 self._conversations.append_notice(
@@ -344,6 +356,65 @@ class PatrolService:
             if task is None or task.done():
                 self._tasks[key] = asyncio.create_task(self._handle_down(key))
 
+    def _started_at(self, key: str) -> datetime | None:
+        """脚本和程序的启动记录里有进程启动时间；记录随进程更新，指的是最近一次运行。"""
+        launch = self._launch_record(key)
+        if isinstance(launch, LaunchRecord | ProgramLaunchRecord):
+            return launch.process_started_at
+        return None
+
+    def _watched(self, record: PatrolRecord, *, mine: bool) -> bool:
+        """主人标过、打开了自动修，或已经连续正常运行满门槛的服务才巡检。"""
+        return record.established or mine or record.auto_repair_enabled
+
+    def _ran_long_before_down(self, record: PatrolRecord) -> bool:
+        """旧记录没有 `running_since`：用进程启动时间到开始异常的时长补判它跑没跑满门槛。"""
+        started = self._started_at(record.key)
+        return (
+            record.down_since is not None
+            and started is not None
+            and record.down_since - started >= self._stable
+        )
+
+    def _repairing(self, key: str) -> bool:
+        return any(
+            item.plan.service_key == key and item.status not in REPAIR_TERMINAL_STATUSES
+            for item in self._repairs.list()
+        )
+
+    def _unwatched(
+        self, record: PatrolRecord, entry: ServiceEntry | None, streak: _Streak, outcome: _Round
+    ) -> PatrolRecord | None:
+        """还没盯上的服务这一轮异常：多半是主人自己关掉的临时程序，不提醒。
+
+        以前按旧规则记下的"挂了"一并撤掉。从地图上彻底消失的，巡检记录直接清掉；脚本和程序连续
+        几轮确认停了，像主人点了"从地图上移除"一样清掉启动记录和巡检记录，以后再运行会重新出现。
+        有还没结束的修复（例如主人让 Agent 重新拉起）时先留着，修复还要用启动记录。
+        """
+        if entry is None:
+            outcome.forgotten.append(record.key)
+            return None
+        stopped = entry.state == "stopped"
+        streak.abnormal = streak.abnormal + 1 if stopped and entry.kind != "docker" else 0
+        if streak.abnormal >= PATROL_CONFIRM_ROUNDS and not self._repairing(record.key):
+            if self._forget_records is not None:
+                self._forget_records(record.key)
+            outcome.forgotten.append(record.key)
+            return None
+        updated = record.model_copy(
+            update={
+                "running_since": None if stopped else record.running_since,
+                "status": PatrolStatus.OK,
+                "reason": None,
+                "down_since": None,
+                "confirmed_at": None,
+                "repair_id": None,
+                "repair_refusal": None,
+                "manual_steps": (),
+            }
+        )
+        return updated if updated != record else None
+
     def _step(
         self,
         record: PatrolRecord,
@@ -351,6 +422,8 @@ class PatrolService:
         checks: _Checks | None,
         now: datetime,
         outcome: _Round,
+        *,
+        mine: bool,
     ) -> PatrolRecord | None:
         streak = self._streaks.setdefault(record.key, _Streak())
         reason = classify(record, entry, checks)
@@ -358,12 +431,19 @@ class PatrolService:
             assert entry is not None
             streak.abnormal = 0
             streak.healthy += 1
+            since = min(
+                value
+                for value in (record.running_since, self._started_at(record.key), now)
+                if value is not None
+            )
             current = set(_ports(entry))
             opened = {port for port, ok in (checks.web if checks else {}).items() if ok}
             talk = checks.talk if checks else {}
             talking = (set(record.talk_ports) | {p for p, t in talk.items() if t}) & current
             update: dict[str, object] = {
                 "seen_running": True,
+                "running_since": since,
+                "established": record.established or now - since >= self._stable,
                 "name": entry.name,
                 "ports": _ports(entry),
                 # 网页标题探测偶尔读不到，已经记住的网页入口只要端口还在就保留。
@@ -395,11 +475,16 @@ class PatrolService:
             updated = record.model_copy(update=update)
             return updated if updated != record else None
         streak.healthy = 0
+        legacy = not record.established and self._ran_long_before_down(record)
+        if not (self._watched(record, mine=mine) or legacy):
+            return self._unwatched(record, entry, streak, outcome)
+        if legacy:
+            record = record.model_copy(update={"established": True})
         if not record.seen_running:
             # 没见过正常运行的服务（可能本来就是主人有意停的），不提醒。
             return None
         if record.status in {PatrolStatus.DOWN, PatrolStatus.ACKNOWLEDGED}:
-            return None
+            return record if legacy else None
         streak.abnormal += 1
         if streak.abnormal >= PATROL_CONFIRM_ROUNDS:
             outcome.confirmed.append(record.key)

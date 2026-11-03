@@ -232,7 +232,9 @@ flowchart LR
 - 现成步骤：`repair/manual_steps.py` 按固定模板生成，参数里像密钥的部分换成"（原来的值）"；对话消息
   （`manual_steps`）、巡检服务框（`repair_refusal`、`manual_steps`）和修复框（`error.manual_steps`）里都是同一份，
   前端各有复制按钮；模型拿到的 `propose_repair` 结果里只有 `has_manual_steps`。
-- 桌面应用：Windows 上进程本身或它的非系统祖先是图形界面程序时归为桌面应用，即使标成"是我的服务"也不显示。
+- 桌面应用：Windows 上进程本身是图形界面程序时归为桌面应用，从终端打开的也一样（例如 MATLAB 自带的
+  connector 端口）；不是从终端启动、而它的非系统祖先是图形界面程序时也归为桌面应用。桌面应用即使标成
+  "是我的服务"也不显示。
 
 ## 结果
 

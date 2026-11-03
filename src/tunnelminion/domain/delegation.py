@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tunnelminion.domain.identifiers import DelegationId, NodeId, OperationId
 from tunnelminion.domain.service_marks import MARK_KEY_PATTERN
@@ -40,9 +40,30 @@ TERMINAL_DELEGATION_STATUSES = frozenset(
 class DelegationErrorCode(StrEnum):
     """委派没能给出结论时的原因。"""
 
+    # 那台电脑既没有配置自己的模型，也没有借用别的电脑的模型，而且借不到委派方的模型。
+    MODEL_NOT_CONFIGURED = "model_not_configured"
+    # 配置了模型，但这次调用失败（模型服务没在运行、密钥不对、额度用完等）。
     MODEL_UNAVAILABLE = "model_unavailable"
     TIMEOUT = "timeout"
     FAILED = "failed"
+
+
+# 委派失败时给发起方 Agent 的说明和下一步；Agent 照这句告诉用户该去哪台电脑处理。
+DELEGATION_ERROR_TEXT = {
+    DelegationErrorCode.MODEL_NOT_CONFIGURED: (
+        "那台电脑还没有配置模型，也没有借用别的电脑的模型，也借不到这台电脑的模型"
+        "（不是同一机主的电脑、这台电脑不允许借给它，或者这台电脑的模型也是借来的），所以没法回答。"
+        "下一步：到那台电脑的设置里配置模型，或者借用一台已经配好模型的电脑的模型。"
+    ),
+    DelegationErrorCode.MODEL_UNAVAILABLE: (
+        "那台电脑配置了模型，但这次调用模型失败（可能是模型服务没在运行、密钥不对或额度用完）。"
+        "下一步：到那台电脑的设置里检查模型。"
+    ),
+    DelegationErrorCode.TIMEOUT: (
+        "那台电脑没有在时限内查完。可以稍后再问一次，或者把问题问得更具体。"
+    ),
+    DelegationErrorCode.FAILED: "那台电脑处理这个问题时出错了，没有给出结论。",
+}
 
 
 class DelegationBusyError(RuntimeError):
@@ -113,3 +134,11 @@ class DelegationRecord(BaseModel):
     finished_at: datetime | None = None
     result: DelegationResult | None = None
     error_code: DelegationErrorCode | None = None
+
+    @field_validator("error_code", mode="before")
+    @classmethod
+    def unknown_error_is_failed(cls, value: object) -> object:
+        """对方是更新的版本、回了这里还不认识的原因时按“出错了”处理，不因此读不懂整条记录。"""
+        if isinstance(value, str) and value not in DelegationErrorCode._value2member_map_:
+            return DelegationErrorCode.FAILED
+        return value

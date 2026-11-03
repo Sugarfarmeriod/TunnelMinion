@@ -798,3 +798,24 @@ def test_stop_borrowing_leaves_profiles_and_secrets_for_switching_back(tmp_path:
     assert repository.profiles() == (local.provider_config(),)
     assert secrets.values == {model_api_key_name(local.endpoint): "saved-local-key"}
     assert view.profiles[0].api_key_configured
+
+
+def test_is_configured_counts_a_local_model_or_a_borrowed_one(tmp_path: Path) -> None:
+    """委派前用它判断这台电脑有没有模型可用；只看配置，不调用模型。"""
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    service = ModelConfigurationService(
+        repository,
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(),
+        lambda _node_id: ValidationProvider(),
+    )
+    assert not service.is_configured()
+    asyncio.run(service.borrow(NodeId.new()))
+    assert service.is_configured()
+    other = ModelConfigurationService(
+        FileModelConfigurationRepository(tmp_path / "local.json"),
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(),
+    )
+    asyncio.run(other.configure(input_config()))
+    assert other.is_configured()
