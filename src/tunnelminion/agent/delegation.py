@@ -89,6 +89,7 @@ class DelegationService:
         *,
         clock: Callable[[], datetime] | None = None,
         repair_query: Callable[[DelegationId], tuple[DelegationProposedRepair, ...]] | None = None,
+        model_configured: Callable[[], bool] | None = None,
     ) -> None:
         self._node_id = node_id
         self._store = store
@@ -96,6 +97,7 @@ class DelegationService:
         self._tool_names = tool_names
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repair_query = repair_query
+        self._model_configured = model_configured
         self._tasks: dict[str, tuple[asyncio.Task[None], AgentCancellationToken]] = {}
         self._fail_interrupted()
 
@@ -164,6 +166,12 @@ class DelegationService:
             execution_node_id=self._node_id,
         )
         tools = tuple(name for name in self._tool_names() if name != DELEGATE_TOOL_NAME)
+        if self._model_configured is not None and not self._model_configured():
+            # 没有模型就答不了；照实告诉发起方，免得和“模型出错”混在一起。
+            self._finish(
+                record, DelegationStatus.FAILED, error=DelegationErrorCode.MODEL_NOT_CONFIGURED
+            )
+            return
         delegation_token = current_delegation.set(record)
         try:
             agent = self._agent_factory()

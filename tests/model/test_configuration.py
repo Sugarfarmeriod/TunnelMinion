@@ -766,3 +766,24 @@ def test_saving_the_key_does_not_run_on_the_event_loop_thread() -> None:
     asyncio.run(service.configure(input_config("")))
     assert len(writers) == 2
     assert threading.main_thread() not in writers
+
+
+def test_is_configured_counts_a_local_model_or_a_borrowed_one(tmp_path: Path) -> None:
+    """委派前用它判断这台电脑有没有模型可用；只看配置，不调用模型。"""
+    repository = FileModelConfigurationRepository(tmp_path / "model.json")
+    service = ModelConfigurationService(
+        repository,
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(),
+        lambda _node_id: ValidationProvider(),
+    )
+    assert not service.is_configured()
+    asyncio.run(service.borrow(NodeId.new()))
+    assert service.is_configured()
+    other = ModelConfigurationService(
+        FileModelConfigurationRepository(tmp_path / "local.json"),
+        MemorySecrets(),
+        lambda _config, _key: ValidationProvider(),
+    )
+    asyncio.run(other.configure(input_config()))
+    assert other.is_configured()

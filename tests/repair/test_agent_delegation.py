@@ -138,6 +138,14 @@ def test_gateway_delegation_builds_local_repairs_without_exposing_tools_or_remot
     monkeypatch.setattr(
         "tunnelminion.model.configuration.ModelConfigurationService.create_provider", provider
     )
+
+    def configured(_service: object) -> bool:
+        return True
+
+    # 测试用假的模型提供方，没有写真的模型配置；委派前的“有没有模型”检查按已配置处理。
+    monkeypatch.setattr(
+        "tunnelminion.model.configuration.ModelConfigurationService.is_configured", configured
+    )
     configure(tmp_path)
     gateway = (
         build_windows_gateway_application(tmp_path)

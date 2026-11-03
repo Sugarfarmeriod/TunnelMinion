@@ -356,6 +356,7 @@ def build_windows_gateway_application(data_dir: Path | None = None) -> WindowsGa
         repair_query=lambda delegation_id: proposed_repairs_for_delegation(
             node.stores.repairs, delegation_id
         ),
+        model_configured=node.model_service.is_configured,
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, node.stores.model_usage

@@ -709,6 +709,7 @@ def build_macos_gateway_application(
         repair_query=lambda delegation_id: proposed_repairs_for_delegation(
             stores.repairs, delegation_id
         ),
+        model_configured=node.model_service.is_configured,
     )
     model_lending_service = ModelLendingService(
         node.node_id, node.model_service.create_lending_provider, stores.model_usage

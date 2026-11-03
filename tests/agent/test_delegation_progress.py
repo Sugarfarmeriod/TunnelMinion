@@ -118,7 +118,7 @@ def test_progress_reports_each_phase_once_without_remote_content(
     events: list[DelegationProgress] = []
     output = run(call(adapter(client, events)))
     assert isinstance(output, dict)
-    assert set(output) == {"answered_by", "status", "error_code", "result"}
+    assert set(output) == {"answered_by", "status", "error_code", "error_message", "result"}
     assert output["status"] == statuses[-1]
     assert [event.phase for event in events] == phases
     assert len(phases) == len(set(phases))
