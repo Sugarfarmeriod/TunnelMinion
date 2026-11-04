@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tunnelminion.update.service import UpdateRejected, UpdateService, UpdateView
 
+# 更新流程里能抛出的每个错误码都要有专门说明，不能掉到兜底文案；
+# 和网页 `UpdatePanel.tsx` 里同一错误码的说法保持一致（网页那边句末多一个句号）。
+# `tests/update/test_update_messages.py` 会逐个核对。
 _MESSAGES = {
     "read_only_preview": "预览模式不能更新",
     "source_run": "从源码运行，不支持一键更新，请用 git pull",
@@ -20,6 +23,15 @@ _MESSAGES = {
     "release_changed": "最新版本刚刚变了，请重新检查后再确认",
     "already_current": "已经是最新版本",
     "current_is_newer": "当前版本比最新发布版还新，不需要更新",
+    # 确认更新时会重新查一次最新发布版本，查询失败的原因原样告诉主人
+    "network_unreachable": "连不上 GitHub，请检查网络或代理",
+    "github_rate_limited": "GitHub 暂时限制了查询次数，过一会儿再试",
+    "no_release": "还没有发布过版本",
+    "platform_not_released": "最新版本没有这个平台的运行包",
+    "release_invalid": "发布信息不完整，暂时不能更新",
+    "release_metadata_missing": "发布信息不完整，暂时不能更新",
+    "release_feed_failed": "查询发布信息失败，过一会儿再试",
+    "download_url_rejected": "下载地址不安全，已拒绝",
 }
 
 

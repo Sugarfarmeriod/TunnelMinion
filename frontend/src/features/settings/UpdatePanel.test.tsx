@@ -394,6 +394,33 @@ describe("UpdatePanel", () => {
     );
   });
 
+  it("确认更新时连不上 GitHub 会说清是网络问题", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValueOnce(jsonResponse(makeView()));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: {
+            code: "network_unreachable",
+            message: "连不上 GitHub，请检查网络或代理",
+          },
+        },
+        409,
+      ),
+    );
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: "更新到 build-12" }),
+    );
+    await user.click(screen.getByRole("button", { name: "确认更新" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "连不上 GitHub，请检查网络或代理",
+    );
+    expect(
+      screen.queryByText("现在不能更新，请稍后重试"),
+    ).not.toBeInTheDocument();
+  });
+
   it("退回到没有发布名的版本时显示换包已完成", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
