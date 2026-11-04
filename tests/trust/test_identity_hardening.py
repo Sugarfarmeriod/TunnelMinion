@@ -14,6 +14,7 @@ from tests.trust.test_own_devices import NOW, computer, request_for
 from tunnelminion.domain.identifiers import NodeId
 from tunnelminion.domain.trust import PassScope
 from tunnelminion.gateway.security import GatewayPeerPolicy
+from tunnelminion.operation.definitions import SAFE_HTTP_SHARING_OPERATION
 from tunnelminion.trust.contracts import DevicePermissions, IdentityError
 from tunnelminion.trust.keys import PrivateKey
 from tunnelminion.trust.passes import issue_pass
@@ -101,7 +102,11 @@ def test_join_cannot_take_over_legacy_node_id(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("same_host", "expected"), [(True, frozenset({"restart_container"})), (False, frozenset[str]())]
+    ("same_host", "expected"),
+    [
+        (True, frozenset({"restart_container", SAFE_HTTP_SHARING_OPERATION})),
+        (False, frozenset({SAFE_HTTP_SHARING_OPERATION})),
+    ],
 )
 def test_pass_inherits_legacy_operations_only_from_same_address(
     tmp_path: Path, same_host: bool, expected: frozenset[str]

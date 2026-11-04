@@ -19,7 +19,7 @@ from tunnelminion.domain.trust import (
     RequestPassClaims,
     decode_public_key,
 )
-from tunnelminion.gateway.configuration import DEFAULT_GATEWAY_TOOLS
+from tunnelminion.gateway.configuration import DEFAULT_GATEWAY_TOOLS, DEFAULT_OWNER_OPERATIONS
 from tunnelminion.gateway.security import (
     GatewayAuthenticationKind,
     GatewayPeerPolicy,
@@ -171,6 +171,7 @@ class RequestPassVerifier:
                 node_id=issuer,
                 token_digest=b"",
                 allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
+                allowed_operations=frozenset(DEFAULT_OWNER_OPERATIONS),
                 source_host=device.host,
                 authentication_kind=GatewayAuthenticationKind.OWNER_DEVICE,
                 **permissions.model_dump(),

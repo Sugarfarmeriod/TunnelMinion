@@ -26,6 +26,7 @@ from tunnelminion.model.secrets import (
     RestrictedFileSecretStore,
     SecretStore,
 )
+from tunnelminion.operation.definitions import SAFE_HTTP_SHARING_OPERATION
 
 if TYPE_CHECKING:
     from tunnelminion.trust.devices import OwnDevicesService
@@ -39,6 +40,8 @@ DEFAULT_GATEWAY_TOOLS = (
     "probe_service_reachability",
     "get_node_summary",
 )
+# 我的电脑默认可以互相申请的受控操作；每次申请仍要目标端本机批准。
+DEFAULT_OWNER_OPERATIONS = (SAFE_HTTP_SHARING_OPERATION,)
 DEFAULT_REQUESTER_CALLBACK_PORT = 18_900
 _SECRET_STORE_MARKER = "gateway-secret-store"
 
@@ -327,7 +330,8 @@ class GatewayConfigurationService:
                     host=device.host,
                     port=device.port,
                     allowed_tools=frozenset(DEFAULT_GATEWAY_TOOLS),
-                    allowed_operations=previous.allowed_operations if previous else frozenset(),
+                    allowed_operations=frozenset(DEFAULT_OWNER_OPERATIONS)
+                    | (previous.allowed_operations if previous else frozenset[str]()),
                     **owner.store.device_permissions(device.node_id).model_dump(),
                 )
         return config.model_copy(update={"peers": tuple(peers.values())})
