@@ -118,13 +118,26 @@ def test_error_pages_count_as_pages_but_lend_no_title(site: Site) -> None:
     "reply",
     [
         Reply(200, b'{"ok":true}', {"Content-Type": "application/json"}),
-        Reply(500, b"<html>boom</html>", HTML),
+        Reply(200, b"tmacceptsvc ok", {"Content-Type": "text/plain"}),
         Reply(401, b'{"error":"unauthorized"}', {"Content-Type": "application/json"}),
     ],
 )
-def test_apis_and_broken_servers_are_not_pages(site: Site, reply: Reply) -> None:
+def test_apis_and_plain_text_are_not_pages(site: Site, reply: Reply) -> None:
     site.replies["/"] = reply
     assert probe_web_page("127.0.0.1", site.port) is None
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        Reply(500, b"<html>boom</html>", HTML),
+        Reply(503, b"busy", {"Content-Type": "text/plain"}),
+    ],
+)
+def test_server_errors_are_failed_pages_not_missing_pages(site: Site, reply: Reply) -> None:
+    """首页报服务器错误是"网页打不开"，和"没有网页"分开。"""
+    site.replies["/"] = reply
+    assert probe_web_page("127.0.0.1", site.port) == WebPage(title=None, failed=True)
 
 
 def test_gzip_only_pages_are_decompressed(site: Site) -> None:

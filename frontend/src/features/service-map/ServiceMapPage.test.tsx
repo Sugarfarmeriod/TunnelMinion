@@ -154,6 +154,7 @@ describe("服务地图页面", () => {
               address: "127.0.0.1",
               port: 444,
               has_web_page: false,
+              web_failed: true,
             },
           ],
         }),
@@ -195,6 +196,59 @@ describe("服务地图页面", () => {
       within(dialog).getByRole("button", { name: "恢复 已隐藏程序" }),
     ).toBeVisible();
     expect(within(dialog).queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+
+  it("首页不是网页的服务如实显示没有网页，不说成打不开", async () => {
+    renderMap(
+      makeLocalServices([
+        makeService({ key: "program:web", name: "网页服务" }),
+        makeService({
+          key: "program:text",
+          name: "纯文本服务",
+          endpoints: [
+            {
+              protocol: "tcp",
+              address: "127.0.0.1",
+              port: 18954,
+              has_web_page: false,
+            },
+          ],
+        }),
+        makeService({
+          key: "program:error",
+          name: "报错服务",
+          endpoints: [
+            {
+              protocol: "tcp",
+              address: "127.0.0.1",
+              port: 8080,
+              has_web_page: false,
+              web_failed: true,
+            },
+          ],
+        }),
+      ]),
+    );
+    const { dialog } = await openComputer();
+    const states = Object.fromEntries(
+      within(dialog)
+        .getAllByRole("listitem")
+        .map((item) => [
+          item.querySelector(".map-service-name")?.textContent,
+          item.querySelector(".map-service-state")?.textContent,
+        ]),
+    );
+    expect(states).toEqual({
+      报错服务: "网页打不开",
+      纯文本服务: "正常 · 没有网页",
+      网页服务: "正常",
+    });
+    expect(within(dialog).queryByText("打不开")).not.toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getAllByRole("listitem")
+        .map((item) => item.querySelector(".map-service-name")?.textContent)[0],
+    ).toBe("报错服务");
   });
 
   it("超过八项时搜索名字、类型、端口，并能用按钮和左右键翻页", async () => {

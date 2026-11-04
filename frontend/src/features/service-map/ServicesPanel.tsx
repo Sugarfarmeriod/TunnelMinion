@@ -4,6 +4,7 @@ import type { CSSProperties, RefObject } from "react";
 import type { Peer, PeerPatrol, ServiceEntry } from "./api";
 import { platformName } from "./ComputerNode";
 import { serviceUrl } from "./serviceUrl";
+import { webPageFailed, withoutWebPage } from "./webPage";
 import type { Repair } from "../repairs/api";
 import { ManualSteps } from "../repairs/ManualSteps";
 import { isReadOnlyPreview } from "../../shared/previewMode";
@@ -132,7 +133,7 @@ export function ServicesPanel({
       ? -1
       : service.state === "stopped"
         ? 1
-        : service.endpoints.some((endpoint) => endpoint.has_web_page === false)
+        : webPageFailed(service)
           ? 0
           : 2;
   const filtered = services
@@ -430,17 +431,17 @@ export function ServicesPanel({
                         {service.name}
                       </span>
                       <span
-                        className={`map-service-state state-${down ? "down" : (service.state ?? "running")}`}
+                        className={`map-service-state state-${down ? "down" : service.state === "stopped" ? "stopped" : webPageFailed(service) ? "failed" : "running"}`}
                       >
                         {down
                           ? `挂了 · ${reason ?? "不正常"}`
                           : service.state === "stopped"
                             ? "已停止"
-                            : service.endpoints.some(
-                                  (endpoint) => endpoint.has_web_page === false,
-                                )
-                              ? "打不开"
-                              : "正常"}
+                            : webPageFailed(service)
+                              ? "网页打不开"
+                              : withoutWebPage(service)
+                                ? "正常 · 没有网页"
+                                : "正常"}
                       </span>
                       <span
                         className="map-service-meta"

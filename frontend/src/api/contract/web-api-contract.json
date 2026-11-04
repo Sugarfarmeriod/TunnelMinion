@@ -527,10 +527,13 @@
                         "tcp",
                         "udp"
                       ]
-                    }
+                    },
+                    "web_failed": "boolean"
                   },
                   "strict": true,
-                  "optional": []
+                  "optional": [
+                    "web_failed"
+                  ]
                 }
               },
               "key": "string",
@@ -1494,10 +1497,13 @@
                         "tcp",
                         "udp"
                       ]
-                    }
+                    },
+                    "web_failed": "boolean"
                   },
                   "strict": true,
-                  "optional": []
+                  "optional": [
+                    "web_failed"
+                  ]
                 }
               },
               "state": {

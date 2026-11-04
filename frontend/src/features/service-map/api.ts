@@ -9,6 +9,8 @@ export const serviceEndpointSchema = z
     address: z.string(),
     port: z.number().int().min(1).max(65535),
     has_web_page: z.boolean().nullable(),
+    // 首页返回服务器错误；旧版本的对端不带这个字段。
+    web_failed: z.boolean().optional(),
   })
   .strict();
 

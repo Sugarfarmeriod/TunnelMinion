@@ -28,6 +28,7 @@ import {
 } from "../chat/ConversationDrawer";
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
+import { webPageFailed } from "./webPage";
 import { mapLayout, networkLabels, relativeTime } from "./topology";
 import {
   isRepairExecuting,
@@ -224,7 +225,7 @@ export function ServiceMapPage() {
         (selectedPeer
           ? peerPatrol(peerServices.data)[service.key] !== undefined
           : patrol.byKey[service.key]?.status === "down") ||
-        service.endpoints.some((endpoint) => endpoint.has_web_page === false));
+        webPageFailed(service));
     // 只带上提问对象，不替用户发问；看起来坏了的服务把“打不开”排在第一个
     openChat({
       about: { node_id: targetId, service_key: service?.key ?? null },
