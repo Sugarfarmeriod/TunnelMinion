@@ -373,7 +373,16 @@ def test_routes_reject_with_readable_codes(setup: Setup) -> None:
         "code": "release_changed",
         "message": "最新版本刚刚变了，请重新检查后再确认",
     }
-    setup.feed.error = ReleaseFeedError("no_release")
+    # 确认更新时重新查询发布版本失败，要说清具体原因
+    setup.feed.error = ReleaseFeedError("network_unreachable")
+    response = client.post("/api/update/apply", headers=WRITE, json={"release_tag": "build-2"})
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "network_unreachable",
+        "message": "连不上 GitHub，请检查网络或代理",
+    }
+    # 未登记的错误码才落到兜底文案
+    setup.feed.error = ReleaseFeedError("unexpected_code")
     response = client.post("/api/update/apply", headers=WRITE, json={"release_tag": "build-2"})
     assert response.json()["detail"]["message"] == "现在不能更新，请稍后重试"
 
