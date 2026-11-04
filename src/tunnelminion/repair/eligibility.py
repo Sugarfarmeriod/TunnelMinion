@@ -423,19 +423,24 @@ def _windows_service_path(binary_path: str) -> str:
     return path
 
 
-def check_windows_service_protected(info: WindowsServiceInfo) -> None:
-    """Windows 自带、组网、虚拟化、远控、杀毒安全软件和 TunnelMinion 自己的服务一律不动。
+def is_windows_service_protected(info: WindowsServiceInfo) -> bool:
+    """在保护名单里：Windows 自带、组网、虚拟化、远控、杀毒安全软件或 TunnelMinion 自己的服务。
 
     路径不是带盘符的绝对路径（比如 `system32/x.exe`）时认不准在哪，也按系统服务处理。
     """
     path = _windows_service_path(info.binary_path)
     words = f"{info.name} {info.display_name} {path}".casefold()
-    if (
+    return (
         re.fullmatch(r"[a-z]:/.+", path) is None
         or path[1:].startswith(":/windows/")
         or path.rsplit("/", 1)[-1] == "svchost.exe"
         or any(word in words for word in _PROTECTED_WINDOWS_SERVICE_WORDS)
-    ):
+    )
+
+
+def check_windows_service_protected(info: WindowsServiceInfo) -> None:
+    """保护名单里的服务一律不动，名单见 `is_windows_service_protected`。"""
+    if is_windows_service_protected(info):
         raise RepairRefusal(
             RepairError(
                 code=RepairErrorCode.PROTECTED_TARGET,

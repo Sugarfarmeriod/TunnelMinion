@@ -103,6 +103,9 @@ class RemoteServiceSummary(BaseModel):
     windows_service_name: str | None = Field(
         default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
     )
+    # 这个 Windows 服务不在保护名单里（不是 Windows 自带、组网代理、虚拟化、远控、安全软件或
+    # TunnelMinion 自己的），多半是主人自己装的。
+    own_windows_service: bool = False
     origin: ProcessOrigin | None = None
     has_web_page: bool | None = None
     # 首页返回服务器错误：是网页但打不开。`has_web_page` 为 False 而这里也为 False 时只是没有网页。

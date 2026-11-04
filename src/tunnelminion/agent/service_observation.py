@@ -45,6 +45,7 @@ from tunnelminion.repair.contracts import (
     WindowsServiceRecord,
     WindowsServiceRuntime,
 )
+from tunnelminion.repair.eligibility import is_windows_service_protected
 from tunnelminion.tools.contracts import ToolCancellationToken, ToolExecutionStatus
 
 
@@ -61,6 +62,8 @@ class CollectionAdapter(Protocol):
 # docker 只占观察时限的一部分：刚开机 Docker Desktop 还没起来时 `docker ps` 会一直等，到点就按
 # docker 暂不可用处理，监听端口和进程照常出结果，不让整轮观察超时。
 _DOCKER_BUDGET_SHARE = 0.6
+# 同一个 Windows 服务在不在保护名单里，这么久重新读一次。
+_SERVICE_PROTECTION_SECONDS = 300.0
 
 
 async def _gather_or_cancel(
@@ -168,6 +171,7 @@ def service_tier(
         origin=item.origin,
         container_running=item.container_running,
         has_web_page=item.has_web_page,
+        own_windows_service=item.own_windows_service,
     )
 
 
@@ -350,6 +354,8 @@ class DeterministicServiceObserver:
         self._node_id = node_id
         self._launch_agents = launch_agents
         self._windows_services = windows_services
+        # Windows 服务名到（是否在保护名单里, 读取时间）；服务装在哪很少变，几分钟读一次。
+        self._service_protection: dict[str, tuple[bool, datetime]] = {}
         self._marks = marks
         self._launch_recorder = launch_recorder
         self._containers = containers
@@ -562,16 +568,48 @@ class DeterministicServiceObserver:
             return inventory
         if not names:
             return inventory
+        protected = await asyncio.to_thread(
+            self._protected_services,
+            frozenset(
+                names[item.process_pid]
+                for item in inventory.services
+                if item.process_pid in names
+                and item.container_running is None
+                and item.origin is ProcessOrigin.APP_SERVICE
+            ),
+        )
         return inventory.model_copy(
             update={
                 "services": tuple(
-                    item.model_copy(update={"windows_service_name": names[item.process_pid]})
+                    item.model_copy(
+                        update={
+                            "windows_service_name": names[item.process_pid],
+                            "own_windows_service": protected.get(names[item.process_pid]) is False,
+                        }
+                    )
                     if item.process_pid in names and item.container_running is None
                     else item
                     for item in inventory.services
                 )
             }
         )
+
+    def _protected_services(self, names: frozenset[str]) -> dict[str, bool]:
+        """这些 Windows 服务在不在保护名单里；读不到服务信息的按在名单里处理，不让它冒出来。"""
+        assert self._windows_services is not None
+        now = self._now()
+        result: dict[str, bool] = {}
+        for name in names:
+            cached = self._service_protection.get(name)
+            if cached is None or (now - cached[1]).total_seconds() >= _SERVICE_PROTECTION_SECONDS:
+                try:
+                    info = self._windows_services.inspect(name)
+                except Exception:
+                    info = None
+                cached = (info is None or is_windows_service_protected(info), now)
+                self._service_protection[name] = cached
+            result[name] = cached[0]
+        return result
 
     def _running_launch_keys(self, labels: frozenset[str | None]) -> frozenset[str]:
         """有启动记录的服务里现在正在运行的；`labels` 是这一轮认出的后台服务标签和服务名。"""

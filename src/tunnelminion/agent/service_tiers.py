@@ -38,11 +38,13 @@ def decide_tier(
     origin: ProcessOrigin | None,
     container_running: bool | None = None,
     has_web_page: bool | None = None,
+    own_windows_service: bool = False,
 ) -> ServiceTier:
     """按固定顺序决定分档。
 
     `container_running` 为 None 表示端口不属于任何容器；
-    `has_web_page` 为 None 表示没有探测过首页。
+    `has_web_page` 为 None 表示没有探测过首页；
+    `own_windows_service` 表示拉起它的 Windows 服务不在保护名单里。
     """
     if container_running is not None:
         return ServiceTier.SHOW if container_running else ServiceTier.HIDE
@@ -57,6 +59,10 @@ def decide_tier(
         # 读不到来历（例如对端版本较旧）时，脚本解释器按用户脚本处理，与来历判断一致。
         return ServiceTier.SHOW
     if origin is ProcessOrigin.UNKNOWN:
+        return ServiceTier.REVIEW
+    if origin is ProcessOrigin.APP_SERVICE and own_windows_service:
+        # 不在保护名单里的 Windows 服务多半是主人自己装的：只听本机、首页不是网页也让主人看一眼，
+        # 否则地图上没有入口，没法标"是我的服务"、打开启停授权。保护名单里的照旧不显示。
         return ServiceTier.REVIEW
     if origin is ProcessOrigin.APP_SERVICE or origin is None:
         # 应用自启服务或读不到来历的程序：只有监听所有网卡、且不确定不是网页时，
