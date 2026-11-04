@@ -992,6 +992,14 @@ class WindowsServiceRuntime(Protocol):
     async def stop(self, name: str) -> RepairCommand: ...
 
 
+class PortUnreachableError(ConnectionError):
+    """连本机端口时根本连不上：被拒绝，或者连接一直建立不起来。
+
+    和"连上以后不回话"分开：接收队列很小的程序卡住久了，排队的连接把队列占满，之后新连接就会
+    连不上；端口没人听时也是连不上。
+    """
+
+
 class LocalVerifier(Protocol):
     """修复后在本机再探测一次。"""
 

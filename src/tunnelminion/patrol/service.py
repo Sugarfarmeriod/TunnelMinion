@@ -55,6 +55,7 @@ from tunnelminion.repair.contracts import (
     AnyLaunchRecord,
     LaunchRecord,
     ManualStep,
+    PortUnreachableError,
     ProgramLaunchRecord,
     RepairErrorCode,
     RepairKind,
@@ -141,10 +142,15 @@ class _Streak:
 
 
 class _Unknown:
-    """这一轮探测看不清（连不上或探测超时），不参与判断。"""
+    """这一轮探测看不清（连上后出错或探测本身超时），不参与判断。"""
+
+
+class _Unreachable:
+    """这一轮根本连不上端口。"""
 
 
 _UNKNOWN = _Unknown()
+_UNREACHABLE = _Unreachable()
 
 
 @dataclass
@@ -153,10 +159,12 @@ class _Checks:
 
     `web`：端口到首页结果，True 能打开，False 返回服务器错误，None 连上后一直不回应。
     `talk`：端口到"连上后是否先回话"。
+    `unreachable`：这一轮根本连不上的端口。
     """
 
     web: dict[int, bool | None] = field(default_factory=dict[int, bool | None])
     talk: dict[int, bool] = field(default_factory=dict[int, bool])
+    unreachable: set[int] = field(default_factory=set[int])
 
 
 @dataclass
@@ -183,6 +191,12 @@ def classify(
     """按固定规则判断这一轮是否异常；正常返回 None。
 
     卡住只拿服务自己以前的样子比：以前能打开的网页现在不回应，或以前会先回话的端口现在不回话。
+
+    连不上一般只算看不清：只是慢、只听组网地址不听本机地址、或者端口刚好没人听的服务不会因此被
+    判成卡住。例外是已经因为不回应而疑似卡住或确认卡住的服务：接收队列很小的程序卡住久了，排队的
+    探测会把队列占满，之后就从"不回应"变成"连不上"。这时只要端口还在地图上、这一轮没有任何入口
+    正常回应，以前回应过的入口连不上仍算卡住；程序真的退出、端口不再有人听时，地图会显示已停止
+    或端口消失，按那些原因判断。
     """
     if entry is None:
         return PatrolReason.PORT_CLOSED
@@ -205,6 +219,14 @@ def classify(
         )
         return PatrolReason.STUCK if silent else PatrolReason.WEB_FAILED
     if any(not talked and port in record.talk_ports for port, talked in checks.talk.items()):
+        return PatrolReason.STUCK
+    answered = True in checks.web.values() or True in checks.talk.values()
+    if (
+        record.reason is PatrolReason.STUCK
+        and record.status is not PatrolStatus.OK
+        and not answered
+        and checks.unreachable & (set(record.web_ports) | set(record.talk_ports))
+    ):
         return PatrolReason.STUCK
     return None
 
@@ -251,27 +273,34 @@ class PatrolService:
 
     # ---- 每轮判定 ----
 
-    async def _probe(self, port: int) -> bool | None | _Unknown:
+    async def _probe(self, port: int) -> bool | None | _Unknown | _Unreachable:
         """首页能打开返回 True，服务器错误返回 False，连上以后一直一个字节都不回返回 None。
 
-        连不上或探测本身超时只说明这一轮看不清，返回 `_UNKNOWN`，不算不回应：
-        只是慢、或者只听组网地址不听本机地址的服务不会因此被判成卡住。
+        连不上返回 `_UNREACHABLE`；连上后出错或探测本身超时只说明这一轮看不清，返回 `_UNKNOWN`。
+        两者都不直接算不回应，怎么用见 `classify`。
         """
         try:
             status = await asyncio.wait_for(
                 self._web_status(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
             )
+        except PortUnreachableError:
+            return _UNREACHABLE
         except (TimeoutError, OSError):
             return _UNKNOWN
         return None if status is None else status < 500
 
-    async def _talk(self, port: int) -> bool | None:
-        """连上以后对方先说话返回 True，一直不说话返回 False；连不上或看不清返回 None。"""
+    async def _talk(self, port: int) -> bool | None | _Unreachable:
+        """连上以后对方先说话返回 True，一直不说话返回 False。
+
+        连不上返回 `_UNREACHABLE`，连上后出错或探测本身超时返回 None。
+        """
         assert self._talks_first is not None
         try:
             return await asyncio.wait_for(
                 self._talks_first(port), timeout=PATROL_PROBE_TIMEOUT_SECONDS
             )
+        except PortUnreachableError:
+            return _UNREACHABLE
         except (TimeoutError, OSError):
             return None
 
@@ -308,10 +337,14 @@ class PatrolService:
         talk_results = await asyncio.gather(*(self._talk(port) for _, port in talk_plan))
         checks: dict[str, _Checks] = {}
         for (key, port), result in zip(web_plan, web_results, strict=True):
-            if not isinstance(result, _Unknown):
+            if isinstance(result, _Unreachable):
+                checks.setdefault(key, _Checks()).unreachable.add(port)
+            elif not isinstance(result, _Unknown):
                 checks.setdefault(key, _Checks()).web[port] = result
         for (key, port), talked in zip(talk_plan, talk_results, strict=True):
-            if talked is not None:
+            if isinstance(talked, _Unreachable):
+                checks.setdefault(key, _Checks()).unreachable.add(port)
+            elif talked is not None:
                 checks.setdefault(key, _Checks()).talk[port] = talked
         return checks
 
