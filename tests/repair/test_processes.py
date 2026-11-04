@@ -26,6 +26,7 @@ from tunnelminion.repair.contracts import (
     HostInspector,
     LaunchRecord,
     LocalVerifier,
+    PortUnreachableError,
     ProcessLauncher,
     ProgramLaunchRecord,
     SpawnedProcess,
@@ -609,7 +610,8 @@ def test_talks_first_probe_on_real_loopback(monkeypatch: pytest.MonkeyPatch) -> 
         thread.start()
         assert asyncio.run(verifier.talks_first(port)) is False
         thread.join()
-    assert asyncio.run(verifier.talks_first(port)) is None
+    with pytest.raises(PortUnreachableError):
+        asyncio.run(verifier.talks_first(port))
 
 
 def serve_once(server: socket.socket, reply: Callable[[socket.socket], None]) -> threading.Thread:
@@ -681,11 +683,32 @@ def test_patrol_web_probe_tells_slow_silent_and_unreachable_apart(
 
         monkeypatch.setattr(FakeHttps, "status", OSError("handshake"))
         thread = serve_once(server, reset)
-        with pytest.raises(ConnectionError):
+        # 连上了但读不出状态码：看不清，不是连不上。
+        with pytest.raises(ConnectionError) as unclear:
             asyncio.run(verifier.patrol_web_status(port))
+        assert not isinstance(unclear.value, PortUnreachableError)
         thread.join()
-    with pytest.raises(ConnectionError):
+    with pytest.raises(PortUnreachableError):
         asyncio.run(verifier.patrol_web_status(port))
+
+
+def test_full_accept_queue_turns_silence_into_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """程序卡住不再接收连接：先是连上不回应，排队的连接占满接收队列以后变成连不上。"""
+    monkeypatch.setattr("tunnelminion.repair.processes.PROBE_REPLY_SECONDS", 0.2)
+    monkeypatch.setattr("tunnelminion.repair.processes.PROBE_CONNECT_SECONDS", 0.3)
+    verifier = SocketLocalVerifier()
+    results: list[int | None | str] = []
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        for _ in range(32):
+            try:
+                results.append(asyncio.run(verifier.patrol_web_status(port)))
+            except PortUnreachableError:
+                results.append("unreachable")
+                break
+    assert results[0] is None and results[-1] == "unreachable"
 
 
 class _BrokenConnection:

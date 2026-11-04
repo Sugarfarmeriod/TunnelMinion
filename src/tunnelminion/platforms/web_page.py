@@ -25,9 +25,14 @@ _REDIRECTS = frozenset({301, 302, 303, 307, 308})
 
 @dataclass(frozen=True)
 class WebPage:
-    """一个能在浏览器里打开的页面；`title` 只在正常页面（状态码小于 400）时给出。"""
+    """首页说的是 HTTP，并且是网页或者报了服务器错误。
+
+    `failed` 为 True 表示首页返回服务器错误（状态码 500 及以上），在浏览器里打开只会看到报错；
+    `title` 只在正常页面（状态码小于 400）时给出。
+    """
 
     title: str | None
+    failed: bool = False
 
 
 def probe_host(address: str) -> str | None:
@@ -132,7 +137,7 @@ def _fetch_home(host: str, port: int, secure: bool, timeout: float) -> _Response
 
 
 def probe_web_page(address: str, port: int, *, timeout: float = 1.0) -> WebPage | None:
-    """访问首页；是网页时返回 WebPage，不是网页或连不上时返回 None。"""
+    """访问首页；是网页或首页报服务器错误时返回 WebPage，不是网页或连不上时返回 None。"""
     host = probe_host(address)
     if host is None:
         return None
@@ -146,7 +151,9 @@ def probe_web_page(address: str, port: int, *, timeout: float = 1.0) -> WebPage 
             continue
         if response.asks_browser_login:
             return WebPage(title=None)
-        if response.status >= 500 or not _looks_like_html(response.content_type, response.body):
+        if response.status >= 500:
+            return WebPage(title=None, failed=True)
+        if not _looks_like_html(response.content_type, response.body):
             return None
         match = _CHARSET.search(response.content_type)
         charset = match.group(1) if match else "utf-8"

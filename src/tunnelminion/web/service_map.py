@@ -53,7 +53,9 @@ class ServiceEndpoint(BaseModel):
     protocol: Literal["tcp", "udp"]
     address: str
     port: int = Field(ge=1, le=65535)
+    # True 是网页；False 是看过了、不是网页（首页报服务器错误时 `web_failed` 为 True）。
     has_web_page: bool | None = None
+    web_failed: bool = False
 
 
 class ServiceEntry(BaseModel):
@@ -148,6 +150,7 @@ def _entry(
             address=item.address,
             port=item.port,
             has_web_page=item.has_web_page,
+            web_failed=item.web_failed,
         )
         for item in shown
         if item.port > 0

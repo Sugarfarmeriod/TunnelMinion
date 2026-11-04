@@ -284,7 +284,10 @@ it.each(["stopped", "unopenable"])(
   async (state) => {
     const view = makePeerServices();
     if (state === "stopped") view.services[0]!.state = "stopped";
-    else view.services[0]!.ports[0]!.has_web_page = false;
+    else {
+      view.services[0]!.ports[0]!.has_web_page = false;
+      view.services[0]!.ports[0]!.web_failed = true;
+    }
     renderMap([makePeer()], view);
     const dialog = await openPeer();
     fireEvent.click(

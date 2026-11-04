@@ -376,7 +376,8 @@
   margin-left: 6px;
   white-space: nowrap;
 }
-.map-service-state.state-stopped {
+.map-service-state.state-stopped,
+.map-service-state.state-failed {
   color: var(--map-gold);
 }
 .map-service-state.state-down {

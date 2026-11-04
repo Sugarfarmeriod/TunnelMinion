@@ -267,6 +267,7 @@ class NetworkListenersAdapter:
                     "python_project_name",
                     "origin",
                     "has_web_page",
+                    "web_failed",
                     "web_title",
                 },
             )
@@ -274,7 +275,9 @@ class NetworkListenersAdapter:
             page_key = (listener.address, listener.port)
             if listener.protocol == "tcp" and page_key in pages:
                 page = pages[page_key]
-                item["has_web_page"] = page is not None
+                item["has_web_page"] = page is not None and not page.failed
+                if page is not None and page.failed:
+                    item["web_failed"] = True
                 if page is not None and page.title is not None:
                     item["web_title"] = page.title
             if origins.get(key) is not None:

@@ -418,6 +418,9 @@ def test_web_pages_are_opt_in_and_skip_system_desktop_udp_own_and_public_ports(
 
     def probe(address: str, port: int) -> WebPage | None:
         probed.append((address, port))
+        if port == 9000:
+            # 首页报服务器错误：不是"没有网页"，单独标出来。
+            return WebPage(title=None, failed=True)
         if port != 8787:
             return None
         return WebPage(title="WireGuard Panel" if address == "0.0.0.0" else None)
@@ -443,6 +446,7 @@ def test_web_pages_are_opt_in_and_skip_system_desktop_udp_own_and_public_ports(
         ("0.0.0.0", 8787, True, "WireGuard Panel"),
         ("0.0.0.0", 9000, False, None),
     ]
+    assert [item.get("web_failed") for item in marked.items[:4]] == [None, None, None, True]
     assert all(item.get("has_web_page") is None for item in marked.items[4:])
 
 

@@ -23,6 +23,7 @@ from tunnelminion.platforms.windows.system import SystemReader
 from tunnelminion.repair.contracts import (
     LaunchRecord,
     PortOwner,
+    PortUnreachableError,
     ProcessLaunchRecord,
     SpawnedProcess,
 )
@@ -260,29 +261,28 @@ _STATUS_LINE = re.compile(rb"HTTP/\d(?:\.\d)? (\d{3})")
 
 
 def _connect_loopback(port: int) -> socket.socket:
-    """连本机环回地址，先 IPv4 后 IPv6；都连不上抛 `ConnectionError`。"""
+    """连本机环回地址，先 IPv4 后 IPv6；都连不上抛 `PortUnreachableError`。"""
     for host in ("127.0.0.1", "::1"):
         try:
             return socket.create_connection((host, port), timeout=PROBE_CONNECT_SECONDS)
         except OSError:
             continue
-    raise ConnectionError(port)
+    raise PortUnreachableError(port)
 
 
 class SocketLocalVerifier:
     """仅连接本机环回地址，阻塞 IO 在线程里运行；每一步都有自己的超时，线程总会自己结束。"""
 
     async def talks_first(self, port: int) -> bool | None:
-        """连上以后不发任何东西：对方先说话返回 True，10 秒都不说话返回 False，连不上返回 None。"""
+        """连上以后不发任何东西：对方先说话返回 True，10 秒都不说话返回 False。
+
+        连不上抛 `PortUnreachableError`；连上以后连接出错返回 None，表示看不清。
+        """
         return await asyncio.to_thread(self._talks_first, port)
 
     @staticmethod
     def _talks_first(port: int) -> bool | None:
-        try:
-            connection = _connect_loopback(port)
-        except ConnectionError:
-            return None
-        with connection:
+        with _connect_loopback(port) as connection:
             connection.settimeout(PROBE_REPLY_SECONDS)
             try:
                 return bool(connection.recv(1))
@@ -294,7 +294,8 @@ class SocketLocalVerifier:
     async def patrol_web_status(self, port: int) -> int | None:
         """巡检用的首页探测：返回 HTTP 状态码；连上以后 10 秒一个字节都不回返回 None。
 
-        连不上、或者回了话但读不出状态码时抛 `ConnectionError`，表示这一轮看不清。
+        连不上抛 `PortUnreachableError`；回了话但读不出状态码时抛 `ConnectionError`，
+        表示这一轮看不清。
         先说 HTTP；只有对方很快回了非 HTTP 的内容或直接断开，才改试 HTTPS，超时后不再试。
         """
         return await asyncio.to_thread(self._patrol_web_status, port)

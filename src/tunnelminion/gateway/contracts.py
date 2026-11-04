@@ -36,6 +36,8 @@ class ServicePort(BaseModel):
     port: int = Field(ge=1, le=65535)
     protocol: Literal["tcp", "udp"]
     has_web_page: bool | None = None
+    # 首页返回服务器错误；旧版本不带这个字段，按 False 读。
+    web_failed: bool = False
 
 
 class PeerServicePatrol(BaseModel):

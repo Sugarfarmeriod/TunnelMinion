@@ -75,6 +75,8 @@ class NetworkListener(BaseModel):
     )
     origin: ProcessOrigin | None = None
     has_web_page: bool | None = None
+    # 首页返回服务器错误；这时 `has_web_page` 为 False。
+    web_failed: bool = False
     web_title: str | None = Field(default=None, min_length=1, max_length=60)
 
 

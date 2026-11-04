@@ -218,6 +218,7 @@ describe("地图上的本机修复", () => {
                   address: "127.0.0.1",
                   port: 8080,
                   has_web_page: false,
+                  web_failed: true,
                 },
               ],
             }),

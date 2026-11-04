@@ -73,10 +73,12 @@ class GatewayServiceReader:
                                     endpoint.port,
                                     endpoint.protocol,
                                     endpoint.has_web_page,
+                                    endpoint.web_failed,
                                 ): ServicePort(
                                     port=endpoint.port,
                                     protocol=endpoint.protocol,
                                     has_web_page=endpoint.has_web_page,
+                                    web_failed=endpoint.web_failed,
                                 )
                                 for endpoint in entry.endpoints
                             }.values(),

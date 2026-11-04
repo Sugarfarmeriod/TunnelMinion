@@ -249,3 +249,26 @@ def test_before_the_first_observation_the_list_is_empty() -> None:
     assert api.put("/api/services/marks/program:x", json={"mark": "mine"}).status_code == 200
     assert cache.replaced == 0
     assert build_local_service_map(NODE, None, {}).services == ()
+
+
+def test_endpoints_tell_missing_page_from_failing_page() -> None:
+    """只回纯文本的服务是"没有网页"，首页报服务器错误才是"网页打不开"，两者分开交给网页。"""
+    inventory = (
+        item(port=18954, process_pid=600, origin=ProcessOrigin.TERMINAL, has_web_page=False),
+        item(
+            port=8081,
+            process_pid=700,
+            origin=ProcessOrigin.TERMINAL,
+            has_web_page=False,
+            web_failed=True,
+        ),
+    )
+    view = build_local_service_map(
+        NODE, ServiceObservationSnapshot(observed_at=NOW, services=(), inventory=inventory), {}
+    )
+    endpoints = {
+        endpoint.port: (endpoint.has_web_page, endpoint.web_failed)
+        for entry in view.services
+        for endpoint in entry.endpoints
+    }
+    assert endpoints == {18954: (False, False), 8081: (False, True)}

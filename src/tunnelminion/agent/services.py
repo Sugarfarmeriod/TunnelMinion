@@ -103,8 +103,13 @@ class RemoteServiceSummary(BaseModel):
     windows_service_name: str | None = Field(
         default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
     )
+    # 这个 Windows 服务不在保护名单里（不是 Windows 自带、组网代理、虚拟化、远控、安全软件或
+    # TunnelMinion 自己的），多半是主人自己装的。
+    own_windows_service: bool = False
     origin: ProcessOrigin | None = None
     has_web_page: bool | None = None
+    # 首页返回服务器错误：是网页但打不开。`has_web_page` 为 False 而这里也为 False 时只是没有网页。
+    web_failed: bool = False
     web_title: str | None = None
     container_id: str | None = None
     container_name: str | None = None
@@ -337,6 +342,7 @@ class RemoteServiceInventoryBuilder:
             program_name=listener.program_name,
             origin=listener.origin,
             has_web_page=listener.has_web_page,
+            web_failed=listener.web_failed,
             web_title=listener.web_title,
             container_id=docker.container_id if docker is not None else None,
             container_name=docker.name if docker is not None else None,
