@@ -87,6 +87,7 @@ async function remoteIncidentOverview(request: APIRequestContext) {
         first_observed_at: observedAt,
         last_observed_at: observedAt,
         conclusion: "远端服务只监听环回地址",
+        port: null,
       },
     ],
   };
@@ -113,6 +114,7 @@ function incidentDetail() {
         before_state: "network",
         after_state: "loopback",
         dedup_key: `sha256:${"a".repeat(64)}`,
+        port: null,
       },
       status: "confirmed",
       created_at: observedAt,

@@ -245,6 +245,7 @@ export const resourceOverviewSchema = z
               first_observed_at: timestamp,
               last_observed_at: timestamp,
               conclusion: z.string().nullable(),
+              port: z.number().int().nullable(),
             })
             .strict(),
         ),
@@ -316,6 +317,7 @@ export const incidentDetailSchema = z
             before_state: z.string().nullable(),
             after_state: z.string().nullable(),
             dedup_key: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+            port: z.number().int().nullable(),
           })
           .strict(),
         status: incidentStatus,

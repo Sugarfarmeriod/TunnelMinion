@@ -72,6 +72,7 @@ def incidents_overview(store: SQLiteIncidentStore) -> IncidentsOverview:
                 first_observed_at=item.created_at,
                 last_observed_at=item.last_observed_at,
                 conclusion=item.report.conclusion if item.report is not None else None,
+                port=item.event.port,
             )
             for item in incidents
         ),

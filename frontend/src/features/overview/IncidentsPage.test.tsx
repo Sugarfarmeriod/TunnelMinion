@@ -73,6 +73,7 @@ describe("最近事件", () => {
           first_observed_at: evidenceAt,
           last_observed_at: generatedAt,
           conclusion: null,
+          port: null,
         },
       ],
     };
@@ -158,6 +159,7 @@ describe("最近事件", () => {
           before_state: "network",
           after_state: "loopback",
           dedup_key: `sha256:${"a".repeat(64)}`,
+          port: null,
         },
         status: "insufficient_evidence",
         created_at: evidenceAt,
@@ -322,6 +324,7 @@ describe("最近事件", () => {
         first_observed_at: evidenceAt,
         last_observed_at: generatedAt,
         conclusion: "远端服务只监听环回地址",
+        port: null,
       },
     ];
     const detail = {
@@ -343,6 +346,7 @@ describe("最近事件", () => {
           before_state: "network",
           after_state: "loopback",
           dedup_key: `sha256:${"a".repeat(64)}`,
+          port: null,
         },
         status: "confirmed",
         created_at: evidenceAt,
@@ -423,6 +427,7 @@ describe("最近事件的合并与命名", () => {
     first_observed_at: "2026-08-08T08:00:00+08:00",
     last_observed_at: "2026-08-08T08:10:00+08:00",
     conclusion: "旧结论",
+    port: null,
   };
   const service = {
     service_id: serviceA,
@@ -464,7 +469,12 @@ describe("最近事件的合并与命名", () => {
     expect(
       incidentSubject(base, [node], [{ ...service, freshness: "stale" }]),
     ).toBe("书房电脑 · 端口 8888 上的服务");
-    expect(incidentSubject(base, [], [])).toBe("一个已不在清单里的服务");
+    expect(incidentSubject({ ...base, port: null }, [], [])).toBe(
+      "一个已不在清单里的服务",
+    );
+    expect(incidentSubject({ ...base, port: 61234 }, [], [])).toBe(
+      "端口 61234 上的服务（已不在清单里）",
+    );
     expect(
       incidentSubject(
         { object_kind: "node", object_id: nodeB },

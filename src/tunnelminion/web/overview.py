@@ -323,6 +323,8 @@ class IncidentOverviewItem(BaseModel):
     first_observed_at: AwareDatetime
     last_observed_at: AwareDatetime
     conclusion: str | None = Field(default=None, min_length=1, max_length=320)
+    # 服务事件的端口；服务已不在清单里时网页靠它说清是哪个服务。
+    port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class IncidentsOverview(OverviewSection):

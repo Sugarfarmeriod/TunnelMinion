@@ -1813,6 +1813,7 @@ def test_background_observer_calls_no_model_on_normal_refresh_and_one_run_per_in
         SQLiteIncidentStore(tmp_path / "observer.sqlite3"),
         detector=SnapshotDiffDetector(confirmations_required=2),
         investigator=runner,
+        stable_seconds=0,
     )
 
     assert asyncio.run(service.observe_once()).incidents == ()
@@ -1835,6 +1836,7 @@ def test_background_observer_does_not_drop_a_later_pending_change(tmp_path: Path
         SQLiteIncidentStore(tmp_path / "staggered-observer.sqlite3"),
         detector=SnapshotDiffDetector(confirmations_required=2),
         investigator=runner,
+        stable_seconds=0,
     )
 
     overview.services += ((SERVICE_ADDED, 8081),)

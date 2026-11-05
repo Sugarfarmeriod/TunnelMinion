@@ -461,6 +461,8 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
     def manual_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
         # 后台周期设为上限，观察轮次改由测试在应用事件循环内逐轮驱动，避免依赖慢机计时。
         kwargs["interval_seconds"] = 3600
+        # 测试里不等稳定门槛，新服务出现即可比较。
+        kwargs["stable_seconds"] = 0
         observer = IncidentObservationService(*args, **kwargs)  # pyright: ignore[reportArgumentType]
         observers.append(observer)
         return observer
@@ -487,9 +489,9 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         assert model_calls == 0
 
         services.append(local_service("service_22222222222222222222222222222222", 18082))
-        # 新服务需要连续两轮观察确认后才形成 incident。
+        # 新服务需要连续两轮观察确认后才形成 incident；首页不显示的服务不产生事件。
         assert client.portal.call(observer.observe_once).incidents == ()
-        assert len(client.portal.call(observer.observe_once).incidents) == 1
+        assert len(client.portal.call(observer.observe_once).incidents) == int(shown)
         assert observations == 5
 
         async def finish_investigations() -> None:
@@ -498,8 +500,8 @@ def test_windows_default_runtime_observes_local_services_before_incident_snapsho
         client.portal.call(finish_investigations)
 
         overview = client.get("/api/resources/overview").json()
-        assert overview["incidents"]["items"][0]["status"] == (
-            "investigation_unavailable" if shown else "pending"
+        assert [item["status"] for item in overview["incidents"]["items"]] == (
+            ["investigation_unavailable"] if shown else []
         )
         assert model_calls == int(shown)
 

@@ -21,8 +21,10 @@ from tunnelminion.incident.contracts import (
     SnapshotObjectKind,
     SnapshotSource,
 )
+from tunnelminion.incident.maintenance import maintain_incident_store
 from tunnelminion.incident.snapshot import SnapshotDiffDetector, assemble_overview_snapshot
 from tunnelminion.incident.storage import SQLiteIncidentStore
+from tunnelminion.patrol.contracts import PATROL_STABLE_SECONDS
 from tunnelminion.web.overview import OverviewSource, ResourceOverview
 
 logger = logging.getLogger(__name__)
@@ -72,9 +74,12 @@ class IncidentObservationService:
         read_only_preview: bool = False,
         clock: Callable[[], datetime] | None = None,
         skip_investigation: Callable[[SnapshotDiffEvent], bool] | None = None,
+        stable_seconds: float = PATROL_STABLE_SECONDS,
     ) -> None:
         if not 1 <= interval_seconds <= 3600:
             raise ValueError("观察周期必须位于 1 到 3600 秒")
+        if not 0 <= stable_seconds <= 86_400:
+            raise ValueError("稳定门槛必须位于 0 到 86400 秒")
         self._overview = overview
         self._store = store
         self._detector = detector or SnapshotDiffDetector()
@@ -89,6 +94,12 @@ class IncidentObservationService:
         self._baseline: NormalizedSnapshot | None = None
         self._baseline_stabilized = False
         self._baseline_automatic_services: set[str] = set()
+        # 服务要在首页显示、且连续出现这么久才产生事件，与巡检“只盯稳定运行的服务”同一门槛。
+        self._stable = timedelta(seconds=stable_seconds)
+        self._present_since: dict[str, datetime] = {}
+        # 本进程第一份快照里就有、此后一直在的服务：满门槛时不算新出现。
+        self._present_at_start: set[str] | None = None
+        self._baseline_tracked: set[str] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
         self._last_investigated: dict[str, datetime] = {}
 
@@ -132,16 +143,22 @@ class IncidentObservationService:
             revision=self._store.next_revision(),
         )
         self._store.put_snapshot(snapshot)
+        tracked = self._track(
+            snapshot,
+            {str(item.service_id) for item in overview.services.items if item.display_name},
+        )
         if self._baseline is None:
             self._baseline = snapshot
             self._baseline_automatic_services = automatic_services
+            self._baseline_tracked = tracked
             return ObservationResult(snapshot=snapshot)
         if not self._baseline_stabilized:
             self._baseline = snapshot
             self._baseline_stabilized = True
             self._baseline_automatic_services = automatic_services
+            self._baseline_tracked = tracked
             return ObservationResult(snapshot=snapshot)
-        events = self._detector.compare(self._scope(self._baseline), self._scope(snapshot))
+        events = self._detector.compare(*self._compared(self._baseline, snapshot, tracked))
         values: list[Incident] = []
         for event in events:
             incident = self._store.record_event(event)
@@ -160,12 +177,49 @@ class IncidentObservationService:
         if not self._detector.has_pending:
             self._baseline = snapshot
             self._baseline_automatic_services = automatic_services
+            self._baseline_tracked = tracked
         return ObservationResult(snapshot=snapshot, incidents=tuple(values))
 
+    def _track(self, snapshot: NormalizedSnapshot, shown: set[str]) -> set[str]:
+        """更新每个服务连续出现的起点，返回首页显示且已连续出现满稳定门槛的服务。"""
+        at = snapshot.observed_at
+        present = {str(item.service_id) for item in snapshot.services}
+        self._present_since = {key: self._present_since.get(key, at) for key in present}
+        self._present_at_start = (
+            set(present) if self._present_at_start is None else self._present_at_start & present
+        )
+        return {key for key in shown & present if at - self._present_since[key] >= self._stable}
+
+    def _compared(
+        self,
+        baseline: NormalizedSnapshot,
+        current: NormalizedSnapshot,
+        tracked: set[str],
+    ) -> tuple[NormalizedSnapshot, NormalizedSnapshot]:
+        """只比较已盯上的服务：首页显示、且连续出现满稳定门槛，口径与巡检一致。
+
+        临时程序开关的随机端口和被分档隐藏的服务不产生事件。一个服务刚满门槛时记“新出现”；
+        启动时就在、或只是从隐藏改成显示的服务不算新出现。盯上的服务被改成隐藏时悄悄放下，
+        不当作消失；只有从清单里真正不见了才记“消失”。
+        """
+        if self._watched_service_id is not None:
+            return self._scope(baseline), self._scope(current)
+        assert self._present_at_start is not None
+        in_baseline = {str(item.service_id) for item in baseline.services}
+        in_current = {str(item.service_id) for item in current.services}
+        settled = {
+            key
+            for key in tracked & in_baseline
+            if key in self._present_at_start
+            or baseline.observed_at - self._present_since[key] >= self._stable
+        }
+        return (
+            _only_services(baseline, self._baseline_tracked | settled),
+            _only_services(current, tracked | (self._baseline_tracked & in_current)),
+        )
+
     def _scope(self, snapshot: NormalizedSnapshot) -> NormalizedSnapshot:
-        """总览快照仍完整保存；显式端口模式只对指定对象触发调查。"""
-        if self._watched_service_id is None:
-            return snapshot
+        """总览快照仍完整保存；显式端口模式只对主人指定的对象触发调查，不看分档和稳定门槛。"""
         services = tuple(
             item for item in snapshot.services if item.service_id == self._watched_service_id
         )
@@ -264,13 +318,28 @@ def incident_observation_lifespan(
             else:
                 store.recover_interrupted(at=now())
             stop = asyncio.Event()
-            task = asyncio.create_task(observer.run(stop, warm_up=not observer.read_only_preview))
+            tasks = [
+                asyncio.create_task(observer.run(stop, warm_up=not observer.read_only_preview))
+            ]
+            if not observer.read_only_preview:
+                # 清理放在后台分批做，不拖慢启动；旧版本留下的大库也在这里慢慢收小。
+                tasks.append(asyncio.create_task(maintain_incident_store(store, stop, clock=now)))
             try:
                 yield
             finally:
                 stop.set()
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 await observer.aclose()
 
     return lifespan
+
+
+def _only_services(snapshot: NormalizedSnapshot, keep: set[str]) -> NormalizedSnapshot:
+    """只保留参与比较的服务；电脑本身的变化照常比较。"""
+    return snapshot.model_copy(
+        update={
+            "services": tuple(item for item in snapshot.services if str(item.service_id) in keep)
+        }
+    )
