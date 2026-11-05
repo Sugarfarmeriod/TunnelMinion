@@ -7,11 +7,12 @@ import ipaddress
 import json
 import logging
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, Annotated, Any
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Annotated, Any, Final
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, Header, Query, Request, status
@@ -82,6 +83,22 @@ if TYPE_CHECKING:
     from tunnelminion.agent.model_lending import ModelLendingService
 
 _LOCAL_ONLY_TOOLS = frozenset({"read_container_logs", "list_launch_records", "propose_repair"})
+
+# 不带节点凭据（静态令牌、电脑通行证、托管断言）也会处理的网关接口，以及处理成功时响应里最多出现的
+# 顶层字段；值为空（null、空列表、空对象）的字段不算。其他接口一律先认证，认证失败回 401。
+# 新增这类接口必须在这里登记，tests/gateway/test_credential_free_endpoints.py 遍历全部路由核对。
+CREDENTIAL_FREE_ENDPOINTS: Final[Mapping[tuple[str, str], frozenset[str]]] = MappingProxyType(
+    {
+        # 新电脑凭一次性加入码报到，拿回证书和机主签名材料。
+        ("POST", "/v1/owner:join"): frozenset(OwnerJoinResponse.model_fields),
+        # 朋友凭一次性配对码交换机主公钥和各自电脑名单。
+        ("POST", "/v1/friends:pair"): frozenset(FriendPairing.model_fields),
+        # 旧式配对凭一次性邀请码报到。
+        ("POST", "/v1/invites:accept"): frozenset(InviteAccepted.model_fields),
+        # 出示本机认得的签名名单、从名单上的地址发来时，只回本机电脑名单和换密钥声明链。
+        ("POST", "/v1/trust:sync"): frozenset({"roster", "rotations"}),
+    }
+)
 
 
 def _error(
@@ -358,6 +375,10 @@ def create_gateway_router(
                 )
             except TrustSyncRequired:
                 peer = None
+            # 没有可用凭据时，只有出示本机认得的签名名单、从名单上的地址发来的请求才拿得到名单；
+            # 其他一律按验证失败回答，不区分"签名者存在但不认识"和别的失败。
+            if peer is None and not owner_devices.recognizes(message.roster, source):
+                raise ValueError
             return owner_devices.message(
                 include_private=(
                     peer is not None

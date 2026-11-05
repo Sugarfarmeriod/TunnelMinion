@@ -420,3 +420,95 @@ def test_rate_limit_window_slides_per_request(
             assert (await client.post("/v1/owner:join", content="{}")).status_code == 429
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fault", ["empty", "stranger", "friends_friend", "other_address"])
+def test_sync_without_credentials_needs_a_recognized_roster_from_its_address(
+    tmp_path: Path, fault: str
+) -> None:
+    from tests.trust.test_friends import pair
+
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    b = computer(tmp_path / "b", 2, apps, a)
+    f = computer(tmp_path / "f", 3, apps)
+    x = computer(tmp_path / "x", 4, apps)
+    pair(a, f)
+    pair(f, x)
+    # 朋友的朋友能拿到朋友签的名单，但它的地址不在那份名单上；别处的地址拿着我的名单也不行。
+    source, message = {
+        "empty": (b, TrustSyncMessage()),
+        "stranger": (x, x.service.message(include_private=False)),
+        "friends_friend": (x, f.service.message(include_private=False)),
+        "other_address": (x, b.service.message(include_private=False)),
+    }[fault]
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=source.mesh, base_url=f"http://{a.host}") as client:
+            response = await client.post("/v1/trust:sync", content=message.model_dump_json())
+            malformed = await client.post("/v1/trust:sync", content="invalid")
+        assert response.status_code == 401
+        # 对外不区分"签名者存在但不认识"、地址不对和其他验证失败。
+        assert response.content == malformed.content
+        assert (
+            GatewayErrorResponse.model_validate_json(response.content).error.code
+            is GatewayErrorCode.UNAUTHENTICATED
+        )
+
+    asyncio.run(scenario())
+
+
+def test_friend_device_without_a_usable_pass_gets_only_my_public_roster(tmp_path: Path) -> None:
+    from tests.trust.test_friends import pair
+
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    f = computer(tmp_path / "f", 3, apps)
+    pair(a, f)
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=f.mesh, base_url=f"http://{a.host}") as client:
+            response = await client.post(
+                "/v1/trust:sync",
+                content=f.service.message(include_private=False).model_dump_json(),
+            )
+        assert response.status_code == 200
+        result = TrustSyncMessage.model_validate_json(response.content)
+        assert result.roster == a.service.message().roster
+        assert result.trust_list is None and not result.friend_rosters
+
+    asyncio.run(scenario())
+
+
+def test_removed_offline_computer_learns_removal_from_another_computer(tmp_path: Path) -> None:
+    apps: dict[str, FastAPI] = {}
+    a = computer(tmp_path / "a", 1, apps)
+    b = computer(tmp_path / "b", 2, apps, a)
+    c = computer(tmp_path / "c", 3, apps, a)
+
+    async def scenario() -> None:
+        await a.service.push()
+        assert b.service.roster().device(c.service.node_id) is not None
+        a.mesh.offline.add(c.host)
+        targets = a.service.remove(c.service.node_id)
+        assert await a.service.push(targets) == (c.service.node_id,)
+        assert c.service.active()
+        # C 的通行证在 B 那里已经不认，凭手上本机机主签的旧名单仍能取回新名单，知道自己被移出。
+        device = b.service.roster().device(b.service.node_id)
+        assert device is not None
+        await c.service.sync(device)
+        assert not c.service.active()
+        assert c.service.roster().device(c.service.node_id) is None
+
+    asyncio.run(scenario())
+
+
+def test_recognizes_only_verified_rosters_of_my_owner_or_friends(tmp_path: Path) -> None:
+    a = computer(tmp_path / "a", 1, {})
+    own = a.service.message().roster
+    assert own is not None
+    assert a.service.recognizes(own, a.host)
+    assert not a.service.recognizes(None, a.host)
+    assert not a.service.recognizes(own, "10.20.0.99")
+    forged = own.model_copy(update={"signature": "A" * 86})
+    assert not a.service.recognizes(forged, a.host)
