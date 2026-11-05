@@ -92,6 +92,8 @@ export function ComputerNode({
       : serviceError
         ? "暂时读不到服务"
         : "正在查看服务";
+  const state = online ? "在线" : "离线";
+  const plain = `${state} · ${services}`;
   const summary = repairing
     ? "正在修……"
     : (status ??
@@ -99,13 +101,16 @@ export function ComputerNode({
         ? `! 有 ${pendingCount} 件事要你批准`
         : downCount
           ? `! ${downCount} 个服务挂了`
-          : `${online ? "在线" : "离线"} · ${services}`));
+          : plain));
+  // 读屏和画面说同一件事：画面上显示的提醒（挂了、待批准、离线多久）也念出来，不重复在线状态。
+  const detail = summary.replace(/^! /, "").replace(`${state}，`, "");
+  const label = `${name}，${state}，${services}${summary === plain ? "" : `，${detail}`}`;
   return (
     <button
       ref={buttonRef}
       type="button"
       className={`map-node${selected ? " is-selected" : ""}${online ? "" : " is-offline"}${repairing ? " is-repairing" : ""}`}
-      aria-label={`${name}，${online ? "在线" : "离线"}，${services}`}
+      aria-label={label}
       aria-haspopup="dialog"
       aria-expanded={selected}
       aria-controls={selected ? "local-services-dialog" : undefined}

@@ -228,7 +228,9 @@ describe("地图上的本机修复", () => {
     );
     renderMap();
     fireEvent.click(
-      await screen.findByRole("button", { name: "这台电脑，在线，3 个服务" }),
+      await screen.findByRole("button", {
+        name: "这台电脑，在线，3 个服务，有 1 件事要你批准",
+      }),
     );
     const list = screen.getByRole("list", { name: "这台电脑上的服务" });
     expect(
@@ -275,7 +277,9 @@ describe("地图上的本机修复", () => {
     );
     renderMap();
     fireEvent.click(
-      await screen.findByRole("button", { name: "这台电脑，在线，1 个服务" }),
+      await screen.findByRole("button", {
+        name: "这台电脑，在线，1 个服务，有 1 件事要你批准",
+      }),
     );
     const list = screen.getByRole("list", { name: "这台电脑上的服务" });
     expect(within(list).getByText("后台服务 · 8765")).toBeVisible();
@@ -312,7 +316,9 @@ describe("地图上的本机修复", () => {
     renderMap();
     await screen.findByText("! 有 1 件事要你批准");
     fireEvent.click(
-      await screen.findByRole("button", { name: "这台电脑，在线，1 个服务" }),
+      await screen.findByRole("button", {
+        name: "这台电脑，在线，1 个服务，有 1 件事要你批准",
+      }),
     );
     expect(screen.getByText("已停止")).toBeVisible();
     const panel = screen.getByRole("dialog", { name: "这台电脑上的服务" });
