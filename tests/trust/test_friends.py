@@ -340,23 +340,28 @@ def test_trust_sync_privacy_requires_a_fresh_pass_from_my_computer(tmp_path: Pat
         f"Bearer {token(b, a, PassScope.TRUST_SYNC)}",
     )
 
+    # 没有可用凭据时，要出示本机认得的签名名单才拿得到名单，而且只拿得到公开部分。
+    own_roster = b.service.message(include_private=False).model_dump(mode="json")
+
     async def scenario() -> None:
         for index, auth in enumerate(credentials):
             source = f if index == 3 else b
+            headers = {"Authorization": auth} if auth else {}
             async with httpx.AsyncClient(
                 transport=source.mesh, base_url=f"http://{a.host}"
             ) as client:
-                response = await client.post(
-                    "/v1/trust:sync", json={}, headers={"Authorization": auth} if auth else {}
-                )
+                response = await client.post("/v1/trust:sync", json={}, headers=headers)
+                if index < 3:
+                    assert response.status_code == 401
+                    response = await client.post("/v1/trust:sync", json=own_roster, headers=headers)
                 result = TrustSyncMessage.model_validate_json(response.content)
                 assert result.roster == a.service.message().roster
                 assert (result.trust_list is not None) == (index == 4)
                 assert bool(result.friend_rosters) == (index == 4)
                 if index == 4:
-                    replay = await client.post(
-                        "/v1/trust:sync", json={}, headers={"Authorization": auth or ""}
-                    )
+                    replay = await client.post("/v1/trust:sync", json={}, headers=headers)
+                    assert replay.status_code == 401
+                    replay = await client.post("/v1/trust:sync", json=own_roster, headers=headers)
                     replayed = TrustSyncMessage.model_validate_json(replay.content)
                     assert replayed.trust_list is None and not replayed.friend_rosters
 

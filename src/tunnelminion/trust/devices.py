@@ -24,6 +24,7 @@ from tunnelminion.domain.trust import (
     OwnerRoster,
     PassScope,
     SignaturePurpose,
+    SignedEnvelope,
     TrustedPerson,
     TrustList,
     key_fingerprint,
@@ -339,6 +340,24 @@ class OwnDevicesService:
                 if (chain := self.store.rotations(item.signer_fingerprint))
             },
         )
+
+    def recognizes(self, envelope: SignedEnvelope | None, source: str) -> bool:
+        """不带凭据的名单同步只回给认得的电脑。
+
+        对方出示的电脑名单必须由本机机主或"我信任的人"里的朋友（按换密钥链解析到当前公钥）签名、
+        验签通过，并且请求来源地址是这份名单上某台电脑的组网地址。签名名单可以被转手，只看签名会让
+        拿到朋友名单的朋友的朋友也能取回本机名单，所以和通行证一样再核对来源地址。
+        """
+        if envelope is None or envelope.signer_fingerprint not in {
+            self.roster().owner_fingerprint,
+            *(person.owner_fingerprint for person in self.trusted_people()),
+        }:
+            return False
+        try:
+            roster = verify_owner_roster(envelope, envelope.signer_fingerprint)
+        except VerificationError:
+            return False
+        return any(device.host == source for device in roster.devices)
 
     def receive(self, message: TrustSyncMessage, source: str) -> TrustSyncMessage:
         reason = f"从 {source} 同步名单"
