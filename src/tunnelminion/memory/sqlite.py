@@ -328,6 +328,10 @@ class _SQLiteDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS launch_records_recorded
                     ON launch_records(recorded_at DESC);
+                CREATE TABLE IF NOT EXISTS peer_last_seen (
+                    node_id TEXT PRIMARY KEY,
+                    last_seen_at TEXT NOT NULL
+                );
                 """
             )
             _migrate_friend_device_history(connection)
@@ -890,6 +894,36 @@ class SQLiteServiceMarkStore:
     def clear(self, key: str) -> None:
         with self._database.connect() as connection:
             connection.execute("DELETE FROM service_marks WHERE mark_key=?", (key,))
+
+
+class SQLitePeerLastSeenStore:
+    """地图上每台对端最近一次连上的时间；一台电脑只留一行，已移除的电脑由调用方清掉。"""
+
+    def __init__(self, database: _SQLiteDatabase) -> None:
+        self._database = database
+
+    def all(self) -> dict[str, datetime]:
+        with self._database.connect() as connection:
+            rows = connection.execute("SELECT node_id, last_seen_at FROM peer_last_seen").fetchall()
+        return {str(node_id): datetime.fromisoformat(value) for node_id, value in rows}
+
+    def record(self, node_id: NodeId, at: datetime) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                """INSERT INTO peer_last_seen(node_id, last_seen_at) VALUES (?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET last_seen_at=excluded.last_seen_at""",
+                (str(node_id), at.isoformat()),
+            )
+
+    def retain(self, node_ids: frozenset[str]) -> None:
+        """只保留仍在配置里的电脑，被移除的电脑不再占存储。"""
+        with self._database.connect() as connection:
+            stale = [
+                (str(row[0]),)
+                for row in connection.execute("SELECT node_id FROM peer_last_seen")
+                if str(row[0]) not in node_ids
+            ]
+            connection.executemany("DELETE FROM peer_last_seen WHERE node_id=?", stale)
 
 
 class SQLiteDelegationStore:
@@ -1834,6 +1868,7 @@ class SQLiteStores:
     repairs: RepairStore
     launch_records: LaunchRecordStore
     service_marks: SQLiteServiceMarkStore
+    peer_last_seen: SQLitePeerLastSeenStore
     delegations: SQLiteDelegationStore
     model_usage: SQLiteModelUsageStore
     invites: SQLiteInviteStore
@@ -1853,6 +1888,7 @@ class SQLiteStores:
             repairs=SQLiteRepairStore(database),
             launch_records=SQLiteLaunchRecordStore(database),
             service_marks=SQLiteServiceMarkStore(database),
+            peer_last_seen=SQLitePeerLastSeenStore(database),
             delegations=SQLiteDelegationStore(database),
             model_usage=SQLiteModelUsageStore(database),
             invites=SQLiteInviteStore(database),

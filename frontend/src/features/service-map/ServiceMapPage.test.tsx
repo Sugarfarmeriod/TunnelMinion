@@ -498,7 +498,9 @@ describe("服务地图页面", () => {
     expect(
       screen.getByRole("button", { name: "这台电脑，在线，暂时读不到服务" }),
     ).toHaveTextContent("在线 · 暂时读不到服务");
-    expect(screen.getByText(/1 台在线 · 暂时读不到服务 ·/)).toBeVisible();
+    expect(
+      screen.getByText(/1 台在线 · 这台电脑暂时读不到服务 ·/),
+    ).toBeVisible();
     const ask = screen.getByLabelText("想问点什么？");
     expect(
       alert.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING,

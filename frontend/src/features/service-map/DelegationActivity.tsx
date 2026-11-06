@@ -14,11 +14,14 @@ export function DelegationActivity({
   delegations,
   local,
   peer,
+  peerHalf,
   list,
 }: {
   delegations: DelegationProgress[];
   local: { x: number; y: number };
   peer: { x: number; y: number };
+  /** 对端电脑节点半高，气泡浮在电脑头上 */
+  peerHalf: number;
   list: boolean;
 }) {
   const [finished, setFinished] = useState<string[]>([]);
@@ -72,7 +75,7 @@ export function DelegationActivity({
           aria-hidden="true"
           viewBox="0 0 56 32"
           shapeRendering="crispEdges"
-          style={{ left: `${peer.x}%`, top: peer.y - 148 }}
+          style={{ left: `${peer.x}%`, top: peer.y - peerHalf - 48 }}
         >
           <path
             d="M4 0H52V4H56V20H52V24H16V30H10V24H4V20H0V4H4Z"

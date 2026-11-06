@@ -571,6 +571,7 @@ def build_macos_local_application(
         ),
         node.node_id,
         node.audit_sink,
+        last_seen=stores.peer_last_seen,
     )
     local_lifespan = incident_observation_lifespan(
         managed_application_lifespan(managed), incident_observer, incident_store
