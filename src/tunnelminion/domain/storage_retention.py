@@ -52,9 +52,7 @@ SQLITE_TABLE_RETENTION: Mapping[str, TableRetention] = {
     "incident_snapshots": _pruned(
         "只留最新一份和最近 50 条事件、正在调查的事件引用的快照", _INCIDENT_PRUNE
     ),
-    "incidents": _pruned(
-        "按最后观察时间保留 30 天、最多 500 条，调查进行中的不删", _INCIDENT_PRUNE
-    ),
+    "incidents": _pruned("按最后观察时间只留最新 500 条，调查进行中的不删", _INCIDENT_PRUNE),
     "incident_threads": _pruned("随事件一起删除", _INCIDENT_PRUNE),
     "incident_store_meta": _object("少量固定键，清理完成后撤掉"),
     # patrol.sqlite3：巡检每轮都写。

@@ -105,9 +105,9 @@ def _record(
     return incident
 
 
-def _prune_all(store: SQLiteIncidentStore, *, now: datetime = NOW, batch: int = 500) -> int:
+def _prune_all(store: SQLiteIncidentStore, *, batch: int = 500) -> int:
     total = 0
-    while deleted := store.prune_batch(now=now, batch=batch):
+    while deleted := store.prune_batch(batch=batch):
         total += deleted
     return total
 
@@ -132,7 +132,7 @@ def test_upgrade_removes_old_uninvestigated_service_events_only(tmp_path: Path) 
     upgraded = SQLiteIncidentStore(path)
     # 升级后新出现的服务事件不受影响。
     later = _record(upgraded, 103, at=NOW + timedelta(minutes=1))
-    assert upgraded.prune_batch(now=NOW, batch=10) == 10
+    assert upgraded.prune_batch(batch=10) == 10
     assert _prune_all(upgraded, batch=10) == 21
     remaining = {str(item.incident_id) for item in upgraded.list_recent(limit=100)}
     assert remaining == {
@@ -145,13 +145,13 @@ def test_upgrade_removes_old_uninvestigated_service_events_only(tmp_path: Path) 
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
     # 再打开不会重新标记：以后的服务事件按普通保留规则处理。
     reopened = SQLiteIncidentStore(path)
-    assert reopened.prune_batch(now=NOW) == 0
+    assert reopened.prune_batch() == 0
     assert str(later.incident_id) in {str(item.incident_id) for item in reopened.list_recent()}
 
 
 def test_new_and_empty_stores_have_nothing_to_clean(tmp_path: Path) -> None:
     store = SQLiteIncidentStore(tmp_path / "fresh.sqlite3")
-    assert store.prune_batch(now=NOW) == 0
+    assert store.prune_batch() == 0
     old_empty = tmp_path / "old-empty.sqlite3"
     SQLiteIncidentStore(old_empty)
     with sqlite3.connect(old_empty) as connection:
@@ -160,23 +160,30 @@ def test_new_and_empty_stores_have_nothing_to_clean(tmp_path: Path) -> None:
     assert _count(old_empty, "incident_store_meta") == 0
 
 
-def test_events_expire_after_retention_and_beyond_the_count_limit(
+def test_old_events_stay_until_pushed_beyond_the_count_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(storage_module, "INCIDENT_RETENTION_MAX", 5)
     path = tmp_path / "incidents.sqlite3"
     store = SQLiteIncidentStore(path)
-    expired = _record(store, 1, status=IncidentStatus.CLOSED, at=NOW - timedelta(days=31))
-    running = _record(store, 2, status=IncidentStatus.INVESTIGATING, at=NOW - timedelta(days=60))
-    store.bind_thread(expired.incident_id, ThreadId("thread_" + "1" * 32))
+    # 很久以前调查过的事件不因为时间久就删，条数没超上限时一直留在页面上。
+    concluded = _record(store, 1, status=IncidentStatus.CLOSED, at=NOW - timedelta(days=90))
+    running = _record(store, 2, status=IncidentStatus.INVESTIGATING, at=NOW - timedelta(days=120))
+    store.bind_thread(concluded.incident_id, ThreadId("thread_" + "1" * 32))
     store.bind_thread(running.incident_id, ThreadId("thread_" + "2" * 32))
-    recent = [_record(store, 10 + index, at=NOW - timedelta(minutes=index)) for index in range(8)]
+    recent = [_record(store, 10 + index, at=NOW - timedelta(minutes=index)) for index in range(3)]
+    assert _prune_all(store) == 0
+    assert len(store.list_recent()) == 5
 
+    later = [
+        _record(store, 20 + index, at=NOW + timedelta(minutes=index + 1)) for index in range(5)
+    ]
     assert _prune_all(store) == 4
     remaining = {str(item.incident_id) for item in store.list_recent()}
-    # 留下最新的 5 条，加上不删的调查中事件；超期的和排在 5 条之外的删掉。
-    assert remaining == {str(running.incident_id)} | {str(item.incident_id) for item in recent[:5]}
-    assert store.thread_for(expired.incident_id) is None
+    # 留下最新的 5 条，加上不删的调查中事件；排在 5 条之外的从最旧的删起。
+    assert remaining == {str(running.incident_id)} | {str(item.incident_id) for item in later}
+    assert all(str(item.incident_id) not in remaining for item in recent)
+    assert store.thread_for(concluded.incident_id) is None
     assert store.thread_for(running.incident_id) == ThreadId("thread_" + "2" * 32)
     assert _count(path, "incident_threads") == 1
 
@@ -201,7 +208,7 @@ def test_snapshots_keep_latest_and_those_referenced_by_visible_or_running_events
         at=NOW - timedelta(days=2),
     )
 
-    assert store.prune_batch(now=NOW, batch=3) == 3
+    assert store.prune_batch(batch=3) == 3
     assert _prune_all(store) == 10
     with sqlite3.connect(path) as connection:
         revisions = [
@@ -217,12 +224,10 @@ def test_snapshots_keep_latest_and_those_referenced_by_visible_or_running_events
     assert store.get_snapshot(SnapshotId(f"snapshot_{3:032x}")) is None
 
 
-def test_prune_rejects_naive_time_and_bad_batch(tmp_path: Path) -> None:
+def test_prune_rejects_bad_batch(tmp_path: Path) -> None:
     store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
-    with pytest.raises(ValueError, match="时区"):
-        store.prune_batch(now=NOW.replace(tzinfo=None))
     with pytest.raises(ValueError, match="每批"):
-        store.prune_batch(now=NOW, batch=0)
+        store.prune_batch(batch=0)
 
 
 def test_reclaim_space_shrinks_file_only_when_much_is_free(
@@ -258,8 +263,8 @@ def test_maintenance_cleans_in_batches_reclaims_and_stops(
     batches: list[int] = []
     prune = store.prune_batch
 
-    def counting_prune(*, now: datetime, batch: int = 2) -> int:
-        deleted = prune(now=now, batch=2)
+    def counting_prune(*, batch: int = 2) -> int:
+        deleted = prune(batch=2)
         batches.append(deleted)
         return deleted
 
@@ -272,22 +277,14 @@ def test_maintenance_cleans_in_batches_reclaims_and_stops(
         return False
 
     store.reclaim_space = recording_reclaim  # type: ignore[method-assign]
-    asyncio.run(
-        asyncio.wait_for(
-            maintain_incident_store(store, stop, clock=lambda: NOW, pause_seconds=0), timeout=5
-        )
-    )
+    asyncio.run(asyncio.wait_for(maintain_incident_store(store, stop, pause_seconds=0), timeout=5))
     assert batches == [2, 2, 0] and reclaimed == [True]
     assert "事件库清理删除 4 行，未整理文件" in caplog.text
 
     # 什么都没删、也没整理时不记日志。
     caplog.clear()
     stop.clear()
-    asyncio.run(
-        asyncio.wait_for(
-            maintain_incident_store(store, stop, clock=lambda: NOW, pause_seconds=0), timeout=5
-        )
-    )
+    asyncio.run(asyncio.wait_for(maintain_incident_store(store, stop, pause_seconds=0), timeout=5))
     assert caplog.text == ""
 
 
@@ -295,7 +292,7 @@ def test_maintenance_stops_between_batches_without_reclaiming(tmp_path: Path) ->
     store = SQLiteIncidentStore(tmp_path / "incidents.sqlite3")
     stop = asyncio.Event()
 
-    def prune_then_stop(*, now: datetime) -> int:
+    def prune_then_stop() -> int:
         stop.set()
         return 1
 
@@ -315,7 +312,7 @@ def test_maintenance_failure_is_logged_without_details_and_retried(
     calls = 0
     error_message = "fixture-private-path"
 
-    def failing_prune(*, now: datetime) -> int:
+    def failing_prune() -> int:
         nonlocal calls
         calls += 1
         if calls == 1:

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
 from contextlib import suppress
-from datetime import UTC, datetime
 
 from tunnelminion.incident.storage import SQLiteIncidentStore
 
@@ -21,15 +19,13 @@ async def maintain_incident_store(
     store: SQLiteIncidentStore,
     stop: asyncio.Event,
     *,
-    clock: Callable[[], datetime] | None = None,
     interval_seconds: float = MAINTENANCE_INTERVAL_SECONDS,
     pause_seconds: float = MAINTENANCE_PAUSE_SECONDS,
 ) -> None:
     """一直运行到 `stop`：每轮分批清理，再按需整理文件；某轮失败只记日志，下一轮再试。"""
-    now = clock or (lambda: datetime.now(UTC))
     while not stop.is_set():
         try:
-            await _maintain_once(store, stop, now, pause_seconds)
+            await _maintain_once(store, stop, pause_seconds)
         except Exception as exc:
             # 只记异常类型和栈，不记可能带路径或数据的异常正文。
             logger.error(
@@ -43,12 +39,11 @@ async def maintain_incident_store(
 async def _maintain_once(
     store: SQLiteIncidentStore,
     stop: asyncio.Event,
-    now: Callable[[], datetime],
     pause_seconds: float,
 ) -> None:
     total = 0
     while not stop.is_set():
-        deleted = await asyncio.to_thread(store.prune_batch, now=now())
+        deleted = await asyncio.to_thread(store.prune_batch)
         if deleted == 0:
             break
         total += deleted

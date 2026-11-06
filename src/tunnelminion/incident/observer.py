@@ -323,7 +323,7 @@ def incident_observation_lifespan(
             ]
             if not observer.read_only_preview:
                 # 清理放在后台分批做，不拖慢启动；旧版本留下的大库也在这里慢慢收小。
-                tasks.append(asyncio.create_task(maintain_incident_store(store, stop, clock=now)))
+                tasks.append(asyncio.create_task(maintain_incident_store(store, stop)))
             try:
                 yield
             finally:

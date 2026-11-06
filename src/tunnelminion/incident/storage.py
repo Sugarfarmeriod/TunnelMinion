@@ -6,7 +6,7 @@ import json
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -35,10 +35,10 @@ _FORBIDDEN_FIELDS = frozenset(
 )
 
 
-# 保留规则：事件按最后一次观察到的时间保留 30 天、最多 500 条，调查进行中的不删。
+# 保留规则：事件按最后一次观察到的时间只留最新的 500 条，调查进行中的不删；不按天数删，
+# 事件少的时候，很久以前调查过的结论仍留在“最近事件”页上。
 # 快照只留最新一份，以及“最近事件”页能看到的最近 50 条事件和正在调查的事件引用的快照
 # （调查时读取事件发生时的服务状态）。
-INCIDENT_RETENTION_DAYS = 30
 INCIDENT_RETENTION_MAX = 500
 SNAPSHOT_REFERENCED_RECENT = 50
 # 每批最多删这么多行，一批一个短事务：清理和观察、网页轮流用库，中途被关掉也只丢没提交的那一批。
@@ -260,20 +260,18 @@ class SQLiteIncidentStore:
                 if _contains_forbidden_key(value):
                     raise ValueError("incident 数据库包含禁止字段")
 
-    def prune_batch(self, *, now: datetime, batch: int = PRUNE_BATCH_ROWS) -> int:
+    def prune_batch(self, *, batch: int = PRUNE_BATCH_ROWS) -> int:
         """按保留规则删除一批事件或快照，返回删除行数；返回 0 表示已经清理干净。
 
-        依次处理旧版本留下的服务增减事件、超出保留期或条数上限的事件、无人引用的快照；
+        依次处理旧版本留下的服务增减事件、排在条数上限之外的事件、无人引用的快照；
         每次调用只处理排在最前、仍有可删行的一类，最多 `batch` 行，在一个短事务里提交。
         """
-        if now.tzinfo is None:
-            raise ValueError("清理时间必须包含时区")
         if not 1 <= batch <= 10_000:
             raise ValueError("每批清理行数必须位于 1 到 10000")
         with self._connection_scope() as connection:
             deleted = _prune_legacy_events(connection, batch)
             if deleted == 0:
-                deleted = _prune_expired_events(connection, now, batch)
+                deleted = _prune_overflow_events(connection, batch)
             if deleted == 0:
                 return _prune_snapshots(connection, batch)
             # 连接未开启外键约束，追问线程绑定随事件一起删除。
@@ -351,20 +349,17 @@ def _prune_legacy_events(connection: sqlite3.Connection, batch: int) -> int:
     return deleted
 
 
-def _prune_expired_events(connection: sqlite3.Connection, now: datetime, batch: int) -> int:
-    """删除超过保留期或排在条数上限之外的事件，先删最旧的；调查进行中的不删。"""
-    cutoff = (now.astimezone(UTC) - timedelta(days=INCIDENT_RETENTION_DAYS)).isoformat()
+def _prune_overflow_events(connection: sqlite3.Connection, batch: int) -> int:
+    """删除排在条数上限之外的事件，先删最旧的；调查进行中的不删。"""
     return connection.execute(
         """DELETE FROM incidents WHERE incident_id IN (
             SELECT incident_id FROM incidents
-            WHERE status != ? AND (
-                last_observed_at < ? OR incident_id NOT IN (
-                    SELECT incident_id FROM incidents ORDER BY last_observed_at DESC LIMIT ?
-                )
+            WHERE status != ? AND incident_id NOT IN (
+                SELECT incident_id FROM incidents ORDER BY last_observed_at DESC LIMIT ?
             )
             ORDER BY last_observed_at LIMIT ?
         )""",
-        (IncidentStatus.INVESTIGATING.value, cutoff, INCIDENT_RETENTION_MAX, batch),
+        (IncidentStatus.INVESTIGATING.value, INCIDENT_RETENTION_MAX, batch),
     ).rowcount
 
 
