@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, Protocol
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -38,9 +38,19 @@ PollOutcome = Literal["ok", "unreachable", "rejected", "forbidden", "error"]
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 
 
+class PeerLastSeenStore(Protocol):
+    """对端最近一次连上的时间，存在本机已有的运行库里，重启后仍在。"""
+
+    def all(self) -> dict[str, datetime]: ...
+
+    def record(self, node_id: NodeId, at: datetime) -> None: ...
+
+    def retain(self, node_ids: frozenset[str]) -> None: ...
+
+
 @dataclass(frozen=True)
 class PeerCache:
-    """只在当前进程内保留的最近清单和联系结果。"""
+    """最近清单和联系结果；清单只在当前进程内保留，上次在线时间另有存储时从存储恢复。"""
 
     snapshot: GatewayServices | None = None
     fetched_at: datetime | None = None
@@ -60,12 +70,18 @@ class PeerServicePoller:
         audit: AuditSink,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        last_seen: PeerLastSeenStore | None = None,
     ) -> None:
         self.configuration = configuration
         self._node_id = node_id
         self._audit = audit
         self._transport = transport
-        self._cache: dict[str, PeerCache] = {}
+        self._last_seen = last_seen
+        # 重启后先用存下的上次在线时间，不然昨天还在线的电脑会显示“时间未知”。
+        self._cache: dict[str, PeerCache] = {
+            node: PeerCache(last_seen_at=at)
+            for node, at in (last_seen.all() if last_seen is not None else {}).items()
+        }
         self._pending_repairs: dict[str, tuple[DelegationProposedRepair, ...]] = {}
         self._lock = asyncio.Lock()
 
@@ -157,6 +173,8 @@ class PeerServicePoller:
         async with self._lock:
             peers = self.peers()
             self._cache = {str(peer.node_id): self.read(peer.node_id) for peer in peers}
+            if self._last_seen is not None:
+                self._last_seen.retain(frozenset(self._cache))
             for peer in peers:
                 previous = self.read(peer.node_id)
                 snapshot = previous.snapshot
@@ -204,6 +222,8 @@ class PeerServicePoller:
                 except (KeyError, ValueError, RuntimeError):
                     outcome, reachable = "error", None
                 now = datetime.now(UTC)
+                if reachable and self._last_seen is not None:
+                    self._last_seen.record(peer.node_id, now)
                 self._cache[str(peer.node_id)] = PeerCache(
                     snapshot=snapshot,
                     fetched_at=now,

@@ -208,6 +208,26 @@
   filter: grayscale(1) brightness(0.65);
 }
 
+/* 电脑多、窗口矮时把图标和字画小一点，整张地图留在第一屏里；尺寸和 topology.ts 的估算一致。 */
+.map-canvas.is-compact .map-node {
+  padding: 4px 0;
+}
+.map-canvas.is-compact .map-computer {
+  height: 60px;
+  width: 66px;
+}
+.map-canvas.is-compact .map-node-name {
+  font-size: 16px;
+  margin-top: 4px;
+}
+.map-canvas.is-compact .map-node-alias,
+.map-canvas.is-compact .map-node-summary {
+  font-size: 12px;
+}
+.map-canvas.is-compact .map-node-summary {
+  margin-top: 2px;
+}
+
 .map-node-alias {
   color: var(--map-fog);
   font-size: 13px;

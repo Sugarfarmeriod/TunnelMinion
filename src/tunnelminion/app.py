@@ -639,6 +639,7 @@ def build_windows_application(
         ),
         node_id,
         audit,
+        last_seen=stores.peer_last_seen,
     )
     local_lifespan = incident_observation_lifespan(
         managed_application_lifespan(managed), incident_observer, incident_store

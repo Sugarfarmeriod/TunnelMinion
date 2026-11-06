@@ -27,6 +27,7 @@ from tunnelminion.gateway.configuration import (
 from tunnelminion.gateway.contracts import PeerServiceEntry, ServicePort
 from tunnelminion.gateway.credentials import GatewayCredentials
 from tunnelminion.gateway.security import GatewayBindConfig
+from tunnelminion.memory.sqlite import SQLiteStores
 from tunnelminion.tools.audit import InMemoryAuditSink
 from tunnelminion.web.peers import (
     PeerCache,
@@ -196,6 +197,70 @@ def test_refresh_is_sequential_and_skips_an_inflight_refresh(tmp_path: Path) -> 
         config.revoke_peer(other)
         await poller.refresh()
         assert poller.read(other).outcome is None
+
+    asyncio.run(scenario())
+
+
+def test_last_seen_survives_restart_and_forgets_removed_peers(tmp_path: Path) -> None:
+    """重启后离线电脑仍显示真实的上次在线时间；一台电脑一行，移除的电脑被清掉。"""
+    other = NodeId("node_" + "c" * 32)
+    online = True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not online:
+            raise httpx.ConnectError("fake", request=request)
+        return snapshot()
+
+    async def scenario() -> None:
+        nonlocal online
+        database = tmp_path / "runtime.sqlite3"
+        config = configuration(tmp_path, peer(), peer(other))
+        first = PeerServicePoller(
+            config,
+            LOCAL,
+            InMemoryAuditSink(),
+            transport=httpx.MockTransport(handler),
+            last_seen=SQLiteStores.open(database).peer_last_seen,
+        )
+        await first.refresh()
+        await first.refresh()
+        seen = first.read(REMOTE).last_seen_at
+        assert seen is not None
+        stored = SQLiteStores.open(database).peer_last_seen.all()
+        assert stored == {str(REMOTE): seen, str(other): first.read(other).last_seen_at}
+
+        # 重启：新进程从同一个运行库读，对方已经离线。
+        online = False
+        restarted = PeerServicePoller(
+            config,
+            LOCAL,
+            InMemoryAuditSink(),
+            transport=httpx.MockTransport(handler),
+            last_seen=SQLiteStores.open(database).peer_last_seen,
+        )
+        assert restarted.read(REMOTE).last_seen_at == seen
+        await restarted.refresh()
+        assert restarted.read(REMOTE).reachable is False
+        assert restarted.read(REMOTE).last_seen_at == seen
+        router = create_peers_router(
+            LOCAL,
+            Platform.WINDOWS,
+            lambda: "本机",
+            restarted,
+            lambda: LocalServiceMap(node_id=LOCAL, observed_at=None, services=()),
+        )
+        app = FastAPI()
+        app.include_router(router)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            listed = PeersView.model_validate((await client.get("/api/peers")).json())
+        offline = next(item for item in listed.peers if item.node_id == REMOTE)
+        assert offline.reachable is False and offline.last_seen_at == seen
+
+        config.revoke_peer(other)
+        await restarted.refresh()
+        assert SQLiteStores.open(database).peer_last_seen.all() == {str(REMOTE): seen}
 
     asyncio.run(scenario())
 

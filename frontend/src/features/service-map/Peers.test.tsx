@@ -38,7 +38,13 @@ import {
   makePeer,
   makePeerServices,
 } from "./testFixtures";
-import { mapLayout, relativeTime } from "./topology";
+import {
+  boxesOverlap,
+  mapLayout,
+  nodeHeights,
+  relativeTime,
+  segmentHitsBox,
+} from "./topology";
 
 const server = setupServer(
   http.get("/api/peers/:node/repairs/:id", ({ params }) =>
@@ -177,10 +183,14 @@ it.each([0, 1, 3, 8])("%i 个对端只与中心电脑相连", async (count) => {
     expect(link).toHaveAttribute("data-to", peers[index]!.node_id);
     expect(link.classList.contains("is-unreachable")).toBe(index === 2);
   });
-  const layout = mapLayout(count, false);
+  const layout = mapLayout(count, {
+    narrow: false,
+    width: 1192,
+    available: 578,
+  });
   expect(layout.local.x).toBe(50);
   for (const narrow of [false, true]) {
-    const points = mapLayout(count, narrow);
+    const points = mapLayout(count, { narrow, width: 1192, available: 578 });
     expect(
       new Set(points.peers.map((point) => `${point.x},${point.y}`)).size,
     ).toBe(count);
@@ -188,6 +198,116 @@ it.each([0, 1, 3, 8])("%i 个对端只与中心电脑相连", async (count) => {
       points.peers.every((point) => point.y > 0 && point.y < points.height),
     ).toBe(true);
   }
+});
+
+it.each([0, 1, 3, 8])(
+  "%i 个对端时标题里的在线台数和本机服务数，与各电脑上写的对得上",
+  async (count) => {
+    const peers = Array.from({ length: count }, (_, index) =>
+      makePeer(index + 1, {
+        reachable: [true, false, null][index % 3]!,
+        service_count: 9,
+      }),
+    );
+    const { container } = renderMap(peers);
+    const local = await screen.findByRole("button", { name: /^这台电脑，/ });
+    // 本机的巡检记录里有一个服务挂了，画面、读屏和标题都要说出来。
+    await waitFor(() => expect(local).toHaveTextContent("! 1 个服务挂了"));
+    expect(local).toHaveAccessibleName(
+      "这台电脑，在线，1 个服务，1 个服务挂了",
+    );
+    await waitFor(() =>
+      expect(container.querySelectorAll(".map-node")).toHaveLength(count + 1),
+    );
+    const online = Array.from(container.querySelectorAll(".map-node")).filter(
+      (node) => node.getAttribute("aria-label")!.split("，")[1] === "在线",
+    ).length;
+    expect(online).toBe(1 + peers.filter((peer) => peer.reachable).length);
+    expect(screen.getByText(/台在线/)).toHaveTextContent(
+      `${online} 台在线 · 这台电脑 1 个服务，1 个挂了 · 点电脑查看服务`,
+    );
+    for (const peer of peers) {
+      const node = screen.getByRole("button", {
+        name: new RegExp(`^${peer.display_name}，`),
+      });
+      const label = node.getAttribute("aria-label")!;
+      // 画面上写的提醒（离线多久、尚未确认）读屏也能听到
+      const summary = node.querySelector(".map-node-summary")!.textContent!;
+      if (peer.reachable === true) expect(summary).toBe("在线 · 9 个服务");
+      else expect(label).toContain(summary.replace(/^离线，/, ""));
+    }
+  },
+);
+
+// 宽度和可用高度取自 1280×800、1440×900、1920×1080 窗口里地图画布实际量到的值。
+it.each([
+  [1192, 578],
+  [1352, 678],
+  [1832, 858],
+])(
+  "画布宽 %ipx、可用高 %ipx 时 0～8 台电脑都在一屏内，标签不压线也不压电脑",
+  (width, available) => {
+    for (let count = 0; count <= 8; count++) {
+      const layout = mapLayout(count, { narrow: false, width, available });
+      expect(layout.list).toBe(false);
+      expect(layout.height).toBeLessThanOrEqual(Math.max(available, 420));
+      const sizes = nodeHeights[layout.compact ? "compact" : "full"];
+      const px = (point: { x: number; y: number }) => ({
+        x: (point.x / 100) * width,
+        y: point.y,
+      });
+      const box = (point: { x: number; y: number }, height: number) => {
+        const { x, y } = px(point);
+        // 头上留出感叹号的位置
+        return {
+          left: x - 80,
+          top: y - height / 2 - 46,
+          right: x + 80,
+          bottom: y + height / 2,
+        };
+      };
+      const nodes = [
+        box(layout.local, sizes.local),
+        ...layout.peers.map((point) => box(point, sizes.peer)),
+      ];
+      for (const [index, node] of nodes.entries()) {
+        expect(node.left).toBeGreaterThanOrEqual(0);
+        expect(node.top).toBeGreaterThanOrEqual(0);
+        expect(node.right).toBeLessThanOrEqual(width);
+        expect(node.bottom).toBeLessThanOrEqual(layout.height);
+        for (const other of nodes.slice(index + 1))
+          expect(boxesOverlap(node, other)).toBe(false);
+      }
+      const lines = layout.peers.map(
+        (point) => [px(layout.local), px(point)] as const,
+      );
+      for (const label of layout.labels) {
+        const { x, y } = px(label);
+        const area = {
+          left: x - 38,
+          top: y - 10,
+          right: x + 38,
+          bottom: y + 10,
+        };
+        expect(area.left).toBeGreaterThanOrEqual(0);
+        expect(area.right).toBeLessThanOrEqual(width);
+        for (const node of nodes) expect(boxesOverlap(area, node)).toBe(false);
+        for (const [from, to] of lines)
+          expect(segmentHitsBox(from, to, area)).toBe(false);
+      }
+      // 电脑不多时保持原来的大小
+      if (count <= 4) expect(layout.compact).toBe(false);
+    }
+  },
+);
+
+it("窗口再矮也不把电脑挤到一起，画布加高、需要时再滚动", () => {
+  const layout = mapLayout(8, { narrow: false, width: 1192, available: 300 });
+  expect(layout.compact).toBe(true);
+  expect(layout.height).toBeGreaterThan(420);
+  expect(
+    new Set(layout.peers.map((point) => `${point.x},${point.y}`)).size,
+  ).toBe(8);
 });
 
 it.each([1440, 320])(
@@ -374,7 +494,9 @@ it("远端问题草稿在关闭抽屉并选择本机后仍保留服务名称", a
   await screen.findByText("关于：测试电脑 1 · 远端相册（Python）");
   fireEvent.click(screen.getByRole("button", { name: "关闭对话" }));
   fireEvent.click(
-    screen.getByRole("button", { name: "这台电脑，在线，1 个服务" }),
+    screen.getByRole("button", {
+      name: "这台电脑，在线，1 个服务，1 个服务挂了",
+    }),
   );
   fireEvent.click(screen.getByRole("button", { name: "对话" }));
   expect(

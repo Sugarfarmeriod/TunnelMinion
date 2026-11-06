@@ -29,7 +29,12 @@ import {
 import { ComputerNode, platformName } from "./ComputerNode";
 import { ServicesPanel } from "./ServicesPanel";
 import { webPageFailed } from "./webPage";
-import { mapLayout, networkLabels, relativeTime } from "./topology";
+import {
+  mapLayout,
+  networkLabels,
+  relativeTime,
+  type MapViewport,
+} from "./topology";
 import {
   isRepairExecuting,
   isRepairTerminal,
@@ -157,8 +162,13 @@ export function ServiceMapPage() {
           Date.parse(repair.expires_at) > Date.now(),
       ),
     }));
-  const [narrowMap, setNarrowMap] = useState(window.innerWidth <= 760);
-  const layout = mapLayout(remotePeers.length, narrowMap);
+  // 先按窗口大小估一个，挂载后量出地图实际的宽度和离窗口底部还剩多高。
+  const [viewport, setViewport] = useState<MapViewport>(() => ({
+    narrow: window.innerWidth <= 760,
+    width: Math.max(0, window.innerWidth - 88),
+    available: window.innerHeight - 214,
+  }));
+  const layout = mapLayout(remotePeers.length, viewport);
   const [params] = useSearchParams();
   const linkedThread = params.get("thread");
   const [drawerOpen, setDrawerOpen] = useState(Boolean(linkedThread));
@@ -175,6 +185,7 @@ export function ServiceMapPage() {
   const [hovered, setHovered] = useState(false);
   const [tipPosition, setTipPosition] = useState({ left: 0, top: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLButtonElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -199,6 +210,13 @@ export function ServiceMapPage() {
     ? services.data!.services.filter((service) => service.tier !== "hidden")
         .length
     : null;
+  // 标题、提示和本机节点说的是同一个数：这台电脑上的服务，挂了几个也一起说。
+  const localServices =
+    count !== null
+      ? `${count} 个服务${patrol.down.length ? `，${patrol.down.length} 个挂了` : ""}`
+      : services.isError
+        ? "暂时读不到服务"
+        : "正在查看服务";
 
   function close(restoreFocus = true) {
     setSelectedId(null);
@@ -243,15 +261,33 @@ export function ServiceMapPage() {
 
   useLayoutEffect(() => {
     function measure() {
-      const width = stageRef.current?.getBoundingClientRect().width;
-      setNarrowMap(
-        window.innerWidth <= 760 ||
-          (width !== undefined && width > 0 && width < 680),
+      const stage = stageRef.current;
+      const box = stage?.getBoundingClientRect();
+      const width = stage?.clientWidth ?? 0;
+      const next = {
+        narrow:
+          window.innerWidth <= 760 ||
+          (box !== undefined && box.width > 0 && box.width < 680),
+        width: width > 0 ? width : Math.max(0, window.innerWidth - 88),
+        // 画布顶端在整页里的位置，减去上下边框，剩下的就是不用滚动能看到的高度。
+        available:
+          box !== undefined && box.width > 0
+            ? Math.floor(window.innerHeight - (box.top + window.scrollY) - 16)
+            : window.innerHeight - 214,
+      };
+      setViewport((previous) =>
+        previous.narrow === next.narrow &&
+        previous.width === next.width &&
+        previous.available === next.available
+          ? previous
+          : next,
       );
     }
     measure();
     const observer = new ResizeObserver(measure);
     if (stageRef.current) observer.observe(stageRef.current);
+    // 欢迎提示出现或收起会把地图上下挪动，跟着重新量。
+    if (workspaceRef.current) observer.observe(workspaceRef.current);
     window.addEventListener("resize", measure);
     return () => {
       observer.disconnect();
@@ -334,26 +370,21 @@ export function ServiceMapPage() {
     placeTip();
     window.addEventListener("resize", placeTip);
     return () => window.removeEventListener("resize", placeTip);
-  }, [hovered, open, platform, count]);
+  }, [hovered, open, platform, localServices]);
 
   return (
     <section
       className={`service-map${drawerOpen ? " drawer-open" : ""}`}
       aria-labelledby="service-map-title"
     >
-      <div className="map-workspace">
+      <div className="map-workspace" ref={workspaceRef}>
         <header className="map-heading">
           <div>
             <h2 id="service-map-title">我的服务网络</h2>
             <p>
               {1 + remotePeers.filter((peer) => peer.reachable === true).length}{" "}
-              台在线 ·{" "}
-              {count !== null
-                ? `${count} 个服务`
-                : services.isError
-                  ? "暂时读不到服务"
-                  : "正在查看服务"}{" "}
-              · 点电脑查看服务
+              台在线 · 这台电脑{count !== null ? " " : ""}
+              {localServices} · 点电脑查看服务
             </p>
           </div>
           <div className="map-heading-actions">
@@ -441,7 +472,7 @@ export function ServiceMapPage() {
         <WelcomeGate />
         <div className="map-stage" ref={stageRef}>
           <div
-            className="map-canvas"
+            className={`map-canvas${layout.compact ? " is-compact" : ""}`}
             aria-label="电脑拓扑图"
             style={{ height: layout.height }}
           >
@@ -454,6 +485,7 @@ export function ServiceMapPage() {
                   )}
                   local={layout.local}
                   peer={layout.peers[index]!}
+                  peerHalf={layout.peerHalf}
                   list={layout.list}
                 />
               ) : null,
@@ -487,14 +519,8 @@ export function ServiceMapPage() {
             </svg>
             {remotePeers.map((peer, index) => {
               if (!peer.network) return null;
-              const point = layout.peers[index]!;
-              // 列表布局里横向支线太短放不下字，标签竖着贴在通往这台电脑的那段主干上。
-              const position = layout.list
-                ? { left: "10%", top: point.y - 64 }
-                : {
-                    left: `${(layout.local.x + point.x) / 2}%`,
-                    top: (layout.local.y + point.y) / 2,
-                  };
+              const label = layout.labels[index]!;
+              const position = { left: `${label.x}%`, top: label.y };
               return (
                 <span
                   key={peer.node_id}
@@ -617,13 +643,7 @@ export function ServiceMapPage() {
               style={tipPosition}
             >
               <strong>这台电脑 · {platformName(platform)}</strong>
-              <span>
-                {count !== null
-                  ? `${count} 个服务`
-                  : services.isError
-                    ? "暂时读不到服务"
-                    : "正在查看服务"}
-              </span>
+              <span>{localServices}</span>
               <span>点一下查看</span>
             </div>
           ) : null}
