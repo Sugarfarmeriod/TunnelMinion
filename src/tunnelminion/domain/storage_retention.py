@@ -68,6 +68,7 @@ SQLITE_TABLE_RETENTION: Mapping[str, TableRetention] = {
     "delegations": _growing("每次授权委托一行，随主人操作增长"),
     "service_marks": _object("每个被主人标记的服务一行，取消标记时删除"),
     "launch_records": _object("每个启动过的脚本或程序一行，移除服务时删除"),
+    "peer_last_seen": _object("每台配置里的对端电脑一行，覆盖写；电脑从配置里移除后下一轮轮询删除"),
     "model_usage": _growing("每台借用模型的电脑每天一行计数"),
     "repairs": _growing("每次修复一行，随修复次数增长"),
     "requester_operations": _growing(_OPERATION),
