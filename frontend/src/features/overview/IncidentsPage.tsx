@@ -93,9 +93,13 @@ export function groupIncidents(
   );
 }
 
-/** 事件说的是哪台电脑、哪个服务；名字拿不准时如实说不知道，不凭端口猜用途。 */
+/**
+ * 事件说的是哪台电脑、哪个服务；名字拿不准时如实说不知道，不凭端口猜用途。
+ * 服务已不在清单里时用事件记下的端口说清是哪个服务。
+ */
 export function incidentSubject(
-  item: Pick<IncidentItem, "object_kind" | "object_id">,
+  item: Pick<IncidentItem, "object_kind" | "object_id"> &
+    Partial<Pick<IncidentItem, "port">>,
   nodes: ResourceOverview["nodes"]["items"],
   services: ResourceOverview["services"]["items"],
 ): string {
@@ -115,7 +119,9 @@ export function incidentSubject(
   const name =
     serviceDisplayName(service) ??
     (service?.port === null || service?.port === undefined
-      ? "一个已不在清单里的服务"
+      ? item.port === null || item.port === undefined
+        ? "一个已不在清单里的服务"
+        : `端口 ${item.port} 上的服务（已不在清单里）`
       : `端口 ${service.port} 上的服务`);
   const computer = nodeName(service?.node_id);
   return computer === undefined ? name : `${computer} · ${name}`;

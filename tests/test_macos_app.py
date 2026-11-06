@@ -411,6 +411,7 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
     def capture_incident_observer(*args: object, **kwargs: object) -> IncidentObservationService:
         nonlocal incident_observer
         kwargs["interval_seconds"] = 3600
+        kwargs["stable_seconds"] = 0
         incident_observer = IncidentObservationService(
             *args,  # pyright: ignore[reportArgumentType]
             **kwargs,  # pyright: ignore[reportArgumentType]
@@ -439,7 +440,8 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
 
         services.append(local_service("service_44444444444444444444444444444444", 18084))
         assert client.portal.call(incident_observer.observe_once).incidents == ()
-        assert len(client.portal.call(incident_observer.observe_once).incidents) == 1
+        # 首页不显示的服务不产生事件。
+        assert len(client.portal.call(incident_observer.observe_once).incidents) == int(shown)
 
         async def finish_investigations() -> None:
             assert incident_observer is not None
@@ -448,8 +450,8 @@ def test_macos_default_runtime_observes_local_services_before_incident_snapshot(
         client.portal.call(finish_investigations)
         overview = client.get("/api/resources/overview").json()
 
-        assert overview["incidents"]["items"][0]["status"] == (
-            "investigation_unavailable" if shown else "pending"
+        assert [item["status"] for item in overview["incidents"]["items"]] == (
+            ["investigation_unavailable"] if shown else []
         )
         assert model_calls == int(shown)
 

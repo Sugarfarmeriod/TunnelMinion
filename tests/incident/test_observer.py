@@ -210,6 +210,7 @@ def test_blocked_investigation_allows_refresh_and_is_awaited_on_shutdown(
         investigator=runner,
         before_snapshot=refresh,
         detector=SnapshotDiffDetector(confirmations_required=1),
+        stable_seconds=0,
     )
 
     @asynccontextmanager
@@ -308,6 +309,7 @@ def test_only_map_show_and_mine_services_are_investigated(tmp_path: Path) -> Non
         store,
         investigator=runner,
         detector=SnapshotDiffDetector(confirmations_required=1),
+        stable_seconds=0,
     )
 
     async def scenario() -> None:
@@ -322,7 +324,8 @@ def test_only_map_show_and_mine_services_are_investigated(tmp_path: Path) -> Non
         )
         result = await observer.observe_once()
         await asyncio.sleep(0)
-        assert len(result.incidents) == len(store.list_recent()) == 5
+        # 首页不显示的服务（含标成隐藏的）不产生事件，只有显示和“是我的服务”的记事件并调查。
+        assert len(result.incidents) == len(store.list_recent()) == len(names) == 2
         assert {item.event.object_id for item in runner.calls} == set(names)
         assert len(runner.calls) == 2
 
@@ -339,6 +342,7 @@ def test_service_cooldown_counts_all_event_types_and_expires_at_one_hour(tmp_pat
         investigator=runner,
         detector=SnapshotDiffDetector(confirmations_required=2),
         clock=lambda: now,
+        stable_seconds=0,
     )
 
     async def change() -> Incident:
@@ -377,6 +381,7 @@ def test_investigation_failure_is_logged_without_stopping_refresh(
         SQLiteIncidentStore(tmp_path / "failure.sqlite3"),
         investigator=runner,
         detector=SnapshotDiffDetector(confirmations_required=1),
+        stable_seconds=0,
     )
 
     async def scenario() -> None:
@@ -404,6 +409,7 @@ def test_events_covered_elsewhere_are_recorded_without_investigation(tmp_path: P
         investigator=runner,
         detector=SnapshotDiffDetector(confirmations_required=1),
         skip_investigation=lambda event: event.event_type == "service_removed",
+        stable_seconds=0,
     )
 
     async def scenario() -> None:

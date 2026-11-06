@@ -184,6 +184,8 @@ class SnapshotDiffEvent(BaseModel):
     before_state: str | None = Field(default=None, max_length=64)
     after_state: str | None = Field(default=None, max_length=64)
     dedup_key: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    # 服务事件记下端口：服务从清单里消失后，网页仍能说清是哪个端口上的服务。
+    port: int | None = Field(default=None, ge=1, le=65535)
 
     @model_validator(mode="after")
     def validate_object_identity(self) -> Self:

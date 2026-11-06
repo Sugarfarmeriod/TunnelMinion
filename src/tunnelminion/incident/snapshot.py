@@ -133,6 +133,7 @@ class SnapshotDiffDetector:
                     item.source,
                     None,
                     item.state.value,
+                    port=item.port,
                 )
             )
         for object_id in sorted(before_services.keys() - after_services.keys()):
@@ -148,6 +149,7 @@ class SnapshotDiffDetector:
                     item.source,
                     item.state.value,
                     None,
+                    port=item.port,
                 )
             )
         for object_id in sorted(before_nodes.keys() & after_nodes.keys()):
@@ -199,6 +201,7 @@ class SnapshotDiffDetector:
                         after.source,
                         before.freshness.value,
                         after.freshness.value,
+                        port=after.port,
                     )
                 )
             if (
@@ -220,6 +223,7 @@ class SnapshotDiffDetector:
                         after.source,
                         str(before.accessibility) if before.accessibility is not None else None,
                         "loopback",
+                        port=after.port,
                     )
                 )
             if (
@@ -237,6 +241,7 @@ class SnapshotDiffDetector:
                         after.source,
                         before.state.value,
                         after.state.value,
+                        port=after.port,
                     )
                 )
         return tuple(values)
@@ -252,6 +257,8 @@ class SnapshotDiffDetector:
         source: SnapshotSource,
         before_state: str | None,
         after_state: str | None,
+        *,
+        port: int | None = None,
     ) -> SnapshotDiffEvent:
         canonical = (
             f"{object_kind.value}:{object_id}:{event_type.value}:{baseline.revision}"
@@ -270,6 +277,7 @@ class SnapshotDiffDetector:
             before_state=before_state,
             after_state=after_state,
             dedup_key=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
+            port=port,
         )
 
 
