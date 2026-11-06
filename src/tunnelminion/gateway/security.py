@@ -241,7 +241,8 @@ class GatewaySecurityPolicy:
                 # 朋友名单占用了旧式配对的节点 ID（地址不同），不认这个朋友身份。
                 owner = None
             if owner is not None:
-                # 只有地址一致的旧式配对才算同一台电脑，才能沿用它的受控操作和收紧设置。
+                # 只有地址一致的旧式配对才算同一台电脑，才能补上它额外登记的受控操作和收紧设置；
+                # 我的电脑本身已带默认受控操作，朋友的受控操作由 identity_permissions 清空。
                 legacy = next(
                     (
                         peer
@@ -253,9 +254,8 @@ class GatewaySecurityPolicy:
                 return identity_permissions(
                     replace(
                         owner,
-                        allowed_operations=(
-                            legacy.allowed_operations if legacy is not None else frozenset[str]()
-                        ),
+                        allowed_operations=owner.allowed_operations
+                        | (legacy.allowed_operations if legacy is not None else frozenset[str]()),
                     ),
                     legacy,
                 )
