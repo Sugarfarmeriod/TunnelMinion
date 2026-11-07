@@ -273,8 +273,10 @@ class GatewayConfigurationService:
         if self._owner_devices is None and isinstance(
             self._repository, FileGatewayConfigurationRepository
         ):
+            from tunnelminion.gateway.names import load_node_name
             from tunnelminion.memory.sqlite import SQLiteStores, SQLiteTrustStore
             from tunnelminion.trust.devices import OwnDevicesService
+            from tunnelminion.trust.local import current_platform
 
             root = self._repository.root
             database = root / "runtime.sqlite3"
@@ -283,6 +285,9 @@ class GatewayConfigurationService:
                     NodeId((root / "node-id").read_text(encoding="utf-8").strip()),
                     SQLiteStores.open(database).trust,
                     self._secrets,
+                    local_name=lambda: load_node_name(
+                        root, current_platform(), persist_default=False
+                    ),
                 )
         return self._owner_devices
 

@@ -72,6 +72,7 @@ from tunnelminion.trust.contracts import (
     OwnerJoinRequest,
     OwnerJoinResponse,
     TrustSyncMessage,
+    TrustSyncRequest,
 )
 from tunnelminion.trust.devices import OwnDevicesService
 from tunnelminion.trust.friends import FriendsService
@@ -196,8 +197,9 @@ audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
 
 
 async def _startup_push(owner_devices: OwnDevicesService) -> None:
-    """启动时同步名单；任何失败只记日志。"""
+    """启动时同步名单；持有机主密钥时先把名单里本机的平台默认名换成本机名。任何失败只记日志。"""
     try:
+        owner_devices.adopt_local_name()
         await owner_devices.push()
     except Exception:
         logger.warning("启动时同步名单失败", exc_info=False)
@@ -338,7 +340,7 @@ def create_gateway_router(
             body = await http_request.body()
             if len(body) > 512_000:
                 raise ValueError
-            message = TrustSyncMessage.model_validate_json(body)
+            message = TrustSyncRequest.model_validate_json(body)
             if (message.roster is not None and message.roster.purpose.value != "tm-roster") or (
                 message.trust_list is not None
                 and message.trust_list.purpose.value != "tm-trust-list"
@@ -379,6 +381,21 @@ def create_gateway_router(
             # 其他一律按验证失败回答，不区分"签名者存在但不认识"和别的失败。
             if peer is None and not owner_devices.recognizes(message.roster, source):
                 raise ValueError
+            if (
+                peer is not None
+                and peer.authentication_kind is GatewayAuthenticationKind.OWNER_DEVICE
+            ):
+                reported = message.display_name
+                if reported is not None and owner_devices.adopt_name(peer.node_id, reported):
+                    # 只改通行证认证出来的这台电脑自己那一条；新名单推给自己的电脑和朋友。
+                    background.add_task(owner_devices.push)
+                elif (
+                    message.roster_signer
+                    and owner_devices.unreported_name() is not None
+                    and (signer := owner_devices.roster().device(peer.node_id)) is not None
+                ):
+                    # 名单里本机还是平台默认名：回头同步一次，把本机名报给持有机主密钥的电脑。
+                    background.add_task(owner_devices.push, (signer,))
             return owner_devices.message(
                 include_private=(
                     peer is not None
