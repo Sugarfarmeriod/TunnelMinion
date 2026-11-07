@@ -11,8 +11,10 @@ from datetime import UTC, datetime
 from threading import Lock
 
 import httpx
+from pydantic import ValidationError
 
 from tunnelminion.domain.identifiers import NodeId
+from tunnelminion.domain.invites import is_platform_display_name
 from tunnelminion.domain.trust import (
     JOIN_CODE_LIFETIME,
     JOIN_PROOF_MAX_AGE,
@@ -31,6 +33,7 @@ from tunnelminion.domain.trust import (
 )
 from tunnelminion.gateway.configuration import generate_gateway_token
 from tunnelminion.gateway.credentials import GatewayCredentials
+from tunnelminion.gateway.names import NodeNameConfiguration
 from tunnelminion.gateway.security import GatewayBindConfig
 from tunnelminion.model.secrets import SecretStore
 from tunnelminion.trust.backup import IdentityState, settle_key_backup
@@ -41,6 +44,7 @@ from tunnelminion.trust.contracts import (
     OwnerJoinResponse,
     TrustStore,
     TrustSyncMessage,
+    TrustSyncRequest,
     VersionRejectedError,
 )
 from tunnelminion.trust.keys import (
@@ -65,6 +69,20 @@ logger = logging.getLogger(__name__)
 INVALID_INVITE = "邀请码无效、已过期或已被使用"
 
 
+def distinct_display_name(name: str, taken: Iterable[str]) -> str:
+    """和名单上其他电脑重名（不分大小写）时在后面加 " (2)"、" (3)"……，总长仍不超过 40 个字符。"""
+    used = {item.casefold() for item in taken}
+    if name.casefold() not in used:
+        return name
+    number = 2
+    while True:
+        suffix = f" ({number})"
+        candidate = name[: 40 - len(suffix)].rstrip() + suffix
+        if candidate.casefold() not in used:
+            return candidate
+        number += 1
+
+
 class OwnDevicesService:
     """机主密钥只用于名单和证书，网络请求只用本机电脑密钥。"""
 
@@ -76,12 +94,15 @@ class OwnDevicesService:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
+        local_name: Callable[[], str] | None = None,
     ) -> None:
+        """`local_name` 读本机名；不给时本机不会在同步里报名字，也不会给自己改名。"""
         self.node_id = node_id
         self.store = store
         self.secrets = secrets
         self.transport = transport
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.local_name = local_name
         self.changes = Lock()
 
     def roster(self) -> OwnerRoster:
@@ -169,6 +190,69 @@ class OwnDevicesService:
         if key is None or key_fingerprint(key.public_key) != self.roster().owner_fingerprint:
             raise IdentityError("只能在持有机主密钥的电脑上操作")
         return key
+
+    def signs_roster(self) -> bool:
+        """本机是否持有当前机主密钥，也就是能不能签新版本名单。"""
+        try:
+            self.owner_key()
+        except IdentityError:
+            return False
+        return True
+
+    def unreported_name(self) -> str | None:
+        """名单里本机还是平台默认名、本机名不是时，返回要报给机主的本机名。"""
+        local = self.roster().device(self.node_id)
+        if (
+            self.local_name is None
+            or local is None
+            or not is_platform_display_name(local.display_name)
+        ):
+            return None
+        name = self.local_name()
+        return None if is_platform_display_name(name) else name
+
+    def adopt_name(self, node_id: NodeId, name: str) -> bool:
+        """名单里这台电脑还是平台默认名时，换成它自己的本机名，用机主密钥签一版新名单。
+
+        只替换平台默认名，主人或加入时起的名字不动；报来的名字须是合法显示名且不是平台默认名，
+        和名单上其他电脑重名时加编号。本机没有机主密钥或不满足条件时不改，返回是否改了。
+        """
+        with self.changes:
+            roster = self.roster()
+            device = roster.device(node_id)
+            if device is None or not is_platform_display_name(device.display_name):
+                return False
+            try:
+                name = NodeNameConfiguration(display_name=name).display_name
+                key = self.owner_key()
+            except (ValidationError, IdentityError):
+                return False
+            if is_platform_display_name(name):
+                return False
+            name = distinct_display_name(
+                name, (item.display_name for item in roster.devices if item.node_id != node_id)
+            )
+            updated = OwnerRoster(
+                **roster.model_dump(exclude={"devices", "version", "issued_at"}),
+                devices=tuple(
+                    item.model_copy(update={"display_name": name})
+                    if item.node_id == node_id
+                    else item
+                    for item in roster.devices
+                ),
+                version=roster.version + 1,
+                issued_at=self.clock(),
+            )
+            self.store.accept(
+                seal(SignaturePurpose.OWNER_ROSTER, updated, key),
+                f"本机 {self.node_id} 把电脑 {node_id} 的平台默认名换成它的本机名",
+            )
+            return True
+
+    def adopt_local_name(self) -> bool:
+        """持有机主密钥的电脑给自己换掉名单里的平台默认名。"""
+        name = self.unreported_name()
+        return name is not None and self.adopt_name(self.node_id, name)
 
     def invite(self) -> JoinCode:
         self.owner_key()
@@ -409,10 +493,13 @@ class OwnDevicesService:
                 timeout=5,
                 trust_env=False,
             ) as client:
+                request = TrustSyncRequest(
+                    **dict(self.message(include_private=mine)),
+                    display_name=self.unreported_name() if mine else None,
+                    roster_signer=mine and self.signs_roster(),
+                )
                 response = await client.post(
-                    "/v1/trust:sync",
-                    content=self.message(include_private=mine).model_dump_json(),
-                    headers=headers,
+                    "/v1/trust:sync", content=request.model_dump_json(), headers=headers
                 )
             if not response.is_success or len(response.content) > 512_000:
                 raise ValueError

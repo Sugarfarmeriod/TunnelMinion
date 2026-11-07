@@ -86,6 +86,18 @@ class TrustSyncMessage(BaseModel):
     friend_rotations: dict[str, tuple[OwnerRotationStep, ...]] = Field(default_factory=dict)
 
 
+class TrustSyncRequest(TrustSyncMessage):
+    """发给自己电脑的名单同步请求，在名单之外多报两件事；不认识这两个字段的旧版本会忽略。
+
+    `display_name` 是名单里发起方还是平台默认名时报上的本机名，只有凭通行证认证为"我的电脑"的
+    请求才会被采纳，而且只用来改发起方自己那一条。`roster_signer` 表示发起方持有机主密钥，
+    收到的电脑若在名单里还是平台默认名，就回头同步一次，把本机名报给它。
+    """
+
+    display_name: DisplayName | None = None
+    roster_signer: bool = False
+
+
 class FriendPairing(BaseModel):
     """配对双方只交换公开身份和各自签名的电脑名单。"""
 

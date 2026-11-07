@@ -54,6 +54,11 @@ def platform_display_name(platform: Platform | None) -> str:
     }[platform]
 
 
+def is_platform_display_name(value: str) -> bool:
+    """是不是按平台给的默认名；这类名字不是主人起的，可以换成电脑自己的本机名。"""
+    return value in {platform_display_name(platform) for platform in (*Platform, None)}
+
+
 class InvalidInviteCodeError(ValueError):
     """粘贴的内容不是有效的邀请码。"""
 
