@@ -10,9 +10,11 @@ from tests.patrol.fakes import PHOTOS, SCRIPT, PatrolHarness, entry
 from tests.repair.factories import NOW
 from tests.repair.fakes import local_launch
 
+from tunnelminion.domain.service_marks import ServiceMark
 from tunnelminion.operation.contracts import OperationStatus
 from tunnelminion.patrol.contracts import (
     PATROL_STABLE_SECONDS,
+    PATROL_STALE_DOWN_SECONDS,
     PatrolReason,
     PatrolRecord,
     PatrolStatus,
@@ -20,6 +22,7 @@ from tunnelminion.patrol.contracts import (
 from tunnelminion.repair.contracts import RepairKind, RepairOrigin, RepairOriginKind
 
 STABLE = timedelta(seconds=PATROL_STABLE_SECONDS)
+STALE_DOWN = timedelta(seconds=PATROL_STALE_DOWN_SECONDS)
 
 
 def _harness(tmp_path: Path) -> PatrolHarness:
@@ -306,3 +309,62 @@ def test_stopped_script_without_record_cleanup_only_forgets_the_patrol_record(
     asyncio.run(scenario())
     assert h.store.get(SCRIPT) is None
     assert h.repairs.launch_records.get(SCRIPT) is not None
+
+
+async def _down_for_a_day(h: PatrolHarness, key: str = SCRIPT) -> None:
+    """服务跑满门槛后停掉，确认挂了，再过一天多。"""
+    h.entries = (entry(key),)
+    await h.rounds(1)
+    h.repairs.clock.now += STABLE
+    await h.rounds(1)
+    h.entries = (entry(key, state="stopped"),)
+    await h.rounds(3)
+    assert h.view_of(key).status is PatrolStatus.DOWN
+    await h.patrol.wait_idle()
+    h.repairs.clock.now += STALE_DOWN + timedelta(minutes=1)
+    await h.rounds(1)
+
+
+def test_unmarked_script_down_for_a_day_turns_back_to_stopped(tmp_path: Path) -> None:
+    """没标过的临时程序挂了一天多：不再算挂了，地图上回到"已停止"，对话里说一句为什么。"""
+    h = _harness(tmp_path)
+
+    async def scenario() -> None:
+        await _down_for_a_day(h)
+        assert h.view_of(SCRIPT).status is PatrolStatus.ACKNOWLEDGED
+        assert any("停了一天多" in text for text in h.conversations.texts())
+        # 再运行起来照常巡检：之后再停照样确认挂了。
+        h.entries = (entry(SCRIPT),)
+        await h.rounds(1)
+        assert h.view_of(SCRIPT).status is PatrolStatus.OK
+        h.entries = (entry(SCRIPT, state="stopped"),)
+        await h.rounds(3)
+
+    asyncio.run(scenario())
+    assert h.view_of(SCRIPT).status is PatrolStatus.DOWN
+
+
+def test_owner_marked_script_down_for_a_day_stays_down(tmp_path: Path) -> None:
+    """标成"是我的服务"的，挂多久都一直标红，等主人处理。"""
+    h = _harness(tmp_path)
+    h.repairs.marks[SCRIPT] = ServiceMark.MINE
+    asyncio.run(_down_for_a_day(h))
+    assert h.view_of(SCRIPT).status is PatrolStatus.DOWN
+
+
+def test_script_with_auto_repair_down_for_a_day_stays_down(tmp_path: Path) -> None:
+    """打开了"挂了可以自动修"的同样一直标红（这里自动修已暂停，不会真的去拉起）。"""
+    h = _harness(tmp_path)
+    h.store.put(
+        PatrolRecord(key=SCRIPT, name="app.py", auto_repair_enabled=True, auto_repair_paused=True)
+    )
+    asyncio.run(_down_for_a_day(h))
+    assert h.view_of(SCRIPT).status is PatrolStatus.DOWN
+
+
+def test_unmarked_container_down_for_a_day_stays_down(tmp_path: Path) -> None:
+    """容器不是临时程序，一直标红。"""
+    h = _harness(tmp_path)
+    other = "docker:compose:scratch"
+    asyncio.run(_down_for_a_day(h, other))
+    assert h.view_of(other).status is PatrolStatus.DOWN

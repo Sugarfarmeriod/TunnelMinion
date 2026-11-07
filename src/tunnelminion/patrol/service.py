@@ -38,6 +38,7 @@ from tunnelminion.patrol.contracts import (
     PATROL_PROBE_TIMEOUT_SECONDS,
     PATROL_RECOVER_ROUNDS,
     PATROL_STABLE_SECONDS,
+    PATROL_STALE_DOWN_SECONDS,
     REASON_TEXT,
     AutoRepairResult,
     AutoRepairView,
@@ -175,6 +176,8 @@ class _Round:
     recovered: list[PatrolRecord] = field(default_factory=list[PatrolRecord])
     # 没盯上、已经从地图上彻底消失的服务，记录直接清掉。
     forgotten: list[str] = field(default_factory=list[str])
+    # 没标过的脚本和程序挂了超过一天，改回"已停止"。
+    retired: list[PatrolRecord] = field(default_factory=list[PatrolRecord])
 
 
 def _ports(entry: ServiceEntry) -> tuple[int, ...]:
@@ -250,6 +253,7 @@ class PatrolService:
         interval_seconds: float = PATROL_INTERVAL_SECONDS,
         investigation_wait_seconds: float = PATROL_INVESTIGATION_WAIT_SECONDS,
         stable_seconds: float = PATROL_STABLE_SECONDS,
+        stale_down_seconds: float = PATROL_STALE_DOWN_SECONDS,
     ) -> None:
         self._node_id = node_id
         self._store = store
@@ -266,6 +270,7 @@ class PatrolService:
         self._interval_seconds = interval_seconds
         self._investigation_wait_seconds = investigation_wait_seconds
         self._stable = timedelta(seconds=stable_seconds)
+        self._stale_down = timedelta(seconds=stale_down_seconds)
         self._streaks: dict[str, _Streak] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._investigation_lock = asyncio.Lock()
@@ -379,6 +384,12 @@ class PatrolService:
         for key in outcome.forgotten:
             self._store.delete(key)
             self._streaks.pop(key, None)
+        for record in outcome.retired:
+            self._note(
+                record,
+                f"{record.name} 停了一天多，没有标成你的服务，多半是不再用的临时程序；"
+                "地图上改成“已停止”，不再算挂了。它再运行起来会照常巡检。",
+            )
         for record in outcome.recovered:
             if record.thread_id is not None:
                 self._conversations.append_notice(
@@ -407,6 +418,18 @@ class PatrolService:
             record.down_since is not None
             and started is not None
             and record.down_since - started >= self._stable
+        )
+
+    def _stale(self, record: PatrolRecord, now: datetime, *, mine: bool) -> bool:
+        """没标过、没开自动修的脚本和程序，确认挂了超过门槛、也没有进行中的修复。"""
+        return (
+            record.status is PatrolStatus.DOWN
+            and record.reason in {PatrolReason.SCRIPT_EXITED, PatrolReason.PROGRAM_EXITED}
+            and not mine
+            and not record.auto_repair_enabled
+            and record.confirmed_at is not None
+            and now - record.confirmed_at >= self._stale_down
+            and not self._repairing(record.key)
         )
 
     def _repairing(self, key: str) -> bool:
@@ -516,6 +539,10 @@ class PatrolService:
         if not record.seen_running:
             # 没见过正常运行的服务（可能本来就是主人有意停的），不提醒。
             return None
+        if self._stale(record, now, mine=mine):
+            outcome.retired.append(record)
+            self._streaks.pop(record.key, None)
+            return record.model_copy(update={"status": PatrolStatus.ACKNOWLEDGED})
         if record.status in {PatrolStatus.DOWN, PatrolStatus.ACKNOWLEDGED}:
             return record if legacy else None
         streak.abnormal += 1
