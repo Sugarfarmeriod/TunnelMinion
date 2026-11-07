@@ -22,6 +22,9 @@ PATROL_INTERVAL_SECONDS = 30.0
 # 规则直接显示的服务要连续正常运行这么久才开始巡检：开发机上跑一两分钟就关掉的测试服务、
 # 脚本不算服务挂了。主人标成"是我的服务"或打开了自动修的，见过正常运行就开始巡检。
 PATROL_STABLE_SECONDS = 1800
+# 主人没标过"是我的服务"、也没打开自动修的脚本和程序，确认挂了这么久还没再运行，多半是主人不再用的
+# 临时程序：地图上改回灰色"已停止"，不再算挂了；它再正常运行起来会照常巡检。
+PATROL_STALE_DOWN_SECONDS = 86400
 # 同一服务的调查和自动修各自 1 小时最多 1 次。
 PATROL_INVESTIGATION_COOLDOWN_SECONDS = 3600
 PATROL_AUTO_REPAIR_COOLDOWN_SECONDS = 3600
@@ -44,7 +47,8 @@ class PatrolStatus(StrEnum):
     # 已经有异常，但还没连续够确认次数。
     SUSPECT = "suspect"
     DOWN = "down"
-    # 主人说这次是有意停的：再次看到它正常运行之前不提醒、不自动修。
+    # 主人说这次是有意停的，或没标过的脚本和程序挂了超过 `PATROL_STALE_DOWN_SECONDS`：
+    # 再次看到它正常运行之前不提醒、不自动修，地图上显示"已停止"。
     ACKNOWLEDGED = "acknowledged"
 
 
